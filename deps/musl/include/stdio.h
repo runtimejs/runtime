@@ -48,17 +48,17 @@ extern "C" {
 #define L_tmpnam 20
 
 typedef union _G_fpos64_t {
-	char __opaque[16];
-	double __align;
+    char __opaque[16];
+    double __align;
 } fpos_t;
 
-extern FILE *const stdin;
-extern FILE *const stdout;
-extern FILE *const stderr;
+extern FILE* stdin_get();
+extern FILE* stdout_get();
+extern FILE* stderr_get();
 
-#define stdin  (stdin)
-#define stdout (stdout)
-#define stderr (stderr)
+#define stdin  (stdin_get())
+#define stdout (stdout_get())
+#define stderr (stderr_get())
 
 FILE *fopen(const char *__restrict, const char *__restrict);
 FILE *freopen(const char *__restrict, const char *__restrict, FILE *__restrict);
