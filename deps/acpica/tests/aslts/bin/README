@@ -1,0 +1,134 @@
+
+Utilities to manage the test suite
+----------------------------------
+
+
+Do utility
+
+This is the test suite command dispatcher. It allows the user to
+compile/install the AML tests, run them, and compare results of runs.
+The output log of tests and results of processing the test logs are
+saved in the aslts/tmp/RESULTS automatically generated directory.
+
+Run Do without parameters to print out its Usage.
+
+The simplest sequence of actions to deal with the test suite
+is shown in the example below.
+
+
+   1. Create the following environment variables:
+
+      ASL      - pathname of iASL compiler
+      acpiexec - pathname of AcpiExec utility
+      ASLTSDIR - pathname of root directory of aslts test suite
+
+   2. Add the following directory to the PATH variable:
+
+        aslts/bin
+
+      If necessary, convert all scripts in the aslts/bin directory to unix
+      line endings:
+
+        > d2u aslts/bin/*
+
+   3. To configure the required/desired set of test cases and the modes of
+      the execution runs, manually edit the settings file:
+
+        aslts/bin/settings
+
+   4. Usage message:
+
+        > cd aslts/bin
+        > Do
+
+        The utility prints out the usage message.
+
+   5. Compile and install all AML test cases:
+
+        > Do 0 aslts
+
+        This command will compile and install all of the AML test cases
+        under the tmp directory:
+
+            aslts/tmp/aml
+
+   6. Run all configured test cases in all modes:
+
+        > Do 1
+
+        This command will run all the specified test cases in the specified
+        modes. The possible modes are:
+
+            32-bit normal mode (AML interpreter slack mode disabled)
+            64-bit normal mode
+            32-bit slack mode (AML interpreter slack mode enabled)
+            64-bit slack mode
+
+   7. Examine the results:
+
+        a) See the summary file for test execution information:
+
+            aslts/tmp/RESULTS/<date.time.acpica_version>/Summary
+
+        b) Compare the obtained multi-result with the previous benchmark
+           multi-result for to catch regressions (the 'Do 2' command below).
+
+   8. Compare the results to previous test executions:
+
+        > Do 2
+
+        This command will compare the current test execution with the
+        previous one. Also used for comparing any two particular
+        multi-results.
+
+        > Do 2 <first multi-result directory> <second multi-result directory>
+
+        The <first multi-result directory> contains the results from one of
+        test suite executions. The <second multi-result directory> contains
+        the results of a previous test suite execution.
+
+        The 'Do 2' command will compare the results of both test suite
+        executions and report any differences/regressions.
+
+        The result directories are contained in aslts/tmp/RESULTS, and
+        have names of the form: <date.time.acpica_version>
+
+        Example:
+
+        > cd aslts
+        > Do 2 tmp/RESULTS/20090325.151601.20090320 tmp/RESULTS/20090325.150744.20090320
+
+
+Do 2 output:
+============
+
+1. Summary information related to a particular test case:
+
+   echo "|$2|$cnt|$pass|$fail|$skip|$start|$finish|$total|$outstand0|$blck|$memtotal|$max0|$max1|$max2|$max3|$max4|$max5|$out0|$out1|$out2|$out3|$out4|$out5|$outstand1|$LargeRefCount|$memtotalbytes|$exceptionsnum|" >> "$3"
+
+outstand0 - Outstanding allocations of the particular test case
+            Example from arithmetic test case log:
+
+                Outstanding: 0x11 allocations after execution
+
+outstand1 - Outstanding allocations of the particular test case
+            Example from reference test case log:
+
+                ACPI Error (uttrack-0719): 39(27) Outstanding allocations [20090320]
+
+memtotal  - Total memory in bytes consumed during execution of the
+            particular test case
+start     - Time when test case started
+finish    - Time when test case finished
+total     - Duration of test case execution
+
+
+2. Summary information related to all test cases that have been run for a
+   particular test mode (32-bit normal, etc..):
+
+   echo "|TOTAL|$outstand0|$memtotal|${MODES_TIMES[$2]}|$outstand1|$LargeRefCount|$memtotalbytes|"  >> "$path"
+
+totaloutstand00 - Summary of outstand0 of all test cases
+totalmem0       - Summary of memtotal of all test cases
+totaltime0      - All the test cases execution duration
+totaloutstand01 - Summary of outstand1 of all test cases

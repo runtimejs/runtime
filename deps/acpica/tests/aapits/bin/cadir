@@ -1,0 +1,13 @@
+#!/bin/bash
+#
+ACPICADIR="/nfs/ims/home/ffsuieto/acpi/acpica-unix-$1"
+if [ -d $ACPICADIR ]; then
+	ASL=$ACPICADIR/compiler/iasl
+        acpiexec=$ACPICADIR/tools/acpiexec/acpiexec
+        ASLTSDIR=$ACPICADIR/tools/aslts
+        PATH=$PATH:$ASLTSDIR/bin
+	return 0
+else
+	echo dir $ACPICADIR doesn't exist
+	return 1
+fi

@@ -1,0 +1,777 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Subsystem Initializing interfaces provided by ACPICA
+ * (section 6.1 "Subsystem Initialization, Shutdown, and Status"
+ * of ACPICA ProgRef, routines AcpiInitializeSubsystem,
+ * AcpiInstallInitializationHandler, AcpiEnableSubsystem,
+ * AcpiInitializeObjects, AcpiGetSystemInfo, AcpiSubsystemStatus,
+ * AcpiFormatException, AcpiPurgeCachedObjects, AcpiTerminate
+ *
+ */
+
+/*
+SEE: see all these "There are no any calls to the AcpiOs*
+     interfaces while the routine is thus invoked"
+*/
+
+
+/*
+ * ASSERTION 0000:
+ *
+ * The call to AcpiInitializeSubsystem routine
+ * initiates call to AcpiOsInitialize routine
+ * of OS Service Layer.
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * If AcpiOsInitialize routine returns AE_ERROR then
+ * AcpiInitializeSubsystem routine returns AE_ERROR too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiInitializeSubsystem routine returns NULL then
+ * AcpiInitializeSubsystem returns AE_NO_MEMORY.
+ *
+ * IMPLEMENTATION:
+ *
+ * The test initiates repeatedly the sequence of calls
+ * to AcpiInitializeSubsystem and AcpiTerminate and forces
+ * the sebsequently increased call to AcpiOsAllocate
+ * to return NULL and expects AE_NO_MEMORY for that call
+ * until the index of failed call increases the actual
+ * number of memory allocations actually required during
+ * initialization.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * If some call to AcpiOsCreateLock routine during invocation
+ * of AcpiInitializeSubsystem routine returns AE_NO_MEMORY then
+ * AcpiInitializeSubsystem returns AE_NO_MEMORY too.
+ *
+ * IMPLEMENTATION:
+ *
+ * something like that in ASSERTION 0002 !!!!!!!!!!!!!!!:
+ * ===================
+ *
+ * The test initiates repeatedly the sequence of calls
+ * to AcpiInitializeSubsystem and AcpiTerminate and forces
+ * the sebsequently increased call to AcpiOsCreateLock to
+ * return AE_NO_MEMORY and expects AE_NO_MEMORY for that call
+ * until the index of failed calls increases the actual number
+ * of Locks (really only one) required during initialization.
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * If some call to AcpiOsCreateSemaphore routine during invocation
+ * of AcpiInitializeSubsystem routine returns AE_NO_MEMORY then the
+ * routine returns AE_NO_MEMORY too.
+ *
+ * IMPLEMENTATION:
+ * something like that in ASSERTION 0002 !!!!!!!!!!!!!!!:
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * Call to AcpiTerminate routine frees all the resources
+ * allocated by AcpiInitializeSubsystem returned AE_OK.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * AcpiTerminate can be invoked before any call to AcpiInitializeSubsystem.
+ *
+ * ROUTINES: AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * The repeated call to AcpiTerminate is available.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * Call to AcpiTerminate routine frees all the resources
+ * allocated by AcpiInitializeSubsystem one returned AE_ERROR.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * Call to AcpiTerminate routine frees all the resources
+ * allocated by AcpiInitializeSubsystem one returned AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * All the resources allocated by AcpiInitializeSubsystem routine
+ * returned a FAILURE due to some AcpiOs interface returning AE_ERROR
+ * are freed.
+ *
+ * IMPLEMENTATION:
+ *
+ * The test forces the sebsequently increased call to any AcpiOs 
+ * to return AE_ERROR (if any) and expects a FAILURE for that call
+ * to AcpiInitializeSubsystem until the count of overall AcpiOs calls
+ * increased and checks differences between successful allocations and
+ * realeasings of the relevant system resources. Then AcpiInitializeSubsystem
+ * must return a FAILURE and the differences should be equal to zeroes.
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * All the resources allocated by AcpiInitializeSubsystem routine
+ * returned AE_NO_MEMORY due to some AcpiOs interface returning NULL
+ * (AE_NO_MEMORY) are freed.
+ *
+ * IMPL:
+ *
+ * ROUTINES: AcpiInitializeSubsystem
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * Check that the complementary pair of routines, AcpiInitializeSubsystem
+ * and AcpiTerminate, can be invoked repeatedly multiple times, each time
+ * the call to AcpiTerminate follows the call to AcpiInitializeSubsystem,
+ * and all the resources are freed after AE_OK return of AcpiTerminate.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * The repeated call to AcpiInitializeSubsystem routine without the
+ * intermediate call to AcpiTerminate one results in AE_ERROR.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * After the successful call to AcpiLoadTables routine
+ * AcpiEnableSubsystem one can be successfully used to Complete
+ * the ACPI Subsystem initialization and enable ACPI operations.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * After the successful call to AcpiEnableSubsystem routine
+ * the next call to AcpiTerminate one frees all the resources
+ * allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine was not
+ * performed at all then AcpiEnableSubsystem routine returns AE_ERROR.
+ * There are no any calls to the AcpiOs* interfaces while the routine is
+ * thus invoked.
+ *
+ * ROUTINES: AcpiEnableSubsystem
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine resulted in
+ * failure then next use of AcpiEnableSubsystem routine results in failure
+ * too. There are no any calls to the AcpiOs* interfaces while the routine
+ * is thus invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiEnableSubsystem
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * If the initial call to AcpiLoadTables routine was not performed at
+ * all then AcpiEnableSubsystem routine fails.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiEnableSubsystem
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * If the initial call to AcpiLoadTables routine resulted in failure
+ * then next use of AcpiEnableSubsystem routine results in failure too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * If AcpiEnableSubsystem routine initially failed then the next
+ * call to AcpiTerminate one frees all the resources allocated
+ * by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * If AcpiEnableSubsystem routine initially returned AE_OK then any
+ * repeated call to it results in failure. The next call to AcpiTerminate
+ * routine frees all the resources allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiTerminate
+ */
+
+
+/*
+ * ASSERTION 0022:
+ *
+ * After the successful call to AcpiEnableSubsystem routine
+ * AcpiInitializeObjects one can be successfully used to initialize
+ * objects within the ACPI namespace.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * After the successful call to AcpiInitializeObjects routine
+ * the next call to AcpiTerminate one frees all the resources
+ * allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine was not
+ * performed at all then AcpiInitializeObjects routine returns AE_ERROR.
+ * There are no any calls to the AcpiOs* interfaces while the routine is
+ * thus invoked.
+ *
+ * ROUTINES: AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine resulted in
+ * failure then next use of AcpiInitializeObjects routine results in failure
+ * too. There are no any calls to the AcpiOs* interfaces while the routine
+ * is thus invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * If the initial call to AcpiLoadTables routine was not performed at
+ * all then AcpiInitializeObjects routine fails.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * If the initial call to AcpiLoadTables routine resulted in failure
+ * then next use of AcpiInitializeObjects routine results in failure too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * If the initial call to AcpiEnableSubsystem routine was not performed at
+ * all then AcpiInitializeObjects routine fails.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * If the initial call to AcpiEnableSubsystem routine resulted in failure
+ * then next use of AcpiInitializeObjects routine results in failure too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * If AcpiInitializeObjects routine failed then the next
+ * call to AcpiTerminate one frees all the resources allocated
+ * by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * If AcpiInitializeObjects routine initially returned AE_OK then any
+ * repeated call to it results in failure. The next call to AcpiTerminate
+ * routine frees all the resources allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * On the call to AcpiInitializeObjects routine if the ACPI_NO_DEVICE_INIT
+ * flag is not set up then the _STA and _INI methods on the device objects
+ * will be run during the call, at that _INI will be run only either _STA
+ * is not present or after the _STA invocation indicating that the device
+ * is present and enabled.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * On the call to AcpiInitializeObjects routine if the ACPI_NO_DEVICE_INIT
+ * flag is set up then the _INI and _STA methods on the device objects will
+ * not be run during the call.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * On the call to AcpiInitializeObjects routine if the ACPI_NO_OBJECT_INIT
+ * flag is not set up then the final initialization pass to complete
+ * initialization of OperationRegions, BufferFields, Buffers, and Packages
+ * will be run during the call.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * On the call to AcpiInitializeObjects routine if the ACPI_NO_OBJECT_INIT
+ * flag is set up then the final initialization pass to complete initialization
+ * of OperationRegions, BufferFields, Buffers, and Packages will not be run
+ * during the call.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * After the exit out of the AcpiInitializeObjects routine
+ * the object cache appears to be purged so that next call
+ * to AcpiPurgeCachedObjects routine does not initiate any
+ * call to to the AcpiOs* interfaces.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiPurgeCachedObjects
+ */
+
+/*
+ * ASSERTION 0037:
+ *
+ * If the system was successfully initialized, that means
+ * the following sequence of successful calls:
+ *
+ *   AcpiInitializeSubsystem
+ *   AcpiLoadTables
+ *   AcpiEnableSubsystem
+ *   AcpiInitializeObjects
+ *
+ * then AcpiSubsystemStatus returns AE_OK.
+ *
+ * ROUTINES: AcpiSubsystemStatus, AcpiInitializeSubsystem,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0038:
+ *
+ * If the system was shuted down after successful initialization,
+ * that means the following sequence of successful calls:
+ *
+ *   AcpiInitializeSubsystem
+ *   AcpiLoadTables
+ *   AcpiEnableSubsystem
+ *   AcpiInitializeObjects
+ *   AcpiTerminate
+ *
+ * then AcpiSubsystemStatus returns AE_ERROR.
+ *
+ * ROUTINES: AcpiSubsystemStatus, AcpiInitializeSubsystem,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects, AcpiTerminate
+ */
+
+
+/*
+ * ASSERTION 0039:
+ *
+ * If the system initialization was not complete,
+ * means that only a part of the following sequence
+ * of successful calls was performed:
+ *
+ *   AcpiInitializeSubsystem
+ *   AcpiLoadTables
+ *   AcpiEnableSubsystem
+ *
+ * then AcpiSubsystemStatus returns AE_ERROR.
+ *
+ * ROUTINES: AcpiSubsystemStatus, AcpiInitializeSubsystem,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ */
+
+/*
+ * ASSERTION 0040:
+ *
+ * If the system initialization doesn't succeed,
+ * means that some of the routines in the following
+ * sequence failed:
+ *
+ *   AcpiInitializeSubsystem
+ *   AcpiLoadTables
+ *   AcpiEnableSubsystem
+ *   AcpiInitializeObjects
+ *
+ * then AcpiSubsystemStatus returns AE_ERROR.
+ *
+ * ROUTINES: AcpiSubsystemStatus, AcpiInitializeSubsystem,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0041:
+ *
+ * AcpiGetSystemInfo routine returns AE_BUFFER_OVERFLOW when the Length
+ * field of the OutBuffer parameter indicates that the specified buffer
+ * is too small to hold the system information. Upon return, the Length
+ * field contains the minimum required buffer length. The routine returns
+ * AE_OK being repeatedly called passed with the properly updated OutBuffer
+ * parameter. The buffer will be properly filled with the ACPI_SYSTEM_INFO
+ * structure.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetSystemInfo
+ */
+
+/*
+ * ASSERTION 0042:
+ *
+ * AcpiGetSystemInfo routine returns AE_BAD_PARAMETER when:
+ * - the OutBuffer pointer is NULL,
+ * - the Length field of the OutBuffer is not ACPI_ALLOCATE_BUFFER,
+ *   but the Pointer field of the OutBuffer is NULL.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetSystemInfo
+ */
+
+/*
+ * ASSERTION 0043:
+ *
+ * AcpiGetSystemInfo routine returns AE_OK passed with the equal to
+ * ACPI_ALLOCATE_BUFFER Length field of the OutBuffer parameter after
+ * AcpiInitializeSubsystem routine was successfully executed and there
+ * was enough memory to allocate. Upon return, the Pointer field of the
+ * OutBuffer parameter will point to a buffer properly filled with the
+ * ACPI_SYSTEM_INFO structure. The buffer can successfully be released
+ * by AcpiOsFree routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetSystemInfo, AcpiOsFree
+ */
+
+/*
+ * ASSERTION 0044:
+ *
+ * AcpiGetSystemInfo routine returns AE_NO_MEMORY passed with the equal
+ * to ACPI_ALLOCATE_BUFFER Length field of the OutBuffer parameter after
+ * AcpiInitializeSubsystem routine was successfully executed if there
+ * was no enough memory to allocate (AcpiOsFree returns NULL).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetSystemInfo, AcpiOsFree
+ */
+
+/*
+ * ASSERTION 0045:
+ *
+ * AcpiGetSystemInfo routine fails passed with the equal to
+ * ACPI_ALLOCATE_BUFFER Length field of the OutBuffer parameter
+ * before AcpiInitializeSubsystem routine was successfully executed
+ * disregard of AcpiOsFree successful execution.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetSystemInfo, AcpiOsFree
+ */
+
+/*
+ * ASSERTION 0046:
+ *
+ * AcpiInstallInitializationHandler routine result in AE_BAD_PARAMETER
+ * if NULL is specified as its Handler parameter.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0047:
+ *
+ * AcpiInstallInitializationHandler routine sets up the global handler
+ * for initialization handling which is invoked by Core Subsystem during
+ * call to AcpiInitializeObjects routine for each Device object within
+ * the namespace after the Device has been initialized (the _INI and _STA
+ * methods have been run on the device).
+ *
+ * An Acpi namespace Object which pointer to the handler will being
+ * passed to the specified global handler routine should be Device
+ * objects, the Function parameter should be equal to the manifest
+ * constant ACPI_INIT_DEVICE_INI.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0048:
+ *
+ * After a global initialization handler was successfully set up
+ * additional calls to AcpiInstallInitializationHandler routine result
+ * in AE_ALREADY_EXISTS until the Core Subsystem shutdown by AcpiTerminate().
+ * The initial handler is not overwritten.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0049:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine was not
+ * performed at all then AcpiInstallInitializationHandler routine
+ * returns AE_ERROR. There are no any calls to the AcpiOs* interfaces
+ * while the routine is thus invoked.
+ *
+ * ROUTINES: AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0050:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine resulted in
+ * failure then next use of AcpiInstallInitializationHandler routine
+ * results in failure too. There are no any calls to the AcpiOs* interfaces
+ * while the routine is thus invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0051:
+ *
+ * When the global handler for initialization handling invoked
+ * by the Core Subsystem during call to AcpiInitializeObjects
+ * routine results in AE_CTRL_TERMINATE the Subsystem stops the walk
+ * through the Acpi namespace tree immediately so that the _INI
+ * and _STA methods will not have been run on the remained devices.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0052:
+ *
+ * When the global handler for initialization handling invoked
+ * by the Core Subsystem during call to AcpiInitializeObjects
+ * routine results in AE_CTRL_DEPTH the Subsystem stops the walk
+ * deeply into the Acpi namespace tree so that the _INI and _STA
+ * methods will not have been run on the devices located deeply
+ * on the tree.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+/*
+ * ASSERTION 0053:
+ *
+ * Any combinations of the manifest constants:
+ *
+ *     ACPI_NO_ADDRESS_SPACE_INIT
+ *     ACPI_NO_HARDWARE_INIT
+ *     ACPI_NO_EVENT_INIT
+ *     ACPI_NO_ACPI_ENABLE
+ *     ACPI_NO_HANDLER_INIT
+ *
+ * can be passed to AcpiEnableSubsystem routine used in the common
+ * sequence of the calls during the ACPI Subsystem successful initialization.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSubsystemStatus, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0054:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiEnableSubsystem routine returns NULL then
+ * AcpiEnableSubsystem returns AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0055:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiInitializeObjects routine returns NULL then
+ * AcpiInitializeObjects returns AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0056:
+ *
+ * AcpiFormatException routine returns a human-readable string
+ * determined by the any specified ACPI exception code.
+ *
+ * ROUTINES: AcpiFormatException
+ */
+
+/*
+ * ASSERTION 0057:
+ *
+ * When a wrong ACPI exception code is passed to AcpiFormatException
+ * routine the routine returns a string that is not equal to any string
+ * which is relevant to correct ACPI exception code.
+ *
+ * ROUTINES: AcpiFormatException
+ */
+
+/*
+ * ASSERTION 0058:
+ *
+ * AcpiPurgeCachedObjects routine frees all memory blocks
+ * not released after Method execution so that the object
+ * cache appears to be purged.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiPurgeCachedObjects
+ */
+
+/*
+ * ASSERTION 0059:
+ *
+ * When during Device objects initialization subsequent Device's
+ * _STA Method indicate that the Device is not present (and not
+ * "functioning") no any _STA or _INI method of this Device's
+ * childrens will be invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallInitializationHandler
+ */
+
+
+/*
+ * ASSERTION 0060:
+ *
+ * Variation of ASSERTION 0019 when FADT is not present
+ * among the registered Tables. AcpiEnableSubsystem routine
+ * results in failure.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem
+ */

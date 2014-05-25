@@ -1,0 +1,466 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Hardware Management interfaces provided by ACPICA
+ * (section 6.3 "ACPI Hardware Management" of ACPICA ProgRef,
+ * routines AcpiEnable, AcpiDisable, AcpiGetRegister, AcpiSetRegister,
+ * AcpiSetFirmwareWakingVector, AcpiGetFirmwareWakingVector,
+ * AcpiGetSleepTypeData, AcpiEnterSleepStatePrep, AcpiEnterSleepState,
+ * AcpiLeaveSleepState, AcpiAcquireGlobalLock, AcpiReleaseGlobalLock,
+ * AcpiGetTimerResolution, AcpiGetTimerDuration, AcpiGetTimer).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * When FADT is loaded and AcpiOsReadMemory function returns value 0
+ * for ACPI_BITREG_SCI_ENABLE bit of the Register referred by XPm1aCntBlk
+ * (XPm1bCntBlk) field of FADT AcpiEnable routine can be successfully used
+ * to enable ACPI mode, it means AcpiOsWritePort function will be used to
+ * write to the port specified by SmiCmd field of FADT the value of AcpiEnable
+ * field that causes ACPI_BITREG_SCI_ENABLE bit to be read as 1.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnable
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When ACPI mode is not supported (SmiCmd field of FADT is zero)
+ * AE_ERROR exception code is returned from AcpiEnable routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnable
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * On ASSERTION 0000 conditions when during AcpiEnable routine execution 
+ * ACPI_BITREG_SCI_ENABLE bit can not be read as 1 AE_ERROR exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnable
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * If the ACPI tables (FADT) have not been successfully loaded
+ * AE_NO_ACPI_TABLES exception code is returned from AcpiEnable routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiEnable
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * AcpiDisable routine can be successfully used to disable ACPI mode.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnable, AcpiDisable
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * When the system could not be transitioned out of ACPI mode
+ * AE_ERROR exception code is returned from AcpiDisable routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnable, AcpiDisable
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * AcpiGetRegister routine can be successfully used to read
+ * the bit register specified in the RegisterId parameter by
+ * one of the relevant manifest constants. The value returned
+ * is normalized to bit zero.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetRegister
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * When the RegisterId parameter of AcpiGetRegister routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetRegister
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * AcpiSetRegister routine can be successfully used to write
+ * the given Value to the bit-defined register specified in the
+ * RegisterId parameter by one of the appropriate manifest constants.
+ * Other bits of the respective fixed ACPI h/w register are preserved,
+ * namely:
+ * - defined bits in status registers by writing as zeros,
+ * - defined bits in enable and control registers by writing back
+ *   read values,
+ * - reserved bits in status registers by writing as zeros,
+ * - reserved bits in enable registers by writing as zeros,
+ * - reserved bits in control registers by writing back read values,
+ * - ignored bits the same way as reserved bits in these same types
+ *   of registers.
+ * Note about SCI_EN bit of PM1 Control Register: "OSPM always preserves
+ * this bit position".
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiSetRegister
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * When the RegisterId parameter of AcpiSetRegister routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiSetRegister
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * AcpiSetFirmwareWakingVector routine can be successfully used
+ * to set the firmware (ROM BIOS) wake vector.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiSetFirmwareWakingVector
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * If the FACS is not loaded or could not be found AE_NO_ACPI_TABLES
+ * exception code is returned from AcpiSetFirmwareWakingVector routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiSetFirmwareWakingVector
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * AcpiGetFirmwareWakingVector routine can be successfully used
+ * to obtain the firmware (ROM BIOS) wake vector.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetFirmwareWakingVector
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * If the FACS is not loaded or could not be found AE_NO_ACPI_TABLES
+ * exception code is returned from AcpiGetFirmwareWakingVector routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiGetFirmwareWakingVector
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * When the OutVector parameter of AcpiGetFirmwareWakingVector routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiGetFirmwareWakingVector
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * AcpiGetSleepTypeData routine can be successfully used
+ * to obtain the SLP_TYP object for the requested sleep state.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetSleepTypeData
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * When the SleepState parameter of AcpiGetSleepTypeData routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetSleepTypeData
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * When one of the SleepType pointer parameters of AcpiGetSleepTypeData
+ * routine is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetSleepTypeData
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * When one or more of the SLP_TYP values can not be located
+ * AE_AML_NO_OPERAND exception code is returned from AcpiGetSleepTypeData
+ * routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetSleepTypeData
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * When one or more of the SLP_TYP objects is not a numeric type
+ * AE_AML_OPERAND_TYPE exception code is returned from AcpiGetSleepTypeData
+ * routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetSleepTypeData
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * AcpiEnterSleepStatePrep routine can be successfully used
+ * to prepare to enter a system sleep state (_PTS and _GTS methods
+ * are evaluated).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnterSleepStatePrep
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * AcpiEnterSleepState routine can be successfully used
+ * to do transitions to the specified sleep state. It returns
+ * for transitions to the S1 state only. The function must be
+ * called with interrupts disabled.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnterSleepStatePrep, AcpiEnterSleepState
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * AcpiLeaveSleepState routine can be successfully used
+ * (to perform cleanup after leaving a sleep state) when
+ * \_SI.SST, \_BFS and \WAK are correctly declared in the
+ * relevant DSDT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnterSleepStatePrep, AcpiEnterSleepState,
+ *           AcpiLeaveSleepState
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * AcpiAcquireGlobalLock routine can be successfully used to obtain
+ * exclusive access to the single system-wide ACPI Global Lock (a case
+ * when Owned bit of Global Lock is clear).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * When the OutHandle parameter of AcpiAcquireGlobalLock routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * When the global lock could not be acquired within the specified time limit
+ * AE_TIME exception code is returned from AcpiAcquireGlobalLock routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * If the SubSystem is not initialized AcpiAcquireGlobalLock routine
+ * returns a Failure.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * AcpiReleaseGlobalLock routine can be successfully used to release
+ * the global lock on the thread acquired it.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock, AcpiReleaseGlobalLock
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * When the Handle parameter of AcpiReleaseGlobalLock routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiAcquireGlobalLock,
+ *           AcpiReleaseGlobalLock
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * When the Global Lock have not yet been acquired AE_NOT_ACQUIRED
+ * exception code is returned from AcpiReleaseGlobalLock routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiReleaseGlobalLock
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * AcpiGetTimerResolution routine can be successfully used to obtain
+ * the PM Timer resolution – either 24 (for 24-bit) or 32 (for 32-bit
+ * timers).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimerResolution
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * When the OutValue parameter of AcpiGetTimerResolution routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimerResolution
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * AcpiGetTimerDuration routine can be successfully used to calculate
+ * the time elapsed (in microseconds) between StartTicks and EndTicks,
+ * taking into consideration the PM Timer frequency, resolution, and
+ * counter rollovers.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimerDuration
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the OutValue parameter of AcpiGetTimerDuration routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimerDuration
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * AcpiGetTimer routine can be successfully used to obtain
+ * the current value of the PM Timer (in ticks).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimer
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * When the OutValue parameter of AcpiGetTimer routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiGetTimer
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * When the SubSystem is initialized AcpiAcquireGlobalLock routine
+ * can be successfully used to obtain exclusive access even if FACS
+ * is not registered.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0037:
+ *
+ * Statement of ASSERTION 0023 when Owned bit of Global Lock is set
+ * and then gets cleared.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0038:
+ *
+ * AcpiReleaseGlobalLock routine can be successfully used to release
+ * the global lock on a thread different from the acquiring one.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock, AcpiReleaseGlobalLock
+ */
+
+/*
+ * ASSERTION 0039:
+ *
+ * Statement of ASSERTION 0023 when the Global Lock is acquired before
+ * a call to AcpiAcquireGlobalLock(0xFFFF) and released somewhen later.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0040:
+ *
+ * Statement of ASSERTION 0023 when the Global Lock is acquired by means
+ * an AML method before a call to AcpiAcquireGlobalLock(0xFFFF) and released
+ * the same manner somewhen later.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock
+ */
+
+/*
+ * ASSERTION 0041:
+ *
+ * Statement of ASSERTION 0023 when the Global Lock is concurrently acquired
+ * and released on evaluation of the AML method accessing a GL protected field.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiAcquireGlobalLock
+ */
+

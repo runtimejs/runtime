@@ -1,0 +1,83 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Memory Management interfaces provided by ACPICA
+ * (section 6.2 "ACPI Memory Management" of ACPICA ProgRef,
+ * routines AcpiAllocate, AcpiCallocate, AcpiFree).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * After a call to AcpiInitializeSubsystem AcpiAllocate routine
+ * can be successfully used to dynamically allocate memory. On debug
+ * mode after the subsystem is shutdown the allocations which are not
+ * released represent outstanding blocks diagnostics.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAllocate
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When during AcpiAllocate routine execution the relevant
+ * AcpiOsAllocate call returns NULL the first one returns
+ * NULL too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAllocate
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * After a call to AcpiInitializeSubsystem AcpiCallocate routine
+ * can be successfully used to dynamically allocate zero-initialized
+ * memory. On debug mode after the subsystem is shutdown the allocations
+ * which are not released represent outstanding blocks diagnostics.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiCallocate
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When during AcpiCallocate routine execution the relevant
+ * AcpiOsAllocate call returns NULL the first one returns
+ * NULL too.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiCallocate
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * AcpiFree routine can be successfully used to release memory
+ * allocated by AcpiAllocate routine. On debug mode after the
+ * subsystem is shutdown the released allocations will not be
+ * represented in outstanding blocks diagnostics.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAllocate, AcpiFree
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * AcpiFree routine can be successfully used to release memory
+ * allocated by AcpiCallocate routine. On debug mode after the
+ * subsystem is shutdown the released allocations will not be
+ * represented in outstanding blocks diagnostics.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiCallocate, AcpiFree
+ */

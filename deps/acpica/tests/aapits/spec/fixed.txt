@@ -1,0 +1,244 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Fixed Event Management interfaces provided by ACPICA
+ * (section 6.7 "ACPI Fixed Event Management" of ACPICA ProgRef,
+ * routines AcpiEnableEvent, AcpiDisableEvent, AcpiClearEvent,
+ * AcpiGetEventStatus, AcpiInstallFixedEventHandler,
+ * AcpiRemoveFixedEventHandler).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * AcpiEnableEvent routine can be successfully used to request enabling
+ * of the single ACPI fixed event specified by the Event parameter
+ * (ACPI_EVENT_PMTIMER, ACPI_EVENT_GLOBAL, ACPI_EVENT_POWER_BUTTON,
+ * ACPI_EVENT_SLEEP_BUTTON, or ACPI_EVENT_RTC).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent,
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When the Event parameter of AcpiEnableEvent routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent,
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * AcpiDisableEvent routine can be successfully used to request disabling
+ * of the single ACPI fixed event specified by the Event parameter
+ * (ACPI_EVENT_PMTIMER, ACPI_EVENT_GLOBAL, ACPI_EVENT_POWER_BUTTON,
+ * ACPI_EVENT_SLEEP_BUTTON, or ACPI_EVENT_RTC).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiDisableEvent,
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When the Event parameter of AcpiDisableEvent routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiDisableEvent,
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * AcpiClearEvent routine can be successfully used to request clearing
+ * (zero the status bit for) of the single ACPI fixed event  specified
+ * by the Event parameter (ACPI_EVENT_PMTIMER, ACPI_EVENT_GLOBAL,
+ * ACPI_EVENT_POWER_BUTTON, ACPI_EVENT_SLEEP_BUTTON, or ACPI_EVENT_RTC).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiClearEvent,
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * When the Event parameter of AcpiClearEvent routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiClearEvent,
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * AcpiGetEventStatus routine can be successfully used to request
+ * obtaining of the current status of the single ACPI fixed event
+ * specified by the Event parameter (ACPI_EVENT_PMTIMER,
+ * ACPI_EVENT_GLOBAL, ACPI_EVENT_POWER_BUTTON,
+ * ACPI_EVENT_SLEEP_BUTTON, or ACPI_EVENT_RTC).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiGetEventStatus,
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * When the Event parameter of AcpiGetEventStatus routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiGetEventStatus,
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * When the EventStatus parameter of AcpiGetEventStatus routine is NULL
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableEvent, AcpiGetEventStatus,
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * AcpiInstallFixedEventHandler routine can be successfully used to request
+ * installation of the specified handler for a predefined fixed event. The
+ * handler passed with appropriate parameters could be called whenever the
+ * particular fixed event it was installed to handle has occured.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler
+ */
+
+
+/*
+ * ASSERTION 0010:
+ *
+ * When the Event parameter of AcpiInstallFixedEventHandler routine is
+ * invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the Handler pointer parameter of AcpiInstallFixedEventHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * If fixed event enable register can not be written AE_ERROR exception
+ * code is returned from AcpiInstallFixedEventHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * If a handler for the given event is already installed AE_ALREADY_EXISTS
+ * exception code is returned from AcpiInstallFixedEventHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * AcpiRemoveFixedEventHandler routine can be successfully used to request
+ * removing of the installed handler for a predefined fixed event. The handler
+ * would never be called whenever the particular fixed event has occured.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler, AcpiRemoveFixedEventHandler
+ */
+
+
+/*
+ * ASSERTION 0015:
+ *
+ * When the Event parameter of AcpiRemoveFixedEventHandler routine is
+ * invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler, AcpiRemoveFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * When the Handler pointer parameter of AcpiRemoveFixedEventHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler, AcpiRemoveFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * If fixed event enable register can not be written AE_ERROR exception
+ * code is returned from AcpiRemoveFixedEventHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler, AcpiRemoveFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * When the Handler pointer parameter of AcpiRemoveFixedEventHandler
+ * routine is not the same as the one that is installed AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallFixedEventHandler, AcpiRemoveFixedEventHandler
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * If a handler for the given event is not installed AE_NOT_EXIST
+ * exception code is returned from AcpiRemoveFixedEventHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiRemoveFixedEventHandler
+ */

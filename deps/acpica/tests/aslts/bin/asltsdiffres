@@ -1,0 +1,88 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Compare two multi-results
+#
+# The first specified multi-result is being compared against the second one,
+# that is, if something in the first multi-result is worse than in the second
+# one, it could be treated as some kind regression of the product being tested.
+#
+# (for additional comments see Do and asltsrun utilities).
+
+# Includes
+
+. common
+. settings
+. diffproc
+
+# Report summary of comparing.
+# arg1 - first multi-result directory
+# arg2 - against the second multi-result directory
+#        Opcodes of comparing results:
+# arg3 - 32-bit norm mode
+# arg4 - 64-bit norm mode
+# arg5 - 32-bit slack mode
+# arg6 - 64-bit slack mode
+report_multi_runs_cmp()
+{
+	local msg
+
+	echo ""
+	echo "Summary of comparing:"
+	echo "  -         multi-result directory (new) : $1"
+	echo "  - against multi-result directory (old) : $2"
+	echo "Summary of comparing:"
+	echo "  `get_mode_string $NORM32 1`: `cmp_result_opcode_to_str $3`"
+	echo "  `get_mode_string $NORM64 1`: `cmp_result_opcode_to_str $4`"
+	echo "  `get_mode_string $SLACK32 1`: `cmp_result_opcode_to_str $5`"
+	echo "  `get_mode_string $SLACK64 1`: `cmp_result_opcode_to_str $6`"
+}
+
+# ############################## MAIN ###############################
+
+date
+
+DIR0="$1"
+DIR1="$2"
+UTILSTATUS=0
+INIT_MEM_STAT
+
+# Check the multi-result directories
+
+check_dir "$DIR0"
+check_dir "$DIR1"
+
+# Do compare per each possible run mode
+
+# 32-bit norm mode
+do_compare_two_runs "$DIR0" $NORM32 "$DIR1" $NORM32
+CMP0=$?
+
+# 64-bit norm mode
+do_compare_two_runs "$DIR0" $NORM64 "$DIR1" $NORM64
+CMP1=$?
+
+# 32-bit slack mode
+do_compare_two_runs "$DIR0" $SLACK32 "$DIR1" $SLACK32
+CMP2=$?
+
+# 64-bit slack mode
+do_compare_two_runs "$DIR0" $SLACK64 "$DIR1" $SLACK64
+CMP3=$?
+
+# Report the summary of comparing
+report_multi_runs_cmp "$DIR1" "$DIR0" "$CMP0" "$CMP1" "$CMP2" "$CMP3"
+
+if [ $UTILSTATUS == 0 ]; then
+	msg "Ok"
+else
+	msg "MISCOMPARED!"
+fi
+
+date
+
+exit $UTILSTATUS
+
+
+

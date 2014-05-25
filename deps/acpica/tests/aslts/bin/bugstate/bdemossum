@@ -1,0 +1,165 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Prepare bdemo summary files of one multi-results directory for all modes:
+#
+# - 32-bit norm mode
+# - 64-bit norm mode
+# - 32-bit slack mode
+# - 64-bit slack mode
+#
+# Each line of the summary files represents the state of the relevant bug
+# reported by the relevant bdemo test.
+#
+# Paremeters:
+#
+# arg1 - multi-result directory
+#
+# (for comments see Do and asltsrun utilities).
+
+# Includes
+
+. common
+. settings
+
+# arg1 - file "__STATUS_OF_TESTS"
+# arg2 - the name of system and modeid (system:modeid) the tests were run on
+get_summary()
+{
+	local pass=0 fail=0 blck=0 skip=0
+
+	number=
+	prev_num=
+	bdemo_started=
+
+	OLD_IFS=$IFS
+	IFS=":"
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read s0 s1 s2 s3 s4 s5 line
+		if [ $? -ne 0 ] ; then
+			SUMMARY[$prev_num]="$prev_num:$2:$fail:$blck:$pass:$skip"
+			do_report_summary
+			break
+		fi
+
+		if [[ "$s2" == *bug-demo* ]]; then
+			bdemo_started=yes
+			number=`echo "$s3" | awk -F" " '{ print $4}'`
+
+			if [[ "$number" != "$prev_num" ]]; then
+				if [[ "$prev_num" != "" ]]; then
+					SUMMARY[$prev_num]="$prev_num:$2:$fail:$blck:$pass:$skip"
+					pass=0
+					fail=0
+					blck=0
+					skip=0
+				fi
+				prev_num=$number
+			fi
+
+			if [[ "$s5" == PASS ]]; then
+				pass=$[ $pass + 1 ]
+			elif [[ "$s5" == FAIL ]]; then
+				fail=$[ $fail + 1 ]
+			elif [[ "$s5" == BLOCKED ]]; then
+				blck=$[ $blck + 1 ]
+			elif [[ "$s5" == SKIPPED ]]; then
+				skip=$[ $skip + 1 ]
+			fi
+
+		elif [[ $bdemo_started == yes ]]; then
+			SUMMARY[$prev_num]="$prev_num:$2:$fail:$blck:$pass:$skip"
+			do_report_summary
+			break
+		fi
+	done
+
+	IFS=$OLD_IFS
+}
+
+# arg1   - multi-result directory
+# arg2   - the name of system the tests were run on
+# arg3   - mode of run
+# Result - file "__STATUS_OF_BDEMO_TESTS"
+do_summary()
+{
+	local path0 path1 modepart0 modename0 system
+
+	modepart0=`get_mode_string $3 0`
+	modename0=`get_mode_string $3 1`
+
+	path0="$1/$modepart0/__STATUS_OF_TESTS"
+	path1="$1/$modepart0/__STATUS_OF_BDEMO_TESTS"
+	system="$2"
+
+	echo "Extracting bdemo-results of <$system, $modename0>:"
+
+	if [ -f "$path1" ]; then
+		echo "Do nothing, file exists already:"
+		echo "   $path1"
+	elif [ -f "$path0" ]; then
+
+		modeid=`get_mode_id $3`
+
+		get_summary "$path0" "$system:$modeid" > "$path1"
+	else
+		echo "File doesn't exists:"
+		echo "   $path0"
+	fi
+}
+
+do_report_summary()
+{
+	index=0
+
+	while [ 1 ]
+	do
+		if [[ $index -ge $MAXBDEMO ]]; then
+			break
+		fi
+
+		echo "${SUMMARY[$index]}"
+
+		index=$[ $index + 1 ]
+	done
+}
+
+# ############################## MAIN ###############################
+
+DIR0="$1"
+UTILSTATUS=0
+SUMMARY=
+
+# Initialization
+
+INIT_MAX_BDEMO
+
+echo "Preparing the bdemo summary files of one multi-results directory for all modes:"
+echo "   $DIR0"
+
+echo "The number of bdemo-tests is equal to $MAXBDEMO"
+
+# Do all summaries of bdemos
+
+check_dir "$DIR0"
+
+COMMONLOGFILE="$DIR0/Summary"
+if [ ! -f "$COMMONLOGFILE" ]; then
+	do_exit 1 "COMMONLOGFILE is not file: <$COMMONLOGFILE>"
+else
+	system=`get_name_of_system "$COMMONLOGFILE"`
+fi
+
+do_summary "$DIR0" "$system" $NORM32
+do_summary "$DIR0" "$system" $NORM64
+do_summary "$DIR0" "$system" $SLACK32
+do_summary "$DIR0" "$system" $SLACK64
+
+exit $UTILSTATUS
+
+
+

@@ -1,0 +1,28 @@
+
+CONTENTS
+
+   This directory (bin) contains supporting shell commands and utilities
+   for the ACPICA API validation Test Suite (AAPITS).
+
+aapitsrun
+   shell command to run the set of AAPITS tests
+
+   Usage: compile aapits utility and asl files,
+	      execute the command in a command line,
+          the raw results will be gathered in the file ../tmp/raw.out
+          the summary results will be gathered in the file ../tmp/sum.out
+
+	cd aapits
+	make
+	cd asl
+	make
+	cd ../bin
+	./aapitsrun
+
+aapits
+   AAPITS utility
+
+   Perform AAPITS compilation and copy the utility code into the directory
+
+README
+   This file

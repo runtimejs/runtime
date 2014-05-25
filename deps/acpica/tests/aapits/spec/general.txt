@@ -1,0 +1,600 @@
+/*
+ * The following assertions are based on description of
+ * ACPI General Purpose Event Management interfaces provided by ACPICA
+ * (section 6.8 "ACPI General Purpose Event Management" of ACPICA ProgRef,
+ * routines AcpiInstallGpeBlock, AcpiRemoveGpeBlock, AcpiEnableGpe,
+ * AcpiClearGpe, AcpiGetGpeStatus, AcpiDisableGpe, AcpiSetGpeType,
+ * AcpiInstallGpeHandler, AcpiRemoveGpeHandler).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * AcpiInstallGpeBlock routine can be successfully used to install
+ * the named GPE Block Device specified by the correct GpeDevice handle
+ * and GpeBlockAddress pointer parameters.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When the GpeDevice handle parameter of AcpiInstallGpeBlock routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * When the GpeDevice handle parameter of AcpiInstallGpeBlock routine
+ * does not refer to valid GPE Block Device AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When the GpeBlockAddress pointer parameter of AcpiInstallGpeBlock routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * When the RegisterCount parameter of AcpiInstallGpeBlock routine
+ * is zero AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiInstallGpeBlock routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiRemoveGpeBlock
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * AcpiRemoveGpeBlock routine can be successfully used to remove
+ * the named GPE Block Device specified by the correct GpeDevice
+ * handle.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiRemoveGpeBlock
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * When the GpeDevice handle parameter of AcpiRemoveGpeBlock routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiRemoveGpeBlock
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * AcpiSetGpeType routine can be successfully used to set requested Type
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the permanent GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType,
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * AcpiSetGpeType routine can be successfully used to set requested Type
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the given initialized named GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * When the GpeDevice parameter of AcpiSetGpeType routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType
+ */
+
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the GpeDevice parameter of AcpiSetGpeType routine does not
+ * refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType,
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * When the GpeNumber parameter of AcpiSetGpeType routine is out
+ * of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * When the Type parameter of AcpiSetGpeType routine is invalid
+ * (have different from WAKE and RUN bits) AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * AcpiEnableGpe routine can be successfully used to request enabling
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the permanent GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * AcpiEnableGpe routine can be successfully used to request enabling
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the given initialized named GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * When the GpeDevice parameter of AcpiEnableGpe routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * When the GpeDevice parameter of AcpiEnableGpe routine does not
+ * refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * When the GpeNumber parameter of AcpiEnableGpe routine is out
+ * of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * AcpiClearGpe routine can be successfully used to request clearing
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the permanent GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ *           AcpiClearGpe
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * AcpiClearGpe routine can be successfully used to request clearing
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the given initialized named GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiClearGpe
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * When the GpeDevice parameter of AcpiClearGpe routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ *           AcpiClearGpe
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * When the GpeDevice parameter of AcpiClearGpe routine does not
+ * refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiClearGpe
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * When the GpeNumber parameter of AcpiClearGpe routine is out
+ * of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiClearGpe
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * AcpiGetGpeStatus routine can be successfully used to
+ * obtain the status of the single General Purpose Event
+ * specified by the GpeNumber parameter for the permanent
+ * GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEnableGpe, AcpiSetGpeType,
+ *           AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * AcpiGetGpeStatus routine can be successfully used to obtain
+ * the status of the single General Purpose Event specified by
+ * the GpeNumber parameter for the given initialized named GPE
+ * Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * When the GpeDevice parameter of AcpiGetGpeStatus routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * When the GpeDevice parameter of AcpiGetGpeStatus routine
+ * does not refer to a valid GPE Block Device AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * When the GpeNumber parameter of AcpiGetGpeStatus routine is out
+ * of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * When the EventStatus parameter of AcpiGetGpeStatus routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ *           AcpiGetGpeStatus
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * AcpiDisableGpe routine can be successfully used to request disabling
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the permanent GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ *           AcpiDisableGpe
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * AcpiDisableGpe routine can be successfully used to request disabling
+ * of the single General Purpose Event specified by the GpeNumber parameter
+ * for the given initialized named GPE Block Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType,
+ *           AcpiEnableGpe, AcpiDisableGpe
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * When the GpeDevice parameter of AcpiDisableGpe routine is invalid
+ * AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetGpeType, AcpiEnableGpe,
+ *           AcpiDisableGpe
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the GpeDevice parameter of AcpiDisableGpe routine does not
+ * refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType
+ *           AcpiEnableGpe, AcpiDisableGpe
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * When the GpeNumber parameter of AcpiDisableGpe routine is out
+ * of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiSetGpeType
+ *           AcpiEnableGpe, AcpiDisableGpe
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * AcpiInstallGpeHandler routine can be successfully used to request
+ * installation of the specified handler for the given general-purpose
+ * event. The handler passed with appropriate parameters could be called
+ * whenever the particular general-purpose event it was installed to handle
+ * had occured.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * When the GpeDevice parameter of AcpiInstallGpeHandler routine is
+ * invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0037:
+ *
+ * When the GpeDevice parameter of AcpiInstallGpeHandler routine does
+ * not refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0038:
+ *
+ * When the GpeNumber parameter of AcpiInstallGpeHandler routine is
+ * out of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0039:
+ *
+ * When the Handler pointer parameter of AcpiInstallGpeHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0040:
+ *
+ * If a handler for the given event is already installed AE_EXIST
+ * exception code is returned from AcpiInstallGpeHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ */
+
+/*
+ * ASSERTION 0041:
+ *
+ * AcpiRemoveGpeHandler routine can be successfully used to request
+ * removing of the installed handler for the given general-purpose
+ * event. The handler would not be called whenever the particular
+ * general-purpose event had occured.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0042:
+ *
+ * When the GpeDevice parameter of AcpiRemoveGpeHandler routine is
+ * invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0043:
+ *
+ * When the GpeDevice parameter of AcpiRemoveGpeHandler routine does
+ * not refer to a valid GPE Block Device AE_BAD_PARAMETER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0044:
+ *
+ * When the GpeNumber parameter of AcpiRemoveGpeHandler routine is
+ * out of range for the referenced GpeDevice AE_BAD_PARAMETER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0045:
+ *
+ * When the Handler pointer parameter of AcpiRemoveGpeHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0046:
+ *
+ * When the Handler pointer parameter of AcpiRemoveGpeHandler
+ * routine is not the same as the one that is installed AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiInstallGpeHandler
+ *           AcpiRemoveGpeHandler
+ */
+
+/*
+ * ASSERTION 0047:
+ *
+ * If a handler for the given event is not installed AE_NOT_EXIST
+ * exception code is returned from AcpiRemoveGpeHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallGpeBlock, AcpiRemoveGpeHandler
+ */

@@ -1,0 +1,668 @@
+#!/bin/bash
+#
+# @echo off
+#
+# The test suite command dispatcher
+#
+# Available commands:
+#
+#     0 - Make and install AML tests
+#     1 - Run specified set of tests in all enabled modes
+#     2 - Compare two multi-results of two runs of tests
+#     3 - Print out the names of all the available test cases
+#     4 - Calculate the current state of all bugs and report the summary
+#         tables
+#     5 - Prepare bdemo summary files of one multi-results directory for all
+#         modes
+#     6 - Concatenate bdemo summary files of two multi-results
+#
+# Notations:
+#
+#     ASL      - iASL compiler
+#     acpiexec - AcpiExec utility
+#     ASLTSDIR - pathname of root directory of aslts test suite
+#
+# External definitions required for particular command:
+#
+#     0 - ASLTSDIR, ASL
+#     1 - ASLTSDIR, acpiexec
+#     2 - ASLTSDIR
+#     3 - none
+#     4 - ASLTSDIR
+#     5 - ASLTSDIR
+#     6 - ASLTSDIR
+#
+# Other:
+#   Make sure that "." (current directory) is in your default search path.
+#   If necessary, convert all scripts in the aslts/bin directory to unix
+#   line endings:
+#       d2u aslts/bin/*
+#
+# Concepts:
+#
+#     run -   execution of the specified set of tests
+#             for one particular enabled mode
+#
+#     multi-run - execution of the specified set of tests
+#                 for all the enabled modes
+#
+#     multi-result (directory) - directory in RESULTS one containing
+#                                all results of one multi-run
+#
+#     root directory of results - aslts/tmp/RESULTS
+#     root directory of aslts - aslts
+#
+# REMEMBER (To-Be-Done items)
+#
+#  1. Dont forget to add testing of aml/nopt mode.
+#  2. Do make-install till the first error automatically
+#  3. Not implemented yet though announced in Usage:
+#     - "Do 1 [n32 [n64 [s32 [s64]]]] [<test_case_name> [<test_case_name> [...]]]"
+#     - "Make-install all the test cases of the specified test collections"
+#     - ...
+#  4. Add checking of presence of "Large reference count" message in logs
+#
+
+STR_BDEMOSSUM="prepare bdemo summary files of one multi-results directory for all modes"
+STR_CONCBDEMOS="concatenate bdemo summary files of two multi-results"
+STR_BDEMOSTABS="calculate the current state of all bugs and report the summary tables"
+
+usage()
+{
+	echo "Usage:"
+	echo "   print out usage:"
+	echo "     Do"
+	echo "   make and install AML tests:"
+	echo "     Do $ASLCOMPILE [ASLTS|aslts]"
+	echo "     Do $ASLCOMPILE <test_case_name> [<test_case_name> [...]]"
+	echo "     Do $ASLCOMPILE [ALL|all] [functional[complex[exceptions[bdemo[service[mt[Identity2MS]]]]]]]"
+	echo "   run specified set of tests in all enabled modes:"
+	echo "     Do $RUNTESTS"
+	echo "     Do $RUNTESTS [n32 [n64 [s32 [s64]]]] [<test_case_name> [<test_case_name> [...]]]"
+	echo "   compare two multi-results of two runs of tests:"
+	echo "     Do $DIFFRESULTS"
+	echo "     Do $DIFFRESULTS <multi-result directory>"
+	echo "     Do $DIFFRESULTS <new multi-result directory> <old multi-result directory>"
+	echo "   print out names of all the available test cases:"
+	echo "     Do $PRINTTESTCASES"
+	echo "   $STR_BDEMOSTABS:"
+	echo "     Do $BDEMOSTABS <new multi-result directory> <old multi-result directory> <ALLBUGS Description File>"
+	echo "                     <kernel bugzilla Bug List file> <local bugzilla Bug List file>"
+	echo "   $STR_BDEMOSSUM:"
+	echo "     Do $BDEMOSSUM <multi-result directory>"
+	echo "   $STR_CONCBDEMOS:"
+	echo "     Do $CONCBDEMOS <new multi-result directory> <old multi-result directory>"
+}
+
+# Report message
+msg()
+{
+	prog_name=`basename "$0"`
+	echo "$prog_name: $1"
+}
+
+# Report error message
+msgE()
+{
+	prog_name=`basename "$0"`
+	echo "$prog_name[ERROR]: $1"
+}
+
+# Exit the program
+# agr1 - 0 success, non-zero - fail
+do_exit()
+{
+	if [ $1 -eq 0 ]; then
+		if [ "$2" != "" ]; then
+			msg "$2"
+		fi
+		exit 0
+	else
+		msgE "$2"
+		exit 1
+	fi
+}
+
+# Abort program when arg1 is not a directory
+# arg1 - path name of directory
+check_dir()
+{
+	if [ ! -d "$1" ]; then
+		do_exit 1 "Not a directory: $1"
+	fi
+}
+
+# Return the string-description of compare command
+# arg1 - opcode of compare command
+cmp_cmd_string()
+{
+	local msg
+
+	case $1 in
+		1) msg="Compare the last multi-result against the previous one:";;
+		2) msg="Compare the last multi-result against the specified one:";;
+		3) msg="Compare the first(new) specified multi-result against the second(old):";;
+		*) msg="?"
+	esac
+
+	echo "$msg"
+}
+
+# Compare the last multi-result against the previous one
+# arg1 - root directory of results
+do_cmp1()
+{
+	local x previous last DIR0 DIR1
+
+	x=`get_two_last_dirs "$1"`
+	last=`echo "$x" | awk -F: '{ print $2}'`
+	previous=`echo "$x" | awk -F: '{ print $3}'`
+
+	if [ -n "$previous" -a -n "$last" ]; then
+
+		DIR0="$1/$previous"
+		DIR1="$1/$last"
+
+		echo "  root directory of results : $1"
+		echo "  the last multi-result     : $last"
+		echo "  against previous one      : $previous"
+		echo ""
+
+		asltsdiffres "$DIR0" "$DIR1"
+
+	elif [ -n "$last" ]; then
+		echo "There is the only component of root directory of results: $last"
+		echo "root directory of results: $1"
+	else
+		echo "No one component in the root directory of results: $1"
+	fi
+}
+
+# Compare the last multi-result against the specified one
+# arg1 - root directory of results
+# arg2 - second multi-result directory
+do_cmp2()
+{
+	local x last DIR0 DIR1
+
+	x=`get_two_last_dirs "$1"`
+	last=`echo "$x" | awk -F: '{ print $2}'`
+
+	if [ -n "$last" ]; then
+
+		DIR0="$2"
+		DIR1="$1/$last"
+
+		echo "  root directory of results : $1"
+		echo "  the last multi-result     : $DIR1"
+		echo "  against the specified one : $DIR0"
+		echo ""
+
+		asltsdiffres "$DIR0" "$DIR1"
+
+	else
+		echo "No one component in the root directory of results: $1"
+	fi
+}
+
+# Compare the first specified multi-result against the second one
+# arg1 - first multi-result directory
+# arg2 - second multi-result directory
+do_cmp3()
+{
+	local DIR0 DIR1
+
+	DIR0="$2"
+	DIR1="$1"
+
+	echo "  First  (new) specified multi-result : $DIR1"
+	echo "  Second (old) specified multi-result : $DIR0"
+
+	asltsdiffres "$DIR0" "$DIR1"
+}
+
+# Compare two multi-results
+# arg1 - the number of parameters passed to Do utility
+# arg2 - first multi-result directory
+# arg3 - second multi-result directory
+# arg4 - root directory of results
+do_cmp()
+{
+	cmp_cmd_string $1
+
+	if [ $1 == 1 ]; then
+		do_cmp1 "$4"
+	elif [ $1 == 2 ]; then
+		do_cmp2 "$4" "$3"
+	elif [ $1 == 3 ]; then
+		do_cmp3 "$2" "$3"
+	else
+		do_exit 1 "Invalid usage"
+	fi
+}
+
+
+# Summary files of bdemos
+
+do_bdemo_sums()
+{
+	dir="$2"
+
+	echo "$STR_BDEMOSSUM:"
+	echo "  the multi-result  : $dir"
+
+	bdemossum "$dir"
+}
+
+# Concatenate summary files of bdemos
+
+concatenate_bdemo_sums()
+{
+	local DIR0 DIR1
+
+	DIR0="$2"
+	DIR1="$3"
+
+	echo "$STR_CONCBDEMOS:"
+
+	echo "  the first multi-result  : $DIR0"
+	echo "  the second multi-result : $DIR1"
+
+	bdemosconc "$DIR0" "$DIR1"
+}
+
+# Summary table of bdemos
+
+do_bdemo_table()
+{
+	local DIR0 DIR1
+
+	DIR0="$2"
+	DIR1="$3"
+	ALLBUGS="$4"
+	KBSUM="$5"
+	LBSUM="$6"
+
+	echo "$STR_BDEMOSTABS:"
+
+	echo "  the first multi-result        : $DIR0"
+	echo "  the second multi-result       : $DIR1"
+	echo "  ALLBUGS Description File      : $ALLBUGS"
+	echo "  kernel bugzilla Bug List file : $KBSUM"
+	echo "  local bugzilla Bug List file  : $LBSUM"
+	echo "  BUG_STATE_DIR                 : $BUG_STATE_DIR"
+
+	bdemostabs "$DIR0" "$DIR1" "$ALLBUGS" "$KBSUM" "$LBSUM" "$BUG_STATE_DIR"
+}
+
+
+# Make-install all the provided test cases
+# (make install from aslts directory)
+# arg1 - root directory of aslts
+make_install_1()
+{
+	local dir restore_dir
+
+	restore_dir=$PWD
+	dir="$1"
+
+	cd "$dir"
+
+	echo "Running make install from $dir"
+	make install > /dev/null
+	cd "$restore_dir"
+}
+
+# Check parameters to be the names of test
+# cases and run make install for each of them
+# if specified.
+# arg1 - root directory of aslts
+# arg2 - all the lexem here must be the names of test cases
+# arg3 - either to actually run make install
+do_test_cases_make_install()
+{
+	local errors=0 dir restore_dir
+
+	restore_dir=$PWD
+
+	for filename in $2
+	do
+		get_collection_opcode "$filename"
+		ret=$?
+		if [ $ret -eq $COLLS_NUM ]; then
+			do_exit 1 "Not the name of any test case: $filename"
+		fi
+
+		dir="`get_test_case_dir "$1" $ret $filename`"
+		check_dir "$dir"
+
+		if [ $3 != 0 ]; then
+			cd "$dir"
+			make install > /dev/null
+			if [ $? -ne 0 ]; then
+				errors=1
+			fi
+		fi
+	done
+
+	cd "$restore_dir"
+
+	return $errors
+}
+
+# Make-install a list of specified test cases
+# arg1 - root directory of aslts
+# arg2 - all the lexem here must be the names of test cases
+make_install_2()
+{
+	# Check only all parameters are correct
+	# (abort when something is wrong)
+
+	do_test_cases_make_install "$1" "$2" 0
+
+	# Run actual work
+
+	do_test_cases_make_install "$1" "$2" 1
+}
+
+# Check parameters to be the names of test
+# collections and run make install for each
+# of them, if specified.
+# arg1 - root directory of aslts
+# arg2 - all the lexem here must be the names of test collections
+# arg3 - either to actually run make install
+do_collections_make_install()
+{
+	local errors=0 dir restore_dir
+
+	restore_dir=$PWD
+
+	for filename in $2
+	do
+		is_collection_name "$filename"
+		if [ $? -ne 0 ]; then
+			do_exit 1 "Not the name of any test collection: $filename"
+		fi
+
+		dir="`get_collections_root_dir "$1"`/$filename"
+		check_dir "$dir"
+
+		if [ $3 != 0 ]; then
+			cd "$dir"
+			make install > /dev/null
+			if [ $? -ne 0 ]; then
+				errors=1
+			fi
+		fi
+	done
+
+	cd "$restore_dir"
+
+	return $errors
+}
+
+# Make-install all the test cases of the specified test collections
+# arg1 - root directory of aslts
+# arg2 - all the lexem here must be the names of test collections
+make_install_3()
+{
+	# Check only all parameters are correct
+	# (abort when something is wrong)
+
+	do_collections_make_install "$1" "$2" 0
+
+	# Run actual work
+
+	do_collections_make_install "$1" "$2" 1
+}
+
+# Make-install the test case(s).
+#
+# Parameters:
+#
+# 1. Make-install all the provided test cases:
+#
+#    aslts
+#
+# 2. Make-install a list of specified test cases:
+#
+#    test_case_name [test_case_name...]
+#
+# 3. Make-install all the test cases of the specified test collections:
+#
+#    [ALL|all] [functional[complex[exceptions[bdemo[service[mt[Identity2MS]]]]]]]
+#
+# arg1 - root directory of aslts
+# arg2 - number of parameters passed to Do utility
+# arg3 - all parameters passed to Do utility
+run_asl_compiler()
+{
+	local lexem list nparam=$2 action=100
+
+	lexem=`echo "$3" | awk '{ print $2}'`
+
+	if [ $nparam -le 1 ]; then
+		usage
+		do_exit 1 "Bad parameters 0"
+	elif [ $lexem == ASLTS -o $lexem == aslts ]; then
+		if [ $nparam != 2 ]; then
+			usage
+			do_exit 1 "Bad parameters 1"
+		else
+			action=1
+		fi
+	elif [ $lexem == ALL -o $lexem == all ]; then
+		if [ $nparam -le 2 ]; then
+			usage
+			do_exit 1 "Bad parameters 2"
+		else
+			list=`echo "$3" | cut -c 7-`
+			action=3
+		fi
+	else
+		action=2
+		list=`echo "$3" | cut -c 3-`
+	fi
+
+	if [ $action == 1 ]; then
+		echo "Make-install all the provided test cases"
+		make_install_1 "$1"
+	elif [ $action == 2 ]; then
+		echo "Make-install a list of specified test cases: $list"
+		make_install_2 "$1" "$list"
+	elif [ $action == 3 ]; then
+		echo "Make-install all the test cases of the specified test collections: $list"
+		make_install_3 "$1" "$list"
+	else
+		do_exit 1 "Bad parameters 2"
+	fi
+}
+
+get_aslts_bin_line()
+{
+	echo "$1" | awk -F: '{ for (i=1; i<=NF; i++) { print $i}}' |\
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ]; then
+			break
+		fi
+		if [[ "$line" == *aslts/bin ]]; then
+			echo "$line"
+		fi
+	done
+}
+
+# ############################## MAIN ###############################
+
+# Init variables of utility
+
+# Available commands
+
+CMD=$1
+NPARAM=$#
+ASLCOMPILE=0
+RUNTESTS=1
+DIFFRESULTS=2
+PRINTTESTCASES=3
+BDEMOSTABS=4
+BDEMOSSUM=5
+CONCBDEMOS=6
+
+# Set defaults
+
+RESULTDIR=
+
+# ################################################################## #
+# ATTENTION: dont use yet here any common stuff till the next remark #
+# ################################################################## #
+
+# Only report USAGE
+
+if [ $NPARAM == 0 ]; then
+	usage
+	do_exit 0 ""
+fi
+
+# Determine the working directory and take precautions (last name should be aslts)
+
+if [ ! -d "$ASLTSDIR" ]; then
+	do_exit 1 "Undefined ASLTSDIR variable! Set it to pathname of root directory of aslts test suite."
+fi
+
+x=`basename "$ASLTSDIR"`
+if [ "$x" != aslts ]; then
+	do_exit 1 "The last name in ASLTSDIR should be 'aslts', but it is $x!"
+fi
+
+check_dir "$ASLTSDIR"
+
+# Set up the additional environment
+
+x=`echo $PATH | grep "aslts/bin"`
+if [ "$x" == "" ]; then
+	PATH=$PATH:$ASLTSDIR/bin
+fi
+
+x=`echo $PATH | grep "aslts/bin"`
+if [ "$x" == "" ]; then
+	do_exit 1 "Failed to set up aslts/bin to PATH!"
+fi
+
+# The simple below doesn't work on Cygwin:
+#	BUG_STATE_DIR=$ASLTSDIR/bin/bugstate
+# Basing on grep will not work in abnormal case
+# when there are several "aslts/bin" in PATH, so
+# detailed calculation of line with "aslts/bin":
+x=`get_aslts_bin_line "$PATH"`
+if [ x"$x" == x ]; then
+	do_exit 1 "No aslts/bin in PATH!"
+fi
+
+BUG_STATE_DIR="$x/bugstate"
+PATH=$PATH:$BUG_STATE_DIR
+
+
+# Add the common use stuff
+
+. common
+. settings
+
+# ###################################################### #
+# ATTENTION: can use the common stuff starting from here #
+# ###################################################### #
+
+# Init available tests
+
+RESET_SETTINGS
+INIT_ALL_AVAILABLE_CASES
+INIT_ALL_AVAILABLE_MODES
+
+# Only report available test cases
+
+if [ $CMD == $PRINTTESTCASES ]; then
+	echo_available_test_cases
+	do_exit 0 ""
+fi
+
+# Command execution
+
+if [ $CMD == $ASLCOMPILE ]; then
+
+	# Check access to iASL compiler
+
+	if [ ! -f "$ASL" ]; then
+		do_exit 1 "Undefined ASL variable! Set it to pathname of ASL compiler."
+	fi
+
+	x="$@"
+	run_asl_compiler "$ASLTSDIR" $NPARAM "$x"
+
+elif [ $CMD == $RUNTESTS ]; then
+
+	# Check access to AcpiExec utility
+
+	if [ ! -f "$acpiexec" ]; then
+		do_exit 1 "Undefined acpiexec variable! Set it to pathname of AcpiExec utility."
+	fi
+
+	shift 1
+	ASLTSRUN_PARAMS=
+
+	ENABLED_TMODES=
+	while :
+	do
+		check_mode_id $1
+		if [ $? -eq 1 ]; then
+			break
+		fi
+		ENABLED_TMODES="$1 $ENABLED_TMODES"
+		shift 1
+	done
+	export ENABLED_TMODES
+
+	export ENABLED_TCASES="$@"
+
+	asltsrun
+
+elif [ $CMD == $DIFFRESULTS ]; then
+
+	RESULTDIR="$ASLTSDIR/tmp/RESULTS"
+	check_dir "$RESULTDIR"
+	if [ $NPARAM == 1 ]; then
+		do_cmp $NPARAM 0 0 "$RESULTDIR"
+	elif [ $NPARAM == 2 ]; then
+		do_cmp $NPARAM 0 "$2" "$RESULTDIR"
+	elif [ $NPARAM == 3 ]; then
+		do_cmp $NPARAM "$2" "$3" "$RESULTDIR"
+	else
+		bad_param_number $CMD $NPARAM "not more than 3"
+	fi
+
+elif [ $CMD == $BDEMOSSUM ]; then
+
+	if [ $NPARAM == 2 ]; then
+		do_bdemo_sums "$NPARAM" "$2"
+	else
+		bad_param_number $CMD $NPARAM "2"
+	fi
+
+elif [ $CMD == $CONCBDEMOS ]; then
+
+	if [ $NPARAM == 3 ]; then
+		concatenate_bdemo_sums $NPARAM "$2" "$3"
+	else
+		bad_param_number $CMD $NPARAM "3"
+	fi
+
+elif [ $CMD == $BDEMOSTABS ]; then
+
+	if [ $NPARAM == 6 ]; then
+		do_bdemo_table $NPARAM "$2" "$3" "$4" "$5" "$6"
+	else
+		bad_param_number $CMD $NPARAM "6"
+	fi
+
+else
+	do_exit 1 "Bad parameters 3"
+fi

@@ -1,0 +1,142 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Concatenate bdemo summary files (obtained by bdemossum)
+# of two multi-results.
+#
+# Paremeters:
+#
+# arg1 - the first multi-result directory
+# arg2 - the second multi-result directory
+#
+# (for comments see Do and asltsrun utilities).
+
+# Includes
+
+. common
+. settings
+
+get_summary()
+{
+	OLD_IFS=$IFS
+	IFS=":"
+
+	cat\
+		$path0\
+		$path1\
+		$path2\
+		$path3\
+		$path4\
+		$path5\
+		$path6\
+		$path7 |\
+	while [ 1 ]
+	do
+		read number line
+		if [ $? -ne 0 ] ; then
+			do_report_summary
+			break
+		fi
+
+		if [ "x$number" != x ]; then
+			SUMMARY[$number]=${SUMMARY[$number]}"|$line"
+		fi
+
+	done
+
+	IFS=$OLD_IFS
+}
+
+# arg1   - multi-result directory
+# arg2   - mode of run
+get_name_of_bdemossum()
+{
+	local path modepart0
+
+	modepart0=`get_mode_string $2 0`
+	path="$1/$modepart0/__STATUS_OF_BDEMO_TESTS"
+	echo "$path"
+}
+
+do_report_summary()
+{
+	index=0
+
+	while [ 1 ]
+	do
+		if [[ $index -ge $MAXBDEMO ]]; then
+			break
+		fi
+
+		echo "$index${SUMMARY[$index]}"
+
+		index=$[ $index + 1 ]
+	done
+}
+
+# ############################## MAIN ###############################
+
+DIR0="$1"
+DIR1="$2"
+UTILSTATUS=0
+SUMMARY=
+
+# Initialization
+
+INIT_MAX_BDEMO
+
+echo "The number of bdemo-tests is equal to $MAXBDEMO"
+
+# Do summary files of bdemos
+
+if [ -d "$DIR0" ]; then
+	bdemossum "$DIR0" 0
+fi
+if [ -d "$DIR1" ]; then
+	bdemossum "$DIR1" 1
+fi
+
+# Concatenate the summary files of bdemos of two multi-results
+
+echo "Concatenating bdemo summary files of two multi-results:"
+echo "   the first  : $DIR0"
+echo "   the second : $DIR1"
+
+bdemo_sum=
+if [ -d "$DIR0" ]; then
+	bdemo_sum="$DIR0/__STATUS_OF_ALL_BDEMO_TESTS"
+elif [ -d "$DIR1" ]; then
+	bdemo_sum="$DIR1/__STATUS_OF_ALL_BDEMO_TESTS"
+else
+	do_exit 1 "No one directory specified by both parameters"
+fi
+
+path0=""
+path1=""
+path2=""
+path3=""
+path4=""
+path5=""
+path6=""
+path7=""
+
+if [ -d "$DIR0" ]; then
+	path0=`get_name_of_bdemossum "$DIR0" $NORM32`
+	path1=`get_name_of_bdemossum "$DIR0" $NORM64`
+	path2=`get_name_of_bdemossum "$DIR0" $SLACK32`
+	path3=`get_name_of_bdemossum "$DIR0" $SLACK64`
+fi
+if [ -d "$DIR1" ]; then
+	path4=`get_name_of_bdemossum "$DIR1" $NORM32`
+	path5=`get_name_of_bdemossum "$DIR1" $NORM64`
+	path6=`get_name_of_bdemossum "$DIR1" $SLACK32`
+	path7=`get_name_of_bdemossum "$DIR1" $SLACK64`
+fi
+
+get_summary > "$bdemo_sum"
+
+exit $UTILSTATUS
+
+
+

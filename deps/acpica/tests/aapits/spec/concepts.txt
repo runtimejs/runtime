@@ -1,0 +1,55 @@
+	ACPICA API implementation testing concepts.
+
+   The test suite is intended to check the conformance of
+the ACPICA Core Subsystem API implementation to the definitions
+in the ACPICA ProgRef and expected Core Subsystem's behavior to
+ACPI 3.0b Spec.
+
+   The architecture of the Core Subsystem determines that it
+interacts with other parts of a platform through the OS-dependent
+layer of interfaces (OSL - AcpiOS* functions) and delivers its services
+as a set of predefined external component interfaces (API functions).
+These component interfaces provide host OS with the common ACPI
+functionality and it is worth efforts to make certain that the API
+implementation is in agreement with the documentation and has no
+latent anomalies.
+
+   Each API function should be checked if it is successfully
+executed on the correctly specified parameters and properly reacts
+when some invalid conditions have been established. These checks
+can be passed in emulating mode because they do not touch any
+hardware or host OS dependencies.
+
+   To consume the Core Subsystem functionality in emulating mode
+the ACPICA API Test Suite utility is compiled with the ACPICA sources
+statically (ACPI_APPLICATION macros is defined) to be run having some
+standalone pure model of the real Core Subsystem and accessing to the
+API functions being a part of the application immediately.
+
+   There are the following sources of data that can influence
+the result of some API function call:
+- contents and defects of the ACPI tables used to initialize the Core;
+- contents of the ACPI Namespace build on base of the test specific DSDT
+  and SSDT tables;
+- invalid parameters of a function;
+- failures of the OSL functions called from the Core for OS-specific
+  services (like memory allocation, synchronization, access to hardware);
+- faults of the ACPI hardware.
+
+   All kinds of the impact above is exercised during testing and
+the results mentioned in the tests specifications is checked. 
+
+   Additional requirements are imposed due to expectation of the
+Core behavior to be exactly like loadable module so that smooth
+cleanup should be done when the Core Subsystem is shuted down
+or can not be successfully initialized. So appropriate checks
+are provided.
+
+   There are a number of the complex issues of ACPI specification
+implementation left out of view of the TS:
+- Completeness of implementation of ACPI features;
+- Multitasking and Reentrancy;
+- Implementation of ACPI hardware specific;
+- Interaction with a platform on Event Handling;
+- Exercising a sensible set of exceptional conditions.
+

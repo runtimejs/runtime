@@ -1,0 +1,24 @@
+#
+# Common rules for generation of ACPICA utilities
+#
+# FINAL_PROG - Copies the utility to the local bin directory
+# PROG - Builds the utility (links the object files)
+#
+# Note: $(INTERMEDIATES) and $(MISC) are used for iASL compiler only.
+#
+
+$(FINAL_PROG) : $(PROG)
+	$(COPYPROG)
+
+$(PROG) : $(INTERMEDIATES) $(MISC) $(OBJECTS)
+	$(LINKPROG)
+	$(RENAMEPROG)
+
+$(OBJDIR)/%.o : %.c $(HEADERS) $(ACPICA_HEADERS)
+	$(COMPILEOBJ)
+
+clean :
+	rm -f $(PROG) $(PROG).exe $(OBJECTS) $(INTERMEDIATES) $(MISC)
+
+install :
+	$(INSTALLPROG)

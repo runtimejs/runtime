@@ -1,0 +1,34 @@
+
+CONTENTS
+
+   This directory (spec) contains text files of tests specification
+   of ACPICA API validation Test Suite (AAPITS).
+  
+   AAPITS verifies, in emulating mode, conformity of the ACPICA API 
+   implementation to the definitions in ACPI Component Architecture 
+   Programmer Reference (ACPICA ProgRef).
+
+concepts.txt
+   Short look at the API testing concepts
+   
+
+   There are 9 specification files (one for each test case) relevant
+   to the following chapters ACPICA ProgRef respectivly:
+
+   Spec file      Chapter
+
+init.txt          6.1 Subsystem Initialization, Shutdown, and Status
+memory.txt        6.2 Memory Management
+hardware.txt      6.3 ACPI Hardware Management
+table.txt         6.4 ACPI Table Management
+namespace.txt     6.5 ACPI Namespace Access
+resource.txt      6.6 ACPI Resource Management
+fixed.txt         6.7 ACPI Fixed Event Management
+gpe.txt           6.8 ACPI General Purpose Event Management
+handlers.txt      6.9 ACPI Miscellaneous Handler Support
+
+AAPITS.xls
+   Summary data of the AAPITS implementation state in MSExcel format.
+
+README
+   This file

@@ -1,0 +1,444 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Handler Support interfaces provided by ACPICA
+ * (section 6.9 "ACPI Miscellaneous Handler Support" of ACPICA ProgRef,
+ * routines AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler,
+ * AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * AcpiInstallNotifyHandler routine can be successfully used to install the
+ * specified global (ACPI_ROOT_OBJECT) handler for given notify type events
+ * (ACPI_SYSTEM_NOTIFY or ACPI_DEVICE_NOTIFY). The handler passed with
+ * appropriate parameters is called for every notify of the type specified.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * AcpiInstallNotifyHandler routine can be successfully used to install
+ * the specified handler for notify events on the given ACPI object (Device,
+ * Processor, Power, or Thermal Zone). The handler passed with appropriate
+ * parameters is called whenever a notify occurs on the target object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * When the Object handle parameter of AcpiInstallNotifyHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When the Type parameter of AcpiInstallNotifyHandler routine is
+ * not a valid value AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * When the Handler pointer parameter of AcpiInstallNotifyHandler routine
+ * is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * If a handler for the given Object is already installed AE_ALREADY_EXISTS
+ * exception code is returned from AcpiInstallNotifyHandler.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * When the type of the Object parameter of AcpiInstallNotifyHandler routine
+ * is not one of the supported object types AE_TYPE exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiInstallNotifyHandler routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to complete
+ * the request). Object parameter is eqaul to ACPI_ROOT_OBJECT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * ASSERTION 0007 when Device parameter is an actual Object's Handle.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * AcpiRemoveNotifyHandler routine can be successfully used to remove
+ * the global handler for notify events that was previously installed
+ * via a call to AcpiInstallNotifyHandler. Then the handler will not be
+ * called whenever a notify of the type occurs.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * AcpiRemoveNotifyHandler routine can be successfully used to remove
+ * the handler for notify events that was previously installed  on the
+ * target object via a call to AcpiInstallNotifyHandler. Then the handler
+ * will not be called whenever a notify on the object occurs.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the Device handler parameter of AcpiRemoveNotifyHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * When the Type parameter of AcpiRemoveNotifyHandler routine is
+ * not a valid value AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * When the Handler pointer parameter of AcpiRemoveNotifyHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * If a handler for the given Object is not installed AE_NOT_EXIST
+ * exception code is returned from AcpiRemoveNotifyHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * When the Handler pointer parameter of AcpiRemoveNotifyHandler
+ * routine is not the same as the one that is installed AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallNotifyHandler, AcpiRemoveNotifyHandler
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * AcpiInstallAddressSpaceHandler routine can be successfully used
+ * to install the specified global scope (ACPI_ROOT_OBJECT) address
+ * space setup and access handlers for the given AddressSpace or Operation
+ * Region ID. The setup handler passed with appropriate parameters is invoked 
+ * to both initialize and terminate the operation region handling code. The
+ * access handler passed with appropriate parameters is invoked whenever AML
+ * code attempts to access the target Operation Region.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * ASSERTION 0016 in case a named ACPI object (Device, Processor, or
+ * Thermal Zone) owning relevant Operation Regions is specified as
+ * Device handle parameter of AcpiInstallAddressSpaceHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * ASSERTION 0016 in case ACPI_DEFAULT_HANDLER is used as access Handler
+ * parameter of AcpiInstallAddressSpaceHandler routine to install the handler
+ * supplied with by the ACPI CA for that address space ID.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * ASSERTION 0017 in case ACPI_DEFAULT_HANDLER is used as access Handler
+ * parameter of AcpiInstallAddressSpaceHandler routine to install the handler
+ * supplied with by the ACPI CA for that address space ID.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * When the Device handle parameter of AcpiInstallAddressSpaceHandler routine
+ * does not refer to an object of type Device, Processor, ThermalZone, or the
+ * root object AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * When the Device handler parameter of AcpiInstallAddressSpaceHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * When the SpaceId parameter of AcpiInstallAddressSpaceHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * When the Handler pointer parameter of AcpiInstallAddressSpaceHandler
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * If some setup or access handler for the given Device is already installed
+ * AE_ALREADY_EXISTS exception code is returned from AcpiInstallAddressSpaceHandler.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * When ACPI_DEFAULT_HANDLER is specified for an address space that
+ * has no default handler AE_NOT_EXIST exception code is returned from
+ * AcpiInstallAddressSpaceHandler.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiInstallAddressSpaceHandler routine returns NULL then
+ * AE_NO_MEMORY exception code is returned (insufficient dynamic
+ * memory to complete the request). Device parameter is equal to
+ * ACPI_ROOT_OBJECT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * ASSERTION 0026 when Device parameter is an actual Object's Handle.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * AcpiRemoveAddressSpaceHandler routine can be successfully used to remove
+ * the global handlers for Address Space setup and access that were previously
+ * installed via a call to AcpiInstallAddressSpaceHandler. Then the handlers
+ * will not be called whenever a relevant Operation Region is accessed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * ASSERTION 0028 in case AcpiRemoveAddressSpaceHandler routine is
+ * applied to the particular Device (Device, Processor, or Thermal Zone).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * When the Device handle parameter of AcpiRemoveAddressSpaceHandler routine
+ * does not refer to an object of type Device, Processor, ThermalZone, or the
+ * root object AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * When the Device handler parameter of AcpiRemoveAddressSpaceHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * When the SpaceId parameter of AcpiRemoveAddressSpaceHandler routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the Handler pointer parameter of AcpiRemoveAddressSpaceHandler
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * When the Handler pointer parameter of AcpiRemoveAddressSpaceHandler
+ * routine is not the same as the one that is installed AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler, AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * If a handler for the given scope is not installed AE_NOT_EXIST
+ * exception code is returned from AcpiRemoveAddressSpaceHandler routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiRemoveAddressSpaceHandler
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * AcpiInstallAddressSpaceHandler routine can be successfully used
+ * to install the default address space setup and access handlers
+ * for the PCI root bridge, identified by _HID or _CID. Appropriate
+ * _REG method will be run with the ACTIVATE notifications.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiInstallAddressSpaceHandler
+ */

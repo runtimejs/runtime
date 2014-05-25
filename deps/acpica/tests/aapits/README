@@ -1,0 +1,104 @@
+
+CONTENTS
+
+   This directory (aapits) is located in tools directory
+   of the ACPICA source tree and contains sources of
+   ACPICA API validation Test Suite (AAPITS)
+  
+   AAPITS verifies, in emulating mode, conformity of the ACPICA API 
+   implementation to the definitions in ACPI Component Architecture 
+   Programmer Reference (ACPICA ProgRef).
+
+   There are 9 test cases relevant to the following chapters
+   ACPICA ProgRef respectively:
+
+   Test Case       Chapter
+
+   atinit          8.1  Subsystem Initialization, Shutdown, and Status
+   attable         8.2  ACPI Table Management
+   atnamespace     8.3  ACPI Namespace Access
+   athardware      8.4  ACPI Hardware Management
+   atfixedevent    8.6  ACPI Fixed Event Management
+   atgpe           8.7  ACPI General Purpose Event Management
+   athandlers      8.8  ACPI Miscellaneous Handler Support
+   atresource      8.9  ACPI Resource Management
+   atmemory        8.10 Memory Management
+
+spec
+   Directory which tests specification are located in.
+
+atinit.c
+atinit.h
+atmemory.c
+atmemory.h
+athardware.c
+athardware.h
+attable.c
+attable.h
+atnamespace.c
+atnamespace.h
+atresource.c
+atresource.h
+atfixedevent.c
+atfixedevent.h
+atgpe.c
+atgpe.h
+athandlers.c
+athandlers.h
+   Each test case is represented by the pair of .c and .h files with
+   the same filename.
+
+atcommon.h
+atexec.c
+atosxfwrap.c
+atosxfwrap.h
+atosxfctrl.c
+atosxfctrl.h
+atmain.c                  
+   Auxiliary testing modules and TS main file.
+
+oswinxf.c
+osunixxf.c
+   Relavant copies of the same files from the os_specific/service_layers
+   directory updated to be used in the AAPITS utlility with the sed command:
+
+   sed -i s/^AcpiOs/AcpiOsActual/ os*xf.c
+
+   Then add the following line:
+
+   #include "acdebug.h"
+   + #include "atosxfwrap.h"
+
+
+asl
+   Directory which supporting ASL codes are located in.
+
+bin
+   Directory which supporting shell utility are located in.
+
+AcpiApiTS.dsp
+   MSVC project to compile the TS utility under Windows.
+
+   Usage: copy to the generate/msvc catalog and insert into
+          the AcpiComponents.dsw workspace.
+
+Makefile
+   Makefile based on AcpiExec utility one supporting
+   compilation of the TS utility under Linux.
+
+   Usage: copy the aapits directory tree to the relevant acpica-unix-*/tools
+          directory and perform the make command to generate the aapits binary,
+		  to run the paticular test type the following:
+
+	./aapits <test case> <test num> <aml dir>
+
+	Here <test case> is from 1 (init) to 9 (handlers),
+	<test num> is the appropriate assertion number (see the files in spec dir),
+	<aml dir> is the directory with the auxiliary aml files (actually it is
+	./tmp/aml directory which is created by make in the asl directory), for
+	example, to run assertion 0041 of Hardware Management test case type:
+
+	./aapits 3 41 ./tmp/aml
+
+README
+   This file

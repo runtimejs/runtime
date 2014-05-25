@@ -1,0 +1,684 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Table Management interfaces provided by ACPICA
+ * (section 6.4 "ACPI Table Management" of ACPICA ProgRef,
+ * routines AcpiFindRootPointer, AcpiInitializeTables,
+ * AcpiReallocateRootTable, AcpiLoadTables, AcpiGetTableHeader,
+ * AcpiGetTable, AcpiGetTableByIndex).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * When the TableAddress pointer parameter of AcpiFindRootPointer
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiFindRootPointer
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When the Core Subsystem has not been initialized AcpiInitializeTables
+ * routine called with InitialTableArray pointer of enough room can be
+ * successfully used to register ACPI tables pointed by the supplied RSDT.
+ *
+ * ROUTINES: AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * When the Core Subsystem has not been initialized AcpiInitializeTables
+ * routine called with InitialTableArray pointer of no enough room to
+ * register all ACPI tables pointed by the supplied RSDT does not fail
+ * (actually table entries is truncated).
+ *
+ * ROUTINES: AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When the Core Subsystem has not been initialized the NULL pointer
+ * passed to AcpiInitializeTables routine as its InitialTableArray 
+ * parameter (to request dynamic allocation of the initial Tables
+ * array) will cause the routine to fail.
+ *
+ * There are no any calls to the AcpiOs* interfaces while the routine is
+ * thus invoked.
+ *
+ * ROUTINES: AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * When the Core Subsystem has been initialized AcpiInitializeTables
+ * routine called with NULL InitialTableArray pointer (to request
+ * dynamic allocation of the initial Tables array) can be successfully
+ * used to register ACPI tables pointed by the supplied RSDT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiInitializeTables routine called with InitialTableArray
+ * parameter set to NULL returns NULL then AcpiInitializeTables
+ * returns AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * When AllowResize parameter passed to AcpiInitializeTables routine
+ * is set to 1 (to allow dynamic enlargement of the initial Tables
+ * array) AcpiReallocateRootTable routine can be successfully used
+ * to reallocate the array.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiReallocateRootTable routine returns NULL then
+ * AcpiReallocateRootTable returns AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * When AllowResize parameter passed to AcpiInitializeTables routine
+ * is set to 1 but the Core Subsystem has not been initialized
+ * AcpiReallocateRootTable routine will result in an exception.
+ *
+ * There are no any calls to the AcpiOs* interfaces while the routine is
+ * thus invoked.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiReallocateRootTable
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * When AllowResize parameter passed to AcpiInitializeTables routine
+ * is set to 0 (dynamic enlargement of the initial Tables array is not
+ * allowed) a call to AcpiReallocateRootTable routine will result in
+ * AE_SUPPORT exception.
+ *
+ * There are no any calls to the AcpiOs* interfaces while the routine is
+ * thus invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * When AcpiInitializeTables routine was called with NULL InitialTableArray
+ * pointer (to request dynamic allocation of the initial Tables array) a call
+ * to AcpiReallocateRootTable routine will result in AE_SUPPORT exception.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the Core Subsystem has not been initialized the pointer
+ * to any ACPI table pointed by the supplied RSDT can be obtained
+ * through AcpiGetTable routine passed with the respective signature
+ * string and instance number after AcpiInitializeTables routine was
+ * called.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * Statement of ASSERTION 0011 when the Core Subsystem has been
+ * initialized
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * If AcpiOsGetRootPointer OSL routine fails then AcpiInitializeTables
+ * routine returns AE_NOT_FOUND (there is no any RSDP found).
+ *
+ * ROUTINES: AcpiInitializeTables
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * If specified table is not present in the supplied RSDT 
+ * then AcpiGetTable routine returns AE_NOT_FOUND.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * Statement of ASSERTION 0011 when the Core Subsystem has been
+ * initialized and static Table List reallocated.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiReallocateRootTable, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * and required initialization of the Core Subsystem AcpiLoadTables
+ * routine can be successfully used to load valid ACPI tables
+ * pointed by the supplied RSDT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * Statement of ASSERTION 0011 when the Core Subsystem has been
+ * initialized before call to AcpiInitializeTables routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * After the successful call to AcpiLoadTables routine
+ * the next call to AcpiTerminate one frees all the resources
+ * allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiLoadTables
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * If the initial call to AcpiInitializeSubsystem routine was not
+ * performed at all then AcpiLoadTables routine fails. There is no
+ * call to any AcpiOs* interface while the routine is thus invoked.
+ * The same result should be obtained even if AcpiInitializeTables
+ * will have been called.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiLoadTables
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * Statement of ASSERTION 0019 when a call to AcpiInitializeSubsystem
+ * routine was done but resulted in failure.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * If AcpiLoadTables routine initially failed then the next
+ * call to AcpiTerminate one frees all the resources allocated
+ * by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiLoadTables
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * Statement of ASSERTION 0021 when AcpiReallocateRootTable
+ * is not invoked.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * If AcpiLoadTables routine initially returned AE_OK then any repeated
+ * call to it results in failure. The next call to AcpiTerminate routine
+ * frees all the resources allocated by Core Subsystem.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiLoadTables
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * If some call to AcpiOsAllocate routine during invocation
+ * of AcpiLoadTables routine returns NULL then AcpiLoadTables
+ * returns AE_NO_MEMORY.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * AcpiInitializeTables routine returns AE_INVALID_TABLE_LENGTH
+ * when the table header of RSDT contains an invalid length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * AcpiInitializeTables routine returns SUCCESS even if some
+ * of the required ACPI Tables: FADT, FACS or DSDT - can not
+ * be found in the memory structures in the supplied RSDT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * AcpiLoadTables routine returns AE_BAD_CHECKSUM when computed table
+ * checksum does not match the checksum in the table. Take into account
+ * ACPI_CHECKSUM_ABORT definition.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * AcpiInitializeTables routine returns AE_BAD_SIGNATURE when the table
+ * header of FACS or DSDT contains an invalid signature (RSDP is actually
+ * checked in AcpiFindRootPointer which is not used in emulating mode, bad
+ * FADT signature can not be detected as far as such a table can not be
+ * recognized to be actual FADT).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * AcpiLoadTables routine returns AE_BAD_HEADER when the table header
+ * is invalid or not of a valid type (the length field is invalid).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * AcpiLoadTables routine returns AE_INVALID_TABLE_LENGTH when the length
+ * field in the table header of FADT or FACS is shorter than the relevant
+ * table structure field.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * AcpiGetTableByIndex one can be successfully used to get the
+ * pointer to a table specified by the Index in the List of the
+ * registered ACPI Tables.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableByIndex
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * Statement of ASSERTION 0031 when the Core Subsystem has been
+ * initialized and AcpiReallocateRootTable routine executed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiGetTableByIndex
+ *           AcpiTerminate
+ */
+
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the Index parameter of AcpiGetTableByIndex routine
+ * is out of a range of the registered ACPI Tables indexes
+ * the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableByIndex
+ */
+
+
+/*
+ * ASSERTION 034:
+ *
+ * When the OutTable pointer parameter of AcpiGetTableByIndex
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableByIndex
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * Since next instance of SSDT (or PSDT) is loaded by means
+ * Load ASL operator and the number of the registered ACPI Tables
+ * incremented AcpiGetTableByIndex routine will successfully
+ * return a pointer to the Table even if the Table is unloaded
+ * by means UnLoad ASL operator.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects, AcpiGetTableByIndex
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * When AllowResize parameter passed to AcpiInitializeTables routine
+ * is set to 0 (dynamic enlargement of the initial Tables array is not
+ * allowed) loading of some next instance of SSDT (or PSDT) by means
+ * Load ASL operator will result in AE_SUPPORT exception.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0037:
+ *
+ * When AllowResize parameter passed to AcpiInitializeTables routine
+ * is set to 1 (to allow dynamic enlargement of the initial Tables
+ * array) loading of any next instance of SSDT (or PSDT) by means
+ * Load ASL operator will be successful.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0038:
+ *
+ * When the Core Subsystem has been initialized the request for
+ * dynamic allocation of the initial Tables array (InitialTableArray
+ * pointer parameter of AcpiInitializeTables is set to NULL) suppresses
+ * the "dynamic enlargement of the initial Tables array is not allowed"
+ * feature (AllowResize parameter is set to 0) so that loading of any next
+ * instance of SSDT (or PSDT) by means Load ASL operator will be successful.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+/*
+ * ASSERTION 0039:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * AcpiGetTableHeader one can be successfully used to get the
+ * header of a table specified by the Signature and Instance
+ * parameter set to 1.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 0040:
+ *
+ * Statement of ASSERTION 0039 when the Core Subsystem has been
+ * initialized and AcpiReallocateRootTable routine executed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiGetTableHeader
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0041:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * AcpiGetTableHeader one can be successfully used to get the
+ * headers of a different Instances of SSDT (PSDT).
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 0042:
+ *
+ * Statement of ASSERTION 0041 when the Core Subsystem has been
+ * initialized and AcpiReallocateRootTable routine executed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiGetTableHeader
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0043:
+ *
+ * When the Signature parameter of AcpiGetTableHeader routine
+ * points to an invalid Table signature the AE_NOT_FOUND exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 044:
+ *
+ * When the OutTableHeader pointer parameter of AcpiGetTableHeader
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 045:
+ *
+ * When the table type specified by the Signature only supports
+ * a single table and the Instance parameter of AcpiGetTableHeader
+ * routine is not equal to 1 the AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 0046:
+ *
+ * AcpiGetTableHeader routine returns AE_NOT_FOUND when the table
+ * type specified by the Signature is valid but there is no table
+ * of these Signature and Instance currently loaded.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 0047:
+ *
+ * Since given instance of SSDT (or PSDT) is loaded by means
+ * Load ASL operator AcpiGetTableHeader routine will successfully
+ * return a pointer to the Header of the Table even if the Table 
+ * is unloaded by means UnLoad ASL operator.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects, AcpiGetTableHeader
+ */
+
+/*
+ * ASSERTION 0048:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * AcpiGetTable one can be successfully used to get the
+ * header of a table specified by the Signature and Instance
+ * parameter set to 1.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0049:
+ *
+ * Statement of ASSERTION 0048 when the Core Subsystem has been
+ * initialized and AcpiReallocateRootTable routine executed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiGetTable
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0050:
+ *
+ * After the successful call to AcpiInitializeTables routine
+ * AcpiGetTable one can be successfully used to get the
+ * headers of a different Instances of SSDT (PSDT).
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0051:
+ *
+ * Statement of ASSERTION 0050 when the Core Subsystem has been
+ * initialized and AcpiReallocateRootTable routine executed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiReallocateRootTable, AcpiGetTable
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0052:
+ *
+ * When the Signature parameter of AcpiGetTable routine
+ * points to an invalid Table signature the AE_NOT_FOUND exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 053:
+ *
+ * When the OutTable pointer parameter of AcpiGetTable routine
+ * is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 054:
+ *
+ * When the table type specified by the Signature only supports
+ * a single table and the Instance parameter of AcpiGetTable
+ * routine is not equal to 1 the AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeTables, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0055:
+ *
+ * AcpiGetTable routine returns AE_NOT_FOUND when the table
+ * type specified by the Signature is valid but there is no table
+ * of these Signature and Instance currently loaded.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0056:
+ *
+ * Since given instance of SSDT (or PSDT) is loaded by means
+ * Load ASL operator AcpiGetTable routine will successfully
+ * return a pointer to the the Table even if the Table is
+ * unloaded by means UnLoad ASL operator.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects, AcpiGetTable
+ */
+
+/*
+ * ASSERTION 0057:
+ *
+ * AcpiGetTable and AcpiGetTableHeader routines passed with
+ * the same Signature and Instance parameters return the same
+ * pointer to the requested Table.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiGetTable,
+ *           AcpiGetTableHeader
+ */
+
+
+/*
+ * ASSERTION 0058:
+ *
+ * Bug 34 reproducing
+ *
+ * If initialy loaded SSDT is repeatedly loaded by means of Load
+ * ASL operator and the previous Table in the registered Tables list
+ * have an incorrect checksum value then Evaluation of the Method with
+ * the Load operator returns AE_ALREADY_EXIST (not AE_BAD_CHECKSUM).
+ *
+ * Note: ACPI_CHECKSUM_ABORT macros should be defined as TRUE 
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables
+ *           AcpiLoadTables, AcpiEnableSubsystem,
+ *           AcpiInitializeObjects
+ */
+
+
+/*
+ * ASSERTION 0059:
+ *
+ * AcpiLoadTables routine returns AE_NO_ACPI_TABLES when at least
+ * one of the required ACPI Tables: FADT, FACS or DSDT - could not be
+ * found in the memory structures in the supplied RSDT.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiInitializeTables,
+ *           AcpiLoadTables, AcpiTerminate
+ */
+
