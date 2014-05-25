@@ -1,0 +1,353 @@
+
+#REM "C:\Documents and Settings\vapodrez\My Documents\acpi\ACPICA\Acpi\libraries\acpiexec.exe" -s "dynobj.aml" 
+
+#REM "C:\Documents and Settings\vapodrez\My Documents\acpi\ACPICA\Acpi\libraries\acpiexec.exe" -bMAIN -s "dynobj.aml" 
+
+#REM "C:\Documents and Settings\vapodrez\My Documents\acpi\ACPICA\Acpi\libraries\acpiexec.exe" -bMAIN "dynobj.aml" 
+
+#REM "C:\Documents and Settings\vapodrez\My Documents\acpi\ACPICA\Acpi\libraries\acpiexecdebug.exe" "dynobj.aml" 
+
+#"C:\Documents and Settings\vapodrez\My Documents\acpi\ACPICA\Acpi\libraries\acpiexec.exe" "dynobj.aml" 
+
+Intel ACPI Component Architecture
+AML Execution/Debug Utility version 20060608 [Jun 23 2006]
+
+ tbxface-0193 [22] LoadTables            : ACPI Tables successfully acquired
+Parsing all Control Methods:
+Table [DSDT](id 0007) - 365 Objects with 0 Devices 70 Methods 0 Regions
+Parsing all Control Methods:
+Table [SSDT](id 0004) - 1 Objects with 0 Devices 1 Methods 0 Regions
+Parsing all Control Methods:
+Table [SSDT](id 0005) - 1 Objects with 0 Devices 1 Methods 0 Regions
+ACPI Namespace successfully loaded at root 00454320
+evgpeblk-1108 [7368] EvCreateGpeBlock      : GPE 00 to 3F [_GPE] 8 regs on int 0x0
+evgpeblk-1108 [7368] EvCreateGpeBlock      : GPE 60 to 77 [_GPE] 3 regs on int 0x0
+evgpeblk-1208 [7369] EvInitializeGpeBlock  : Found 0 Wake, Enabled 0 Runtime GPEs in this block
+evgpeblk-1208 [7371] EvInitializeGpeBlock  : Found 0 Wake, Enabled 0 Runtime GPEs in this block
+Completing Region/Field/Buffer/Package initialization:...........
+Initialized 0/0 Regions 0/0 Fields 0/0 Buffers 11/11 Packages (376 nodes)
+Initializing Device/Processor/Thermal objects by executing _INI methods:
+Executed 0 _INI methods requiring 0 _STA executions (examined 2 objects)
+- Executing \MAIN
+tbxfroot-0269 [13350] TbFindTable           : Found table [DSDT]
+[ACPI Debug]  String: [0x0B] "64-bit mode"
+[ACPI Debug]  String: [0x42] "TEST (IMPL), Dynamic Object Deletion implementation dependent test"
+[ACPI Debug]  String: [0x43] "Check for the Test Command Interface with the ACPICA (_TCI) support"
+[ACPI Debug]  String: [0x40] "Check that the Memory Consumption Statistics is handled properly"
+[ACPI Debug]  String: [0x18] "Optimization is tuned on"
+[ACPI Debug]  String: [0x1C] ":CTST:IMPL:dynobj:DYN0:PASS:"
+[ACPI Debug]  String: [0x05] "While"
+[ACPI Debug]  String: [0x24] ":CTST:IMPL:dynobj:dobexec-m370:PASS:"
+[ACPI Debug]  String: [0x07] "Acquire"
+[ACPI Debug]  String: [0x03] "Add"
+[ACPI Debug]  String: [0x03] "And"
+[ACPI Debug]  String: [0x0B] "Concatenate"
+[ACPI Debug]  String: [0x16] "ConcatenateResTemplate"
+[ACPI Debug]  String: [0x0A] "CopyObject"
+[ACPI Debug]  String: [0x09] "Decrement"
+[ACPI Debug]  String: [0x07] "DerefOf"
+[ACPI Debug]  String: [0x05] "Fatal"
+[ACPI Debug]  String: [0x0E] "FindSetLeftBit"
+[ACPI Debug]  String: [0x0F] "FindSetRightBit"
+[ACPI Debug]  String: [0x07] "FromBCD"
+[ACPI Debug]  String: [0x09] "Increment"
+[ACPI Debug]  String: [0x05] "Index"
+[ACPI Debug]  String: [0x04] "LAnd"
+[ACPI Debug]  String: [0x06] "LEqual"
+[ACPI Debug]  String: [0x08] "LGreater"
+[ACPI Debug]  String: [0x05] "LLess"
+[ACPI Debug]  String: [0x04] "LNot"
+[ACPI Debug]  String: [0x03] "LOr"
+[ACPI Debug]  String: [0x05] "Match"
+[ACPI Debug]  String: [0x03] "Mid"
+[ACPI Debug]  String: [0x03] "Mod"
+[ACPI Debug]  String: [0x08] "Multiply"
+[ACPI Debug]  String: [0x04] "NAnd"
+[ACPI Debug]  String: [0x03] "NOr"
+[ACPI Debug]  String: [0x03] "Not"
+[ACPI Debug]  String: [0x0A] "ObjectType"
+[ACPI Debug]  String: [0x02] "Or"
+[ACPI Debug]  String: [0x05] "RefOf"
+[ACPI Debug]  String: [0x07] "Release"
+[ACPI Debug]  String: [0x05] "Reset"
+[ACPI Debug]  String: [0x09] "ShiftLeft"
+[ACPI Debug]  String: [0x0A] "ShiftRight"
+[ACPI Debug]  String: [0x06] "Signal"
+[ACPI Debug]  String: [0x06] "SizeOf"
+[ACPI Debug]  String: [0x05] "Sleep"
+[ACPI Debug]  String: [0x05] "Stall"
+[ACPI Debug]  String: [0x08] "Subtract"
+[ACPI Debug]  String: [0x05] "ToBCD"
+[ACPI Debug]  String: [0x08] "ToBuffer"
+[ACPI Debug]  String: [0x0F] "ToDecimalString"
+[ACPI Debug]  String: [0x0B] "ToHexString"
+[ACPI Debug]  String: [0x04] "Wait"
+[ACPI Debug]  String: [0x03] "XOr"
+[ACPI Debug]  String: [0x24] ":CTST:IMPL:dynobj:dobexec-m371:PASS:"
+[ACPI Debug]  String: [0x16] "While, Continue, Break"
+[ACPI Debug]  String: [0x10] "If, ElseIf, Else"
+[ACPI Debug]  String: [0x06] "Method"
+[ACPI Debug]  String: [0x04] "NoOp"
+[ACPI Debug]  String: [0x23] ":CTST:IMPL:dynobj:dobctl-m372:PASS:"
+[ACPI Debug]  String: [0x04] "Name"
+[ACPI Debug]  String: [0x0B] "CreateField"
+[ACPI Debug]  String: [0x03] "DMA"
+[ACPI Debug]  String: [0x0F] "DataTableRegion"
+tbxfroot-0269 [134191441] TbFindTable           : Found table [DSDT]
+[ACPI Debug]  String: [0x05] "Event"
+[ACPI Debug]  String: [0x05] "Mutex"
+[ACPI Debug]  String: [0x24] ":CTST:IMPL:dynobj:dobdecl-m373:PASS:"
+ACPI Error (utmath-0239): Divide by zero [20060608]
+**** AcpiExec: Exception AE_AML_DIVIDE_BY_ZERO during execution of method [M000] Opcode [Divide] @4
+**** AcpiExec: Exception override, new status AE_OK
+Current name M000 and start name _ERR differ
+================= M000 <1> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (1) : 925 - 948 == ffffffdd
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : 10 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 19 641 a 2  (2021)
+     Correction : 0 0 0 0 0  (0)
+      Point (1) : 17f 15 63e 5 1  (2008)
+Per object type :
+            All : 0 43a 148 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1598)
+   Declarations : 0 439 147 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1588)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name M000 and start name _ERR differ
+================= M000 <2> <<<< ERRORS! (summary scale 0x280000; cache 0x0, object 0x40) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (2) : 925 - 948 == ffffffdd
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : 10 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 19 641 a 2  (2021)
+     Correction : 0 1 1 0 0  (2)
+      Point (2) : 17f 14 63e 5 1  (2007)
+Per object type :
+ Point (0) objs : 0 43c 149 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1601)
+            All : 0 43a 148 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1598)
+   Declarations : 0 439 147 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1588)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+   At point (0) : 0 2 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (12)
+<<< ERRORS >>>  : 0 40 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (summary scale 0x40)
+=================
+Current name M000 and start name _ERR differ
+================= M000 <3> <<<< ERRORS! (summary scale 0x280000; cache 0x0, object 0x40) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (3) : 924 - 948 == ffffffdc
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : 10 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 19 641 a 2  (2021)
+     Correction : 0 0 1 0 0  (1)
+      Point (3) : 17f 13 63e 5 1  (2006)
+Per object type :
+ Point (0) objs : 0 43c 149 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1601)
+            All : 0 43a 148 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1598)
+   Declarations : 0 439 147 0 66 0 2 0 4b 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1588)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+   At point (0) : 0 2 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (12)
+<<< ERRORS >>>  : 0 40 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (summary scale 0x40)
+  IncrMemAllocs : -4
+IncrMemAllocsCh : 0
+=================
+Current name M374 and start name M000 differ
+================= M374 <1> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (1) : 87f - 8a7 == ffffffd8
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 13 63f 5 1  (2007)
+     Correction : 0 0 0 0 0  (0)
+      Point (1) : 17c f 547 3 1  (1750)
+Per object type :
+            All : 0 349 146 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1351)
+   Declarations : 0 348 145 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1341)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name M374 and start name M000 differ
+================= M374 <2> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (2) : 87e - 8a6 == ffffffd8
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 13 63f 5 1  (2007)
+     Correction : 0 1 1 0 0  (2)
+      Point (2) : 17c e 547 3 1  (1749)
+Per object type :
+            All : 0 349 146 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1351)
+   Declarations : 0 348 145 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1341)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name M374 and start name M000 differ
+================= M374 <3> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (3) : 87c - 8a5 == ffffffd7
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 0 0 0 1 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17f 13 63f 5 1  (2007)
+     Correction : 0 0 1 0 0  (1)
+      Point (3) : 17c d 547 3 1  (1748)
+Per object type :
+            All : 0 349 146 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (1351)
+   Declarations : 0 348 145 0 63 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (1341)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+  IncrMemAllocs : -298
+IncrMemAllocsCh : -294
+=================
+Current name DYN0 and start name M374 differ
+================= DYN0 <1> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (1) : 6e6 - 713 == ffffffd3
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 0 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17c d 547 3 1  (1748)
+     Correction : 0 0 0 0 0  (0)
+      Point (1) : 179 a 3b8 1 1  (1341)
+Per object type :
+            All : 0 1bf 145 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (952)
+   Declarations : 0 1be 144 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (942)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name DYN0 and start name M374 differ
+================= DYN0 <2> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (2) : 6e4 - 711 == ffffffd3
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 0 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17c d 547 3 1  (1748)
+     Correction : 0 2 0 0 0  (2)
+      Point (2) : 179 9 3b7 1 1  (1339)
+Per object type :
+            All : 0 1be 145 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (951)
+   Declarations : 0 1bd 144 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (941)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name DYN0 and start name M374 differ
+================= DYN0 <3> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (3) : 6e1 - 70f == ffffffd2
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 0 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 17c d 547 3 1  (1748)
+     Correction : 0 0 0 0 0  (0)
+      Point (3) : 179 7 3b7 1 1  (1337)
+Per object type :
+            All : 0 1be 145 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (951)
+   Declarations : 0 1bd 144 0 5f 0 2 0 4a 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (941)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+  IncrMemAllocs : -411
+IncrMemAllocsCh : -406
+=================
+[ACPI Debug]  String: [0x2A] ":CTST:IMPL:dynobj:dobexceptions-m374:PASS:"
+[ACPI Debug]  String: [0x29] "Run time (in seconds): 0x00000000000001C6"
+[ACPI Debug]  String: [0x38] "The total number of exceptions handled: 0000000000000001"
+[ACPI Debug]  String: [0x29] "========= ROOT METHODS SUMMARY (max 600):"
+[ACPI Debug]  String: [0x1C] ":STST:IMPL:dynobj:DYN0:PASS:"
+[ACPI Debug]  String: [0x24] ":STST:IMPL:dynobj:dobexec-m370:PASS:"
+[ACPI Debug]  String: [0x24] ":STST:IMPL:dynobj:dobexec-m371:PASS:"
+[ACPI Debug]  String: [0x23] ":STST:IMPL:dynobj:dobctl-m372:PASS:"
+[ACPI Debug]  String: [0x24] ":STST:IMPL:dynobj:dobdecl-m373:PASS:"
+[ACPI Debug]  String: [0x2A] ":STST:IMPL:dynobj:dobexceptions-m374:PASS:"
+[ACPI Debug]  String: [0x0E] "========= END."
+[ACPI Debug]  String: [0x1A] "TEST ACPICA: 64-bit : PASS"
+Current name MAIN and start name DYN0 differ
+================= MAIN <1> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (1) : 6df - 70c == ffffffd3
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 0 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 179 7 3b2 1 1  (1332)
+     Correction : 0 0 0 0 0  (0)
+      Point (1) : 178 4 3b8 0 1  (1333)
+Per object type :
+            All : 0 1bf 146 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (952)
+   Declarations : 0 1be 145 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (942)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name MAIN and start name DYN0 differ
+================= MAIN <2> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (2) : 6de - 70b == ffffffd3
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 6 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 179 7 3b2 1 1  (1332)
+     Correction : 0 2 6 0 0  (8)
+      Point (2) : 178 3 3b8 0 1  (1332)
+Per object type :
+            All : 0 1bf 146 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (952)
+   Declarations : 0 1be 145 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (942)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+=================
+Current name MAIN and start name DYN0 differ
+================= MAIN <3> <<<< ERRORS! (summary scale 0x200000; cache 0x0, object 0x0) >>>>
+ All alloc/free :                    (all, cached, diff)
+      Point (3) : 6db - 709 == ffffffd2
+     Scope info :                    (AmlOpcodeOfScope, ArgReferencesCount, ReturnValue, ReturnUsed; decl, arg, ret)
+                : a0 0 1 0 6 0 0
+ Per cache list :                    (state, operand, psnode, psnode_ext)
+      Point (0) : 179 7 3b2 1 1  (1332)
+     Correction : 0 0 6 0 0  (6)
+      Point (3) : 178 1 3b8 0 1  (1330)
+Per object type :
+            All : 0 1bf 146 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (952)
+   Declarations : 0 1be 145 0 5f 0 2 0 49 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (942)
+      Arguments : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+         Return : 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0  (0)
+ Result current : 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 7 0 0 0 0 0  (10)
+  IncrMemAllocs : -4
+IncrMemAllocsCh : -3
+=================
+Outstanding: 0x6 allocations after execution
+Execution of \MAIN returned object 00326E68 Buflen 10
+  [Integer] = 0000000000000000
+- ACPI (uttrack-0703): No outstanding allocations [20060608]
+utdebugstat-0203 [136606830] "UtCloseStat"         : Memory Consumption errors encountered!
+ERRORS SUMMARY: ErrorScale 0xe00000; Sum 0x280000, CSum 0x0, OSum 0x40, Failed executions of methods number 12
+Memory Consumption failed executions of methods summary:
+M000: Point 1, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+M000: Point 2, Errors: Sum 0x280000, CSum 0x0, OSum 0x40
+M000: Point 3, Errors: Sum 0x280000, CSum 0x0, OSum 0x40
+M374: Point 1, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+M374: Point 2, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+M374: Point 3, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+DYN0: Point 1, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+DYN0: Point 2, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+DYN0: Point 3, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+MAIN: Point 1, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+MAIN: Point 2, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+MAIN: Point 3, Errors: Sum 0x200000, CSum 0x0, OSum 0x0
+ERROR: allocated memory total 0xb4b649 (times), freed total 0xb4b647 (times)
+       Uncounted are  0xb4b649 - (0xb4b647 + 4) == 0xfffffffe  allocations

@@ -1,0 +1,89 @@
+bdemostabs
+===========
+
+The utility bdemostabs calculates the current state of all bugs
+and reports the summary tables.
+
+The input data of bdemostabs are as follow.
+
+  arg1 - the first multi-result directory
+  arg2 - the second multi-result directory
+  arg3 - ALLBUGS file which is a manually prepared description of all bugs,
+         those features of current state of bugs which could not be obtained
+         automatically. NOTE: it should be kept up to date regularly.
+  arg4 - kernel bugzilla Bug List file
+  arg5 - local bugzilla Bug List file
+
+
+Error opcodes in 'Errors' field of Table 1
+==========================================
+
+The 'Errors' field of the summary table (Table 1) contains the letter opcodes
+of errors which points out the inconsistences of the particular bug state which
+require working on them. See opcodes of errors enumerated in ERROR_OPCODES file.
+
+
+ALLBUGS file manual description of per-bug state
+================================================
+
+One new line is to be added into this file for each new bug.
+The contents of fields of the line are given below.
+COMP    - component the bug relates to:
+            I    - AML Interpreter
+            C    - iASL compiler
+            M    - simulation purposes (OS Layer insertions for simulation purposes only)
+            U    - utility
+            S    - specs
+            ML   - memory leak (additional information but not component)
+IID     - internal ID of bug
+LBZID   - local bugzilla ID
+KBZID   - kernel bugzilla ID
+PR      - priority for fixing the bug. Should be non-empty for each not fixed
+          bug and empty otherwise:
+            1 - will be fixed in the first turn
+            2 - will be fixed in the second turn..
+SUMMARY - summary. Short description of bug.
+
+STATE-MANUALLY - the state of bug set up/confirmed (if needed) manually:
+          FIXED      - bug is fixed. It is to be filled only when there is no
+                       ability to create the relevant bdemo test which shows
+                       the current state of the bug.
+          REJECTED   - no longer a bug. Each rejected bug should be confirmed
+                       by this entry here.
+          INTEGRATED - bug-fix is olready integrated. Each fixed bug should be
+                       confirmed by this entry here that its patch/update is
+                       integrated into ACPICA.
+
+Discipline of setting up INTEGRATED
+into STATE-MANUALLY of ALLBUGS file
+===================================
+
+1. If bug fix is proposed by our side we check
+   manually through the code that bug fix is actually
+   integrated into ACPICA code.
+
+2. If bug is fixed by other side we dont know where to look for
+   the relevant update and simply run the relevant bdemo test on
+   the obtained release to ensure the bug-fix is already integrated.
+
+3. For bugs of internal bugzilla other side sets RESOLVED FIXED when
+   integrated the bug-fix update but doesn't close the relevant bug.
+   We run the bdemo test check the result of the test and set CLOSED
+   when the test results in PASS.
+
+4. CLOSED but not INTEGRATED yet bug is considered as a wrong combination.
+
+<End>.
+
+
+
+
+
+
+
+
+
+
+
+
+

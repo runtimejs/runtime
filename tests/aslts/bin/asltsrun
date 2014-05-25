@@ -1,0 +1,994 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Run specified set of test cases in all enabled modes
+#
+# DESCRIPTION:
+#
+# 1. A set of test cases to be run is manually
+#    specified in INIT_SET_OF_TEST_CASES() routine
+#
+# 2. Modes of runs to be executed are manually
+#    specified by non-zero variables:
+#       ENABLESLACK32 - 32-bit slack
+#       ENABLESLACK64 - 64-bit slack
+#       ENABLENORM32  - 32-bit non-slack (normal)
+#       ENABLENORM64  - 64-bit non-slack (normal)
+#
+# 3. You can exclude log out to RESULTS directory
+#    by setting to zero the variable:
+#       ENABLELOG
+#
+# External definitions required:
+#
+#    acpiexec - AcpiExec utility
+#    ASLTSDIR - the pathname of root directory of aslts test suite
+#
+# Concepts:
+#
+#    bitmap of mode -
+#       0-th bit - [0 - 32-bit,    1 - 64-bit]
+#       1-th bit - [0 - non-slack, 1 - slack]
+#
+#    See comment of Do utility for more information.
+
+# Includes
+
+. common
+. settings
+. diffproc
+
+
+# Store message to the common multi-result log file
+# arg1 - message
+multi_log()
+{
+	if [ -f "$COMMONLOGFILE" ]; then
+		echo "$1" >> "$COMMONLOGFILE"
+	else
+		echo "$1"
+	fi
+}
+
+# Convert {h:m:s:cs} string to centisecond time units
+# [arg1-arg4] - centisecond time string {h:m:s:cs}
+cent_str_to_cent_units()
+{
+	local rval
+
+	# Note: '1' before arguments (hours - exception took place)
+	# added to mask first '0' in cases '08' and '09'
+
+	eval "rval=$[ (((1$1 - 100) * 60 + (1$2 - 100)) * 60 + (1$3 - 100)) * 100 + (1$4 - 100) ]"
+	echo "$rval"
+}
+
+# Convert {h:m:s} string to centisecond time units
+# arg1 - time string {h:m:s}
+sec_str_to_cent_units()
+{
+	local rval hmscS=$1:00 _ifs="$IFS"
+
+	IFS=:
+	rval=`cent_str_to_cent_units $hmscS`
+	IFS="$_ifs"
+
+	echo "$rval"
+}
+
+# Return the length ot time period in centisecond time units
+# Note: assumed the total running time is less than 24 hours
+# arg1 - start time in centisecond time units
+# arg2 - finish time in centisecond time units
+get_cent_units_diff()
+{
+	local rval
+	local hmscU=$2 
+
+	# Check crossing 24-hour boundary
+
+	if [ $hmscU -lt $1 ]; then
+		hmscU=$[ $hmscU + 8640000 ]
+	fi
+
+	eval "rval=$[ $hmscU - $1 ]"
+
+	echo "$rval"
+}
+
+# Calculate and return the length ot time period as string {[h:]m:s.c}
+# arg1 - start time string {h:m:s}
+# arg2 - finish time string {h:m:s}
+get_cent_str_diff()
+{
+	local rval
+
+	RAW_INITIME=`sec_str_to_cent_units $1`
+	RAW_ENDTIME=`sec_str_to_cent_units $2`
+	RAW_RUNTIME=`get_cent_units_diff $RAW_INITIME $RAW_ENDTIME`
+	rval=`cent_units_to_cent_str $RAW_RUNTIME`
+
+	echo "$rval"
+}
+
+# Get version of AcpiExec
+get_acpiexec_version()
+{
+	local x version
+
+	x=`"$acpiexec" -bex,MAIN | grep "Utility version"`
+	if [ x"$x" == x ]; then
+		version=00000000
+	else
+		version=`echo "$x" | awk -F" " '{print $5}'`
+	fi
+
+	echo $version
+}
+
+# Get the patname of AML code of test case
+# arg1 - the name of test case
+# arg2 - bitmap of mode
+get_aml_code_path()
+{
+	local BITMODE=`get_mode_string $2 2`
+
+	path="$ASLTSDIR/tmp/aml/$EXECVERSION/opt/$BITMODE/$1.aml"
+	echo "$path"
+}
+
+# Run particular test case
+# arg1 - the name of test case
+# arg2 - bitmap of mode
+run_test_case()
+{
+	local amlcodepath tcase=$1 modepart modename SLMODE BITMODE
+	local options method commandline
+
+
+	modepart=`get_mode_string $2 0`
+	modename=`get_mode_string $2 1`
+	BITMODE=`get_mode_string $2 2`
+	SLMODE=`get_mode_string $2 3`
+
+	TEST_TITLE="$tcase $modename"
+
+	# Start time
+
+	FMT_INITIME=$(date +%T)
+
+	# Initial message
+
+	echo "ASLTS: START, $TEST_TITLE, $FMT_INITIME"
+
+	# Simulate test by acpiexec
+
+	amlcodepath=`get_aml_code_path $tcase $2`
+
+	if [ ! -f "$amlcodepath" ]; then
+		echo "Test doesn't exist: $amlcodepath"
+		AML_DONT_EXIST=$[ $AML_DONT_EXIST + 1 ]
+		TEST_RET=1
+	else
+		options=""
+		if [ $SLMODE == "norm" ]; then
+			method=MN00
+			options=""
+		else
+			method=MN01
+			options="-es"
+		fi
+
+		if [ "$DO_MEMSTAT" == "yes" ]; then
+			options="$options -ef"
+		fi
+
+		if [[ "$tcase" == mt_* ]]; then
+			commandline="thr,6,1"
+		else
+			commandline=ex
+		fi
+
+		echo ""
+		echo "acpiexec options to reproduce:"
+		echo "  $options -b\"$commandline,$method\""
+		echo "ASLTS aml tables to reproduce:"
+		echo "  $amlcodepath"
+		echo ""
+
+		"$acpiexec" $options -b"$commandline,$method" "$amlcodepath"
+		TEST_RET=$?
+	fi
+
+	# Finish time
+
+	FMT_ENDTIME=$(date +%T)
+
+	# Calculate the run time
+
+	FMT_RUNTIME=`get_cent_str_diff $FMT_INITIME $FMT_ENDTIME`
+
+	# Report the status message
+
+	if [ $TEST_RET != 0 ]; then
+	    echo "ASLTS: FINISH, $TEST_TITLE, FAIL, $FMT_ENDTIME ($FMT_RUNTIME)"
+	    UTILSTATUS=1
+	else
+	    echo "ASLTS: FINISH, $TEST_TITLE, SUCCESS, $FMT_ENDTIME ($FMT_RUNTIME)"
+	fi
+
+	return $TEST_RET
+}
+
+# Run a set of test cases (specified by INIT_SET_OF_TEST_CASES)
+# in one particular mode.
+# arg1 - bitmap of mode
+# arg2 - multi-result directory
+# arg3 - a list of test cases to be run
+run_set_of_test_cases()
+{
+	local x y z q status=0 total modepart modename tcase amlcodepath
+
+	modepart=`get_mode_string $1 0`
+	modename=`get_mode_string $1 1`
+
+	x=$(date +%F)
+	y=$(date +%T)
+
+	multi_log "$modename started $x $y"
+
+	total="$x $y"
+
+	for tcase in $3; do
+		amlcodepath=`get_aml_code_path $tcase $1`
+		if [ ! -f "$amlcodepath" ]; then
+			echo "Test doesn't exist: $amlcodepath"
+			AML_DONT_EXIST=$[ $AML_DONT_EXIST + 1 ]
+		else
+			if [ $ENABLELOG != 0 ]; then
+				run_test_case $tcase $1 > "$2/$modepart/$tcase"
+			else
+				run_test_case $tcase $1
+			fi
+			# See comment below.
+			# if [ $? -ne 0 ]; then
+			#	status=1
+			# fi
+		fi
+	done
+
+	z=$(date +%T)
+	q=`get_cent_str_diff $y $z`
+
+	# AcpiExec doesn't provide status of test execution,
+	# so dont report STATUS of AcpiExec execution here
+	# not to mislead as if it means STATUS of the tests
+	# execution.
+	# if [ $status == 0 ]; then
+	#	status=PASS
+	# else
+	#	status=FAIL
+	# fi
+	x="$(date +%F)"
+	multi_log "$modename finished $x $z, ($q)"
+
+	total="$modename, $total, $x $z ($q)"
+
+	MODES_SUMMARIES[$1]="$total"
+
+	MODES_TIMES[$1]="$q"
+}
+
+# Get the date-time-like name (used
+# as a multi-result directory name)
+# arg1 - time string {h:m:s}
+# arg2 - date string {y-m-d}
+get_date_time_like_name()
+{
+	local x y rval
+
+	x=`echo $1 | sed 's/-//g'`
+	y=`echo $2 | sed 's/://g'`
+	rval="$x.$y.$EXECVERSION"
+
+	echo "$rval"
+}
+
+# Check-make multi-result directory
+# arg1 - multi-result directory name
+make_multi_result_dir()
+{
+	local srcdir=`pwd` path
+
+	cd "$ASLTSDIR"
+
+	make_dir "./tmp" tmp tmp
+
+	cd "./tmp"
+
+	make_dir "./RESULTS" RESULTS RESULTS
+
+	cd "./RESULTS"
+
+	make_dir "./$1" "$1" "RESULTS/$1"
+
+	cd "./$1"
+
+	if [ $ENABLENORM32 != 0 -o $ENABLENORM64 != 0 ]; then
+		path="RESULTS/$1/norm"
+		make_dir "./norm" norm "$path"
+		cd "./norm"
+		if [ $ENABLENORM32 != 0 ]; then
+			make_dir "./32" 32 "$path/32"
+		fi
+		if [ $ENABLENORM64 != 0 ]; then
+			make_dir "./64" 64 "$path/64"
+		fi
+
+		cd ".."
+	fi
+
+	if [ $ENABLESLACK32 != 0 -o $ENABLESLACK64 != 0 ]; then
+		path="RESULTS/$1/slack"
+		make_dir "./slack" slack "$path"
+		cd "./slack"
+		if [ $ENABLESLACK32 != 0 ]; then
+			make_dir "./32" 32 "$path/32"
+		fi
+		if [ $ENABLESLACK64 != 0 ]; then
+			make_dir "./64" 64 "$path/64"
+		fi
+	fi
+
+	cd "$srcdir"
+}
+
+# Report to multi-log all the specified modes
+# the tests to be run in.
+report_specified_modes()
+{
+	local flag=0 x="       "
+
+	multi_log "Modes specified for running:"
+	multi_log ""
+
+	if [ $ENABLENORM32 != 0 ]; then
+		multi_log "${x}`get_mode_string $NORM32 1`"
+		flag=1
+	fi
+	if [ $ENABLENORM64 != 0 ]; then
+		multi_log "${x}`get_mode_string $NORM64 1`"
+		flag=1
+	fi
+	if [ $ENABLESLACK32 != 0 ]; then
+		multi_log "${x}`get_mode_string $SLACK32 1`"
+		flag=1
+	fi
+	if [ $ENABLESLACK64 != 0 ]; then
+		multi_log "${x}`get_mode_string $SLACK64 1`"
+		flag=1
+	fi
+
+	if [ $flag == 0 ]; then
+		multi_log "${x}No any run mode"
+	fi
+}
+
+# Report all status lines encountered in the test case
+# run log file and count and report the summary status
+# line of the test case.
+# arg1 - resulting log file of particular test case run
+# arg2 - the name of test case
+# arg3 - file where to store summary information
+do_summary_of_test_case()
+{
+	local status cnt=0 pass=0 fail=0 skip=0 start=0 finish=0 total=0
+	local outstand0=0 blck=0 outstand1=0
+	local memcnt=0 memtotal=0
+	local max0=0 max1=0 max2=0 max3=0 max4=0 max5=0
+	local out0=0 out1=0 out2=0 out3=0 out4=0 out5=0
+	local LargeRefCount=0
+	local x=0 exceptionsnum=0
+
+	OLD_IFS=$IFS
+	IFS=" "
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read s0 s1 s2 s3 line
+		if [ $? -ne 0 ] ; then
+			echo "|$2|$cnt|$pass|$fail|$skip|$start|$finish|$total|$outstand0|$blck|$memtotal|$max0|$max1|$max2|$max3|$max4|$max5|$out0|$out1|$out2|$out3|$out4|$out5|$outstand1|$LargeRefCount|$exceptionsnum|" >> "$3"
+			break
+		fi
+		if [[ "$line" == *STST* ]]; then
+			echo "$line"
+			cnt=$[ $cnt + 1 ]
+			status=`echo "$line" | awk -F: '{print $6}'`
+			if [ "$status" == PASS ]; then
+				pass=$[ $pass + 1 ]
+			elif [ "$status" == FAIL ]; then
+				fail=$[ $fail + 1 ]
+			elif [ "$status" == BLOCKED ]; then
+				blck=$[ $blck + 1 ]
+			elif [ "$status" == SKIPPED ]; then
+				skip=$[ $skip + 1 ]
+			fi
+		elif [[ "$s0" == ASLTS: ]]; then
+			if [ "$s1" == "START," ]; then
+				start=`echo "$line" | awk -F" " '{print $3}'`
+			elif [ "$s1" == "FINISH," ]; then
+				finish=`echo "$line" | awk -F" " '{print $4}'`
+				total=`echo "$line" | awk -F" " '{print $5}'`
+			fi
+		elif [[ "$s0" == Outstanding: ]]; then
+			outstand0=$s1
+		elif [[ "$s0" == Mem: ]]; then
+			if [ $memcnt == 0 ]; then
+				memtotal=`echo "$line" | awk -F" " '{print $9}'`
+				memtotal=$[ 0 + 0x$memtotal ]
+				max0=`echo "$line" | awk -F" " '{print $6}'`
+				out0=`echo "$line" | awk -F" " '{print $8}'`
+				max0=$[ 0 + 0x$max0 ]
+				out0=$[ 0 + 0x$out0 ]
+			elif [ $memcnt == 1 ]; then
+				max1=`echo "$line" | awk -F" " '{print $5}'`
+				out1=`echo "$line" | awk -F" " '{print $7}'`
+				max1=$[ 0 + 0x$max1 ]
+				out1=$[ 0 + 0x$out1 ]
+			elif [ $memcnt == 2 ]; then
+				max2=`echo "$line" | awk -F" " '{print $5}'`
+				out2=`echo "$line" | awk -F" " '{print $7}'`
+				max2=$[ 0 + 0x$max2 ]
+				out2=$[ 0 + 0x$out2 ]
+			elif [ $memcnt == 3 ]; then
+				max3=`echo "$line" | awk -F" " '{print $5}'`
+				out3=`echo "$line" | awk -F" " '{print $7}'`
+				max3=$[ 0 + 0x$max3 ]
+				out3=$[ 0 + 0x$out3 ]
+			elif [ $memcnt == 4 ]; then
+				max4=`echo "$line" | awk -F" " '{print $5}'`
+				out4=`echo "$line" | awk -F" " '{print $7}'`
+				max4=$[ 0 + 0x$max4 ]
+				out4=$[ 0 + 0x$out4 ]
+			elif [ $memcnt == 5 ]; then
+				max5=`echo "$line" | awk -F" " '{print $5}'`
+				out5=`echo "$line" | awk -F" " '{print $7}'`
+				max5=$[ 0 + 0x$max5 ]
+				out5=$[ 0 + 0x$out5 ]
+			fi
+			memcnt=$[ $memcnt + 1 ]
+		elif [[ "$line" == "Outstanding allocations"* ]]; then
+			outstand1=`echo "$s3" | awk -F"(" '{print $1}'`
+		elif [[ "$line" == *"The total number of exceptions handled"* ]]; then
+			exceptionsnum=`echo "$line" | awk -F" " '{print $7}'`
+			x=`echo $exceptionsnum | sed 's/"//g'`
+			exceptionsnum=$[ 0 + $x ]
+		elif [[ "$s3" == Large ]]; then
+			if [[ "$line" == "Reference Count"* ]]; then
+				LargeRefCount=$[ $LargeRefCount + 1 ]
+			fi
+		fi
+	done
+
+	IFS=$OLD_IFS  
+}
+
+# Report the status lines and summary information
+# for one particular mode of run for each test case
+# specified for running which have the test case run
+# log file located in the given directory.
+# arg1 - directory containing the test case run log files
+#        corresponding to one particular mode of run
+# arg2 - a list of test cases the logs of which to be processed
+# arg3 - file where to store summary information
+do_summary_of_mode()
+{
+	local path
+
+	for filename in $2
+	do
+		path="$1/$filename"
+		if [ -f "$path" ]; then
+			do_summary_of_test_case "$path" "$filename" "$3"
+		fi
+	done
+}
+
+# Prepare all summary information per each test case
+# specified by INIT_SET_OF_TEST_CASES for all the specified
+# modes of runs.
+# arg1 - multi-result directory pathname
+# arg2 - a list of test cases the logs of which to be processed
+do_all_summary()
+{
+	local path summ
+
+	ls "$1" |\
+	while [ 1 ]
+	do
+		read filename
+		if [ $? -ne 0 ] ; then
+			break
+		fi
+
+		if [ "$filename" == norm -o "$filename" == slack ]; then
+			path="$1/$filename"
+			if [ -d "$path/32" ]; then
+				summ="$path/32/__STATUS_OF_TEST_CASES"
+				echo -n "" > "$summ"
+				do_summary_of_mode "$path/32" "$2" "$summ" > "$path/32/__STATUS_OF_TESTS"
+			fi
+			if [ -d "$path/64" ]; then
+				summ="$path/64/__STATUS_OF_TEST_CASES"
+				echo -n "" > "$summ"
+				do_summary_of_mode "$path/64" "$2" "$summ" > "$path/64/__STATUS_OF_TESTS"
+			fi
+		fi
+	done
+}
+
+# Report summary information corresponding
+# to the given mode of run.
+# arg1 - ':' separated total information
+#        corresponding to the given mode of run
+#        returned by parse_status_of_test_cases()
+# arg2 - summary information corresponding
+#        to the given mode of run
+report_total_of_mode()
+{
+	local x y num memtotal
+
+	multi_log "TOTAL:             ($2)"
+
+	x=`echo "$1" | awk -F: '{print $4}'`
+	multi_log "    PASS       :  $x"
+
+	x=`echo "$1" | awk -F: '{print $5}'`
+	multi_log "    FAIL       :  $x"
+
+	x=`echo "$1" | awk -F: '{print $12}'`
+	multi_log "    BLOCKED    :  $x"
+
+	x=`echo "$1" | awk -F: '{print $6}'`
+	multi_log "    SKIPPED    :  $x"
+
+	x=`echo "$1" | awk -F: '{print $3}'`
+	multi_log "    Tests      :   $x"
+
+	get_num_of_available_test_cases
+	num=$?
+
+	x=`echo "$1" | awk -F: '{print $2}'`
+	multi_log "    Test Cases       : $x (of $num)"
+
+	NUM_DISABLED_BRANCHES=`echo "$1" | awk -F: '{print $7}'`
+
+	x=`echo "$1" | awk -F: '{print $8}'`
+	y=`echo "$1" | awk -F: '{print $9}'`
+
+	multi_log "    Test Collections : $x (of $RUNTIME_COLLS_NUM), $y"
+
+	x=`echo "$1" | awk -F: '{print $11}'`
+	multi_log "    Outstanding allocations after execution : $x"
+
+	x=`echo "$1" | awk -F: '{print $14}'`
+	multi_log "    Outstanding allocations (ACPI Error)    : $x"
+
+	x=`echo "$1" | awk -F: '{print $15}'`
+	multi_log "    Large Reference Count   (ACPI Error)    : $x"
+
+	memtotal=`echo "$1" | awk -F: '{print $13}'`
+	multi_log "    Memory consumption total                : $memtotal Kb"
+}
+
+# Report the status of particular test case
+# and summarize the particular entries of the
+# test cases status lines.
+# arg1 - status line of one particular test case
+report_test_case_summary()
+{
+	local x y z q l m n o p b u
+	local max0=0 max1=0 max2=0 max3=0 max4=0 max5=0
+	local out0=0 out1=0 out2=0 out3=0 out4=0 out5=0
+	local memtotal=0
+	local outstand1=0
+	local LargeRefCount=0
+
+	x=`echo "$1" | awk -F"|" '{print $2}'`
+	y=`echo "$1" | awk -F"|" '{print $7}'`
+	z=`echo "$1" | awk -F"|" '{print $8}'`
+	q=`echo "$1" | awk -F"|" '{print $9}'`
+
+	l=`echo "$1" | awk -F"|" '{print $4}'`
+	m=`echo "$1" | awk -F"|" '{print $5}'`
+	n=`echo "$1" | awk -F"|" '{print $6}'`
+	o=`echo "$1" | awk -F"|" '{print $3}'`
+	p=`echo "$1" | awk -F"|" '{print $10}'`
+	b=`echo "$1" | awk -F"|" '{print $11}'`
+
+
+	if [ $x == "condbranches" ]; then
+		multi_log "$x:      (service-test not counted to TOTAL)"
+		N_DISABLED_BRANCHES="$m"
+	else
+		multi_log "$x:"
+	fi
+
+	multi_log "                   ($y-$z $q)"
+	multi_log "       PASS    :  $l"
+	multi_log "       FAIL    :  $m"
+	multi_log "       BLOCKED :  $b"
+	multi_log "       SKIPPED :  $n"
+	multi_log "         total :   $o"
+
+	p=$[ 0 + $p ]
+	outstand1=`echo "$1" | awk -F"|" '{print $25}'`
+
+	multi_log "         Outstanding allocations after execution : $p"
+	multi_log "         Outstanding allocations (ACPI Error)    : $outstand1"
+
+	LargeRefCount=`echo "$1" | awk -F"|" '{print $26}'`
+	if [[ "$LargeRefCount" -gt 0 ]]; then
+		multi_log "         Large Reference Count   (ACPI Error)    : $LargeRefCount"
+	fi
+
+	multi_log "         Memory statistics (per cache type):"
+
+	memtotal=`echo "$1" | awk -F"|" '{print $12}'`
+	multi_log "           Total            : $memtotal Kb"
+
+	max0=`echo "$1" | awk -F"|" '{print $13}'`
+	max1=`echo "$1" | awk -F"|" '{print $14}'`
+	max2=`echo "$1" | awk -F"|" '{print $15}'`
+	max3=`echo "$1" | awk -F"|" '{print $16}'`
+	max4=`echo "$1" | awk -F"|" '{print $17}'`
+	max5=`echo "$1" | awk -F"|" '{print $18}'`
+	multi_log "           Maximum occupied : $max0(Kb) $max1 $max2 $max3 $max4 $max5"
+
+	out0=`echo "$1" | awk -F"|" '{print $19}'`
+	out1=`echo "$1" | awk -F"|" '{print $20}'`
+	out2=`echo "$1" | awk -F"|" '{print $21}'`
+	out3=`echo "$1" | awk -F"|" '{print $22}'`
+	out4=`echo "$1" | awk -F"|" '{print $23}'`
+	out5=`echo "$1" | awk -F"|" '{print $24}'`
+	multi_log "           Outstandings     : $out0 $out1 $out2 $out3 $out4 $out5"
+
+	if [ $x != "condbranches" ]; then
+		N_TEST_CASES=$[ $N_TEST_CASES + 1 ]
+		N_PASS=$[ $N_PASS + $l ]
+		N_FAIL=$[ $N_FAIL + $m ]
+		N_SKIP=$[ $N_SKIP + $n ]
+		N_BLCK=$[ $N_BLCK + $b ]
+		N_TESTS=$[ $N_TESTS + $o ]
+		N_OUTSTAND=$[ $N_OUTSTAND + $p ]
+		N_OUTSTAND_1=$[ $N_OUTSTAND_1 + $outstand1 ]
+		N_LARGE_REF_CNT=$[ $N_LARGE_REF_CNT + $LargeRefCount ]
+		N_TOTAL=$[ $N_TOTAL + $memtotal ]
+	fi
+
+	mark_collection_flag "$x"
+}
+
+# Run reporting and summarizing the status lines
+# of test cases present in the given file.
+# arg1 - file containing the status lines of
+#        all the test cases have been executed
+#        in one particular mode.
+parse_status_of_test_cases()
+{
+	local x
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ] ; then
+			x="`get_collections_total`"
+			echo ":$N_TEST_CASES:$N_TESTS:$N_PASS:$N_FAIL:$N_SKIP:$N_DISABLED_BRANCHES:$x:$N_OUTSTAND:$N_BLCK:$N_TOTAL:$N_OUTSTAND_1:$N_LARGE_REF_CNT"
+			break
+		fi
+		if [ -n "$line" ] ; then
+			report_test_case_summary "$line"
+		fi
+	done
+}
+
+# Generalization of summary information
+# prepared for test cases runs for the given
+# mode of run - prepare the convenient view
+# survey in the common multi-result log.
+# arg1 - multi-result directory pathname
+# arg2 - bitmap of mode
+# arg3 - summary information corresponding
+#        to the given mode of run
+report_mode_summary()
+{
+	local x memtotal outstand0 outstand1 LargeRefCount path modepart modename
+
+	modepart=`get_mode_string $2 0`
+	modename=`get_mode_string $2 1`
+
+	path="$1/$modepart/__STATUS_OF_TEST_CASES"
+
+	if [ -f "$path" ]; then
+
+		multi_log "$modename:"
+		multi_log ""
+
+		# Reset test collections involved flags
+		reset_collections_flags
+
+		x=`parse_status_of_test_cases "$path"`
+
+		report_total_of_mode "$x" "$3"
+
+		outstand0=`echo "$x" | awk -F: '{print $11}'`
+		outstand1=`echo "$x" | awk -F: '{print $14}'`
+		LargeRefCount=`echo "$x" | awk -F: '{print $15}'`
+		memtotal=`echo "$x" | awk -F: '{print $13}'`
+
+		if [[ "$LargeRefCount" -gt 0 ]]; then
+			HAVE_LARGE_REF_CNT=yes
+		fi
+
+		echo "|TOTAL|$outstand0|$memtotal|${MODES_TIMES[$2]}|$outstand1|$LargeRefCount|"  >> "$path"
+
+		multi_log ""
+
+	else
+		multi_log "$modename: summary information is not present"
+		multi_log ""
+	fi
+}
+
+# Report the test cases specified (by INIT_SET_OF_TEST_CASES)
+# for running.
+# arg1 - a list of test cases to be run
+report_enabled_test_cases()
+{
+	multi_log "Test cases specified for running:"
+	multi_log ""
+	for name in $1
+	do
+		multi_log "       $name"
+	done
+}
+
+# Report comparing results of different mode runs
+# of the same multi-run.
+# arg1 - result of two modes comparing
+# arg2 - first bitmap of mode
+# arg3 - second bitmap of mode
+report_inner_modes_cmp()
+{
+	local rval=0
+	local modename0 modename1
+
+	modename0=`get_mode_string $2 1`
+	modename1=`get_mode_string $3 1`
+
+	if [ $1 == $CMP_CMP_OP ]; then
+		rval=1
+		multi_log "          Compared : <$modename0> and <$modename1>"
+	elif [ $1 == $CMP_MISCMP_OP ]; then
+		rval=1
+		multi_log "       Miscompared : <$modename0> and <$modename1>"
+	fi
+
+	return $rval
+}
+
+# Compare results of different mode runs
+# of the same multi-result directory.
+# arg1 - multi-result directory
+do_inner_modes_cmp()
+{
+	local CMP0 CMP1 CMP2 CMP3 CMP4 CMP5
+
+	# Compare results of different mode runs
+	# and report the summary of comparing.
+
+	multi_log ""
+	multi_log "Compare different mode runs of the same multi-run:"
+	multi_log ""
+
+	do_compare_two_runs "$1" $NORM32 "$1" $SLACK32 > /dev/null
+	report_inner_modes_cmp $? $NORM32 $SLACK32
+	CMP4=$?
+	do_compare_two_runs "$1" $NORM32 "$1" $NORM64 > /dev/null
+	report_inner_modes_cmp $? $NORM32 $NORM64
+	CMP0=$?
+	do_compare_two_runs "$1" $NORM32 "$1" $SLACK64 > /dev/null
+	report_inner_modes_cmp $? $NORM32 $SLACK64
+	CMP2=$?
+	do_compare_two_runs "$1" $SLACK32 "$1" $NORM64 > /dev/null
+	report_inner_modes_cmp $? $SLACK32 $NORM64
+	CMP3=$?
+	do_compare_two_runs "$1" $SLACK32 "$1" $SLACK64 > /dev/null
+	report_inner_modes_cmp $? $SLACK32 $SLACK64
+	CMP1=$?
+	do_compare_two_runs "$1" $NORM64 "$1" $SLACK64 > /dev/null
+	report_inner_modes_cmp $? $NORM64 $SLACK64
+	CMP5=$?
+
+	if [ $CMP0 == 0 -a $CMP1 == 0 -a $CMP2 == 0\
+		-a $CMP3 == 0 -a $CMP4 == 0 -a $CMP5 == 0 ]; then
+		multi_log "       Nothing to compare"
+	fi
+}
+
+# ############################## MAIN ###############################
+
+# Init variables of utility
+
+UTILSTATUS=0
+AML_DONT_EXIST=0
+DO_INNER_MODES_COMPARE=no
+
+MULTIPATH=
+EXECVERSION=
+COMMONLOGFILE=
+MODES_TIMES=
+MODES_SUMMARIES=
+NUM_DISABLED_BRANCHES=
+
+# Do settings:
+# - set up a list of test cases you want to be processed
+# - set up a set of modes to run the tests
+# - init log out results of runs
+
+RESET_SETTINGS
+INIT_ALL_AVAILABLE_CASES
+INIT_ALL_AVAILABLE_MODES
+INIT_SET_OF_TEST_CASES
+INIT_SET_OF_TEST_MODES
+INIT_LOG_RESULTS
+INIT_MEM_STAT
+
+# Check access to AcpiExec utility
+
+if [ ! -f "$acpiexec" ]; then
+	do_exit 1 "Undefined acpiexec variable! Set it to pathname of AcpiExec utility."
+fi
+
+# Determine the working directory and take precautions (last name should be aslts)
+
+if [ ! -d "$ASLTSDIR" ]; then
+	do_exit 1 "Undefined ASLTSDIR variable! Set it to pathname of root directory of aslts test suite."
+fi
+
+x=`basename "$ASLTSDIR"`
+if [ "$x" != aslts ]; then
+	do_exit 1 "The last name in ASLTSDIR should be 'aslts', but it is $x!"
+fi
+
+# Start date and time (used in name of result directory)
+
+TS_FMT_INIDATE=$(date +%F)
+TS_FMT_INITIME=$(date +%T)
+
+# Prepare directory for results
+
+if [ $ENABLELOG != 0 ]; then
+
+	EXECVERSION=`get_acpiexec_version`
+
+	MULTINAME=`get_date_time_like_name "$TS_FMT_INIDATE" "$TS_FMT_INITIME"`
+
+	make_multi_result_dir "$MULTINAME"
+
+	# Set up the common messages log file
+
+	MULTIPATH="$ASLTSDIR/tmp/RESULTS/$MULTINAME"
+	check_dir "$MULTIPATH"
+	echo "Generating ASLTS log into directory $MULTIPATH"
+
+	COMMONLOGFILE="$MULTIPATH/Summary"
+	echo "# Trace and summary of $MULTINAME bunch of test runs." > "$COMMONLOGFILE"
+	multi_log ""
+	multi_log "ASLTS_SYSTEM `uname -s` `uname -r` `uname -v` `uname -m` `uname -p` `uname -i` `uname -o`"
+	multi_log ""
+fi
+
+# Start of tests run
+
+report_enabled_test_cases "$ENABLED_TCASES"
+
+multi_log ""
+
+report_specified_modes
+
+multi_log ""
+
+multi_log "Execution started $TS_FMT_INIDATE $TS_FMT_INITIME"
+
+# Run tests in 32-bit norm mode
+if [ $ENABLENORM32 != 0 ]; then
+	run_set_of_test_cases $NORM32 "$MULTIPATH" "$ENABLED_TCASES"
+fi
+
+# Run tests in 64-bit norm mode
+if [ $ENABLENORM64 != 0 ]; then
+	run_set_of_test_cases $NORM64 "$MULTIPATH" "$ENABLED_TCASES"
+fi
+
+# Run tests in 32-bit slack mode
+if [ $ENABLESLACK32 != 0 ]; then
+	run_set_of_test_cases $SLACK32 "$MULTIPATH" "$ENABLED_TCASES"
+fi
+
+# Run tests in 64-bit slack mode
+if [ $ENABLESLACK64 != 0 ]; then
+	run_set_of_test_cases $SLACK64 "$MULTIPATH" "$ENABLED_TCASES"
+fi
+
+# Finish of tests run
+
+TS_FMT_ENDTIME=$(date +%T)
+TS_FMT_RUNTIME=`get_cent_str_diff $TS_FMT_INITIME $TS_FMT_ENDTIME`
+# AcpiExec doesn't provide status of test execution,
+# so dont report STATUS of AcpiExec execution here
+# not to mislead as it means STATUS of the tests
+# execution.
+# if [ $UTILSTATUS == 0 ]; then
+#	status=PASS
+# else
+#	status=FAIL
+# fi
+multi_log "Execution finished $(date +%F) $TS_FMT_ENDTIME ($TS_FMT_RUNTIME)"
+
+if [ $ENABLELOG != 0 ]; then
+
+	# Prepare all summaries
+
+	do_all_summary "$MULTIPATH" "$ENABLED_TCASES"
+
+	# Generalization of summaries
+
+	multi_log " "
+	multi_log "       PER-MODE TEST CASES EXECUTION SUMMARY:"
+	multi_log " "
+	report_mode_summary "$MULTIPATH" $NORM32 "${MODES_SUMMARIES[$NORM32]}"
+	report_mode_summary "$MULTIPATH" $NORM64 "${MODES_SUMMARIES[$NORM64]}"
+	report_mode_summary "$MULTIPATH" $SLACK32 "${MODES_SUMMARIES[$SLACK32]}"
+	report_mode_summary "$MULTIPATH" $SLACK64 "${MODES_SUMMARIES[$SLACK64]}"
+
+	# Cross-compare results of runs of the same multi-result directory
+
+	if [ "$DO_INNER_MODES_COMPARE" == yes ]; then
+		do_inner_modes_cmp "$MULTIPATH"
+	fi
+
+	# Alarm the number of excluded testing branches
+
+	multi_log ""
+
+	if [ -n "$NUM_DISABLED_BRANCHES" ]; then
+		if [ "$NUM_DISABLED_BRANCHES" != 0 ]; then
+			multi_log "WARNING: the number of excluded testing branches is non-zero: $NUM_DISABLED_BRANCHES"
+		fi
+	fi
+
+	TS_FMT_ENDTIME=$(date +%T)
+	TS_FMT_TOTALTIME=`get_cent_str_diff $TS_FMT_INITIME $TS_FMT_ENDTIME`
+	multi_log "Summary prepared $(date +%F) $TS_FMT_ENDTIME ($TS_FMT_TOTALTIME)"
+fi
+
+if [ $AML_DONT_EXIST != 0 ]; then
+	msg="WARNING: some test cases dont have AML code! ($AML_DONT_EXIST)"
+	echo "$msg"
+	multi_log "$msg"
+fi
+
+if [ $HAVE_LARGE_REF_CNT == yes ]; then
+	msg="WARNING: <Large Reference Count> where detected!"
+	echo "$msg"
+	multi_log ""
+	multi_log "$msg"
+fi
+
+exit $UTILSTATUS
+
+

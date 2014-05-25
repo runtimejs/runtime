@@ -1,0 +1,539 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Compare results of two runs of tests
+#
+# (for comments see Do and asltsrun utilities).
+
+# Compare the summary information of two runs
+# arg1 - the first run test status lines file
+# arg2 - the second run test status lines file
+cmp_two_runs()
+{
+	local ret
+
+	echo "diff old: $1 -- new: $2"
+	diff -s "$1" "$2"
+	ret=$?
+	echo ""
+	return $ret
+}
+
+# Chose line of file by head
+# arg1 - file pathname
+# arg2 - delimiter
+# arg3 - string, the first element of line
+chose_line_of_file()
+{
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ] ; then
+			break
+		fi
+
+		tcasename=`echo "$line" | awk -F"$2" '{print $2}'`
+		if [ "$tcasename" == "$3" ]; then
+			echo "$line"
+			return 1
+		fi
+	done
+}
+
+# Compare and report two run times
+#
+# arg1 - run time 1
+# arg2 - run time 2
+#
+# Return:
+#     0 - T1 == T2
+#     1 - T1 < T2
+#     2 - T1 > T2
+#   3 - bad layout of T1
+#   4 - bad layout of T2
+report_run_time_cmp()
+{
+	local rval=0 str ret t0 t1
+	local diff01 diff01str
+
+
+	str=`diff_of_str_times "$1" "$2"`
+	ret=$?
+
+	if [ $ret -gt 2 ] ; then
+		echo "report_run_time_cmp: bad layout, <$1>, <$2>"
+		return 3
+	fi
+
+	t0=`echo "$str" | awk -F"|" '{print $1}'`
+	t1=`echo "$str" | awk -F"|" '{print $2}'`
+	diff01=`echo "$str" | awk -F"|" '{print $3}'`
+	diff01str=`echo "$str" | awk -F"|" '{print $4}'`
+
+	if [ $ret -eq 2 ] ; then
+		# 2 means arg1 is greater than arg2
+		percent=$[ ($diff01 * 10000) / ($t1 * 100 + 1) ]
+		echo "WARNING, TOTAL, time of tests run grown from $2 to $1, (+$diff01str, $percent% of $2)"
+		rval=2
+	elif [ $ret -eq 1 ] ; then
+		# 1 means arg1 is less than arg2
+		percent=$[ ($diff01 * 10000) / ($t0 * 100 + 1) ]
+		echo "INFO,    TOTAL, time of tests run reduced from "$2" to "$1", (-$diff01str, $percent% of $2)"
+		rval=1
+	fi
+
+	return $rval
+}
+
+# Compare and report two memory statistics
+# arg1 - the test case name
+# arg2 - component
+# arg3 - the value on the first run
+# arg4 - the value on the second run
+report_mem_stat_cmp()
+{
+	local rval=0 x percent
+
+	if [[ $4 -eq 0 ]]; then
+		return 0
+	fi
+
+#
+# We are only interested in memory differences that are greater than 10%
+#
+	if [[ $3 -gt $4 ]]; then
+		x=$[ $3 - $4 ]
+		percent=$[ ($x * 100) / $4 ]
+
+		if [[ $percent -lt 10 ]]; then
+			return 1
+		fi
+		echo "WARNING, $1, memory use grown ($2): $3, $4, (+$x, $percent% of $4)"
+		rval=1
+	elif [[ $3 -lt $4 ]]; then
+		x=$[ $4 - $3 ]
+		percent=$[ ($x * 100) / $4 ]
+
+		if [[ $percent -lt 10 ]]; then
+			return 2
+		fi
+		echo "INFO,    $1, memory use reduced ($2): $3, $4, (-$x, $percent% of $4)"
+		rval=2
+	fi
+	return $rval
+}
+
+# Compare and report two exceptions statistics
+# arg1 - the test case name
+# arg2 - component
+# arg3 - the value on the first run
+# arg4 - the value on the second run
+report_exceptions_stat_cmp()
+{
+	local rval=0
+
+	if [[ $3 -gt $4 ]]; then
+		echo "WARNING, $1, exceptions occurance number grown ($2): $3, $4"
+		rval=1
+	elif [[ $3 -lt $4 ]]; then
+		echo "INFO,    $1, exceptions occurance number reduced ($2): $3, $4"
+		rval=2
+	fi
+	return $rval
+}
+
+# Compare status lines of the same test case of two different runs
+# arg1 - the first run test case status line
+# arg2 - the second run test case status line
+# arg3 - the test case name
+cmp_two_status_lines()
+{
+	local rval=0
+
+	local memtotal00
+	local outstand00
+	local outstand01
+	local max00 max01 max02 max03 max04 max05
+	local out00 out01 out02 out03 out04 out05
+
+	local memtotal10
+	local outstand10
+	local outstand11
+	local max10 max11 max12 max13 max14 max15
+	local out10 out11 out12 out13 out14 out15
+
+	local totalmem0
+	local totaloutstand00
+	local totaltime0
+	local totaloutstand01
+
+	local totalmem1
+	local totaloutstand10
+	local totaltime1
+	local totaloutstand11
+
+	local exceptionsnum0
+	local exceptionsnum1
+
+	if [ "$3" == TOTAL ]; then
+		totaloutstand00=`echo "$1" | awk -F"|" '{print $3}'`
+		totalmem0=`echo "$1" | awk -F"|" '{print $4}'`
+		totaltime0=`echo "$1" | awk -F"|" '{print $5}'`
+		totaloutstand01=`echo "$1" | awk -F"|" '{print $6}'`
+
+		totaloutstand10=`echo "$2" | awk -F"|" '{print $3}'`
+		totalmem1=`echo "$2" | awk -F"|" '{print $4}'`
+		totaltime1=`echo "$2" | awk -F"|" '{print $5}'`
+		totaloutstand11=`echo "$2" | awk -F"|" '{print $6}'`
+
+		if [ x$totaloutstand01 == x ]; then
+			# For obsolete layout
+			return 0
+		fi
+
+		if [ x$totaloutstand11 == x ]; then
+			# For obsolete layout
+			return 0
+		fi
+
+		report_run_time_cmp "$totaltime0" "$totaltime1"
+		if [ $? -eq 2 ]; then
+			rval=1
+		fi
+
+		report_mem_stat_cmp "$3" total_memory $totalmem0 $totalmem1
+		if [ $? -eq 1 ]; then
+			rval=1
+		fi
+
+		report_mem_stat_cmp "$3" total_outstand0 $totaloutstand00 $totaloutstand10
+		if [ $? -eq 1 ]; then
+			rval=1
+		fi
+
+		report_mem_stat_cmp "$3" total_outstand1 $totaloutstand01 $totaloutstand11
+		if [ $? -eq 1 ]; then
+			rval=1
+		fi
+
+		return $rval
+	fi
+
+	memtotal00=`echo "$1" | awk -F"|" '{print $12}'`
+	if [ x$memtotal00 == x ]; then
+		# For obsolete layout
+		return 0
+	fi
+
+	memtotal10=`echo "$2" | awk -F"|" '{print $12}'`
+	if [ x$memtotal10 == x ]; then
+		# For obsolete layout
+		return 0
+	fi
+
+	if [ "$DO_COMPARE_OF_EXCEPTIONS" == "yes" ]; then
+		exceptionsnum0=`echo "$1" | awk -F"|" '{print $28}'`
+		exceptionsnum1=`echo "$2" | awk -F"|" '{print $28}'`
+		report_exceptions_stat_cmp "$3" exceptionsnum $exceptionsnum0 $exceptionsnum1
+		if [ $? -eq 1 ]; then
+			rval=1
+		fi
+	fi
+
+	if [ "$DO_COMPARE_OF_TEST_CASES" == "yes" ]; then
+
+	outstand00=`echo "$1" | awk -F"|" '{print $10}'`
+	max00=`echo "$1" | awk -F"|" '{print $13}'`
+	max01=`echo "$1" | awk -F"|" '{print $14}'`
+	max02=`echo "$1" | awk -F"|" '{print $15}'`
+	max03=`echo "$1" | awk -F"|" '{print $16}'`
+	max04=`echo "$1" | awk -F"|" '{print $17}'`
+	max05=`echo "$1" | awk -F"|" '{print $18}'`
+	out00=`echo "$1" | awk -F"|" '{print $19}'`
+	out01=`echo "$1" | awk -F"|" '{print $20}'`
+	out02=`echo "$1" | awk -F"|" '{print $21}'`
+	out03=`echo "$1" | awk -F"|" '{print $22}'`
+	out04=`echo "$1" | awk -F"|" '{print $23}'`
+	out05=`echo "$1" | awk -F"|" '{print $24}'`
+	outstand01=`echo "$1" | awk -F"|" '{print $25}'`
+
+	outstand10=`echo "$2" | awk -F"|" '{print $10}'`
+	max10=`echo "$2" | awk -F"|" '{print $13}'`
+	max11=`echo "$2" | awk -F"|" '{print $14}'`
+	max12=`echo "$2" | awk -F"|" '{print $15}'`
+	max13=`echo "$2" | awk -F"|" '{print $16}'`
+	max14=`echo "$2" | awk -F"|" '{print $17}'`
+	max15=`echo "$2" | awk -F"|" '{print $18}'`
+	out10=`echo "$2" | awk -F"|" '{print $19}'`
+	out11=`echo "$2" | awk -F"|" '{print $20}'`
+	out12=`echo "$2" | awk -F"|" '{print $21}'`
+	out13=`echo "$2" | awk -F"|" '{print $22}'`
+	out14=`echo "$2" | awk -F"|" '{print $23}'`
+	out15=`echo "$2" | awk -F"|" '{print $24}'`
+	outstand11=`echo "$2" | awk -F"|" '{print $25}'`
+
+
+	report_mem_stat_cmp "$3" memtotal $memtotal00 $memtotal10
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" outstand0 $outstand00 $outstand10
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" outstand1 $outstand01 $outstand11
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max0 $max00 $max10
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max1 $max01 $max11
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max2 $max02 $max12
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max3 $max03 $max13
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max4 $max04 $max14
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" max5 $max05 $max15
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+
+	report_mem_stat_cmp "$3" out0 $out00 $out10
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" out1 $out01 $out11
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" out2 $out02 $out12
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" out3 $out03 $out13
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" out4 $out04 $out14
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+	report_mem_stat_cmp "$3" out5 $out05 $out15
+	if [ $? -eq 1 ]; then
+		rval=1
+	fi
+
+	fi
+
+
+	return $rval
+}
+
+# Unpack file into array,
+# element of array is a line of file.
+# arg1 - path name of file
+unpack_file_into_array()
+{
+	x=`cat "$1" | sort |\
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ] ; then
+			break
+		fi
+		echo "$line"
+	done`
+	echo "$x"
+}
+
+# Compare the memory consumption statistics of two runs
+# arg1 - the first run test cases status lines file
+# arg2 - the second run test cases status lines file
+cmp_memory_of_two_runs()
+{
+	local rval=0 index=0 index_of_last_found=0 length=0
+
+	ARRAY=
+
+	file1=`unpack_file_into_array "$1"`
+	file2=`unpack_file_into_array "$2"`
+
+	# Put second input into array
+
+	for line in $file2
+	do
+		if [ x"$line" == x ]; then
+			continue
+		fi
+		ARRAY[$index]="$line"
+		index=$[ $index + 1 ]
+	done
+
+	length=$index
+
+	if [ "$length" -eq 0 ]; then
+		echo "Empty file <$2>"
+		return 0
+	fi
+
+	# Run through the first input and check equivalent line from the
+	# array of second input, do one pass only through both inputs (they
+	# are sorted identically).
+
+	for i in $file1
+	do
+		tcasename0=`echo "$i" | awk -F"|" '{print $2}'`
+
+		if [ x"$tcasename0" == x ]; then
+			continue
+		fi
+
+		index=$index_of_last_found
+
+		while [ 1 ]
+		do
+			if [ "$index" -ge "$length" ]; then
+				break
+			fi
+
+			line="${ARRAY[$index]}"
+			index=$[ $index + 1 ]
+			tcasename1=`echo "$line" | awk -F"|" '{print $2}'`
+			if [ "$tcasename1" == "$tcasename0" ]; then
+				index_of_last_found=$index
+				cmp_two_status_lines "$i" "$line" "$tcasename0"
+				if [ $? -ne 0 ]; then
+					rval=1
+				fi
+				if [ "$DO_COMPARE_TOTAL_ONLY" == yes -a "$tcasename0" == TOTAL ]; then
+					echo "!!!!!!!, REDUCED MODE OF STAT CMP: only TOTAL statistics was compared!"
+					return $rval
+				fi
+
+				break
+			fi
+		done
+	done
+
+	return $rval
+}
+
+# Determine the test status lines files
+# corresponding to the first and the second
+# runs and initiate comparing of them.
+# arg1 - second multi-result directory
+# arg2 - second bitmap of mode
+# arg3 - first multi-result directory
+# arg4 - first bitmap of mode
+do_compare_two_runs()
+{
+	local rval=100 ret mark path0 path1 exists0 exists1 path2 path3
+	local modepart0 modename0
+	local modepart1 modename1
+
+	modepart0=`get_mode_string $2 0`
+	modename0=`get_mode_string $2 1`
+	modepart1=`get_mode_string $4 0`
+	modename1=`get_mode_string $4 1`
+
+	path0="$1/$modepart0/__STATUS_OF_TESTS"
+	path1="$3/$modepart1/__STATUS_OF_TESTS"
+
+	echo ""
+	mark="================"
+	echo "$mark Comparing results of <$modename0> and <$modename1>:"
+
+	exists0=0
+	exists1=0
+	ret=1
+
+	if [ -f "$path0" ]; then
+		exists0=1
+	fi
+	if [ -f "$path1" ]; then
+		exists1=1
+	fi
+
+	if [ $exists0 == 1 -a $exists1 == 1 ]; then
+		cmp_two_runs "$path0" "$path1"
+		ret=$?
+
+		if [ "$DO_MEMSTAT" == "yes" ]; then
+			path2="$3/$modepart1/__STATUS_OF_TEST_CASES"
+			path3="$1/$modepart0/__STATUS_OF_TEST_CASES"
+			cmp_memory_of_two_runs "$path2" "$path3"
+		fi
+	fi
+
+	if [ $exists0 == 1 -a $exists1 == 1 ]; then
+		if [ $ret == 0 ]; then
+			rval=$CMP_CMP_OP
+			echo "$mark `cmp_result_opcode_to_str $rval`"
+		else
+			rval=$CMP_MISCMP_OP
+			echo "$mark `cmp_result_opcode_to_str $rval`"
+			UTILSTATUS=1
+		fi
+	elif [ $exists0 == 1 ]; then
+		rval=$CMP_NO_SECOND_OP
+		echo "$mark `cmp_result_opcode_to_str $rval`"
+	elif [ $exists1 == 1 ]; then
+		rval=$CMP_NO_FIRST_OP
+		echo "$mark `cmp_result_opcode_to_str $rval`"
+	else
+		rval=$CMP_NO_BOTH_OP
+		echo "$mark `cmp_result_opcode_to_str $rval`"
+	fi
+
+	echo ""
+	echo "Failures in new version: `grep -c FAIL $path1` -- $path1"
+	echo "Failures in old version: `grep -c FAIL $path0` -- $path0"
+	echo ""
+	return $rval
+}
+
+# Convert opcode of result of comparing to string
+# arg1 - opcode of result of comparing
+cmp_result_opcode_to_str()
+{
+	local msg
+
+	case $1 in
+		$CMP_CMP_OP) msg=compared;;
+		$CMP_MISCMP_OP) msg=miscompared;;
+		$CMP_NO_SECOND_OP) msg="- (the SUMMARY file of second run doesn't exist)";;
+		$CMP_NO_FIRST_OP) msg="- (the SUMMARY file of first run doesn't exist)";;
+		$CMP_NO_BOTH_OP) msg="- (the SUMMARY files of both runs dont exist)";;
+		*) msg="???"
+	esac
+
+	echo "$msg"
+}
+
+# ############################## MAIN ###############################
+
+# Initialize the common variables
+
+# Constants
+
+# Opcodes of result of comparing
+CMP_CMP_OP=0
+CMP_MISCMP_OP=1
+CMP_NO_SECOND_OP=2
+CMP_NO_FIRST_OP=3
+CMP_NO_BOTH_OP=4
+

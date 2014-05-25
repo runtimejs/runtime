@@ -1,0 +1,38 @@
+# common switch make
+
+all:	${MDIRS}
+${MDIRS}: FORCE
+	@cd $@; pwd; make
+
+install:	FORCE
+		@for d in ${MDIRS}; do \
+			(cd $$d; \
+			if [ $$? -ne 0 ]; then \
+				echo "Bad element of MDIRS: <$$d>"; \
+			else \
+				pwd; make install; \
+			fi); \
+		echo "---- Completed test package [$$d]"; \
+		done
+
+clean:	FORCE
+		@for d in ${MDIRS}; do \
+			(cd $$d; \
+			if [ $$? -ne 0 ]; then \
+				echo "Bad element of MDIRS: <$$d>"; \
+			else \
+				pwd; make clean; \
+			fi); \
+		done
+
+clobber:	FORCE
+		@for d in ${MDIRS}; do \
+			(cd $$d; \
+			if [ $$? -ne 0 ]; then \
+				echo "Bad element of MDIRS: <$$d>"; \
+			else \
+				pwd; make clobber; \
+			fi); \
+		done
+
+FORCE:

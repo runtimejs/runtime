@@ -1,0 +1,199 @@
+
+Instructions to create a full release of the ACPICA software
+and utilities.
+
+Last update: 15 January 2014.
+
+The build uses MS Visual Studio and Cygwin to accomplish the
+goal of releasing both Windows and Unix versions of the ACPICA code
+and utilities. For Windows, binary versions of the ACPICA utilities
+(including the iASL compiler) are created.
+
+
+Required Accounts
+-----------------
+
+1) An account on github.com with full access rights to the acpica repository.
+2) An account on the acpica bugzilla with write/change access.
+3) An account on the acpica.org website with write/change access.
+
+
+Required Tools
+--------------
+
+1) Documents: The main ACPICA documents (ACPICA reference, iASL user guide)
+are written in MS word, then converted to PDF format. Both versions of each
+are released on the ACPICA website.
+
+    MS Word
+    Word to PDF conversion tool (such as PDF Create 8)
+
+2) Generation via Windows tools: The Windows binaries are built via
+Visual Studio. We must release the Windows binaries since Windows
+does not provide a compiler.
+
+See acpica/generate/msvc9/readme.txt for Windows setup and ACPICA generation
+instructions.
+
+See acpica/source/compiler/readme.txt for flex/bison installation and
+iASL generation instructions.
+
+    Microsoft Visual Studio 2008
+    Flex for Windows (http://gnuwin32.sourceforge.net/packages/flex.htm)
+    Bison for Windows (http://gnuwin32.sourceforge.net/packages/bison.htm)
+    PkWare pkzip25 (Available free from multiple sources). Here is a list of
+        mirrors: http://www.filewatcher.com/m/PKZIP25.EXE.339456-0.html
+        Otherwise, Google "pkzip25.exe" to find the free executable.
+        Install pkzip25 to /cygdrive/c/windows/pkzip25.exe
+
+3) Cygwin for Windows: Cygwin is used to checkout the source code from the git
+tree, generate ACPICA from source, and to build the ACPICA release packages.
+
+    Cygwin is available at (http://www.cygwin.com)
+
+These Cygwin packages are required for ACPICA generation:
+
+    git (found in Devel)
+    make (found in Devel)
+    gcc C compiler (found in Devel)
+    flex (found in Devel)
+    bison (found in Devel)
+    m4 (macro processor required by bison, found in Interpreters)
+    dos2unix and unix2dos converters (found in Text)
+
+Additionally, to write to the git tree, these are needed:
+
+    openSSH (found in Net)
+    corkscrew (found in Net)
+
+
+4) Windows/Unix line termination issues:
+
+a) Install Cygwin with the default setting of CR/LF line terminators
+b) Ensure that these lines are present in the git configuration file,
+   .gitconfig in your home directory:
+
+[core]
+        autocrlf = true
+
+
+git and ssh stuff
+-----------------
+
+To write to the git tree, you'll need to setup an ssh connection to github.
+ssh clone path is:
+
+    git clone ssh://git@ssh.github.com/acpica/acpica.git
+
+
+Build the ACPICA Software
+-------------------------
+
+Cleanup any extraneous files in the local git tree
+
+Complete any updates to the ACPICA documentation (ACPICA ref, iASL ref)
+Create the .PDF versions of the MS Word .DOC files
+Checkin any changed documents
+
+Update the version number (hex in the format: 0xYYYYMMDD)
+    in the file source/include/acpixf.h
+Build Windows debug versions of all software and utilities
+Build Windows nodebug versions of all software and utilities
+    (generate/msvc9)
+Build Unix versions of all software and utilities
+    generate/unix/make clean
+    generate/unix/make
+
+Write the release notes
+Generate sizes for the acpica library from generate/release/size.bat
+   Note: This step uses MS dumpbin(link) which is a part of the VC package.
+   It might not work unless the environment variables are set correctly.
+   Execute VC/vcvarsall.bat from the command line if necessary.
+Sizes appear in the files size_rel.txt and size_dbg.txt
+Integrate code/data and debug/nodebug sizes into the release notes.
+Add the release notes to the documents/changes.txt document via Word.
+   Note: From Word, use "Save As", then check the "MS-DOS" and
+   "Insert line breaks" boxes before saving.
+
+Checkin documents/changes.txt
+Checkin the new version number, source/include/acpixf.h
+Git push everything
+
+Tag the version file with a name of the form Rmm_dd_yy
+    git tag -m"version yyyymmdd" Rmm_dd_yy <commit #>
+    git push --tags
+
+Build the various tar/zip release files:
+    Convert the generate/release/.sh files to unix format: dos2unix *.sh
+    On cygwin, execute generate/release/release.sh (sh release.sh)
+
+
+
+Update the ACPICA website
+-------------------------
+
+Login to acpica.org (with update permission)
+
+Create a new download node for the new ACPICA version:
+    Goto: ContentManagement->CreateContent->Downloads
+    Title: Use the new version number in the correct format (e.g., "Version 20140114")
+    Body: Insert the release notes for this version
+    Date: Must be the current date (should match ACPICA version)
+    File Attachments: Attach all of the release zip/gz files (currently 6 files)
+        (From the acpica/generate/release/current directory)
+    Click "Save" at the bottom of the page
+
+Update the version number token.
+This will update the version number header on all pages where the token is used:
+    Goto https://acpica.org/node/88, click edit, update version at body top
+        Click "Save" at the bottom of the page
+
+Update file pathnames:
+    Goto "Downloads", click edit
+        Update paths to new file versions, update file sizes (3 files)
+        Click "Save" at the bottom of the page
+    Goto "Downloads/Windows Source Code", click edit
+        Update paths to new file versions, update file sizes (2 files)
+        Click "Save" at the bottom of the page
+    Goto "Downloads/Windows Binary Tools", click edit
+        Update paths to new file version, update file size (1 file)
+        Click "Save" at the bottom of the page
+
+ACPICA document updates:
+    The documentation/changes.txt file must always be updated.
+    Additional ACPICA documentation may require update (in doc/pdf pairs):
+
+        acpica-reference.doc
+        acpica-reference.pdf
+        aslcompiler.doc
+        aslcompiler.pdf
+
+    Goto the "Documentation" page, click edit.
+    Attach/upload all new versions of the document(s)
+    Uncheck the "List" box for each new document
+    Update pathnames (and file sizes) in body for each new filename
+        (appears at bottom of each attach)
+    Update "Last update" dates as needed
+    Click save at bottom
+        <Note: this may be fixed so that the filename can stay the same>
+
+Update "news" if there are any major changes or major new features:
+    Update front page news:
+        Goto ContentManagement->CreateContent->News
+        Add news item in the "Title" section and click save at bottom
+
+
+Email the release notes
+-----------------------
+
+Send separate copies of the notes (in plain text) to the following:
+    AcpiCa (acpica.intel.com)
+    devel@acpica.org
+    acpi@linux.intel.com
+    CaClients (undisclosed recipients/BCC: list)
+
+
+Update ACPICA bugzilla
+----------------------
+
+Close any problem reports that have been resolved.

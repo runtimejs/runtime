@@ -1,0 +1,1612 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Namespace Access interfaces provided by ACPICA
+ * (section 6.5 "ACPI Namespace Access" of ACPICA ProgRef,
+ * routines AcpiEvaluateObject, AcpiGetObjectInfo,
+ * AcpiGetNextObject, AcpiGetParent, AcpiGetType,
+ * AcpiGetHandle, AcpiGetName, AcpiGetDevices,
+ * AcpiAttachData, AcpiDetachData, AcpiGetData and
+ * AcpiWalkNamespace).
+ *
+ * We should take into account that the enumerated interfaces
+ * can be called not only after the Subsystem is exactly initialized,
+ * but at any point of initialization stage, those points are states
+ * which Subsystem is transfered in when the dedicated initializing
+ * interfaces (AcpiInitializeSubsystem, AcpiLoadTables, AcpiEnableSubsystem,
+ * AcpiInitializeObjects, AcpiTerminate) have successfully been executed.
+ *
+ * Also the interfaces can be used to manage NS objects created and
+ * deleted dynamically during AML Methods invocations.
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * AcpiEvaluateObject routine retrieves the current value of the specified
+ * ACPI Namespace Target Object (Integer, String, Buffer). The same Object
+ * can be specified by
+ * 1) an absolute namespace path in Pathname (the Object either is NULL
+ *    or is ignored otherwise),
+ * 2) a path relative to the Object handle.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * AcpiEvaluateObject routine provides execution of the Control Method
+ * specified by the ACPI Namespace Target Object. The return result of
+ * the Method is retrieved (if any).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * AcpiEvaluateObject routine provides a pass of the Control Method
+ * parameters specified by the MethodParams pointer to an ACPI_OBJECT_LIST.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When AcpiEvaluateObject routine provides a pass of the Control Method
+ * parameters specified by the MethodParams pointer the exceeding parameters
+ * are ignored.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * The specified Method Object is successfully evaluated
+ * by AcpiEvaluateObject routine in the both cases when
+ * ReturnObject parameter is not NULL and is equal to NULL.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a void Control Method and ReturnObject parameter is not NULL
+ * the Length field of the ReturnObject parameter will be set to zero.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an exception occurs during the execution
+ * of the relevant AML code all nested control methods are immediately
+ * terminated, up to and including the parent method.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is of ACPI_TYPE_DEVICE type AE_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an unspecified error occurs during the
+ * parsing of the AML code AE_AML_ERROR exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the Method can not be parsed due to the
+ * invalid AML code AE_AML_PARSE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an invalid opcode is encountered in the
+ * invalid AML code AE_AML_BAD_OPCODE exception code is returned.
+ *
+ * IMPLEMENTATION:
+ *
+ * Obtain (option -f of iASL) and run a Method containing the bad
+ * opcode 0x21 resulted in compiling of ASL-code
+ *
+ *		Method(M001) {
+ *			Mutex(MTX1, 0x0100)
+ *			Stall(1)
+ *		}
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an required operand is missing (this can
+ * be caused by some method that does not return any object) the
+ * AE_AML_NO_OPERAND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an operand object is not of the required
+ * ACPI type AE_AML_OPERAND_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an operand object has an invalid value
+ * AE_AML_OPERAND_VALUE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and a method attempted to access a local
+ * variable that was not initialized AE_AML_UNINITIALIZED_LOCAL
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and a method attempted to access an argument
+ * that was not part of the argument list, or was not passed into
+ * the method properly AE_AML_UNINITIALIZED_ARG exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION XXXX:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and a method attempted to use (dereference)
+ * a reference to an element of a package object that is empty 
+ * (uninitialized) AE_AML_UNITIALIZED_ELEMENT exception code
+ * is returned.
+ *
+ * Note: now the dereference does not cause any exception, only
+ *       error is to use the result in some expression that causes
+ *       AE_AML_NO_RETURN_VALUE
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an overflow occurred during a numeric
+ * conversion (such as BCD conversion) AE_AML_NUMERIC_OVERFLOW
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the method attempted to access beyond the
+ * end of an Operation Region defined boundary AE_AML_REGION_LIMIT
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the method attempted to access beyond the
+ * end of a Buffer object AE_AML_BUFFER_LIMIT exception code is
+ * returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the method attempted to access beyond the
+ * end of a Package object AE_AML_PACKAGE_LIMIT exception code is
+ * returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the method attempted to access beyond the
+ * end of a String object AE_AML_STRING_LIMIT exception code is
+ * returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and the method attempted to execute a divide
+ * instruction with a zero divisor AE_AML_DIVIDE_BY_ZERO exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and a name contained within the AML code has
+ * one or more invalid characters AE_AML_BAD_NAME exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and a name reference within the AML code can
+ * not be found and therefore is not resolved AE_AML_NAME_NOT_FOUND
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Control Method and an error that is internal to the ACPI CA
+ * subsystem occurs AE_AML_INTERNAL exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * When an invalid character is found in the Pathname parameter
+ * of AcpiEvaluateObject routine AE_BAD_CHARACTER exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * When the path in the Pathname parameter of AcpiEvaluateObject
+ * routine contains at least one ACPI name that is not exactly four
+ * characters long AE_BAD_PATHNAME exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is a Package and bad or invalid data is found in the object the
+ * AE_BAD_DATA exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * When Both the Object and Pathname parameters of AcpiEvaluateObject
+ * routine are NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * When the Object handle parameter of AcpiEvaluateObject routine
+ * is NULL but the Pathname is not absolute AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * When the Pathname parameter of AcpiEvaluateObject routine
+ * is relative but the Object is invalid AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * IMPLEMENTATION:
+ *
+ * Make Object handle invalid by unloading DSDT table
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * When the Length field of OutBuffer parameter of AcpiEvaluateObject
+ * routine is not ACPI_ALLOCATE_BUFFER, but the Pointer field of OutBuffer
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the Length field of ReturnBuffer parameter of
+ * AcpiEvaluateObject routine is too small to hold the actual
+ * returned object AE_BUFFER_OVERFLOW exception code is
+ * returned. Upon return, the Length field contains the minimum
+ * required buffer length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * When during call to AcpiEvaluateObject routine an unspecified
+ * error occurs AE_ERROR exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0035:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiEvaluateObject routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0036:
+ *
+ * When the object referenced by the combination of the Object
+ * and Pathname parameters of AcpiEvaluateObject routine is not
+ * found within the namespace AE_NOT_FOUND exception code is
+ * returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0037:
+ *
+ * When the specified Target Object of AcpiEvaluateObject routine
+ * is missing (this is an internal error) AE_NULL_OBJECT exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0038:
+ *
+ * If during invocation of AcpiEvaluateObject routine an internal
+ * stack overflow occurs then AE_STACK_OVERFLOW exception code is
+ * returned (an error in the AML, or control methods or objects are
+ * nested too deep).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0039:
+ *
+ * If during invocation of AcpiEvaluateObject routine an internal
+ * stack underflow occurs then AE_STACK_UNDERFLOW exception code is
+ * returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiEvaluateObject
+ */
+
+/*
+ * ASSERTION 0040:
+ *
+ * AcpiGetObjectInfo routine can be successfully used to obtain
+ * information about an Object (Device) specified by the Object handle
+ * parameter. The returned ACPI_DEVICE_INFO structure should contain
+ * correct Type, Name, and Valid fields and remaining fields:
+ * CurrentStatus, Address, HardwareId, UniqueId, and CompatibilityId -
+ * should correspond to evaluation of the Device _STA (Status) object
+ * and respective Device identification objects (_ADR, _HID, _UID, _CID).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetObjectInfo
+ */
+
+/*
+ * ASSERTION 0041:
+ *
+ * When the Object handle parameter of AcpiGetObjectInfo routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetObjectInfo
+ */
+
+/*
+ * ASSERTION 0042:
+ *
+ * When the OutBuffer pointer parameter of AcpiGetObjectInfo
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetObjectInfo
+ */
+
+/*
+ * ASSERTION 0043:
+ *
+ * When the Object handle parameter of AcpiGetObjectInfo routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetObjectInfo
+ */
+
+/*
+ * ASSERTION 0044:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetObjectInfo routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetObjectInfo
+ */
+
+/*
+ * ASSERTION 0045:
+ *
+ * If both the Parent and the Child parameters of AcpiGetNextObject
+ * routine are NULL the search begins at the Root Object so that the
+ * OutHandle returned will belong to the Root scope of the namespace tree.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0046:
+ *
+ * If the Child parameter of AcpiGetNextObject routine is NULL
+ * and the Parent is non-NULL the search is performed starting
+ * at the beginning of the scope so that the OutHandle returned
+ * will belong to the Parent scope.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0047:
+ *
+ * If the Child parameter of AcpiGetNextObject routine is non-NULL
+ * it is used as the starting point (the current object) for the search
+ * in the Parent scope so that the OutHandle returned will be the next
+ * object of the specified Type in the scope.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0048:
+ *
+ * When the Parent handle parameter of AcpiGetNextObject routine
+ * is invalid and the Child parameter is NULL AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0049:
+ *
+ * When the Child handle parameter of AcpiGetNextObject routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0050:
+ *
+ * When the Type parameter of AcpiGetNextObject routine
+ * refers to an invalid type AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0051:
+ *
+ * When the Child handle parameter of AcpiGetNextObject routine
+ * refers to the last object of the given Type within the Parent
+ * AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0052:
+ *
+ * If the Child handle parameter of AcpiGetNextObject routine
+ * is NULL and the parent object has no children of the given
+ * Type AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0053:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetNextObject routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetNextObject
+ */
+
+/*
+ * ASSERTION 0054:
+ *
+ * AcpiGetParent routine can be successfully used to obtain
+ * a handle to the parent of the specified Child object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetParent
+ */
+
+/*
+ * ASSERTION 0055:
+ *
+ * When the Child handle parameter of AcpiGetParent routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetParent
+ */
+
+/*
+ * ASSERTION 0056:
+ *
+ * When the OutParent pointer parameter of AcpiGetParent routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetParent
+ */
+
+/*
+ * ASSERTION 0057:
+ *
+ * When the Child handle parameter of AcpiGetParent routine
+ * refers to a Root level entry AE_NULL_ENTRY exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetParent
+ */
+
+/*
+ * ASSERTION 0058:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetParent routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetParent
+ */
+
+/*
+ * ASSERTION 0059:
+ *
+ * AcpiGetType routine can be successfully used to obtain
+ * the type of the ACPI namespace Object specified by the handle.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetType
+ */
+
+/*
+ * ASSERTION 0060:
+ *
+ * When the Object handle parameter of AcpiGetType routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetType
+ */
+
+/*
+ * ASSERTION 0061:
+ *
+ * When the OutType pointer parameter of AcpiGetType routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetType
+ */
+
+/*
+ * ASSERTION 0062:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetType routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetType
+ */
+
+/*
+ * ASSERTION 0063:
+ *
+ * When the Parent parameter is NULL AcpiGetHandle routine can be
+ * successfully used to translate the specified absolute Pathname
+ * to an object into the object handle.
+ * Check that interpretation of the (Handle, Pathname) pair of
+ * parameters is aligned with the AcpiEvaluateObject routine behavior.
+ *
+ * Facultative case: fully qualified (absolute) pathname without
+ *                   the leading backslash sign (\) is allowed
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0064:
+ *
+ * When the Parent parameter is an appropriate ACPI_HANDLE value
+ * AcpiGetHandle routine can be successfully used to translate the
+ * specified relative or absolute Pathname to an object into the object
+ * handle.
+ * Check that interpretation of the (Handle, Pathname) pair of
+ * parameters is aligned with the AcpiEvaluateObject routine behavior.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0065:
+ *
+ * When an invalid character is found in the Pathname parameter
+ * of AcpiGetHandle routine AE_BAD_CHARACTER exception code
+ * is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0066:
+ *
+ * When the path in the Pathname parameter of AcpiGetHandle
+ * routine contains at least one ACPI name that is longer than
+ * four characters AE_BAD_PATHNAME exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0067:
+ *
+ * When the Pathname pointer parameter of AcpiGetHandle routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0068:
+ *
+ * When the Parent parameter of AcpiGetHandle routine is NULL
+ * but the Pathname parameter does not begin with a backslash
+ * character AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0069:
+ *
+ * When the OutHandle pointer parameter of AcpiGetHandle routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0070:
+ *
+ * While the namespace has not been successfully loaded
+ * AE_NO_NAMESPACE exception code is returned from
+ * AcpiGetHandle routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0071:
+ *
+ * When one or more of the segments of the Pathname parameter
+ * of AcpiGetHandle routine refers to a non-existent object the
+ * AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0072:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetHandle routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0073:
+ *
+ * AcpiGetHandle routine returns AE_NOT_FOUND being passed with
+ * the Pathname referring to the parent of the root of the namespace.
+ *
+ *     ACPI 3.0 Spec, 5.3   ACPI Namespace:
+ * An attempt to access names in the parent of the root will result in
+ * the name not being found.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0074:
+ *
+ * When the NameType parameter is the ACPI_FULL_PATHNAME manifest
+ * constant AcpiGetName routine can be successfully used to obtain
+ * a full pathname (from the root, with path segment separators)
+ * of the specified Object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0075:
+ *
+ * When the NameType parameter is the ACPI_SINGLE_NAME manifest
+ * constant AcpiGetName routine can be successfully used to obtain
+ * a single segment ACPI name (4 characters, null terminated) of
+ * the specified Object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0076:
+ *
+ * When the Object handle parameter of AcpiGetName routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0077:
+ *
+ * When the OutName pointer parameter of AcpiGetName routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0078:
+ *
+ * When the Length field of the OutName pointer parameter
+ * of AcpiGetName routine is not ACPI_ALLOCATE_BUFFER but
+ * the Pointer field of OutName is NULL AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0079:
+ *
+ * When the Length field of OutName parameter of AcpiGetName
+ * routine indicates that the buffer is too small to hold the
+ * actual pathname AE_BUFFER_OVERFLOW exception code is
+ * returned. Upon return, the Length field contains the minimum
+ * required buffer length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+
+/*
+ * ASSERTION 0080:
+ *
+ * While the namespace has not been successfully loaded
+ * AE_NO_NAMESPACE exception code is returned from
+ * AcpiGetName routine.
+ *
+ * Note: it is impossible to reproduce because the initial
+ * Handle parameter can not be obtained on this conditions.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0081:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetName routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetName
+ */
+
+/*
+ * ASSERTION 0082:
+ *
+ * AcpiGetDevices routine can be successfully used to perform
+ * a modified depth-first walk of the namespace tree to call
+ * the specified UserFunction function every time when a device
+ * with the Hardware ID matching the specified HID is found.
+ * If AE_OK code is returned from UserFunction then the function
+ * will be invoked for every next device with the matching ID
+ * while the walk is not done. When the result of the relevant
+ * _STA Method indicate an absence of the device the deeper walk
+ * is stopped. Besides HID set of CID is taked into account during
+ * the choice of the matched device.
+
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0083:
+ *
+ * The ASSERTION 0082 when AE_CTRL_DEPTH code is returned from UserFunction.
+ * The function will be invoked for every next device with the matching ID
+ * if its depth within the namespace is not deeper than the depth of the
+ * current object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0084:
+ *
+ * The ASSERTION 0082 when AE_CTRL_TERMINATE code is returned from UserFunction.
+ * The walk will be stopped immediately and AE_CTRL_TERMINATE will be returned
+ * from AcpiGetDevices routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0085:
+ *
+ * The ASSERTION 0082 when the code returned from UserFunction differs
+ * from AE_OK, AE_CTRL_DEPTH, and AE_CTRL_TERMINATE. The walk will be stopped
+ * immediately and the code will be returned from AcpiGetDevices routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0086:
+ *
+ * The ASSERTION 0082 when the HID is NULL. All objects of type Device
+ * within the namespace are passed to the User Function.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0087:
+ *
+ * When the UserFunction parameter of AcpiGetDevices routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0088:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetDevices routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetDevices
+ */
+
+/*
+ * ASSERTION 0089:
+ *
+ * AcpiAttachData routine can be successfully used to associate
+ * the specified arbitrary Data pointer with the given namespace
+ * Object. The function specified by the Handler parameter is called
+ * when the Object is deleted during the Subsystem termination.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0090:
+ *
+ * The ASSERTION 0089 when the namespace Object is deleted during
+ * the unloading of the relevant ACPI table.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiUnloadTable
+ */
+
+/*
+ * ASSERTION 0091:
+ *
+ * More than one Data pointer with the different Handler function can be
+ * associated with the given namespace Object by means additional invocations
+ * of the AcpiAttachData routine. All Handler functions specified are called
+ * when the Object is deleted.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0092:
+ *
+ * When AcpiAttachData routine for given namespace Object is repeatedly
+ * called with the same Handler parameter AE_ALREADY_EXISTS exception
+ * code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0093:
+ *
+ * When the Object handle parameter of AcpiAttachData routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0094:
+ *
+ * When the Handler pointer parameter of AcpiAttachData routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0095:
+ *
+ * When the Data pointer parameter of AcpiAttachData routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0096:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiAttachData routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0097:
+ *
+ * While the namespace has not been successfully loaded
+ * AE_NO_NAMESPACE exception code is returned from AcpiAttachData
+ * routine.
+ *
+ * Note. Relevant conditions can not be achieved because the Handle
+ *       parameter either will not be successfully obtained or will
+ *       of necessity be invalid and initiate AE_BAD_PARAMETER return.
+ *     
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData
+ */
+
+/*
+ * ASSERTION 0098:
+ *
+ * AcpiDetachData routine can be successfully used to remove
+ * a previous association between user Data and the given namespace
+ * Object so that the function specified the Handler to be called
+ * when the Object is deleted will not really be called.
+ *
+ * IMPLEMENTATION:
+ *
+ * Associate with the given namespace Object two different Handler/Data
+ * pairs then detach one of them by AcpiDetachData. Only second Handler
+ * will be called when the Object is deleted.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0099:
+ *
+ * When the Object handle parameter of AcpiDetachData routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0100:
+ *
+ * When the Handler pointer parameter of AcpiDetachData routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0101:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiDetachData routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0102:
+ *
+ * While the namespace has not been successfully loaded
+ * AE_NO_NAMESPACE exception code is returned from AcpiDetachData
+ * routine.
+ *
+ * Note. See ASSERTION 0097.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0103:
+ *
+ * When there are no Handler/Data pair with the given Handler pointer
+ * previously associated with the specified namespace Object parameter
+ * of AcpiDetachData routine AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0104:
+ *
+ * AcpiGetData routine can be successfully used to retrieve
+ * Data that was previously associated with the given namespace
+ * Object.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0105:
+ *
+ * When the Object handle parameter of AcpiGetData routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0106:
+ *
+ * When the Handler pointer parameter of AcpiGetData routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0107:
+ *
+ * When the Data pointer parameter of AcpiGetData routine
+ * is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0108:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetData routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0109:
+ *
+ * While the namespace has not been successfully loaded
+ * AE_NO_NAMESPACE exception code is returned from
+ * AcpiGetData routine.
+ *
+ * Note. See ASSERTION 0097.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0110:
+ *
+ * When there are no Handler/Data pair with the given Handler pointer
+ * previously associated with the specified namespace Object parameter
+ * of AcpiGetData routine AE_NOT_FOUND exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiGetData
+ */
+
+/*
+ * ASSERTION 0111:
+ *
+ * AcpiWalkNamespace routine can be successfully used to perform
+ * a modified depth-first walk of the namespace tree starting (and
+ * ending) at the object specified by the StartObject handle to call
+ * the specified UserFunction function every time when an object that
+ * matches the Type parameter is found. If AE_OK code is returned from
+ * UserFunction then the function will be invoked for every next object
+ * with the matching Type until the MaxDepth levels are descended.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0112:
+ *
+ * The ASSERTION 0111 when AE_CTRL_DEPTH code is returned from
+ * UserFunction. The function will be invoked for every next object
+ * with the matching Type if its depth within the namespace is not
+ * deeper than the depth of the current object. Also AE_CTRL_DEPTH
+ * will be returned from AcpiWalkNamespace routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0113:
+ *
+ * The ASSERTION 0111 when AE_CTRL_TERMINATE code is returned from
+ * UserFunction. The walk will be stopped immediately and AE_CTRL_TERMINATE
+ * will be returned from AcpiWalkNamespace routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0114:
+ *
+ * The ASSERTION 0111 when the code returned from UserFunction differs
+ * from AE_OK, AE_CTRL_DEPTH, and AE_CTRL_TERMINATE. The walk will be stopped
+ * immediately and the code will be returned from AcpiWalkNamespace routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0115:
+ *
+ * When the MaxDepth parameter of AcpiWalkNamespace routine
+ * is zero AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0116:
+ *
+ * When the UserFunction address parameter of AcpiWalkNamespace
+ * routine is NULL AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0117:
+ *
+ * When the StartObject handle parameter of AcpiWalkNamespace
+ * routine is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0118:
+ *
+ * When the Type parameter of AcpiWalkNamespace routine
+ * is invalid AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0119:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiWalkNamespace routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkNamespace
+ */
+
+/*
+ * ASSERTION 0120:
+ *
+ * AcpiAttachData routine can be successfully used to associate
+ * the specified arbitrary Data pointer with the given namespace
+ * Object. The function specified by the Handler parameter is not
+ * called when the attached Object is replaced with some Object
+ * of another ACPI type.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData,
+ *           AcpiTerminate
+ */
+
+/*
+ * ASSERTION 0121:
+ *
+ * When the path in the Pathname parameter of AcpiGetHandle
+ * routine contains some ACPI name that is shorter than four
+ * characters long it can be successfully processed.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetHandle
+ */
+
+/*
+ * ASSERTION 0122:
+ *
+ * The ASSERTION 0091 when the target Namespace Object is \.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0123:
+ *
+ * The ASSERTION 0091 when the target Namespace Object is Named
+ * dynamic object on Method level.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0124:
+ *
+ * The ASSERTION 0091 when the target Namespace Object is Named
+ * dynamic object on Global level.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */
+
+/*
+ * ASSERTION 0125:
+ *
+ * The ASSERTION 0091 for multiple Namespace Objects.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiAttachData, AcpiDetachData
+ */

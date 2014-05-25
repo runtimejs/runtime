@@ -1,0 +1,80 @@
+
+CONTENTS
+
+   This directory (asl) contains supporting ASL codes for the tests
+   of ACPICA API validation Test Suite (AAPITS).
+
+   There is list of the groups of the codes relying to the respective
+   test case below. NONE stands for test cases without specific supporting
+   ASL codes.
+
+   The resulting AML codes are located in the ../bin/aml directory.
+
+
+init0032.asl
+init0034.asl
+init0058.asl
+init0066.asl
+init0121.asl
+init1065.asl
+   atinit          6.1 Subsystem Initialization, Shutdown, and Status
+
+NONE
+   atmemory        6.2 Memory Management
+
+hdwr0015.asl
+hdwr0018.asl
+hdwr0019.asl
+hdwr0020.asl
+hdwr0022.asl
+   athardware      6.3 ACPI Hardware Management
+
+dsdt.asl
+dsdt1.asl
+dsdt2.asl
+ssdt1.asl
+ssdt2.asl
+   attable         6.4 ACPI Table Management
+
+nmsp0000.asl
+nmsp0010.asl
+nmsp0011.asl
+nmsp0012.asl
+nmsp0013.asl
+nmsp0014.asl
+nmsp0015.asl
+nmsp0016.asl
+nmsp0017.asl
+nmsp0018.asl
+nmsp0019.asl
+nmsp0020.asl
+nmsp0021.asl
+nmsp0022.asl
+nmsp0023.asl
+nmsp0025.asl
+nmsp0037.asl
+nmsp0038.asl
+nmsp0052.asl
+nmsp0074.asl
+nmsp0089.asl
+   atnamespace     6.5 ACPI Namespace Access
+
+rt0000.asl
+rt0035.asl
+   atresource      6.6 ACPI Resource Management
+
+NONE
+   atfixedevent    6.7 ACPI Fixed Event Management
+
+gpev0000.asl
+   atgpe           6.8 ACPI General Purpose Event Management
+
+hndl0000.asl
+hndl0015.asl
+hndl0016.asl
+hndl0115.asl
+   athandlers      6.9 ACPI Miscellaneous Handler Support
+
+	
+README
+   This file

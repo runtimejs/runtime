@@ -1,0 +1,121 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Run specified set of ACPICA API test suite tests
+#
+# DESCRIPTION:
+#
+# 1. A set of tests to be run in each test case is gathered
+#    in the TESTS_NUMBERS variable
+#
+# 2. The specified tests are launched consequently
+#
+# External definitions required:
+#
+#    AAPITSDIR - the pathname of BIN directory of AcpiCA API test suite
+#
+
+# ############################## MAIN ###############################
+
+# Init variables of utility
+
+AAPITSDIR=.
+
+AT_INIT_TEST_NUM=59
+AT_MEMM_TEST_NUM=0
+AT_HDWM_TEST_NUM=36
+AT_TBLM_TEST_NUM=61
+AT_NSPM_TEST_NUM=121
+AT_RSCM_TEST_NUM=37
+AT_FEVM_TEST_NUM=20
+AT_GPEM_TEST_NUM=48
+AT_HNDM_TEST_NUM=36
+
+#TESTS_NUMBERS="$AT_INIT_TEST_NUM $AT_MEMM_TEST_NUM $AT_HDWM_TEST_NUM\
+#               $AT_TBLM_TEST_NUM $AT_NSPM_TEST_NUM $AT_RSCM_TEST_NUM\
+#               $AT_FEVM_TEST_NUM $AT_GPEM_TEST_NUM $AT_HNDM_TEST_NUM"
+TESTS_NUMBERS=$2
+
+# Check the working directory
+
+if [ ! -d "$AAPITSDIR" ]; then
+	echo "There is no directory $AAPITSDIR"
+	exit 1
+fi
+
+AAPITSAML=${AAPITSDIR}/aml
+
+if [ ! -d "$AAPITSAML" ]; then
+	echo "There is no directory $AAPITSAML"
+	exit 1
+fi
+
+AAPITS=${AAPITSDIR}/aapits
+
+# Check access to AapiTS utility
+
+if [ ! -f "$AAPITS" ]; then
+	echo "There is no aapits utility in $AAPITSDIR"
+	exit 1
+fi
+
+# Start date and time
+
+TS_FMT_INIDATE=$(date +%F)
+TS_FMT_INITIME=$(date +%T)
+
+# Start of tests run
+
+tests_total=0
+tests_pass=0
+tests_skip1=0
+tests_skip2=0
+tests_fail=0
+tests_none=0
+tests_fault=0
+
+test_case=$1
+
+for test_num in $TESTS_NUMBERS
+do
+#	test_case=$[ test_case + 1 ]
+	tests_total=$[ tests_total + test_num ] 
+
+	for (( test=$2; test<=$test_num; test++ ))
+	do
+		$AAPITS $test_case $test $AAPITSAML 2>&1 >> raw.out
+		test_ret=$?
+		if [ $test_ret -eq 0 ]; then
+			tests_pass=$[ tests_pass + 1 ]
+		elif [ $test_ret -eq 1 ]; then
+			tests_skip1=$[ tests_skip1 + 1 ]
+		elif [ $test_ret -eq 2 ]; then
+			tests_skip2=$[ tests_skip2 + 1 ]
+		elif [ $test_ret -eq 3 ]; then
+			tests_fail=$[ tests_fail + 1 ]
+		elif [ $test_ret -eq 4 ]; then
+			tests_none=$[ tests_none + 1 ]
+		else
+			tests_fault=$[ tests_fault + 1 ]
+		fi
+		echo "test $test_case $test: $test_ret"
+		echo "test $test_case $test: $test_ret" >> raw.out
+		echo "" >> raw.out
+	done
+
+done
+
+tests_total=$[ tests_total - tests_none ] 
+
+echo "tests_total=$tests_total"
+echo "tests_pass=$tests_pass"
+echo "tests_skip1=$tests_skip1"
+echo "tests_skip2=$tests_skip2"
+echo "tests_fail=$tests_fail"
+echo "tests_none=$tests_none"
+echo "tests_fault=$tests_fault"
+
+exit 0
+
+

@@ -1,0 +1,443 @@
+/*
+ * The following assertions are based on description of
+ * ACPI Resource Management interfaces provided by ACPICA
+ * (section 6.6 "ACPI Resource Management" of ACPICA ProgRef,
+ * routines AcpiGetCurrentResources, AcpiGetPossibleResources,
+ * AcpiSetCurrentResources, AcpiGetIrqRoutingTable, AcpiWalkResources).
+ *
+ */
+
+/*
+ * ASSERTION 0000:
+ *
+ * AcpiGetCurrentResources routine can be successfully used to obtain
+ * the current resources for a specific device specified by the Device
+ * handle parameter. The resource data is placed in the buffer contained
+ * in the OutBuffer structure. Upon completion the Length field of OutBuffer
+ * will indicate the number of bytes copied into the Pointer field of the
+ * OutBuffer buffer.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0001:
+ *
+ * When the Device handle parameter of AcpiGetCurrentResources routine
+ * is invalid the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0002:
+ *
+ * When the OutBuffer pointer parameter of AcpiGetCurrentResources
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0003:
+ *
+ * When the Length field of the OutBuffer pointer parameter
+ * of AcpiGetCurrentResources routine is not ACPI_ALLOCATE_BUFFER
+ * but the Pointer field of OutBuffer is NULL the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0004:
+ *
+ * When the Device handle parameter of AcpiGetCurrentResources
+ * routine does not refer to an object of type ACPI_TYPE_DEVICE
+ * the AE_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0005:
+ *
+ * When the Length field of OutBuffer parameter of
+ * AcpiGetCurrentResources routine is too small to hold the actual
+ * returned object the AE_BUFFER_OVERFLOW exception code is
+ * returned. Upon return, the Length field contains the minimum
+ * required buffer length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0006:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetCurrentResources routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetCurrentResources
+ */
+
+/*
+ * ASSERTION 0007:
+ *
+ * AcpiGetPossibleResources routine can be successfully used to obtain
+ * the possible resources for a specific device specified by the Device
+ * handle parameter. The resource data is placed in the buffer contained
+ * in the OutBuffer structure. Upon completion the Length field of OutBuffer
+ * will indicate the number of bytes copied into the Pointer field of the
+ * OutBuffer buffer.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0008:
+ *
+ * When the Device handle parameter of AcpiGetPossibleResources routine
+ * is invalid the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0009:
+ *
+ * When the OutBuffer pointer parameter of AcpiGetPossibleResources
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0010:
+ *
+ * When the Length field of the OutBuffer pointer parameter
+ * of AcpiGetPossibleResources routine is not ACPI_ALLOCATE_BUFFER
+ * but the Pointer field of OutBuffer is NULL the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0011:
+ *
+ * When the Device handle parameter of AcpiGetPossibleResources
+ * routine does not refer to an object of type ACPI_TYPE_DEVICE
+ * the AE_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0012:
+ *
+ * When the Length field of OutBuffer parameter of
+ * AcpiGetPossibleResources routine is too small to hold the actual
+ * returned object the AE_BUFFER_OVERFLOW exception code is
+ * returned. Upon return, the Length field contains the minimum
+ * required buffer length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0013:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetPossibleResources routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetPossibleResources
+ */
+
+/*
+ * ASSERTION 0014:
+ *
+ * AcpiSetCurrentResources routine can be successfully used to set
+ * the current resources for a specific device specified by the Device
+ * handle parameter. The resource data is passed to the routine the buffer
+ * pointed to by the InBuffer parameter.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0015:
+ *
+ * When the Device handle parameter of AcpiSetCurrentResources routine
+ * is invalid the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0016:
+ *
+ * When the InBuffer pointer parameter of AcpiSetCurrentResources
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0017:
+ *
+ * When the Pointer field of the InBuffer pointer parameter of
+ * AcpiSetCurrentResources routine is NULL the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0018:
+ *
+ * When the Length field of the InBuffer pointer parameter
+ * of AcpiSetCurrentResources routine is zero the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0019:
+ *
+ * When the Device handle parameter of AcpiSetCurrentResources
+ * routine does not refer to an object of type ACPI_TYPE_DEVICE
+ * the AE_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0020:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiSetCurrentResources routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiSetCurrentResources
+ */
+
+/*
+ * ASSERTION 0021:
+ *
+ * AcpiGetIrqRoutingTable routine can be successfully used to obtain
+ * the IRQ routing table for a specific bus specified by the Device
+ * handle parameter. It does so by attempting to execute the _PRT method
+ * contained in the scope of the Device.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0022:
+ *
+ * When the Device handle parameter of AcpiGetIrqRoutingTable routine
+ * is invalid the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0023:
+ *
+ * When the OutBuffer pointer parameter of AcpiGetIrqRoutingTable
+ * routine is NULL the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0024:
+ *
+ * When the Length field of the OutBuffer pointer parameter
+ * of AcpiGetIrqRoutingTable routine is not ACPI_ALLOCATE_BUFFER
+ * but the Pointer field of OutBuffer is NULL the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0025:
+ *
+ * When the Device handle parameter of AcpiGetIrqRoutingTable
+ * routine does not refer to an object of type ACPI_TYPE_DEVICE
+ * the AE_TYPE exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0026:
+ *
+ * When the Length field of OutBuffer parameter of
+ * AcpiGetIrqRoutingTable routine is too small to hold the actual
+ * returned object the AE_BUFFER_OVERFLOW exception code is
+ * returned. Upon return, the Length field contains the minimum
+ * required buffer length.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0027:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiGetIrqRoutingTable routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiGetIrqRoutingTable
+ */
+
+/*
+ * ASSERTION 0028:
+ *
+ * AcpiWalkResources routine can be successfully used to walk through
+ * the current or possible (the Path parameter specifies which) resource
+ * list of device resources and call the specified UserFunction function
+ * for every resource of the given Device. If AE_OK code is returned from
+ * UserFunction then the function will be invoked for every next resource
+ * in the list.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0029:
+ *
+ * The ASSERTION 0028 when AE_DEPTH code is returned from UserFunction.
+ * The function will be invoked for every next resource in the list.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0030:
+ *
+ * The ASSERTION 0028 when AE_TERMINATE code is returned from UserFunction.
+ * The walk will be stopped immediately and AE_TERMINATE will be returned
+ * from AcpiWalkResources routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0031:
+ *
+ * The ASSERTION 0028 when the code returned from UserFunction differs
+ * from AE_OK, AE_DEPTH, and AE_TERMINATE. The walk will be stopped
+ * immediately and the code will be returned from AcpiWalkResources routine.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0032:
+ *
+ * When the Device handle parameter of AcpiWalkResources
+ * routine is invalid the AE_BAD_PARAMETER exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0033:
+ *
+ * When the Path parameter of AcpiWalkResources routine does not
+ * refer to a _CRS or _PRS control method the AE_BAD_PARAMETER
+ * exception code is returned.
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */
+
+/*
+ * ASSERTION 0034:
+ *
+ * If some call to AcpiOsAllocate routine during execution
+ * of AcpiWalkResources routine returns NULL then AE_NO_MEMORY
+ * exception code is returned (insufficient dynamic memory to
+ * complete the request).
+ *
+ * ROUTINES: AcpiInitializeSubsystem, AcpiLoadTables,
+ *           AcpiEnableSubsystem, AcpiInitializeObjects,
+ *           AcpiWalkResources
+ */

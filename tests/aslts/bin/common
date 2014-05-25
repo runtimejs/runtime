@@ -1,0 +1,696 @@
+#!/bin/bash
+#
+# @echo off
+#
+# The common use data and routines
+
+# Report message
+msg()
+{
+	prog_name=`basename "$0"`
+	echo "$prog_name: $1"
+}
+
+# Report error message
+msgE()
+{
+	prog_name=`basename "$0"`
+	echo "$prog_name[ERROR]: $1"
+}
+
+# Exit the program
+do_exit()
+{
+	if [ $1 -eq 0 ]; then
+		if [ "$2" != "" ]; then
+			msg "$2"
+		fi
+		exit 0
+	else
+		msgE "$2"
+		exit 1
+	fi
+}
+
+# Make directory
+# arg1 - pathname of directory
+make_dir()
+{
+	if [ ! -d "$1" ]; then
+		mkdir "$2"
+		if [ $? -ne 0 ]; then
+			do_exit 1 "Failed to make $3 directory"
+		fi
+	fi
+}
+
+# Abort the program if arg1 is not a directory
+# arg1 - path name of directory
+check_dir()
+{
+	if [ ! -d "$1" ]; then
+		do_exit 1 "Not a directory: $1"
+	fi
+}
+
+# Invalid number of parameters reaction
+bad_param_number()
+{
+	do_exit 1 "Invalid number of parameters for command $1: applied $2, expected $3"
+}
+
+# Print out a list of lexems
+echo_list()
+{
+	echo ""
+	echo "  $1:"
+	echo ""
+
+	for lexem in $2
+	do
+		echo "       $lexem"
+	done
+}
+
+# Return separated by ':' sorted last and previous
+# elements of directory.
+# arg1 - directory
+get_two_last_dirs()
+{
+	local path previous last
+
+	ls "$1" | sort -r |\
+	while [ 1 ]
+	do
+		read filename
+		if [ $? -ne 0 ] ; then
+			echo ":$last:$previous:"
+			break
+		fi
+		path="$1/$filename"
+		if [ -d "$path" ]; then
+			if [ -z "$last" ]; then
+				last="$filename"
+			elif [ -z "$previous" ]; then
+				previous="$filename"
+			fi
+		fi
+		if [ -n "$previous" -a -n "$last" ]; then
+			echo ":$last:$previous:"
+			break
+		fi
+	done
+}
+
+# Return string describing mode of run
+# arg1 - bitmap of mode
+# arg2 - what to print:
+#        0 - part of pathname
+#        1 - name of mode
+#        2 - BITMODE
+#        3 - SLMODE
+get_mode_string()
+{
+	local x SLMODE BITMODE
+
+	eval "x=$[ $1 & $FLAGSLACK ]"
+	if [ $x == 0 ]; then
+		SLMODE="norm"
+	else
+		SLMODE="slack"
+	fi
+
+	eval "x=$[ $1 & $FLAG64 ]"
+	if [ $x == 0 ]; then
+		BITMODE=32
+	else
+		BITMODE=64
+	fi
+
+	if [ $2 == 0 ]; then
+		echo "$SLMODE/$BITMODE"
+	elif [ $2 == 1 ]; then
+		echo "$BITMODE-bit $SLMODE mode"
+	elif [ $2 == 2 ]; then
+		echo "$BITMODE"
+	elif [ $2 == 3 ]; then
+		echo "$SLMODE"
+	fi
+}
+
+# Return string describing mode of run
+# arg1 - bitmap of mode
+get_mode_id()
+{
+	local x SLMODE BITMODE
+
+	eval "x=$[ $1 & $FLAGSLACK ]"
+	if [ $x == 0 ]; then
+		SLMODE="n"
+	else
+		SLMODE="s"
+	fi
+
+	eval "x=$[ $1 & $FLAG64 ]"
+	if [ $x == 0 ]; then
+		BITMODE=32
+	else
+		BITMODE=64
+	fi
+
+	echo "$BITMODE:$SLMODE"
+}
+
+# check if mode id is valid
+check_mode_id() {
+	local m
+
+	for m in $ALL_AVAILABLE_TEST_MODES; do
+		if [ "x$m" = "x$1" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Echo the name of collection
+# arg1 - opcode of collection
+get_collection_name()
+{
+	local dirname
+
+	case $1 in
+		$FUNC_COLL_OP) dirname=functional;;
+		$CPLX_COLL_OP) dirname=complex;;
+		$EXCP_COLL_OP) dirname=exceptions;;
+		$BDEMO_COLL_OP) dirname=bdemo;;
+		$SERV_COLL_OP) dirname=service;;
+		$MT_COLL_OP) dirname=mt;;
+		$MS_IDENT_COLL_OP) dirname=Identity2MS;;
+		$IMPL_COLL_OP) dirname=IMPL;;
+
+		*) dirname="?"
+	esac
+
+	echo "$dirname"
+}
+
+# Return non-zero when the string is a name of some test collection
+# arg1 - string (to be the name of some test collection)
+is_collection_name()
+{
+	echo $ALL_AVAILABLE_COLLS | grep $1 > /dev/null
+	return $?
+}
+
+# Return opcode of the test collection which
+# contains the test case named as string parameter,
+# COLLS_NUM, if no one collection contains such
+# test case.
+# arg1 - string (to be the name of some test case)
+get_collection_opcode()
+{
+	local rval=0
+
+	echo $FUNC_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $FUNC_COLL_OP
+	fi
+
+	echo $CPLX_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $CPLX_COLL_OP
+	fi
+
+	echo $EXCP_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $EXCP_COLL_OP
+	fi
+
+	echo $BDEMO_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $BDEMO_COLL_OP
+	fi
+
+	echo $SERV_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $SERV_COLL_OP
+	fi
+
+	echo $MT_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $MT_COLL_OP
+	fi
+
+	echo $MS_IDENT_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $MS_IDENT_COLL_OP
+	fi
+
+	echo $IMPL_COLL | grep $1 > /dev/null
+	if [ $? -eq 0 ]; then
+		return $IMPL_COLL_OP
+	fi
+
+	return $COLLS_NUM
+}
+
+# Mark - test collection was involved in processing
+# arg1 - name of test case
+mark_collection_flag()
+{
+	local ret
+
+	get_collection_opcode "$1"
+	ret=$?
+
+	case $ret in
+		$FUNC_COLL_OP)		FUNC_COLL_FLAG=1;;
+		$CPLX_COLL_OP)		CPLX_COLL_FLAG=1;;
+		$EXCP_COLL_OP)		EXCP_COLL_FLAG=1;;
+		$BDEMO_COLL_OP)		BDEMO_COLL_FLAG=1;;
+		$SERV_COLL_OP)		SERV_COLL_FLAG=1;;
+		$MT_COLL_OP)		MT_COLL_FLAG=1;;
+		$MS_IDENT_COLL_OP)	MS_IDENT_COLL_FLAG=1;;
+		$IMPL_COLL_OP)		IMPL_COLL_FLAG=1;;
+		*) do_exit 1 "Not the name of any test case: $1"
+	esac
+}
+
+# Get ' ' blank-separated collections involved total
+get_collections_total()
+{
+	local count=0 msg=" "
+
+	if [ $FUNC_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $FUNC_COLL_OP`"
+	fi
+	if [ $CPLX_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $CPLX_COLL_OP`"
+	fi
+	if [ $EXCP_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $EXCP_COLL_OP`"
+	fi
+	if [ $BDEMO_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $BDEMO_COLL_OP`"
+	fi
+	if [ $SERV_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $SERV_COLL_OP`"
+	fi
+	if [ $MT_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $MT_COLL_OP`"
+	fi
+	if [ $MS_IDENT_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $MS_IDENT_COLL_OP`"
+	fi
+	if [ $IMPL_COLL_FLAG != 0 ]; then
+		count=$[ $count + 1 ]
+		msg="$msg `get_collection_name $IMPL_COLL_OP`"
+	fi
+	echo "$count:$msg:"
+}
+
+# Return the pathname of the collections root directory
+# arg1 - root directory of aslts
+get_collections_root_dir()
+{
+	echo "$1/src/runtime/collections"
+}
+
+# Return the pathname of the specified test collection
+# arg1 - root directory of aslts
+# arg2 - opcode of test collection
+get_collection_dir()
+{
+	local dir
+
+	dir="`get_collections_root_dir "$1"`/`get_collection_name $2`"
+
+	echo "$dir"
+}
+
+# Get pathname of test case
+# arg1 - root directory of aslts
+# arg2 - opcode of test collection
+# arg3 - name of test case
+get_test_case_dir()
+{
+	local x path
+
+	word_is_in_line "$OPER_TCASES" "$3" " "
+
+
+	if [ $? -ne 0 ]; then
+		path="`get_collection_dir "$1" $2`/operand/tests/$3"
+	else
+		x=`echo $RES_TCASES | grep $3`
+		if [ $? -eq 0 ]; then
+			path="`get_collection_dir "$1" $2`/result/tests/$3"
+		else
+			if [ $3 == exc_operand1 -o $3 == exc_operand2 ]; then
+				path="`get_collection_dir "$1" $2`/exc_operand/$3"
+			elif [ $3 == exc_result1 -o $3 == exc_result2 ]; then
+				path="`get_collection_dir "$1" $2`/exc_result/$3"
+			elif [ $3 == dynobj ]; then
+				path="`get_collection_dir "$1" $2`/ACPICA/tests/$3"
+			elif [ $3 == bdemo -o $3 == bdemof ]; then
+				path="`get_collection_dir "$1" $2`/ACPICA/$3"
+			elif [[ $3 == mt_* ]]; then
+				x=`echo $3 | sed 's/mt_//'g`
+				path="`get_collection_dir "$1" $2`/$x"
+			else
+				path="`get_collection_dir "$1" $2`/$3"
+			fi
+		fi
+	fi
+
+	echo "$path"
+}
+
+# Return the name of underlying system the tests were run on
+#
+# arg0 - pathname of Summary file
+get_name_of_system()
+{
+	OLD_IFS=$IFS
+	IFS=" "
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read mark system line
+		if [ $? -ne 0 ] ; then
+			echo "?"
+			break
+		fi
+
+		if [ "$mark" == ASLTS_SYSTEM ]; then
+			echo "$system"
+			break
+		fi
+	done
+
+	IFS=$OLD_IFS
+}
+
+# Get element of line of file.
+#
+# Each line of file arg1 consists of elements separated by symbol arg2.
+# The first element of line is marker. Routine seeks for the line identified
+# by the given marker (arg3) and returns arg4-th element of that line.
+#
+# arg1 - pathname of file (line of file <marker of line>|el0|el1|...; | - any symbol)
+# arg2 - separator
+# arg3 - marker of line to fit
+# arg4 - element of line to be returned  (now maximum is 4 elements - 0,1,2,3)
+get_element_of_line()
+{
+	OLD_IFS=$IFS
+	IFS="$2"
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read marker s0 s1 s2 s3 line
+		if [ $? -ne 0 ] ; then
+			break
+		fi
+		if [ "$marker" == "$3" ] ; then
+			case $4 in
+				0) echo "$s0" ;;
+				1) echo "$s1" ;;
+				2) echo "$s2" ;;
+				3) echo "$s3" ;;
+				*)  echo "???"
+			esac
+		fi
+	done
+
+	IFS=$OLD_IFS
+}
+
+# Split the input file, each char is transformed to one line
+split_line_to_chars()
+{
+	local x index=1
+
+	while [ 1 ]
+	do
+		x=`echo "$1" | cut -c "$index"`
+		if [ "x$x" == x ]; then
+			break
+		fi
+		echo "$x"
+		((index=index+1))
+	done
+}
+
+# Transform input to a line where each char occurs only once,
+# blanks are deleted.
+#
+# Note: works very slowly.
+#
+transform_to_single_chars()
+{
+	local x line str
+
+	str="qwertyuiopasdfghjklzxcvbnm0123456789QWERTYUIOPASDFGHJKLZXCVBNM\*"
+
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ] ; then
+			break
+		fi
+		x=`echo $line | sed 's/ //'g`
+		split_line_to_chars "$x"
+	done | sort | paste -s -d " " | sed 's/ //'g | tr -s "$str"
+}
+
+# Print out all lines of file arg1 corresponding to the
+# chars of string arg2: line == <char>: <rest of line>.
+report_lines_per_char()
+{
+	index=1
+
+	while [ 1 ]
+	do
+		x=`echo "$2" | cut -c "$index"`
+		if [ "x$x" == x ]; then
+			break
+		fi
+		y=`get_element_of_line "$1" ":" "$x" 0`
+		if [ "x$y" != x ]; then
+			echo "$x -$y"
+		elif [ "$x" != " " ]; then
+			echo "$x - ???"
+		fi
+		((index=index+1))
+	done
+}
+
+# arg1 - line
+# arg2 - word
+# arg3 - delimiter
+word_is_in_line()
+{
+	local rval=0
+
+	OLD_IFS=$IFS
+	IFS="$3"
+
+	echo "$1" | awk '{ for (i=1; i<=NF; i++) { print $i}}' |\
+	while [ 1 ]
+	do
+		read line
+		if [ $? -ne 0 ]; then
+			return 0
+		fi
+		if [ "$line" == "$2" ]; then
+			return 1
+		fi
+	done
+	rval=$?
+
+	IFS=$OLD_IFS
+
+	return $rval
+}
+
+# Convert the centisecond unit time to string {[h:]m:s.c}
+# arg1 - centisecond unit time
+cent_units_to_cent_str()
+{
+	local rval
+	local TIME_STRING=
+
+	RAWSECONDS=$[ $1 / 100 ]
+	RAWCENTISECS=$[ $1 - $RAWSECONDS * 100 ]
+	RAWMINUTES=$[ $RAWSECONDS / 60 ]
+	RAWSECONDS=$[ $RAWSECONDS - $RAWMINUTES * 60 ]
+	RAWHOURS=$[ $RAWMINUTES / 60 ]
+	RAWMINUTES=$[ $RAWMINUTES - $RAWHOURS * 60 ]
+
+	if [ $RAWHOURS -le 9 ]; then
+	    if [ $RAWHOURS -ne 0 ]; then
+		TIME_STRING=0$RAWHOURS:
+	    fi
+	else
+	    TIME_STRING=$RAWHOURS:
+	fi
+
+	if [ $RAWMINUTES -le 9 ]; then
+	    TIME_STRING=${TIME_STRING}0$RAWMINUTES:
+	else
+	    TIME_STRING=$TIME_STRING$RAWMINUTES:
+	fi
+
+	if [ $RAWSECONDS -le 9 ]; then
+	    TIME_STRING=${TIME_STRING}0$RAWSECONDS
+	else
+	    TIME_STRING=$TIME_STRING$RAWSECONDS
+	fi
+
+	if [ $RAWCENTISECS -le 9 ]; then
+	    TIME_STRING=${TIME_STRING}.0$RAWCENTISECS
+	else
+	    TIME_STRING=${TIME_STRING}.$RAWCENTISECS
+	fi
+
+	eval "rval=$TIME_STRING"
+
+	echo "$rval"
+}
+
+# Convert time to centisecond units
+#
+#   Layout of time is one of these:
+#	1) hours:mins:secs.centisecs
+#	2)       mins:secs.centisecs
+#
+# arg1 - time 1
+#
+# Return:
+#     0 - success
+#     otherwise - bad layout
+#
+convert_string_to_centisecond_units()
+{
+	local n0=0 h0=00 m0=00 s0=00 csec0=00 sec0=0 total0=0
+
+	n0=`echo "$1" | awk -F: '{ print NF}'`
+
+	if [ "$n0" -eq 2 ]; then
+		m0=`echo "$1" | awk -F: '{ print $1}'`
+		x=`echo "$1" | awk -F: '{ print $2}'`
+		s0=`echo "$x" | awk -F"." '{ print $1}'`
+		csec0=`echo "$x" | awk -F"." '{ print $2}'`
+		if [ x"$csec0" == x ]; then
+			return 1
+		fi
+	elif [ "$n0" -eq 3 ]; then
+		h0=`echo "$1" | awk -F: '{ print $1}'`
+		m0=`echo "$1" | awk -F: '{ print $2}'`
+		x=`echo "$1" | awk -F: '{ print $3}'`
+		s0=`echo "$x" | awk -F"." '{ print $1}'`
+		csec0=`echo "$x" | awk -F"." '{ print $2}'`
+		if [ x"$csec0" == x ]; then
+			return 2
+		fi
+	else
+		return 3
+	fi
+
+	sec0=$[ $s0 + $m0 * 60 + $h0 * 3600 ]
+	total0=$[ $csec0 + $sec0 * 100 ]
+
+	echo "$total0"
+
+	return 0
+}
+
+# Compare two times given by strings
+#
+#   Layout of time is one of these:
+#	1) hours:mins:secs.centisecs
+#	2)       mins:secs.centisecs
+#
+# arg1 - time 1
+# arg2 - time 2
+#
+# Return:
+#     0 - T1 == T2
+#     1 - T1 < T2
+#     2 - T1 > T2
+#   3 - bad layout of T1
+#   4 - bad layout of T2
+#
+diff_of_str_times()
+{
+	local total0=0
+	local total1=0
+	local rval=0 diff01 diff01str
+
+	total0=`convert_string_to_centisecond_units "$1"`
+	if [ $? -ne 0 ]; then
+		return 3
+	fi
+
+	total1=`convert_string_to_centisecond_units "$2"`
+	if [ $? -ne 0 ]; then
+		return 4
+	fi
+
+	if [ "$total0" -gt "$total1" ]; then
+		diff01=$[ $total0 - $total1 ]
+		rval=2
+	elif [ "$total0" -eq "$total1" ]; then
+		diff01=0
+		rval=0
+	else
+		diff01=$[ $total1 - $total0 ]
+		rval=1
+	fi
+
+	diff01str=`cent_units_to_cent_str $diff01`
+
+	echo "$total0|$total1|$diff01|$diff01str"
+
+	return $rval
+}
+
+# ############################## MAIN ###############################
+
+# Initialize the common variables
+
+# Constants
+
+# Bitmap: 1 - 64, 2 - slack
+FLAG64=1
+FLAGSLACK=2
+NORM32=0
+NORM64=1
+SLACK32=2
+SLACK64=3
+
+# Opcodes of the test collections (according to aslts)
+
+ASL_COLL_OP=0
+FUNC_COLL_OP=1
+CPLX_COLL_OP=2
+EXCP_COLL_OP=3
+BDEMO_COLL_OP=4
+SERV_COLL_OP=5
+MT_COLL_OP=6
+MS_IDENT_COLL_OP=7
+IMPL_COLL_OP=8
+RUNTIME_COLLS_NUM=8
+COLLS_NUM=9
+

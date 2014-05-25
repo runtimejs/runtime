@@ -1,0 +1,42 @@
+# Automatically processed list of opcodes of errors reported
+# by bdemostabs utility in the 'Errors' field of Table 1.
+
+
+*: bug requires working on it (FAIL-state bug)
+
+a: Component field of description for "Core/Int" of LBZ is incorrect (expected I)
+b: Component field of description for "iASL Com" of LBZ is incorrect (expected C)
+c: Component field of description for "ACPI Spe" of LBZ is incorrect (expected S)
+d: Component field of description for "Utilitie" of LBZ is incorrect (expected U)
+e: invalid Component field in LBZ
+f: Component field of description for "ACPI" of KBZ is incorrect (expected I)
+g: Component field of description is incorrect (expected {I|C|M|U|S})
+h: STATE-MANUALLY area contains 2 or more elements but it is not "FIXED INTEGRATED"
+i: STATE-MANUALLY area contains more than 2 elements
+j: STATE-MANUALLY area contains unexpected lexeme
+k: TEST-RESULT area contains unexpected lexeme
+l: TEST-RESULT area contains unexpected lexeme
+m: STATE-MANUALLY area contains unexpected lexeme
+n: non-zero priority for PASS-state bug
+o: non-zero priority for PASS-state bug
+p: zero priority for FAIL-state bug
+r: FAIL-state bug is not filed into bugzilla
+s: the bugzilla query file doesn't contain the entry corresponding to the bug
+t: failed to identify entry of summary table
+u: unnecessary INTEGRATED is set up for non-bugzilla bug
+v: invalid Component field in KBZ (expected "ACPI")
+w: ALLBUGS doesn't contain the entry present in query (not implemented yet, do it for both Local and Kernel BZ query files)
+
+A: inconsistence between LBZ-rejection and manual-rejection
+B: bug in LBZ is RESOLVED/CLOSED but is of FAIL-state
+C: bug in BZ is not CLOSED but is of PASS-state
+D: the Result field of RESOLVED/CLOSED bug in LBZ is not FIXED
+E: the Result field in LBZ is {FIXE|CODE|PATC} for FAIL-state bug
+F: inconsistence between KBZ-rejection and manual-rejection
+G: bug in KBZ is RESOLVED/CLOSED but is of FAIL-state
+H: bug in KBZ is RESOLVED/CLOSED but the Result field is not {CODE|PATC}
+I: bug is not INTEGRATED but is of PASS-state
+J: the Result field in KBZ is {FIXE|CODE|PATC} for FAIL-state bug
+K: bug is marked as INTEGRATED but is of FAIL-state
+L: bug in BZ is CLOSED while it is not yet INTEGRATED
+R: bug in BZ is not RESOLVED but is of PASS-state

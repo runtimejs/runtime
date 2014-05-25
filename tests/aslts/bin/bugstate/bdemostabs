@@ -1,0 +1,1496 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Calculate the current state of all bugs
+# and report the summary tables.
+#
+# Paremeters:
+#
+# arg1 - the first multi-result directory
+# arg2 - the second multi-result directory
+#
+#    Note: fictitious invalid name could be applied instead of either arg1 or arg2.
+#
+# arg3 - ALLBUGS file which is a manually prepared description of all bugs,
+#        those features of current state of bugs which could not be obtained
+#        automatically
+# arg4 - kernel bugzilla Bug List file
+# arg5 - local bugzilla Bug List file
+#
+# (for additional comments see Do and asltsrun utilities).
+
+# Includes
+
+. common
+. settings
+
+print_complete_list_per_comp=yes
+
+# Opcodes of TEST-RESULT
+PASS=0
+FAIL=1
+BLOCKED=2
+SKIPPED=3
+UNDEFINED=4
+
+ST_FAIL=" FAIL       "
+ST_BLCK=" BLOCKED    "
+ST_PASS=" PASS       "
+ST_SKIP=" SKIPPED    "
+ST_UNDF=" UNDEFINED  "
+ST_EMPT="            "
+
+# Opcodes of (STATE-MANUALLY)
+Man_REJECTED=0
+Man_FIXED=1
+Man_INTEGRATED=2
+Man_FIXED_INTEGRATED=3
+Man_EMPTY=4
+Man_UNDEFINED=5
+
+# Overall status
+REJ_STATUS=0
+PASS_STATUS=1
+FAIL_STATUS=2
+
+# Opcodes of component
+I_COMP=0
+C_COMP=1
+M_COMP=2
+U_COMP=3
+S_COMP=4
+UNDEF_COMP=5
+
+
+# Return opcode of TEST-RESULT according to weights
+gen_stat()
+{
+	if [ "x$1" != x ]; then
+		stat=`echo "$1" | awk -F: '{ print $4}'`
+		if [ "$stat" != 0 ]; then
+			rval=$FAIL
+		else
+			stat=`echo "$1" | awk -F: '{ print $5}'`
+			if [ "$stat" != 0 ]; then
+				if [ "$rval" != $FAIL ]; then
+					rval=$BLOCKED
+				fi
+			else
+				stat=`echo "$1" | awk -F: '{ print $6}'`
+				if [ "$stat" != 0 ]; then
+					if [ "$rval" != $FAIL -a "$rval" != $BLOCKED ]; then
+						rval=$PASS
+					fi
+				else
+					stat=`echo "$1" | awk -F: '{ print $7}'`
+					if [ "$stat" != 0 ]; then
+						if [ "$rval" != $FAIL -a "$rval" != $BLOCKED -a "$rval" != $PASS ]; then
+							rval=$SKIPPED
+						fi
+					fi
+				fi
+			fi
+		fi
+	fi
+}
+
+# Inputs/outputs are 'Opcodes of TEST-RESULT'
+generate_status()
+{
+	rval="$UNDEFINED"
+
+	gen_stat "$c32n_GL"
+	gen_stat "$c64n_GL"
+	gen_stat "$c32s_GL"
+	gen_stat "$c64s_GL"
+	gen_stat "$l32n_GL"
+	gen_stat "$l64n_GL"
+	gen_stat "$l32s_GL"
+	gen_stat "$l64s_GL"
+
+	return $rval
+}
+
+# Get name of 'Opcode of TEST-RESULT'
+get_test_result_name()
+{
+	case $1 in
+		0) echo "$ST_PASS";;
+		1) echo "$ST_FAIL";;
+		2) echo "$ST_BLCK";;
+		3) echo "$ST_SKIP";;
+		4) echo "$ST_UNDF";;
+		*)  echo "?"
+	esac
+}
+
+get_state_result()
+{
+	if [ "x$2" != x ]; then
+		State=`get_element_of_line  "$1" ":" $2 0`
+		Result=`get_element_of_line "$1" ":" $2 1`
+		if [ "x$State" == x ]; then
+			StateResult="         "
+		elif [ "$State" == NEW ]; then
+			StateResult="$State      "
+		elif [ "x$Result" == x ]; then
+			StateResult="$State     "
+		else
+			StateResult="$State $Result"
+		fi
+	else
+		StateResult="         "
+	fi
+
+	echo "$StateResult"
+}
+
+# Check(STATE-MANUALLY) == {REJECTED|FIXED|INTEGRATED|FIXED INTEGRATED|<empty>}
+check_state_manually()
+{
+	rval=$Man_UNDEFINED
+
+	x=`echo "$1" | awk -F" " '{print $1}'`
+	y=`echo "$1" | awk -F" " '{print $2}'`
+
+	# FIXED INTEGRATED
+	if [ "x$y" != x ]; then
+		if [ "$x" != FIXED -o "$y" != INTEGRATED ]; then
+			CerrSTMAN=h
+		else
+			rval=$Man_FIXED_INTEGRATED
+			z=`echo "$1" | awk -F" " '{print NF}'`
+			if [ "$z" != 2 ]; then
+				CerrSTMAN=i
+			fi
+		fi
+	elif [ "$x" == REJECTED ]; then
+		rval=$Man_REJECTED
+	elif [ "$x" == FIXED ]; then
+		rval=$Man_FIXED
+	elif [ "$x" == INTEGRATED ]; then
+		rval=$Man_INTEGRATED
+	elif [ "x$x" == x ]; then
+		rval=$Man_EMPTY
+	else
+		CerrSTMAN=j
+	fi
+
+	return $rval
+}
+
+# Check(TEST-RESULT) == {PASS|FAIL|BLOCKED|SKIPPED|UNDEFINED}
+check_test_result()
+{
+	if [ "$1" != $PASS\
+		-a "$1" != $FAIL\
+		-a "$1" != $BLOCKED\
+		-a "$1" != $SKIPPED\
+		-a "$1" != $UNDEFINED ]; then
+		CerrTSRESID=k
+	fi
+}
+
+check_conformity()
+{
+	entry=7
+	rval=$FAIL_STATUS
+
+	if [ "$1" == $Man_REJECTED ]; then
+		entry=0
+		rval=$REJ_STATUS
+	elif [ "$1" == $Man_FIXED -a "$2" == $UNDEFINED ]; then
+		entry=1
+		rval=$PASS_STATUS
+	elif [ "$1" == $Man_FIXED_INTEGRATED -a "$2" == $UNDEFINED ]; then
+		entry=1
+		rval=$PASS_STATUS
+	elif [ "$1" == $Man_EMPTY -o "$1" == $Man_INTEGRATED ]; then
+		if [ "$2" == $PASS ]; then
+			entry=2
+			rval=$PASS_STATUS
+		elif [ "$2" == $FAIL ]; then
+			entry=4
+			rval=$FAIL_STATUS
+		elif [ "$2" == $BLOCKED ]; then
+			entry=5
+			rval=$FAIL_STATUS
+		elif [ "$2" == $SKIPPED ]; then
+			entry=3
+			rval=$PASS_STATUS
+		elif [ "$2" == $UNDEFINED ]; then
+			entry=6
+			rval=$FAIL_STATUS
+		else
+			CerrCONFORMITY=l
+		fi
+	else
+		entry=7
+		echo "ERROR 0: check_conformity, <$1> <$2>"
+		InternalErrCount=$[ $InternalErrCount + 1 ]
+		CerrCONFORMITY=m
+	fi
+
+	if [ "$1" == $Man_FIXED_INTEGRATED -o "$1" == $Man_INTEGRATED ]; then
+		if [ "x$LBZID" == x -a "x$KBZID" == x ]; then
+			CerrCONFORMITY=u
+		fi
+	fi
+
+	entry_of_table=$entry
+
+	return $rval
+}
+
+# Check(COMP) == {I|C|M|U|S}
+check_component()
+{
+	rval=$UNDEF_COMP
+
+	if [[ "$1" == I* ]]; then
+		rval=$I_COMP
+	elif [[ "$1" == C* ]]; then
+		rval=$C_COMP
+	elif [[ "$1" == M* ]]; then
+		rval=$M_COMP
+	elif [[ "$1" == U* ]]; then
+		rval=$U_COMP
+	elif [[ "$1" == S* ]]; then
+		rval=$S_COMP
+	else
+		CerrCOMP=g
+		echo "ERROR 0: check_component, <$1>"
+		InternalErrCount=$[ $InternalErrCount + 1 ]
+	fi
+
+	return $rval
+}
+
+report_state_of_bugs()
+{
+	local second_file=
+
+	rintinbzcnt=0
+	notresolvedcnt=0
+	rnotintcnt=0
+	rjinbzilla=0
+	rstateinbzilla=0
+	rstateinbzillafail=0
+
+	init_summary_table
+
+	echo ""
+	echo ""
+	echo ""
+	echo "Table 1  (Complete list of per-bug states)"
+	echo ""
+
+	report_head_of_table
+
+	OLD_IFS=$IFS
+	IFS="|"
+
+	cat\
+		"$BDEMO_SUM"\
+		"$ALLBUGS" |\
+	while [ 1 ]
+	do
+		read number s0 s1 s2 s3 s4 s5 s6 s7
+		if [ $? -ne 0 ] ; then
+			do_report_summary
+			echo ""
+			report_errors_encountered
+			echo ""
+			echo ""
+			echo ""
+			report_bug_summary
+			echo ""
+			echo ""
+			echo ""
+			report_rejected_in_bzilla
+			echo ""
+			echo ""
+			echo ""
+			report_resolved_integrated
+			echo ""
+			echo ""
+			echo ""
+			report_resolved_not_integrated
+			echo ""
+			echo ""
+			echo ""
+			report_not_resolved
+			echo ""
+			echo ""
+			echo ""
+			report_resolved_state_in_bzilla
+			echo ""
+			echo ""
+			echo ""
+			report_resolved_state_in_bzilla_but_fail
+			echo ""
+			echo ""
+			echo ""
+			report_bzilla_summary
+			echo ""
+			echo ""
+			echo ""
+			report_internal_bugs_number
+
+			break
+		fi
+
+		if [ "$number" == ALLBUGS ] ; then
+			second_file=yes
+			continue
+		fi
+
+		if [ "$second_file" == yes ] ; then
+
+			if [ "x$number" == x ]; then
+				continue
+			fi
+
+			CerrMISC=" "
+
+			# Local/kernel bugzilla State/Result parameters
+
+			LBZID=`echo $s1 | sed 's/ //'g`
+			lst=`get_state_result "$LBSUM_PARSED"  "$LBZID"`
+
+			KBZID=`echo $s2 | sed 's/ //'g`
+			kst=`get_state_result "$KBSUM_PARSED"  "$KBZID"`
+
+			lState=`echo "$lst" | awk -F" " '{print $1}'`
+			lResult=`echo "$lst" | awk -F" " '{print $2}'`
+
+			kState=`echo "$kst" | awk -F" " '{print $1}'`
+			kResult=`echo "$kst" | awk -F" " '{print $2}'`
+
+			resolved_state_in_bzilla=
+			resolved_state_in_bzilla_but_fail=
+
+			if [ "$lState" == RESO\
+				-o "$lState" == REJE\
+				-o "$lState" == CLOS\
+				-o "$kState" == RESO\
+				-o "$kState" == REJE\
+				-o "$kState" == CLOS ]; then
+				resolved_state_in_bzilla=yes
+			fi
+
+
+			# Check consistancy of bug-data.
+			#
+			# Check that the state of bugs reported by local and kernel
+			# bugzilla dont contradict with the actual state of bugs
+			# reported by test runs and manually provided data.
+
+			# Check STATE-MANUALLY (error # 1)
+
+			CerrSTMAN=" "
+			check_state_manually "$s3"
+			MANstat=$?
+
+			# Check TEST-RESULT (error # 1)
+
+			TSRESstat="${SUMMARY[$number]}"
+
+			CerrTSRESID=" "
+			check_test_result "$TSRESstat"
+
+			# Check Component (error # 2,3,4,5,6)
+
+			LerrCOMP=" "
+			KerrCOMP=" "
+			CerrCOMP=" "
+
+			Component=`echo $s0 | sed 's/ //'g`
+			check_component "$Component"
+			Component=$?
+
+			if [ "x$KBZID" != x ]; then
+				if [ "x$kState" == x ]; then
+					KerrCOMP=s
+				else
+					Comp=`get_element_of_line  "$KBSUM_PARSED" ":" "$KBZID" 2`
+					if [ "$Comp" != "ACPI" ]; then
+						KerrCOMP=v
+					elif [[ "$Component" != $I_COMP ]]; then
+						KerrCOMP=f
+					fi
+				fi
+			fi
+			if [ "x$LBZID" != x ]; then
+
+				if [ "x$lState" == x ]; then
+					LerrCOMP=s
+				else
+					Comp=`get_element_of_line  "$LBSUM_PARSED" ":" "$LBZID" 2`
+					if [ "$Comp" == "Core/Int" ]; then
+						if [[ "$Component" != $I_COMP ]]; then
+							LerrCOMP=a
+						fi
+					elif [ "$Comp" == "iASL Com" ]; then
+						if [[ "$Component" != $C_COMP ]]; then
+							LerrCOMP=b
+						fi
+					elif [ "$Comp" == "ACPI Spe" ]; then
+						if [[ "$Component" != $S_COMP ]]; then
+							LerrCOMP=c
+						fi
+					elif [ "$Comp" == "Utilitie" ]; then
+						if [ "$Component" != $U_COMP -a "$Component" != $M_COMP ]; then
+							LerrCOMP=d
+						fi
+					else
+						LerrCOMP=e
+					fi
+				fi
+			fi
+
+			# Check conformity of STATE-MANUALLY & TEST-RESULT (error # 1)
+
+			CerrCONFORMITY=" "
+			entry_of_table=100
+			check_conformity "$MANstat" "$TSRESstat"
+			overall_status=$?
+
+
+			# Increment the relevant entry of the summary table
+			if [ "$Component" != $UNDEF_COMP ]; then
+				increment_summary_table "$Component" "$entry_of_table"
+			else
+				CerrMISC=t
+				echo "ERROR 0: report_state_of_bugs, <$number> <$Component> <$entry_of_table>"
+				InternalErrCount=$[ $InternalErrCount + 1 ]
+			fi
+
+
+			if [ "$overall_status" == $FAIL_STATUS ]; then
+				tobefixed="*"
+			else
+				tobefixed=" "
+			fi
+
+			# Check REJECTED (error # 1)
+
+			LerrRJ=" "
+			KerrRJ=" "
+
+			if [ "x$LBZID" != x -o "x$KBZID" != x ]; then
+
+				MNrejected=
+				if [ "$overall_status" == $REJ_STATUS ]; then
+					MNrejected=yes
+				fi
+
+				# Local bugzilla
+
+				if [ "x$LBZID" != x ]; then
+					rejected=
+					if [ "$lResult" == INVA ]; then
+						rejected=yes
+					fi
+					if [ "$rejected" != "$MNrejected" ]; then
+						LerrRJ=A
+					fi
+				fi
+
+				# Kernel bugzilla
+
+				if [ "x$KBZID" != x ]; then
+					rejected=
+					if [ "$kState" == REJE ]; then
+						rejected=yes
+					fi
+					if [ "$rejected" != "$MNrejected" ]; then
+						KerrRJ=F
+					fi
+				fi
+			fi
+
+			# Check State-Result (error # 7,8,9,a,b,c,d,e)
+
+			intgr=
+			if [[ "$s3" == *INTEGRATED* ]]; then
+				intgr=yes
+			fi
+
+			LerrSTAT=" "
+			LerrRES=" "
+			KerrSTAT=" "
+			KerrRES=" "
+			CerrPRIOR=" "
+
+			x=`echo $s4 | sed 's/ //'g`
+
+			if [ "$overall_status" == $REJ_STATUS ]; then
+				if [ "x$x" != x ]; then
+					CerrPRIOR=n
+				fi
+			elif [ "$overall_status" == $PASS_STATUS ]; then
+				if [ "x$LBZID" != x ]; then
+					if [ "$lState" == CLOS -a "x$intgr" == x ]; then
+						LerrSTAT=L
+					elif [ "$lState" != RESO -a "$lState" != CLOS ]; then
+						LerrSTAT=R
+					elif [ "$lState" == RESO ]; then
+						LerrSTAT=C
+						if [ "$lResult" != FIXE ]; then
+							LerrRES=D
+						fi
+					else
+						if [ "$lResult" != FIXE ]; then
+							LerrRES=D
+						fi
+					fi
+				fi
+				if [ "x$KBZID" != x ]; then
+					if [ "$kState" == CLOS -a "x$intgr" == x ]; then
+						KerrSTAT=L
+					elif [ "$kState" != RESO -a "$kState" != CLOS ]; then
+						KerrSTAT=R
+					elif [ "$kState" == RESO ]; then
+						KerrSTAT=C
+						if [ "$kResult" != CODE -a "$kResult" != PATC ]; then
+							KerrRES=H
+						fi
+					else
+						if [ "$kResult" != CODE -a "$kResult" != PATC ]; then
+							KerrRES=H
+						fi
+					fi
+				fi
+				if [ "x$x" != x ]; then
+					CerrPRIOR=o
+				fi
+			else
+				if [ "x$LBZID" != x ]; then
+					if [ "$lState" == RESO\
+						-o "$lState" == CLOS ]; then
+						LerrSTAT=B
+					elif [ "$lResult" == FIXE\
+							-o "$lResult" == CODE\
+							-o "$lResult" == PATC ]; then
+						LerrRES=E
+					fi
+				fi
+				if [ "x$KBZID" != x ]; then
+					if [ "$kState" == RESO\
+						-o "$kState" == CLOS ]; then
+						KerrSTAT=G
+					elif [ "$kResult" == FIXE\
+							-o "$kResult" == CODE\
+							-o "$kResult" == PATC ]; then
+						KerrRES=J
+					fi
+				fi
+
+				if [ "x$LBZID" == x -a "x$KBZID" == x ]; then
+					LerrSTAT=r
+					KerrSTAT=r
+				fi
+				if [ "x$x" == x ]; then
+					CerrPRIOR=p
+				fi
+			fi
+
+			# Check INTEGRATED (error # f,g,h,i)
+
+			CerrINTEGR=" "
+
+			rejected_in_bz=
+			rejected_not_in_bz=
+			not_resolved=
+			resolved_integrated_in_bz=
+			resolved_not_integrated_in_bz=
+
+			if [ "$overall_status" == $REJ_STATUS ]; then
+				if [ "x$KBZID" != x -o "x$LBZID" != x ]; then
+					rejected_in_bz=yes
+				else
+					rejected_not_in_bz=yes
+				fi
+			elif [ "$overall_status" == $FAIL_STATUS ]; then
+				not_resolved=yes
+				if [ "x$LBZID" != x -o "x$KBZID" != x ]; then
+					if [ "$resolved_state_in_bzilla" == yes ]; then
+						resolved_state_in_bzilla_but_fail=yes
+					fi
+					if [ "x$intgr" != x ]; then
+						CerrINTEGR=K
+					fi
+				fi
+			else
+				if [ "x$LBZID" != x -o "x$KBZID" != x ]; then
+					if [ "x$intgr" == x ]; then
+						CerrINTEGR=I
+						resolved_not_integrated_in_bz=yes
+					else
+						resolved_integrated_in_bz=yes
+					fi
+				fi
+			fi
+
+			# Local & Kernel bugzilla summary
+
+			if [ "x$LBZID" != x -o "x$KBZID" != x ]; then
+
+				if [ "$kState" == NEW ]; then
+					KBarr[0]=$[ ${KBarr[0]} + 1 ]
+				elif [ "$kState" == ASSI ]; then
+					KBarr[1]=$[ ${KBarr[1]} + 1 ]
+				elif [ "$kState" == NEED ]; then
+					KBarr[2]=$[ ${KBarr[2]} + 1 ]
+				elif [ "$kState" == RESO ]; then
+					if [ "$kResult" == CODE ]; then
+						KBarr[3]=$[ ${KBarr[3]} + 1 ]
+					elif [ "$kResult" == PATC ]; then
+						KBarr[4]=$[ ${KBarr[4]} + 1 ]
+					elif [ "$kResult" == FIXE ]; then
+						KBarr[5]=$[ ${KBarr[5]} + 1 ]
+					elif [ "$kResult" == INVA ]; then
+						KBarr[6]=$[ ${KBarr[6]} + 1 ]
+					else
+						KBarr[9]=$[ ${KBarr[9]} + 1 ]
+					fi
+				elif [ "$kState" == REJE ]; then
+					if [ "$kResult" == DOCU ]; then
+						KBarr[7]=$[ ${KBarr[7]} + 1 ]
+					else
+						KBarr[9]=$[ ${KBarr[9]} + 1 ]
+					fi
+				elif [ "$kState" == CLOS ]; then
+					if [ "$kResult" == CODE ]; then
+						KBarr[8]=$[ ${KBarr[8]} + 1 ]
+					else
+						KBarr[9]=$[ ${KBarr[9]} + 1 ]
+					fi
+				fi
+
+				if [ "$lState" == NEW ]; then
+					LBarr[0]=$[ ${LBarr[0]} + 1 ]
+				elif [ "$lState" == ASSI ]; then
+					LBarr[1]=$[ ${LBarr[1]} + 1 ]
+				elif [ "$lState" == NEED ]; then
+					LBarr[2]=$[ ${LBarr[2]} + 1 ]
+				elif [ "$lState" == RESO ]; then
+					if [ "$lResult" == CODE ]; then
+						LBarr[3]=$[ ${LBarr[3]} + 1 ]
+					elif [ "$lResult" == PATC ]; then
+						LBarr[4]=$[ ${LBarr[4]} + 1 ]
+					elif [ "$lResult" == FIXE ]; then
+						LBarr[5]=$[ ${LBarr[5]} + 1 ]
+					elif [ "$lResult" == INVA ]; then
+						LBarr[6]=$[ ${LBarr[6]} + 1 ]
+					else
+						LBarr[9]=$[ ${LBarr[9]} + 1 ]
+					fi
+				elif [ "$lState" == REJE ]; then
+					if [ "$lResult" == DOCU ]; then
+						LBarr[7]=$[ ${LBarr[7]} + 1 ]
+					else
+						LBarr[9]=$[ ${LBarr[9]} + 1 ]
+					fi
+				elif [ "$lState" == CLOS ]; then
+					if [ "$lResult" == CODE ]; then
+						LBarr[8]=$[ ${LBarr[8]} + 1 ]
+					else
+						LBarr[9]=$[ ${LBarr[9]} + 1 ]
+					fi
+				fi
+
+				if [ "$overall_status" == $REJ_STATUS ]; then
+					if [ "x$LBZID" != x ]; then
+						LBarr[10]=$[ ${LBarr[10]} + 1 ]
+					fi
+					if [ "x$KBZID" != x ]; then
+						KBarr[10]=$[ ${KBarr[10]} + 1 ]
+					fi
+				elif [ "$overall_status" == $PASS_STATUS ]; then
+					if [ "x$LBZID" != x ]; then
+						LBarr[11]=$[ ${LBarr[11]} + 1 ]
+					fi
+					if [ "x$KBZID" != x ]; then
+						KBarr[11]=$[ ${KBarr[11]} + 1 ]
+					fi
+				else
+					if [ "x$LBZID" != x ]; then
+						LBarr[12]=$[ ${LBarr[12]} + 1 ]
+					fi
+					if [ "x$KBZID" != x ]; then
+						KBarr[12]=$[ ${KBarr[12]} + 1 ]
+					fi
+				fi
+			fi
+
+			TSRESname=`get_test_result_name "$TSRESstat"`
+			if [ "$overall_status" == $REJ_STATUS ]; then
+				TSRESname="$ST_EMPT"
+			fi
+
+			# Summary error string
+
+			LErrStr="$LerrRJ$LerrCOMP$LerrSTAT$LerrRES"
+			KErrStr="$KerrRJ$KerrCOMP$KerrSTAT$KerrRES"
+			CommonErrStr="$CerrCOMP$CerrSTMAN$CerrTSRESID$CerrCONFORMITY$CerrPRIOR$CerrINTEGR"
+			AllErrors="$LErrStr$KErrStr$CommonErrStr$CerrMISC $tobefixed"
+			x=`echo "$AllErrors" | sed 's/ //'g`
+			AccumulateErrors="$AccumulateErrors$x"
+			line="$AllErrors|$number|$s0|$s1|$lst|$s2|$kst|$TSRESname|$s3|$s4| $tobefixed$s5"
+			SUMMARY[$number]="$line"
+
+			if [ "x$print_complete_list_per_comp" != x ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					SUMMARY_I="$SUMMARY_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					SUMMARY_C="$SUMMARY_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					SUMMARY_M="$SUMMARY_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					SUMMARY_U="$SUMMARY_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					SUMMARY_S="$SUMMARY_S:$number"
+				else
+					SUMMARY_UNDEF="$SUMMARY_UNDEF:$number"
+				fi
+			fi
+
+			if [ "$not_resolved" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					NOT_RESOLVED_I="$NOT_RESOLVED_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					NOT_RESOLVED_C="$NOT_RESOLVED_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					NOT_RESOLVED_M="$NOT_RESOLVED_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					NOT_RESOLVED_U="$NOT_RESOLVED_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					NOT_RESOLVED_S="$NOT_RESOLVED_S:$number"
+				else
+					NOT_RESOLVED_UNDEF="$NOT_RESOLVED_UNDEF:$number"
+				fi
+				notresolvedcnt=$[ $notresolvedcnt + 1 ]
+			elif [ "$resolved_integrated_in_bz" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					RESOLVED_INTEGRATED_IN_BZ_I="$RESOLVED_INTEGRATED_IN_BZ_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					RESOLVED_INTEGRATED_IN_BZ_C="$RESOLVED_INTEGRATED_IN_BZ_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					RESOLVED_INTEGRATED_IN_BZ_M="$RESOLVED_INTEGRATED_IN_BZ_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					RESOLVED_INTEGRATED_IN_BZ_U="$RESOLVED_INTEGRATED_IN_BZ_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					RESOLVED_INTEGRATED_IN_BZ_S="$RESOLVED_INTEGRATED_IN_BZ_S:$number"
+				else
+					RESOLVED_INTEGRATED_IN_BZ_UNDEF="$RESOLVED_INTEGRATED_IN_BZ_UNDEF:$number"
+				fi
+				rintinbzcnt=$[ $rintinbzcnt + 1 ]
+			elif [ "$resolved_not_integrated_in_bz" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					RESOLVED_NOT_INTEGRATED_IN_BZ_I="$RESOLVED_NOT_INTEGRATED_IN_BZ_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					RESOLVED_NOT_INTEGRATED_IN_BZ_C="$RESOLVED_NOT_INTEGRATED_IN_BZ_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					RESOLVED_NOT_INTEGRATED_IN_BZ_M="$RESOLVED_NOT_INTEGRATED_IN_BZ_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					RESOLVED_NOT_INTEGRATED_IN_BZ_U="$RESOLVED_NOT_INTEGRATED_IN_BZ_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					RESOLVED_NOT_INTEGRATED_IN_BZ_S="$RESOLVED_NOT_INTEGRATED_IN_BZ_S:$number"
+				else
+					RESOLVED_NOT_INTEGRATED_IN_BZ_UNDEF="$RESOLVED_NOT_INTEGRATED_IN_BZ_UNDEF:$number"
+				fi
+				rnotintcnt=$[ $rnotintcnt + 1 ]
+			elif [ "$rejected_in_bz" == yes ]; then
+				REJECTED_IN_BZILLA="$REJECTED_IN_BZILLA:$number"
+				rjinbzilla=$[ $rjinbzilla + 1 ]
+			elif [ "$rejected_not_in_bz" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					REJECTED_NOT_IN_BZILLA_I="$REJECTED_NOT_IN_BZILLA_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					REJECTED_NOT_IN_BZILLA_C="$REJECTED_NOT_IN_BZILLA_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					REJECTED_NOT_IN_BZILLA_M="$REJECTED_NOT_IN_BZILLA_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					REJECTED_NOT_IN_BZILLA_U="$REJECTED_NOT_IN_BZILLA_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					REJECTED_NOT_IN_BZILLA_S="$REJECTED_NOT_IN_BZILLA_S:$number"
+				else
+					REJECTED_NOT_IN_BZILLA_UNDEF="$REJECTED_NOT_IN_BZILLA_UNDEF:$number"
+				fi
+				rjnotinbzilla=$[ $rjnotinbzilla + 1 ]
+			fi
+
+			if [ "$resolved_state_in_bzilla" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_I="$RESOLVED_STATE_IN_BZILLA_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_C="$RESOLVED_STATE_IN_BZILLA_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_M="$RESOLVED_STATE_IN_BZILLA_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_U="$RESOLVED_STATE_IN_BZILLA_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_S="$RESOLVED_STATE_IN_BZILLA_S:$number"
+				else
+					RESOLVED_STATE_IN_BZILLA_UNDEF="$RESOLVED_STATE_IN_BZILLA_UNDEF:$number"
+				fi
+				rstateinbzilla=$[ $rstateinbzilla + 1 ]
+			fi
+
+			if [ "$resolved_state_in_bzilla_but_fail" == yes ]; then
+				if [[ "$Component" == $I_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_I="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_I:$number"
+				elif [[ "$Component" == $C_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_C="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_C:$number"
+				elif [[ "$Component" == $M_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_M="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_M:$number"
+				elif [[ "$Component" == $U_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_U="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_U:$number"
+				elif [[ "$Component" == $S_COMP ]]; then
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_S="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_S:$number"
+				else
+					RESOLVED_STATE_IN_BZILLA_BUT_FAIL_UNDEF="$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_UNDEF:$number"
+				fi
+				rstateinbzillafail=$[ $rstateinbzillafail + 1 ]
+			fi
+
+		else
+			c32n_GL="$s0"
+			c64n_GL="$s1"
+			c32s_GL="$s2"
+			c64s_GL="$s3"
+			l32n_GL="$s4"
+			l64n_GL="$s5"
+			l32s_GL="$s6"
+			l64s_GL="$s7"
+
+			generate_status "$number"
+			status=$?
+
+			if [ "x$number" != x ]; then
+				SUMMARY[$number]="$status"
+			fi
+		fi
+
+	done
+
+	IFS=$OLD_IFS
+}
+
+init_summary_table()
+{
+# Elements of arrays:
+#    0 - rejected
+#    1 - undef_fixed
+#    2 - pass
+#    3 - skipped
+#    4 - failed
+#    5 - blocked
+#    6 - undef_not_fixed
+
+	InternalErrCount=0
+
+# Interpreter
+	StINT[0]=0
+	StINT[1]=0
+	StINT[2]=0
+	StINT[3]=0
+	StINT[4]=0
+	StINT[5]=0
+	StINT[6]=0
+	StINT[7]=0
+
+# iASL
+	StASL[0]=0
+	StASL[1]=0
+	StASL[2]=0
+	StASL[3]=0
+	StASL[4]=0
+	StASL[5]=0
+	StASL[6]=0
+	StASL[7]=0
+
+# Simulation
+	StSIM[0]=0
+	StSIM[1]=0
+	StSIM[2]=0
+	StSIM[3]=0
+	StSIM[4]=0
+	StSIM[5]=0
+	StSIM[6]=0
+	StSIM[7]=0
+
+# Utilities
+	StUTIL[0]=0
+	StUTIL[1]=0
+	StUTIL[2]=0
+	StUTIL[3]=0
+	StUTIL[4]=0
+	StUTIL[5]=0
+	StUTIL[6]=0
+	StUTIL[7]=0
+
+# Specs 
+	StSPEC[0]=0
+	StSPEC[1]=0
+	StSPEC[2]=0
+	StSPEC[3]=0
+	StSPEC[4]=0
+	StSPEC[5]=0
+	StSPEC[6]=0
+	StSPEC[7]=0
+
+# LBarr
+
+	LBarr[0]=0
+	LBarr[1]=0
+	LBarr[2]=0
+	LBarr[3]=0
+	LBarr[4]=0
+	LBarr[5]=0
+	LBarr[6]=0
+	LBarr[7]=0
+	LBarr[8]=0
+	LBarr[9]=0
+	LBarr[10]=0
+	LBarr[11]=0
+	LBarr[12]=0
+
+# KBarr
+
+	KBarr[0]=0
+	KBarr[1]=0
+	KBarr[2]=0
+	KBarr[3]=0
+	KBarr[4]=0
+	KBarr[5]=0
+	KBarr[6]=0
+	KBarr[7]=0
+	KBarr[8]=0
+	KBarr[9]=0
+	KBarr[10]=0
+	KBarr[11]=0
+	KBarr[12]=0
+}
+
+increment_summary_table()
+{
+	if [ "$1" == $I_COMP ]; then
+		StINT[$2]=$[ ${StINT[$2]} + 1 ]
+	elif [ "$1" == $C_COMP ]; then
+		StASL[$2]=$[ ${StASL[$2]} + 1 ]
+	elif [ "$1" == $S_COMP ]; then
+		StSPEC[$2]=$[ ${StSPEC[$2]} + 1 ]
+	elif [ "$1" == $M_COMP ]; then
+		StSIM[$2]=$[ ${StSIM[$2]} + 1 ]
+	elif [ "$1" == $U_COMP ]; then
+		StUTIL[$2]=$[ ${StUTIL[$2]} + 1 ]
+	fi
+}
+
+report_bug_summary()
+{
+y0=$[ ${StINT[0]} + ${StASL[0]} + ${StSIM[0]} + ${StUTIL[0]} + ${StSPEC[0]} ]
+y1=$[ ${StINT[1]} + ${StASL[1]} + ${StSIM[1]} + ${StUTIL[1]} + ${StSPEC[1]} ]
+y2=$[ ${StINT[2]} + ${StASL[2]} + ${StSIM[2]} + ${StUTIL[2]} + ${StSPEC[2]} ]
+y3=$[ ${StINT[3]} + ${StASL[3]} + ${StSIM[3]} + ${StUTIL[3]} + ${StSPEC[3]} ]
+
+x="           "
+echo "Table 2  (Summary of bugs)"
+echo ""
+echo "                             | Interpreter iASL        Simulation  Utilities   Specs   |   TOTAL   |"
+echo "=============================|=========================================================|===========|"
+echo "F      |*         & REJECTED | ${StINT[0]}$x${StASL[0]}$x${StSIM[0]}$x${StUTIL[0]}$x${StSPEC[0]}       | $y0"
+echo " I     |UNDEFINED & FIXED    | ${StINT[1]}$x${StASL[1]}$x${StSIM[1]}$x${StUTIL[1]}$x${StSPEC[1]}       | $y1"
+echo "  X    |PASS                 | ${StINT[2]}$x${StASL[2]}$x${StSIM[2]}$x${StUTIL[2]}$x${StSPEC[2]}       | $y2"
+echo "   ED  |SKIPPED              | ${StINT[3]}$x${StASL[3]}$x${StSIM[3]}$x${StUTIL[3]}$x${StSPEC[3]}       | $y3"
+echo "-----------------------------|---------------------------------------------------------|"
+
+y4=$[ ${StINT[4]} + ${StASL[4]} + ${StSIM[4]} + ${StUTIL[4]} + ${StSPEC[4]} ]
+y5=$[ ${StINT[5]} + ${StASL[5]} + ${StSIM[5]} + ${StUTIL[5]} + ${StSPEC[5]} ]
+y6=$[ ${StINT[6]} + ${StASL[6]} + ${StSIM[6]} + ${StUTIL[6]} + ${StSPEC[6]} ]
+# y7=$[ ${StINT[7]} + ${StASL[7]} + ${StSIM[7]} + ${StUTIL[7]} + ${StSPEC[7]} ]
+
+x00=$[ ${StINT[0]} + ${StINT[1]} + ${StINT[2]} + ${StINT[3]} ]
+x01=$[ ${StASL[0]} + ${StASL[1]} + ${StASL[2]} + ${StASL[3]} ]
+x02=$[ ${StSIM[0]} + ${StSIM[1]} + ${StSIM[2]} + ${StSIM[3]} ]
+x03=$[ ${StUTIL[0]} + ${StUTIL[1]} + ${StUTIL[2]} + ${StUTIL[3]} ]
+x04=$[ ${StSPEC[0]} + ${StSPEC[1]} + ${StSPEC[2]} + ${StSPEC[3]} ]
+x05=$[ $x00 + $x01 + $x02 + $x03 + $x04 ]
+
+echo "        Total (fixed)        | $x00$x$x01$x$x02$x$x03$x$x04       | $x05"
+
+echo "-----------------------------|---------------------------------------------------------|"
+echo "TO     |FAIL                 | ${StINT[4]}$x${StASL[4]}$x${StSIM[4]}$x${StUTIL[4]}$x${StSPEC[4]}       | $y4"
+echo " BE    |BLOCKED              | ${StINT[5]}$x${StASL[5]}$x${StSIM[5]}$x${StUTIL[5]}$x${StSPEC[5]}       | $y5"
+echo "  FIXED|UNDEFINED & !FIXED   | ${StINT[6]}$x${StASL[6]}$x${StSIM[6]}$x${StUTIL[6]}$x${StSPEC[6]}       | $y6"
+# echo "     |  Other  (must be 0) | ${StINT[7]}$x${StASL[7]}$x${StSIM[7]}$x${StUTIL[7]}$x${StSPEC[7]}       | $y7"
+echo "-----------------------------|---------------------------------------------------------|"
+
+
+x10=$[ ${StINT[4]} + ${StINT[5]} + ${StINT[6]} ]
+x11=$[ ${StASL[4]} + ${StASL[5]} + ${StASL[6]} ]
+x12=$[ ${StSIM[4]} + ${StSIM[5]} + ${StSIM[6]} ]
+x13=$[ ${StUTIL[4]} + ${StUTIL[5]} + ${StUTIL[6]} ]
+x14=$[ ${StSPEC[4]} + ${StSPEC[5]} + ${StSPEC[6]} ]
+x15=$[ $x10 + $x11 + $x12 + $x13 + $x14 ]
+
+echo "        Total (NOT fixed)    | $x10$x$x11$x$x12$x$x13$x$x14       | $x15"
+
+x20=$[ $x00 + $x10 ]
+x21=$[ $x01 + $x11 ]
+x22=$[ $x02 + $x12 ]
+x23=$[ $x03 + $x13 ]
+x24=$[ $x04 + $x14 ]
+x25=$[ $x20 + $x21 + $x22 + $x23 + $x24 ]
+
+echo "-----------------------------|---------------------------------------------------------|"
+echo "        TOTAL ($MAXBDEMO)          | $x20$x$x21$x$x22$x$x23$x$x24       | $x25"
+echo "===================================================================================================|"
+
+	if [ "$x25" != "$MAXBDEMO" ]; then
+		echo "ERROR 0: report_bug_summary, incorrect TOTAL, expected <$MAXBDEMO> received <$x25>"
+		InternalErrCount=$[ $InternalErrCount + 1 ]
+	fi
+}
+
+report_internal_bugs_number()
+{
+	echo "Number of data inconsistency internal errors: InternalErrCount = $InternalErrCount (program to be updated)"
+}
+
+status_calculation_comment()
+{
+echo "Calculate status of bug according to the results of bdemo-tests run on two systems"
+echo "for all modes (norm-32,norm-64,slack-32,slack-64):"
+echo ""
+echo "   UNDEFINED & FIXED == PASS"
+echo ""
+echo "   UNDEFINED & {FAIL|BLOCKED|         |PASS|SKIPPED} == UNDEFINED == FAIL"
+echo "   REJECTED  & {FAIL|BLOCKED|UNDEFINED|PASS|SKIPPED} == REJECTED  == PASS"
+echo "   FAIL      & {     BLOCKED|UNDEFINED|PASS|SKIPPED} == FAIL      == FAIL"
+echo "   BLOCKED   & {             UNDEFINED|PASS|SKIPPED} == BLOCKED   == FAIL"
+echo "   PASS      & {                            SKIPPED} == PASS      == PASS"
+}
+
+status_entries_comment()
+{
+echo "Bug status entries:"
+echo ""
+echo "   REJECTED          : bug is rejected - no matter what are the results of bdemo-test runs"
+echo "   UNDEFINED & FIXED : no runtime bdemo-test for this bug (impossible), status FIXED was set up manually"
+echo "   FAIL              : some of runs of the relevant bdemo-test on either system in different modes failed"
+echo "   BLOCKED           : no failures for the bdemo-test but it was not run in some of modes (see FAIL) (blocked temporary for some reason)"
+echo "   PASS              : the bdemo-test doesn't failed or blocked and some runs resulted in PASS"
+echo "   SKIPPED           : no FAIL/BLOCKED/PASS for this bdemo-test and some run was SKIPPED (no conditions to run the test)"
+echo "   UNDEFINED         : no result of bdemo-test for this bug (either temporary or impossible to generate runtime test conditions at all)"
+}
+
+
+# arg1 - the first multi-result directory
+# arg2 - the second multi-result directory
+init_bdemo_sum()
+{
+	if [ -d "$DIR0" ]; then
+		BDEMO_SUM="$DIR0/__STATUS_OF_ALL_BDEMO_TESTS"
+	elif [ -d "$DIR1" ]; then
+		BDEMO_SUM="$DIR1/__STATUS_OF_ALL_BDEMO_TESTS"
+	else
+		do_exit 1 "No one directory specified by both parameters"
+	fi
+}
+
+report_head_of_table()
+{
+	echo "Errors            IID  COMP    LBZID  ST/RES    KBZID  ST/RES    TEST-RESULT  STATE-MANUALLY     PR      SUMMARY"
+	echo "=====================================================================================================|"
+}
+
+report_end_of_table()
+{
+	echo "=====================================================================================================|"
+}
+
+report_mid_line()
+{
+		echo "                 |---|-------|------|---------|------|---------|------------|------------------|-----|"
+}
+
+do_report_summary()
+{
+	if [ "x$print_complete_list_per_comp" != x ]; then
+		report_subset_of_summary "$SUMMARY_S"
+		report_subset_of_summary "$SUMMARY_C"
+		report_subset_of_summary "$SUMMARY_M"
+		report_subset_of_summary "$SUMMARY_U"
+		report_subset_of_summary "$SUMMARY_UNDEF"
+		report_subset_of_summary "$SUMMARY_I"
+	else
+		index=0
+		while [ 1 ]
+		do
+			if [[ $index -ge $MAXBDEMO ]]; then
+				break
+			fi
+			echo "${SUMMARY[$index]}"
+			index=$[ $index + 1 ]
+		done
+	fi
+
+	report_end_of_table
+}
+
+# arg1 - numbers of bugs - ":n0:n1:...:nX"
+report_subset_of_summary()
+{
+	if [ "x$1" != x ]; then
+		echo "$1" | awk -F: '{ for (i=2; i<=NF; i++) { print $i}}' |\
+		while [ 1 ]
+		do
+			read number
+			if [ $? -ne 0 ] ; then
+				break
+			fi
+			echo "${SUMMARY[$number]}"
+		done
+	fi
+}
+
+report_rejected_in_bzilla()
+{
+	x=$[ $rjnotinbzilla + $rjinbzilla ]
+
+	echo "Table 3  (Rejected, $rjnotinbzilla + $rjinbzilla == $x)"
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_S"
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_C"
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_M"
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_U"
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_UNDEF"
+	report_subset_of_summary "$REJECTED_NOT_IN_BZILLA_I"
+
+	if [ $rjnotinbzilla -gt 0 ]; then
+		report_mid_line
+	fi
+
+	report_subset_of_summary "$REJECTED_IN_BZILLA"
+
+	report_end_of_table
+}
+
+report_resolved_integrated()
+{
+	echo "Table 4  (PASS-state and INTEGRATED (of BZ), $rintinbzcnt)"
+
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_S"
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_C"
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_M"
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_U"
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_UNDEF"
+	report_subset_of_summary "$RESOLVED_INTEGRATED_IN_BZ_I"
+
+	report_end_of_table
+}
+
+report_resolved_not_integrated()
+{
+	echo "Table 5  (PASS-state but NOT INTEGRATED (of BZ), $rnotintcnt)"
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_S"
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_C"
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_M"
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_U"
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_UNDEF"
+	report_subset_of_summary "$RESOLVED_NOT_INTEGRATED_IN_BZ_I"
+
+	report_end_of_table
+}
+
+report_not_resolved()
+{
+	echo "Table 6  (FAIL-state, $notresolvedcnt)"
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$NOT_RESOLVED_S"
+	report_subset_of_summary "$NOT_RESOLVED_C"
+	report_subset_of_summary "$NOT_RESOLVED_M"
+	report_subset_of_summary "$NOT_RESOLVED_U"
+	report_subset_of_summary "$NOT_RESOLVED_UNDEF"
+	report_subset_of_summary "$NOT_RESOLVED_I"
+
+	report_end_of_table
+}
+
+report_resolved_state_in_bzilla()
+{
+	echo "Table 7  (RESOLVED-Bugzilla-State, $rstateinbzilla)"
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_S"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_C"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_M"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_U"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_UNDEF"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_I"
+
+	report_end_of_table
+}
+
+report_resolved_state_in_bzilla_but_fail()
+{
+	echo "Table 8  (RESOLVED-Bugzilla-State BUT FAIL-state, $rstateinbzillafail)"
+	echo ""
+	report_head_of_table
+
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_S"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_C"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_M"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_U"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_UNDEF"
+	report_subset_of_summary "$RESOLVED_STATE_IN_BZILLA_BUT_FAIL_I"
+
+	report_end_of_table
+}
+
+report_bzilla_summary()
+{
+	y=$[ ${LBarr[0]} + ${LBarr[1]} + ${LBarr[2]} + ${LBarr[3]}\
+		+ ${LBarr[4]} + ${LBarr[5]} + ${LBarr[6]} + ${LBarr[7]}\
+		+ ${LBarr[8]} + ${LBarr[9]} ]
+
+	z=$[ ${KBarr[0]} + ${KBarr[1]} + ${KBarr[2]} + ${KBarr[3]}\
+		+ ${KBarr[4]} + ${KBarr[5]} + ${KBarr[6]} + ${KBarr[7]}\
+		+ ${KBarr[8]} + ${KBarr[9]} ]
+
+	x="           "
+	echo "Table 9  (Summary per-State-Result in BZ)"
+	echo ""
+
+	echo "State Result |  LBZ         KBZ"
+	echo "=============|==================="
+	echo "NEW          |  ${LBarr[0]}$x${KBarr[0]}"
+	echo "ASSI         |  ${LBarr[1]}$x${KBarr[1]}"
+	echo "NEED         |  ${LBarr[2]}$x${KBarr[2]}"
+	echo "RESO CODE    |  ${LBarr[3]}$x${KBarr[3]}"
+	echo "RESO PATC    |  ${LBarr[4]}$x${KBarr[4]}"
+	echo "RESO FIXE    |  ${LBarr[5]}$x${KBarr[5]}"
+	echo "RESO INVA    |  ${LBarr[6]}$x${KBarr[6]}"
+	echo "REJE DOCU    |  ${LBarr[7]}$x${KBarr[7]}"
+	echo "CLOS CODE    |  ${LBarr[8]}$x${KBarr[8]}"
+	echo "Other        |  ${LBarr[9]}$x${KBarr[9]}"
+	echo "-------------|-------------------"
+	echo "Total        |  $y$x$z"
+	echo "=============|==================="
+
+	y=$[ ${LBarr[10]} + ${LBarr[11]} + ${LBarr[12]} ]
+	z=$[ ${KBarr[10]} + ${KBarr[11]} + ${KBarr[12]} ]
+
+	echo ""
+	echo ""
+	echo ""
+	echo "Table 10  (Summary state of bugs (of BZ))"
+	echo ""
+	echo "    State    |  LBZ         KBZ"
+	echo "=============|==================="
+	echo "REJECTED     |  ${LBarr[10]}$x${KBarr[10]}"
+	echo "PASS-state   |  ${LBarr[11]}$x${KBarr[11]}"
+	echo "FAIL-state   |  ${LBarr[12]}$x${KBarr[12]}"
+	echo "-------------|-------------------"
+	echo "Total        |  $y$x$z"
+	echo "================================="
+}
+
+report_errors_encountered()
+{
+	echo "A list of encountered errors:"
+	echo ""
+
+	if [ -f "$ERROR_OPCODES" ]; then
+		z=`echo "$AccumulateErrors" | transform_to_single_chars`
+		report_lines_per_char "$ERROR_OPCODES" "$z"
+	else
+		echo "Error: ERROR_OPCODES is not file: <$ERROR_OPCODES>"
+	fi
+}
+
+# ############################## MAIN ###############################
+
+date
+
+DIR0="$1"
+DIR1="$2"
+ALLBUGS="$3"
+KBSUM="$4"
+LBSUM="$5"
+BUG_STATE_DIR="$6"
+
+BDEMO_SUM=
+KBSUM_PARSED=
+LBSUM_PARSED=
+
+c32n_GL=
+c64n_GL=
+c32s_GL=
+c64s_GL=
+l32n_GL=
+l64n_GL=
+l32s_GL=
+l64s_GL=
+
+UTILSTATUS=0
+SUMMARY=
+
+# NOT_RESOLVED=
+# RESOLVED_INTEGRATED_IN_BZ=
+# RESOLVED_NOT_INTEGRATED_IN_BZ=
+# RESOLVED_STATE_IN_BZILLA=
+# REJECTED_IN_BZILLA=
+# REJECTED_NOT_IN_BZILLA=
+
+LBarr=
+KBarr=
+
+ERROR_OPCODES="$BUG_STATE_DIR/ERROR_OPCODES"
+
+
+# Opcodes of errors
+# REJECTED_ERR=1
+# COMP_ERR=9
+
+
+# Arrays for summary information for Interpreter, iASL, Simulation, Utilities, Specs.
+
+StINT=
+StASL=
+StSIM=
+StUTIL=
+StSPEC=
+
+
+# Prepare the summary table of bdemo summary files of two multi-results:
+
+echo "Preparing the summary table of bdemo summary files of two multi-results:"
+echo "   the first  : $DIR0"
+echo "   the second : $DIR1"
+echo "   ALLBUGS    : $ALLBUGS"
+echo "   kernel bugzilla Bug List file : $KBSUM"
+echo "   local bugzilla Bug List file  : $LBSUM"
+
+# Initialization
+
+INIT_MAX_BDEMO
+
+system0=
+system1=
+if [ -d "$DIR0" ]; then
+	COMMONLOGFILE="$DIR0/Summary"
+	if [ ! -f "$COMMONLOGFILE" ]; then
+		do_exit 1 "COMMONLOGFILE is not file: <$COMMONLOGFILE>"
+	else
+		system0=`get_name_of_system "$COMMONLOGFILE"`
+	fi
+fi
+if [ -d "$DIR1" ]; then
+	COMMONLOGFILE="$DIR1/Summary"
+	if [ ! -f "$COMMONLOGFILE" ]; then
+		do_exit 1 "COMMONLOGFILE is not file: <$COMMONLOGFILE>"
+	else
+		system1=`get_name_of_system "$COMMONLOGFILE"`
+	fi
+fi
+
+if [ ! -f "$KBSUM" ]; then
+	do_exit 1 "KBSUM is not file: <$KBSUM>"
+fi
+
+if [ ! -f "$LBSUM" ]; then
+	do_exit 1 "LBSUM is not file: <$LBSUM>"
+fi
+
+if [ -d "$DIR0" ]; then
+	KBSUM_PARSED="$DIR0/__KERNEL_ASLTS_BUG_LIST"
+	LBSUM_PARSED="$DIR0/__LOCAL_ASLTS_BUG_LIST"
+elif [ -d "$DIR1" ]; then
+	KBSUM_PARSED="$DIR1/__KERNEL_ASLTS_BUG_LIST"
+	LBSUM_PARSED="$DIR1/__LOCAL_ASLTS_BUG_LIST"
+fi
+
+if [ "x$KBSUM_PARSED" == x -o "x$LBSUM_PARSED" == x ]; then
+	do_exit 1 "Failed to initialize KBSUM_PARSED & LBSUM_PARSED"
+fi
+
+if [ ! -f "$ALLBUGS" ]; then
+	do_exit 1 "ALLBUGS is not file: <$ALLBUGS>"
+fi
+
+init_bdemo_sum
+
+# Parse the Bug List files (kernel and local bugzilla)
+
+echo "Parse the Bug List files (kernel and local bugzilla)"
+echo "   kernel bugzilla Bug List file : $KBSUM"
+echo "   local bugzilla Bug List file  : $LBSUM"
+
+parsebuglist "$KBSUM" > "$KBSUM_PARSED"
+if [ $? -ne 0 ]; then
+	do_exit 1 "Failed to parse KBSUM: <$KBSUM>"
+fi
+
+parsebuglist "$LBSUM" > "$LBSUM_PARSED"
+if [ $? -ne 0 ]; then
+	do_exit 1 "Failed to parse LBSUM: <$LBSUM>"
+fi
+
+# Concatenate the summary files of bdemos of two multi-results
+
+bdemosconc "$DIR0" "$DIR1"
+
+if [ ! -f "$BDEMO_SUM" ]; then
+	do_exit 1 "BDEMO_SUM is not file: <$BDEMO_SUM>"
+fi
+
+echo ""
+echo ""
+echo "The tables below represent the current state of all bugs encountered by ASLTS project."
+echo ""
+echo "The underlying systems the aslts tests were run:"
+echo ""
+echo "   the first  <$system0>"
+echo "   the second <$system1>"
+echo ""
+echo "The aslts tests multi-results analyzed:"
+echo ""
+echo "   the first multi-result directory  : <$DIR0>"
+echo "   the second multi-result directory : <$DIR1>"
+echo ""
+
+
+report_state_of_bugs
+
+if [ 0 -eq 1 ]; then
+	echo ""
+	status_calculation_comment
+	echo ""
+	status_entries_comment
+fi
+
+echo ""
+
+date
+
+exit $UTILSTATUS
+
+
+

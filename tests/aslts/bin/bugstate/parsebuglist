@@ -1,0 +1,134 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Parse the Bug List output file (ID State Result Component)
+#
+# Paremeters:
+#
+# arg1 - pathname of file with the Bug List
+
+# Includes
+
+. common
+. settings
+
+# ID State Result Component
+#
+# State:=[NEW|RESO|CLOS|ASSI|REJE|NEED]
+# Result:=[CODE|PATC|DOCU|FIXE|INVA]
+#
+#      State entries:
+#
+# NEW  == NEW
+# RESO == RESOLVED
+# CLOS == CLOSED
+# ASSI == ASSIGNED 
+# REJE == REJECTED
+# NEED == NEEDINFO
+#
+#      Result entries:
+#
+# FIXE == FIXED
+# INVA == INVALID
+# CODE == CODE_FIX 
+# PATC == PATCH_ALREADY_AVAILABLE 
+# DOCU == DOCUMENTED
+
+get_summary()
+{
+#	echo "=====================$s0:$s1:$s2:$s3:$s4:$s5:$line"
+
+	ID="$s0"
+	State="$s1"
+	Result=
+	Component=
+
+	if [ "$State" == RESO\
+		-o "$State" == CLOS\
+		-o "$State" == REJE ]; then
+		Result="$s2"
+		if [ "x$s4" == x ]; then
+			Component="$s3"
+		else
+			Component="$s3 $s4"
+		fi
+	else
+		if [ "$State" != NEW\
+			-a "$State" != NEED\
+			-a "$State" != ASSI ]; then
+			echo "ERROR 0: get_summary, <$State>"
+			CountERR=$[ $CountERR + 1 ]
+		else
+			if [ "x$s3" == x ]; then
+				Component="$s2"
+			else
+				Component="$s2 $s3"
+			fi
+		fi
+	fi
+
+	echo "$ID:$State: Exp $Result:$Component:"
+}
+
+# arg1 - pathname of file with the Bug List
+do_summary()
+{
+	started=
+
+	OLD_IFS=$IFS
+	IFS=" "
+
+	cat "$1" |\
+	while [ 1 ]
+	do
+		read s0 s1 s2 s3 s4 s5 line
+		if [ $? -ne 0 ] ; then
+#			echo "Number of the table inconsistency errors: CountERR = $CountERR"
+			if [ "$CountERR" != 0 ]; then
+				return 1
+			fi
+			break
+		fi
+
+		if [ "$s1" == bugs -a "$s2" == "found." ]; then
+			if [ "$started" == yes ]; then
+				started=no
+			else
+				started=yes
+			fi
+		elif [ "$started" == yes ]; then
+			get_summary
+		fi
+	done
+
+	ret=$?
+
+	IFS=$OLD_IFS
+
+	if [ $ret -ne 0 ]; then
+		return 1
+	fi
+}
+
+# ############################## MAIN ###############################
+
+PATHNAME="$1"
+UTILSTATUS=0
+SUMMARY=
+CountERR=0
+
+# echo "Parse the Bug List output file:"
+# echo "   $PATHNAME"
+
+if [ ! -f "$PATHNAME" ]; then
+	do_exit 1 "It is not file: <$PATHNAME>"
+fi
+
+do_summary "$PATHNAME"
+if [ $? -ne 0 ]; then
+	do_exit 1 "parsebuglist failed"
+else
+	exit 0
+fi
+

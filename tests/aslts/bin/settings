@@ -1,0 +1,341 @@
+#!/bin/bash
+#
+# @echo off
+#
+# Settings and initializations
+#
+# Initialize all the AVAILABLE test cases
+# and collections (all which are).
+#
+INIT_ALL_AVAILABLE_CASES()
+{
+	# Functional test collection
+
+	FUNC_COLL="arithmetic bfield constant control descriptor"
+	FUNC_COLL="$FUNC_COLL logic manipulation name reference region synchronization"
+	FUNC_COLL="$FUNC_COLL table"
+
+	# Complex test collection
+
+	OPER_TCASES="oarg oconst oconversion olocal onamedglob onamedloc opackageel oreftonamed oreftopackageel oreturn"
+	RES_TCASES="rconversion rcopyobject rexplicitconv rindecrement roptional rstore"
+
+	CPLX_COLL="misc provoke"
+	CPLX_COLL="$CPLX_COLL $OPER_TCASES"
+	CPLX_COLL="$CPLX_COLL $RES_TCASES"
+	CPLX_COLL="$CPLX_COLL badasl namespace"
+
+	# Exceptions test collection
+
+	EXCP_COLL="exc exc_operand1 exc_operand2 exc_ref exc_result1 exc_result2"
+	EXCP_COLL="$EXCP_COLL exc_tbl"
+
+	# Bug-demo test collection
+
+	BDEMO_COLL="bdemo bdemof"
+
+	# Service test collection
+
+	SERV_COLL="condbranches"
+
+	# Implementation dependent test collection
+
+	IMPL_COLL="dynobj"
+
+	# Tests of multi-threading functionality (mt-tests)
+
+	MT_COLL="mt_mutex"
+
+	# Tests to prove identity of ACPICA to MS
+
+	MS_IDENT_COLL="extra extra_aslts"
+
+	# All collections of tests
+
+	ALL_AVAILABLE_COLLS="functional complex exceptions bdemo service mt Identity2MS IMPL"
+
+	ALL_AVAILABLE_TEST_CASES="$FUNC_COLL $CPLX_COLL $EXCP_COLL $BDEMO_COLL $MT_COLL $SERV_COLL $IMPL_COLL $MS_IDENT_COLL"
+}
+
+#
+# Initialize all the AVAILABLE test modes
+#
+INIT_ALL_AVAILABLE_MODES()
+{
+	# All test modes
+
+	ALL_AVAILABLE_TEST_MODES="n32 n64 s32 s64"
+}
+
+#
+# Report all the available test cases
+#
+echo_available_test_cases()
+{
+	echo "All available test cases:"
+
+	echo_list "functional"                "$FUNC_COLL"
+	echo_list "complex"                   "$CPLX_COLL"
+	echo_list "exceptions"                "$EXCP_COLL"
+	echo_list "bug-demo"                  "$BDEMO_COLL"
+	echo_list "mt"                        "$MT_COLL"
+	echo_list "service"                   "$SERV_COLL"
+	echo_list "implementation dependent"  "$IMPL_COLL"
+	echo_list "Identity2MS"               "$MS_IDENT_COLL"
+}
+
+#
+# Return the number of all the available test cases
+#
+get_num_of_available_test_cases()
+{
+	local count=0
+
+	for tcase in $ALL_AVAILABLE_TEST_CASES
+	do
+		count=$[ $count + 1 ]
+	done
+
+	return $count
+}
+
+#
+# Set up a list of test cases you want
+# to be processed by run and compare utilities.
+# Do that here manually.
+#
+INIT_SET_OF_TEST_CASES()
+{
+	local func compl excep bdemo serv impl
+
+	# Functional test collection
+
+	func="arithmetic bfield constant control descriptor"
+	func="$func logic manipulation name reference region synchronization"
+	func="$func table"
+
+	# Complex test collection
+
+	compl="misc provoke"
+	compl="$compl oarg oconst olocal onamedloc onamedglob opackageel oreftonamed oreftopackageel oreturn"
+	compl="$compl rstore roptional rcopyobject rindecrement rexplicitconv"
+	compl="$compl badasl namespace"
+
+	# Exceptions test collection
+
+	excep="exc exc_ref exc_operand2 exc_result2"
+	excep="$excep exc_tbl"
+
+	# Bug-demo test collection
+
+	bdemo="bdemo bdemof"
+
+	# Service test collection
+
+	serv="condbranches"
+
+	# Tests of multi-threading functionality (mt-tests)
+
+	mt="mt_mutex"
+
+	# Tests to prove identity of ACPICA to MS
+
+	Identity2MS="extra extra_aslts"
+
+	# Implementation dependent test collection
+
+	impl="dynobj"
+
+
+	# The test cases to be processed by run and compare utilities:
+
+	if [ "x$ENABLED_TCASES" = "x" ]; then
+
+#		ENABLED_TCASES="$func $compl $excep $bdemo $serv"
+#		ENABLED_TCASES="$func $compl $excep $Identity2MS $bdemo $serv"
+		ENABLED_TCASES="$func $compl $excep $mt $Identity2MS $bdemo $serv"
+
+#		ENABLED_TCASES="extra extra_aslts"
+#		ENABLED_TCASES="control"
+#		ENABLED_TCASES="bdemo"
+#		ENABLED_TCASES="bdemo bdemof"
+#		ENABLED_TCASES="bdemo misc"
+#		ENABLED_TCASES="arithmetic constant"
+#		ENABLED_TCASES="condbranches"
+#		ENABLED_TCASES="exc"
+#		ENABLED_TCASES="arithmetic constant exc condbranches"
+#		ENABLED_TCASES="arithmetic bfield constant control descriptor logic manipulation name reference region synchronization misc provoke exc bdemo"
+#		ENABLED_TCASES="oarg oconst olocal onamedloc onamedglob opackageel oreftonamed oreftopackageel oreturn"
+#		ENABLED_TCASES="rstore roptional rcopyobject rindecrement rexplicitconv exc_ref exc_operand2 exc_result2"
+#		ENABLED_TCASES="condbranches"
+#		ENABLED_TCASES="arithmetic bfield"
+#		ENABLED_TCASES="descriptor"
+#		ENABLED_TCASES="reference"
+#		ENABLED_TCASES="arithmetic misc logic bdemo"
+#		ENABLED_TCASES="misc control manipulation"
+#		ENABLED_TCASES="exc_ref"
+#		ENABLED_TCASES="rstore"
+#		ENABLED_TCASES="bdemo reference"
+#		ENABLED_TCASES="name"
+#		ENABLED_TCASES="badasl"
+#		ENABLED_TCASES="constant"
+#		ENABLED_TCASES="arithmetic constant exc mt_mutex bdemo"
+#		ENABLED_TCASES="mt_mutex"
+#		ENABLED_TCASES="region"
+
+	fi
+}
+
+#
+# Set up a list of test modes you want
+# to be processed by run and compare utilities.
+#
+INIT_SET_OF_TEST_MODES()
+{
+	local m n found
+
+	for m in $ALL_AVAILABLE_TEST_MODES
+	do
+		found=0
+		for n in $ENABLED_TMODES
+		do
+			if [ "x$m" = "x$n" ]; then
+				found=1
+			fi
+		done
+
+		if [ $found -eq 1 ]; then
+
+			# 32-bit non-slack (normal):
+
+			if [ "$m" = "n32" ]; then
+				ENABLENORM32=1
+			fi
+
+			# 64-bit non-slack (normal):
+
+			if [ "$m" = "n64" ]; then
+				ENABLENORM64=1
+			fi
+
+			# 32-bit slack:
+
+			if [ "$m" = "s32" ]; then
+				ENABLESLACK32=1
+			fi
+
+			# 64-bit slack:
+
+			if [ "$m" = "s64" ]; then
+				ENABLESLACK64=1
+			fi
+		fi
+	done
+}
+
+#
+# Set it up to zero to exclude the aslts/RESULTS technique at all
+#
+INIT_LOG_RESULTS()
+{
+	ENABLELOG=1
+}
+
+#
+# Set it up to the maximal number of bdemo tests (of all bugs of ACPICA)
+#
+INIT_MAX_BDEMO()
+{
+	MAXBDEMO=307
+}
+
+#
+# Reset collections involved flags
+#
+reset_collections_flags()
+{
+	FUNC_COLL_FLAG=0
+	CPLX_COLL_FLAG=0
+	EXCP_COLL_FLAG=0
+	BDEMO_COLL_FLAG=0
+	MT_COLL_FLAG=0
+	SERV_COLL_FLAG=0
+	IMPL_COLL_FLAG=0
+	MS_IDENT_COLL_FLAG=0
+}
+
+RESET_SETTINGS()
+{
+	# Log enable flag
+
+	ENABLELOG=0
+
+	# Enabled modes
+
+	ENABLENORM32=0
+	ENABLENORM64=0
+	ENABLESLACK32=0
+	ENABLESLACK64=0
+
+	# Available test collections
+
+	FUNC_COLL=
+	CPLX_COLL=
+	EXCP_COLL=
+	BDEMO_COLL=
+	MT_COLL=
+	SERV_COLL=
+	MS_IDENT_COLL=
+	IMPL_COLL=
+	ALL_AVAILABLE_COLLS=
+	ALL_AVAILABLE_TEST_CASES=
+
+	# Particular test cases staff
+
+	OPER_TCASES=
+	RES_TCASES=
+
+	# Test collections involved flags
+
+	reset_collections_flags
+
+	# Run test error flags
+
+	HAVE_LARGE_REF_CNT=no
+}
+
+INIT_MEM_STAT()
+{
+	# If 'yes', eliminates all settings of comparing below
+
+	DO_ALL_COMPARE=yes
+
+	DO_COMPARE_TOTAL_ONLY=no
+
+	# Enable memory statistics processing
+
+	DO_MEMSTAT=yes
+
+	#
+    # Enable comparing of memory statistics for the test cases
+	# (not only the total figures related to all the test cases
+	# of mode).
+	# Allows to reduce the time of the comparing utility.
+	# This comparing utility takes too long time on Cygwin
+	# (more than 1 hour 10 minutes, though quickly on Linux -
+	# not more than 1 minute).
+	#
+    DO_COMPARE_OF_TEST_CASES=no
+	DO_COMPARE_OF_EXCEPTIONS=no
+
+	if [ "$DO_COMPARE_OF_TEST_CASES" != yes -a "$DO_COMPARE_OF_EXCEPTIONS" != yes ]; then
+		DO_COMPARE_TOTAL_ONLY=yes
+	fi
+
+	if [ "$DO_ALL_COMPARE" == yes ]; then
+		DO_COMPARE_TOTAL_ONLY=no
+		DO_COMPARE_OF_TEST_CASES=yes
+		DO_COMPARE_OF_EXCEPTIONS=yes
+	fi
+}
+

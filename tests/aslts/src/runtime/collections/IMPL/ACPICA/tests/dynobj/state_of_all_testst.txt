@@ -1,0 +1,50 @@
+Describe here how all other tests of ASLTS go with ML consumption engine.
+
+1.
+
+arithmetic      - ok
+constant        - ok
+descriptor      - ok
+logic           - ok
+region          - ok
+synchronization - ok
+==================== all them result in something like these:
+ACPI (uttrack-0703): No outstanding allocations [20060707]
+utdebugstat-0194 [1858285] "UtCloseStat"         : Memory Consumption errors encountered!
+ERRORS SUMMARY: ErrorScale 0x800000; Sum 0x0, CSum 0x0, OSum 0x0, Failed executions of methods number 0
+ERROR: allocated memory total 0x2488f (times), freed total 0x2488d (times)
+       Uncounted are  0x2488f - (0x2488d + 4) == 0xfffffffe  allocations
+====================
+
+2.
+
+bfield          - Point 2, Errors: Sum 0x100000, CSum 0x80, OSum 0x0
+
+Fixed by this:
+==============
+ACPI_STATUS
+AcpiDsExecBeginOp (
+    ACPI_WALK_STATE         *WalkState,
+    ACPI_PARSE_OBJECT       **OutOp)
+{
+    case AML_CLASS_EXECUTE:
+    case AML_CLASS_CREATE:
+        /*
+         * Most operators with arguments.
+         * Start a new result/operand state
+         */
+        if (WalkState->OpInfo->ObjectType != ACPI_TYPE_BUFFER_FIELD)
+        {
+            Status = AcpiDsResultStackPush (WalkState);
+        }
+        break;
+}
+
+
+control         - Errors: Sum 0x280000, CSum 0x0, OSum 0x40
+manipulation    - Sum 0x280000, CSum 0x0, OSum 0x40; Errors: Sum 0x100000, CSum 0x80, OSum 0x0
+name            - Errors: Sum 0x80000, CSum 0x0, OSum 0x60
+reference       - Sum 0x280000, CSum 0x0, OSum 0x70
+
+
+
