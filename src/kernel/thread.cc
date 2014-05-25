@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "Thread.h"
+#include "thread.h"
 #include <kernel/kernel.h>
 #include <kernel/thread-manager.h>
 #include <kernel/isolate.h>

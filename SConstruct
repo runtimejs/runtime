@@ -201,14 +201,13 @@ def EnvironmentCreateHost():
     return hostenv
 
 def BuildMkinitrd(hostenv):
-    hostenv.Program('mkinitrd', ['src/mkinitrd/mkinitrd.cc', 'src/common/package.cc', 'src/common/crc64.cc'])
-    return
+    return hostenv.Program('mkinitrd', ['src/mkinitrd/mkinitrd.cc', 'src/common/package.cc', 'src/common/crc64.cc'])
 
 def BuildTestsHost(hostenv):
     hostenv.Program('test-host', ['test/hostcc/test-host.cc', 'deps/printf/printf.cc'])
     return
 
-def BuildProject(env_base):
+def BuildProject(env_base, mkinitrd):
     env = env_base.Clone();
     sources = {}
     for ext, dirs in config["locations"].items():
@@ -243,16 +242,17 @@ def BuildProject(env_base):
     env.Depends(initrd, Glob('initrd/*.*'))
     env.Depends(initrd, Glob('initrd/*/*.*'))
     env.Depends(initrd, Glob('initrd/*/*/*.*'))
+    env.Depends(initrd, mkinitrd)
     env.Depends(output_bin, initrd);
     return
 
 # Build mkinitrd tool
 env_host = EnvironmentCreateHost()
-BuildMkinitrd(env_host)
+mkinitrd = BuildMkinitrd(env_host)
 BuildTestsHost(env_host)
 
 # Build kernel
 env_base = EnvironmentCreate(build)
 SConscript('deps/SConscript', exports = 'env_base')
-BuildProject(env_base)
+BuildProject(env_base, mkinitrd)
 

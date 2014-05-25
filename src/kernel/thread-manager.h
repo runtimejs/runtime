@@ -9,7 +9,7 @@
 #include <memory>
 
 #include <v8.h>
-#include "Thread.h"
+#include "thread.h"
 #include <kernel/kernel.h>
 #include <kernel/template-cache.h>
 #include <kernel/atomic.h>

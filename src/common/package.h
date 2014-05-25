@@ -4,11 +4,10 @@
 
 #pragma once
 
+#include <vector>
+#include <string.h>
 #include <runtimejs.h>
 #include <common/utils.h>
-
-#include <vector>
-#include <string>
 
 namespace package {
 
