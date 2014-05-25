@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 // Add missing type
-typedef struct __locale* locale_t;
+typedef struct __locale_struct* locale_t;
 locale_t __cloc(void);
 
 // Use linux as platform
