@@ -51,7 +51,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *    EA_PLATFORM_CYGWIN    (pseudo-platform; may be defined along with another platform like EA_PLATFORM_LINUX)
  *    EA_PLATFORM_MINGW     (pseudo-platform; may be defined along with another platform like EA_PLATFORM_WINDOWS)
  *    EA_PLATFORM_MICROSOFT (pseudo-platform; may be defined along with another platform like EA_PLATFORM_WINDOWS)
- *    
+ *
  * Other definitions emanated from this file inclue:
  *    EA_PLATFORM_NAME = <string>
  *    EA_PLATFORM_DESCRIPTION = <string>
@@ -60,7 +60,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *    EA_ASM_STYLE_ATT | EA_ASM_STYLE_INTEL | EA_ASM_STYLE_MOTOROLA
  *    EA_PLATFORM_PTR_SIZE = <integer size in bytes>
  *    EA_PLATFORM_WORD_SIZE = <integer size in bytes>
- * 
+ *
  *---------------------------------------------------------------------------*/
 
 
@@ -77,7 +77,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 // MinGW
-// This is a pseudo-platform which will be defined along with EA_PLATFORM_WINDOWS when 
+// This is a pseudo-platform which will be defined along with EA_PLATFORM_WINDOWS when
 // using the MinGW Windows build environment.
 #if defined(__MINGW32__) || defined(__MINGW64__)
     #define EA_PLATFORM_MINGW
@@ -109,8 +109,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // XBox
 // _XBOX is defined by the VC++ project, not the compiler. There is no way
-// to tell if the compiler is compiling for XBox unless _XBOX is #defined 
-// in the project files or otherwise. _M_IX86 is the VC++ way of detecting 
+// to tell if the compiler is compiling for XBox unless _XBOX is #defined
+// in the project files or otherwise. _M_IX86 is the VC++ way of detecting
 // an x86 target, which would mean XBox and not Xenon (a.k.a. XBox2).
 #elif defined(EA_PLATFORM_XBOX) || (defined(_XBOX) && defined(_M_IX86))
     #undef  EA_PLATFORM_XBOX
@@ -125,11 +125,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     #define EA_PLATFORM_CONSOLE
 
 // Xenon (XBox 360)
-// The Xenon compiler doesn't define anything in particular to indicate that the 
+// The Xenon compiler doesn't define anything in particular to indicate that the
 // target is the Xenon platform. The Xenon SDK, however, expects that XBOX and
 // _XBOX are #defined, so the project build file must make sure these are defined.
-// Since the Xenon compiler in fact defines _M_PPC, we can use this information 
-// to infer that Xenon is the target if neither _XENON nor _XBOX2 are specifically 
+// Since the Xenon compiler in fact defines _M_PPC, we can use this information
+// to infer that Xenon is the target if neither _XENON nor _XBOX2 are specifically
 // defined by the project build file.
 #elif defined(EA_PLATFORM_XENON) || defined(_XENON) || defined(_XBOX2) || ((defined(_XBOX) || defined(XBOX)) && defined(_M_PPC))
     #undef  EA_PLATFORM_XENON
@@ -159,7 +159,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     #endif
     #define EA_PROCESSOR_LRB
     #define EA_PROCESSOR_LRB1       // Larrabee version 1
-    #define EA_ASM_STYLE_ATT        // Both types of asm style 
+    #define EA_ASM_STYLE_ATT        // Both types of asm style
     #define EA_ASM_STYLE_INTEL      // are supported.
     #define EA_PLATFORM_DESKTOP
 
@@ -211,7 +211,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
         #define EA_PROCESSOR_ARM
         #define EA_PLATFORM_DESCRIPTION "Airplay on ARM"
         #define EA_ASM_STYLE_ATT
-        #undef _MSC_VER    
+        #undef _MSC_VER
     #elif defined(_M_IX86)
         #define EA_PROCESSOR_X86
         #define EA_PLATFORM_DESCRIPTION "Airplay on x86"
@@ -251,13 +251,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     #endif
     #define EA_PLATFORM_MOBILE
 
-#elif defined(__APPLE__) && __APPLE__ 
+#elif defined(__APPLE__) && __APPLE__
     #include <TargetConditionals.h>
 
     // Apple family of operating systems.
     #define EA_PLATFORM_APPLE
-    
-    // iPhone 
+
+    // iPhone
     // TARGET_OS_IPHONE will be undefined on an unknown compiler, and will be defined on gcc.
     #if defined(EA_PLATFORM_IPHONE) || defined(__IPHONE__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || (defined(TARGET_IPHONE_SIMULATOR) && TARGET_IPHONE_SIMULATOR)
         #undef  EA_PLATFORM_IPHONE
@@ -334,7 +334,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // _M_IX86 is defined by the Borland compiler.
 // __sparc__ is defined by the GCC compiler.
 // __powerpc__ is defined by the GCC compiler.
-#elif defined(EA_PLATFORM_LINUX) || (defined(__linux) || defined(__linux__))
+#elif defined(EA_PLATFORM_LINUX) || (defined(__linux) || defined(__linux__) || defined(__runtime_js__))
     #undef  EA_PLATFORM_LINUX
     #define EA_PLATFORM_LINUX 1
     #define EA_PLATFORM_UNIX 1
@@ -467,8 +467,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // EA_PLATFORM_PTR_SIZE
 // Platform pointer size; same as sizeof(void*).
-// This is not the same as sizeof(int), as int is usually 32 bits on 
-// even 64 bit platforms. 
+// This is not the same as sizeof(int), as int is usually 32 bits on
+// even 64 bit platforms.
 //
 // _WIN64 is defined by Win64 compilers, such as VC++.
 // _M_IA64 is defined by VC++ and Intel compilers for IA64 processors.
@@ -484,7 +484,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef EA_PLATFORM_PTR_SIZE
     #if defined(__WORDSIZE) // Defined by some variations of GCC.
         #define EA_PLATFORM_PTR_SIZE ((__WORDSIZE) / 8)
-    #elif defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(_M_IA64) || defined(__ia64__) || defined(__arch64__) || defined(__mips64__) || defined(__64BIT__) 
+    #elif defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(_M_IA64) || defined(__ia64__) || defined(__arch64__) || defined(__mips64__) || defined(__64BIT__)
         #define EA_PLATFORM_PTR_SIZE 8
     #elif defined(__CC_ARM) && (__sizeof_ptr == 8)
         #define EA_PLATFORM_PTR_SIZE 8
@@ -496,13 +496,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 // EA_PLATFORM_WORD_SIZE
-// This defines the size of a machine word. This will be the same as 
+// This defines the size of a machine word. This will be the same as
 // the size of registers on the machine but not necessarily the same
 // as the size of pointers on the machine. A number of 64 bit platforms
 // have 64 bit registers but 32 bit pointers.
 //
 #ifndef EA_PLATFORM_WORD_SIZE
-   #if defined(EA_PLATFORM_XENON) || defined(EA_PLATFORM_PS3) 
+   #if defined(EA_PLATFORM_XENON) || defined(EA_PLATFORM_PS3)
       #define EA_PLATFORM_WORD_SIZE 8
    #else
       #define EA_PLATFORM_WORD_SIZE EA_PLATFORM_PTR_SIZE
@@ -514,21 +514,21 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Disabled until and unless deemed useful:
 //
 // Platform integer types
-// These definitions allow us to define other things properly, such as 
-// sized integer types. In order to bring some order to this chaos, 
+// These definitions allow us to define other things properly, such as
+// sized integer types. In order to bring some order to this chaos,
 // we follow a variation of the standard LP64 conventions defined at:
-//    http://www.opengroup.org/public/tech/aspen/lp64_wp.htm 
+//    http://www.opengroup.org/public/tech/aspen/lp64_wp.htm
 //
 // #if defined(EA_PLATFORM_LINUX) || defined(EA_PLATFORM_OSX) || defined(EA_PLATFORM_XBOX) || defined(EA_PLATFORM_XENON)
 //    #define EA_PLATFORM_ILP32_LL64         // int, long, ptr = 32 bits; long long = 64 bits.
-// 
+//
 // #elif defined(EA_PLATFORM_SUN) || defined(EA_PLATFORM_SGI)
 //    #if (EA_PLATFORM_WORD_SIZE == 32)
 //       #define ILP32_LL64                  // int, long, ptr = 32 bits; long long = 64 bits.
 //    #else // 64 bit platform
 //       #define EA_PLATFORM_I32_LLLP64      // int = 32 bits; long, long long, ptr = 64 bits.
 //    #endif
-// 
+//
 // #elif defined(EA_PLATFORM_WINDOWS)
 //    #if (EA_PLATFORM_WORD_SIZE == 32)
 //       #define ILP32_LL64                  // int, long, ptr = 32 bits; long long = 64 bits.
