@@ -1,0 +1,88 @@
+                        -- About this library --
+
+At http://gpl.ea.com you can download some open-source packages in zip
+files.  Deep inside some of these zip files is C++ code for the EASTL
+library, a replacement for the STL. I'm not sure if these packages
+include the complete library, but it seems to have all of the
+fundamentals.
+
+This github project only exists to offer up these files in a more
+convenient way, under the terms of EA's license. License terms can be
+found embedded in the source files.
+
+If you're just browsing, then most of the good stuff is under
+include/EASTL/
+
+These files are only *part* of the actual EASTL library. According to Paul
+Pedriana, only 50-60% of EASTL is officially published; the remainder may be
+published sometime in the future. There's also a large suite of unit tests and
+benchmarks which are not yet published.
+
+                              -- Notes --
+
+As per document N2271, this copy of the EASTL is highly
+incomplete. Notably things such as deques are missing, as well as the
+entirety of the intrusive containers library and many other things. I
+guess as EA continues to release source code I will try to update this
+repository with new source code and changes (and hopefully EA will
+release more in the future.)
+
+                              -- Changes --
+
+This repository contains a few examples of EASTL usage as well as a
+makefile on linux for compiling the source code (under 'src') into an
+archive to link against later for convenience.
+
+Also, it contains modifications (by me, Austin Seipp, 2010) to the
+EASTL source code to support the Clang compiler. At least v2.8 is
+necessary as it has C++03 support. I state these changes are released
+back to the community under the same license EA has given its source
+code - see the individual files under include/ and src/ for their
+licensing terms.
+
+By default, if you use the makefile on linux to build a 'libeastl.a'
+(see 'Usage' below) it will attempt to use clang++ to compile the
+source. You can change this by setting the CC variable in
+'Makefile.top' to g++ or whatever compilers EASTL supports (see
+include/EABase/config/eacompiler.h)
+
+If you use clang to compile the examples and the source code, and you
+follow clang's development (through its SVN) repository, please be
+aware of this bug and use the latest trunk copy:
+
+http://llvm.org/bugs/show_bug.cgi?id=8284
+
+I do not think this bug exists in the standard release of LLVM/Clang
+2.8.
+
+                              -- Usage --
+
+Add the 'include' directory to your include path, and the contents of
+'src' to your project's source files.
+
+Alternatively, if you're on linux, you can run 'make' at the top level
+directory and it will generate a 'libeastl.a' that you can link
+against. Just put it in your linker's library path and 'include' in
+your include path and you should be set.  If you do this, you can
+control compilation flags and the output binary archive file via
+'Makefile.top'. Check the EABase and EASTL source code (in particular,
+include/EABase/config/* and include/EASTL/internal/config.h) for
+compilation flags.
+
+To use EASTL, you will need to define several functions, particularly
+allocator functions. If you do not need a custom allocator, you must
+define new[] and delete[] for the basic built in allocator - see
+example/example1.cpp for a trivial example. You must also define
+Vsnprintf and possibly other things.
+
+If you wish to use a custom allocator, you must define a custom allocator
+class. Refer to document N2271 and include/EASTL/allocator.h for the
+interface allocators must support, and the custom allocator example
+located under example/custom_allocator.cpp for more (in particular,
+the custom allocator is different from the default eastl::allocator
+only in that it uses posix_memalign to respect alignment
+requirements. Otherwise it's a direct copy and an example of how to
+write your own stand alone allocators.)
+
+There's a makefile to compile the examples on linux. You'll need to
+build libeastl.a first, then go into example/ and just run 'make'.

@@ -1,0 +1,8 @@
+This directory contains a set of examples of EASTL usage.
+
+To compile them, you must have already built 'libeastl.a' in the root
+directory of the souce tree.
+
+Afterwords, to build the examples you can just run 'make' - you can
+build individual executables by running 'make <foo>.exe' where 'foo'
+is the specific example, e.g. 'make custom_allocator.exe'

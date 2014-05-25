@@ -1,0 +1,17 @@
+language: cpp
+before_script:
+  - export CXX="$COMPILER_COMMAND"
+  - cmake -D CMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE .
+script: make
+after_script:
+  - make test
+env:
+  global:
+    - CXX11_FLAGS="-std=c++0x"
+    - CXX14_FLAGS="-std=c++1y"
+    - COMPILER_FLAGS="-Wall -Wextra"
+    - CMAKE_BUILD_TYPE=DEBUG # RELEASE
+  matrix:
+    - COMPILER_COMMAND="clang++ $COMPILER_FLAGS"
+    - COMPILER_COMMAND="clang++ $CXX11_FLAGS $COMPILER_FLAGS"
+    - COMPILER_COMMAND="clang++ $CXX14_FLAGS $COMPILER_FLAGS"
