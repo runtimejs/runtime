@@ -1,0 +1,11 @@
+*.o
+*.lo
+*.a
+*.so
+*.so.1
+arch/*/bits/alltypes.h
+config.mak
+include/bits
+tools/musl-gcc
+lib/musl-gcc.specs
+src/internal/version.h
