@@ -239,7 +239,7 @@ def BuildProject(env_base):
         proj_name + ' ' + binary_output)
     env.Depends(output_bin, output_elf);
 
-    initrd = env.Command('disk/boot/initrd', '', './maketar.sh')
+    initrd = env.Command('disk/boot/initrd', '', './makeinitrd.sh')
     env.Depends(initrd, Glob('initrd/*.*'))
     env.Depends(initrd, Glob('initrd/*/*.*'))
     env.Depends(initrd, Glob('initrd/*/*/*.*'))

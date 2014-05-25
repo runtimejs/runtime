@@ -129,7 +129,6 @@ void KernelMain::MakeV8Snapshot() {
 void KernelMain::InitSystemBSP(void* mbt) {
     // some musl libc init
     libc.threads_minus_1 = 0;
-    libc.main_thread = nullptr;
 
     Initialize(mbt);
     MultibootParseResult parsed = ParseMultiboot(mbt);

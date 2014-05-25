@@ -61,7 +61,7 @@ public:
         v8::V8::InitializeICU();
         v8::V8::SetArrayBufferAllocator(new MallocArrayBufferAllocator());
 
-        const char flags[] = "--harmony_promises --harmony_collections";
+        const char flags[] = "--harmony_collections";
         v8::V8::SetFlagsFromString(flags, sizeof(flags));
     }
 

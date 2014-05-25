@@ -10,15 +10,15 @@ namespace rt {
 
 class Version {
 public:
-    static uint32_t major() {
+    static uint32_t getMajor() {
         return 0;
     }
 
-    static uint32_t minor() {
+    static uint32_t getMinor() {
         return 0;
     }
 
-    static uint32_t rev() {
+    static uint32_t getRev() {
         return 1;
     }
 
