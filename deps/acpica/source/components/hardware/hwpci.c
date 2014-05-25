@@ -160,7 +160,7 @@ static void
 AcpiHwDeletePciList (
     ACPI_PCI_DEVICE         *ListHead);
 
-static ACPI_STATUS
+ACPI_STATUS
 AcpiHwGetPciDeviceInfo (
     ACPI_PCI_ID             *PciId,
     ACPI_HANDLE             PciDevice,
@@ -438,7 +438,7 @@ AcpiHwDeletePciList (
  *
  ******************************************************************************/
 
-static ACPI_STATUS
+ACPI_STATUS
 AcpiHwGetPciDeviceInfo (
     ACPI_PCI_ID             *PciId,
     ACPI_HANDLE             PciDevice,

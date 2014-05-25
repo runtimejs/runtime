@@ -121,6 +121,9 @@
 #include "platform/acenv.h"
 #include "actypes.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Types for AcpiOsExecute */
 
@@ -622,5 +625,8 @@ AcpiOsCloseDirectory (
     void                    *DirHandle);
 #endif
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ACPIOSXF_H__ */

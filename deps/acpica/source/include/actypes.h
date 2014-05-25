@@ -496,8 +496,10 @@ typedef UINT32                          ACPI_PHYSICAL_ADDRESS;
 #endif
 #define TRUE                            (1 == 1)
 
+#ifndef __runtime_js__
 #ifndef NULL
 #define NULL                            (void *) 0
+#endif
 #endif
 
 

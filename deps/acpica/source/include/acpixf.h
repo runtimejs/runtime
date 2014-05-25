@@ -125,6 +125,9 @@
 #include "actbl.h"
 #include "acbuffer.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*****************************************************************************
  *
@@ -1207,5 +1210,9 @@ AcpiDebugPrintRaw (
     UINT32                  ComponentId,
     const char              *Format,
     ...))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ACXFACE_H__ */
