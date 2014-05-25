@@ -11,6 +11,10 @@
 #ifndef _LIBCPP_CONFIG
 #define _LIBCPP_CONFIG
 
+#ifdef __runtime_js__
+#include <libcxx-runtimejs.h>
+#endif
+
 #if !defined(_MSC_VER) || defined(__clang__)
 #pragma GCC system_header
 #endif
