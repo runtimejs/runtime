@@ -15,7 +15,7 @@
 #endif
 
 #if V8_OS_RUNTIMEJS
-#include <Kernel/spinlock.h>
+#include <kernel/spinlock.h>
 #endif
 
 namespace v8 {

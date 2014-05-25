@@ -15,7 +15,7 @@
 #elif V8_OS_POSIX
 #include <semaphore.h>  // NOLINT
 #elif V8_OS_RUNTIMEJS
-#include <Kernel/atomic.h>
+#include <kernel/atomic.h>
 #endif
 
 namespace v8 {

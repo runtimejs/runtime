@@ -7,10 +7,10 @@
 // found in the LICENSE file.
 
 #include <stdlib.h>
-#include <Kernel/kernel.h>
-#include <Kernel/keystorage.h>
-#include <Kernel/platform.h>
-#include <Kernel/native-thread.h>
+#include <kernel/kernel.h>
+#include <kernel/keystorage.h>
+#include <kernel/platform.h>
+#include <kernel/native-thread.h>
 #include <kernel/boot-services.h>
 
 #include "v8.h"
