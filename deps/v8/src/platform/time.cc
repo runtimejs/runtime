@@ -325,6 +325,17 @@ struct timeval Time::ToTimeval() const {
   return tv;
 }
 
+#elif V8_OS_RUNTIMEJS
+
+Time Time::Now() {
+  return Time(1 * kMicrosecondsPerSecond + 1);
+}
+
+
+Time Time::NowFromSystemTime() {
+  return Now();
+}
+
 #endif  // V8_OS_WIN
 
 
@@ -545,6 +556,8 @@ TimeTicks TimeTicks::HighResolutionNow() {
   ASSERT_EQ(0, result);
   USE(result);
   ticks = (tv.tv_sec * Time::kMicrosecondsPerSecond + tv.tv_usec);
+#elif V8_OS_RUNTIMEJS
+  ticks = 100;
 #elif V8_OS_POSIX
   struct timespec ts;
   int result = clock_gettime(CLOCK_MONOTONIC, &ts);

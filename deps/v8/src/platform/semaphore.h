@@ -14,6 +14,8 @@
 #include <mach/semaphore.h>  // NOLINT
 #elif V8_OS_POSIX
 #include <semaphore.h>  // NOLINT
+#elif V8_OS_RUNTIMEJS
+#include <Kernel/atomic.h>
 #endif
 
 namespace v8 {
@@ -55,6 +57,8 @@ class Semaphore V8_FINAL {
   typedef sem_t NativeHandle;
 #elif V8_OS_WIN
   typedef HANDLE NativeHandle;
+#elif V8_OS_RUNTIMEJS
+  typedef rt::Atomic<int32_t> NativeHandle;
 #endif
 
   NativeHandle& native_handle() {

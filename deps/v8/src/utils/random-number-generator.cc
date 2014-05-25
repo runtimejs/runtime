@@ -54,6 +54,11 @@ RandomNumberGenerator::RandomNumberGenerator() {
   result = rand_s(&second_half);
   ASSERT_EQ(0, result);
   SetSeed((static_cast<int64_t>(first_half) << 32) + second_half);
+#elif V8_OS_RUNTIMEJS
+  // TODO: runtimejs does not have random number generator
+  // at the moment
+  int64_t seed = 3892479823;
+  SetSeed(seed);
 #else
   // Gather entropy from /dev/urandom if available.
   FILE* fp = fopen("/dev/urandom", "rb");

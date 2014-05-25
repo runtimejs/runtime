@@ -268,8 +268,11 @@ void DumpException(Handle<Message> message) {
   fprintf(stderr, "\n");
 }
 
-
+#ifdef V8_OS_RUNTIMEJS
+int mksnapshot_main(int argc, char** argv) {
+#else
 int main(int argc, char** argv) {
+#endif
   V8::InitializeICU();
   i::Isolate::SetCrashIfDefaultIsolateInitialized();
   i::CpuFeatures::Probe(true);

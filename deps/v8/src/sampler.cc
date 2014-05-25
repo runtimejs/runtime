@@ -188,6 +188,17 @@ class Sampler::PlatformData : public PlatformDataCommon {
   pthread_t vm_tid_;
 };
 
+#elif V8_OS_RUNTIMEJS
+
+class Sampler::PlatformData : public PlatformDataCommon {
+ public:
+  PlatformData() : vm_tid_(1) {}
+  int vm_tid() const { return vm_tid_; }
+
+ private:
+  int vm_tid_;
+};
+
 #elif V8_OS_WIN || V8_OS_CYGWIN
 
 // ----------------------------------------------------------------------------
@@ -691,6 +702,12 @@ void Sampler::SampleStack(const RegisterState& state) {
 void Sampler::DoSample() {
   if (!SignalHandler::Installed()) return;
   pthread_kill(platform_data()->vm_tid(), SIGPROF);
+}
+
+#elif V8_OS_RUNTIMEJS
+
+void Sampler::DoSample() {
+  assert(false);
 }
 
 #elif V8_OS_WIN || V8_OS_CYGWIN

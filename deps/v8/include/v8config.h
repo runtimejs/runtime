@@ -73,6 +73,8 @@
 # define V8_OS_ANDROID 1
 # define V8_OS_LINUX 1
 # define V8_OS_POSIX 1
+#elif defined(__runtime_js__)
+# define V8_OS_RUNTIMEJS 1
 #elif defined(__APPLE__)
 # define V8_OS_BSD 1
 # define V8_OS_MACOSX 1

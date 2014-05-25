@@ -76,6 +76,9 @@ bool SweeperThread::SweepingCompleted() {
 
 
 int SweeperThread::NumberOfThreads(int max_available) {
+#ifdef V8_OS_RUNTIMEJS
+  return 0;   // disable threads
+#endif
   if (!FLAG_concurrent_sweeping && !FLAG_parallel_sweeping) return 0;
   if (FLAG_sweeper_threads > 0) return FLAG_sweeper_threads;
   if (FLAG_concurrent_sweeping) return max_available - 1;

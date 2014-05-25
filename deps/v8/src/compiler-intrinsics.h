@@ -32,7 +32,17 @@ int CompilerIntrinsics::CountLeadingZeros(uint32_t value) {
 }
 
 int CompilerIntrinsics::CountSetBits(uint32_t value) {
+#ifdef __runtime_js__
+  // Manually count set bits.
+  value = ((value >>  1) & 0x55555555) + (value & 0x55555555);
+  value = ((value >>  2) & 0x33333333) + (value & 0x33333333);
+  value = ((value >>  4) & 0x0f0f0f0f) + (value & 0x0f0f0f0f);
+  value = ((value >>  8) & 0x00ff00ff) + (value & 0x00ff00ff);
+  value = ((value >> 16) & 0x0000ffff) + (value & 0x0000ffff);
+  return value;
+#else
   return __builtin_popcount(value);
+#endif
 }
 
 #elif defined(_MSC_VER)

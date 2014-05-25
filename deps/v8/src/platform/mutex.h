@@ -14,6 +14,10 @@
 #include <pthread.h>  // NOLINT
 #endif
 
+#if V8_OS_RUNTIMEJS
+#include <Kernel/spinlock.h>
+#endif
+
 namespace v8 {
 namespace internal {
 
@@ -56,6 +60,8 @@ class Mutex V8_FINAL {
   typedef pthread_mutex_t NativeHandle;
 #elif V8_OS_WIN
   typedef CRITICAL_SECTION NativeHandle;
+#elif V8_OS_RUNTIMEJS
+  typedef rt::Locker NativeHandle;
 #endif
 
   NativeHandle& native_handle() {

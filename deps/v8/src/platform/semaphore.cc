@@ -9,6 +9,10 @@
 #include <mach/task.h>
 #endif
 
+#if V8_OS_RUNTIMEJS
+#include <kernel/cpu.h>
+#endif
+
 #include <errno.h>
 
 #include "checks.h"
@@ -184,6 +188,36 @@ bool Semaphore::WaitFor(const TimeDelta& rel_time) {
       return true;
     }
   }
+}
+
+#elif V8_OS_RUNTIMEJS
+
+// TODO: implement
+
+Semaphore::Semaphore(int count) {
+    native_handle_.Set(count);
+}
+
+
+Semaphore::~Semaphore() {
+}
+
+
+void Semaphore::Signal() {
+    native_handle_.AddFetch(1);
+}
+
+
+void Semaphore::Wait() {
+    RT_ASSERT(0 == rt::Cpu::id() && "Only service process native thread can wait");
+    native_handle_.SubFetch(1);
+    RT_ASSERT(!"Need semapthore: wait");
+}
+
+
+bool Semaphore::WaitFor(const TimeDelta& rel_time) {
+    RT_ASSERT(!"Need semapthore: waitfor");
+  return true;
 }
 
 #endif  // V8_OS_MACOSX

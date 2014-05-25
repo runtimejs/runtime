@@ -87,6 +87,8 @@ void* AlignedAlloc(size_t size, size_t alignment) {
   void* ptr;
 #if V8_OS_WIN
   ptr = _aligned_malloc(size, alignment);
+#elif V8_OS_RUNTIMEJS
+  ptr = memalign(alignment, size);
 #elif V8_LIBC_BIONIC
   // posix_memalign is not exposed in some Android versions, so we fall back to
   // memalign. See http://code.google.com/p/android/issues/detail?id=35391.
@@ -102,6 +104,8 @@ void* AlignedAlloc(size_t size, size_t alignment) {
 void AlignedFree(void *ptr) {
 #if V8_OS_WIN
   _aligned_free(ptr);
+#elif V8_OS_RUNTIMEJS
+  free(ptr);
 #elif V8_LIBC_BIONIC
   // Using free is not correct in general, but for V8_LIBC_BIONIC it is.
   free(ptr);

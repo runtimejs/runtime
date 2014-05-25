@@ -2731,6 +2731,16 @@ class V8_EXPORT ArrayBuffer : public Object {
                                 size_t byte_length);
 
   /**
+   * RuntimeJs needs this to transfer buffer to other isolate
+   * WARNING: This may not work as expected
+   *
+   * Same as New(isolate, data, byte_length), but should not make buffer
+   * external.
+   */
+  static Local<ArrayBuffer> NewNonExternal(Isolate* isolate, void* data,
+                                size_t byte_length);
+
+  /**
    * Returns true if ArrayBuffer is extrenalized, that is, does not
    * own its memory block.
    */

@@ -76,6 +76,40 @@ static V8_INLINE bool TryLockNativeHandle(pthread_mutex_t* mutex) {
   return true;
 }
 
+#elif V8_OS_RUNTIMEJS
+
+static V8_INLINE void InitializeNativeHandle(rt::Locker* cs) {
+
+}
+
+
+static V8_INLINE void InitializeRecursiveNativeHandle(rt::Locker* cs) {
+
+}
+
+
+static V8_INLINE void DestroyNativeHandle(rt::Locker* cs) {
+  
+}
+
+
+static V8_INLINE void LockNativeHandle(rt::Locker* cs) {
+    rt::Spinlock lock(cs);
+    lock.lock();
+}
+
+
+static V8_INLINE void UnlockNativeHandle(rt::Locker* cs) {
+    rt::Spinlock lock(cs);
+    lock.unlock();
+}
+
+
+static V8_INLINE bool TryLockNativeHandle(rt::Locker* cs) {
+    rt::Spinlock lock(cs);
+    return lock.tryLock();
+}
+
 #elif V8_OS_WIN
 
 static V8_INLINE void InitializeNativeHandle(PCRITICAL_SECTION cs) {

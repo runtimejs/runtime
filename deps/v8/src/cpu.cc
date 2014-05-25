@@ -503,6 +503,8 @@ int CPU::NumberOfProcessorsOnline() {
   SYSTEM_INFO info;
   GetSystemInfo(&info);
   return info.dwNumberOfProcessors;
+#elif V8_OS_RUNTIMEJS
+  return 1;
 #else
   return static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
 #endif
