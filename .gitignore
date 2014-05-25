@@ -1,0 +1,13 @@
+*.o
+
+# msvs
+*.suo
+*.sdf
+*.opensdf
+*.ipch
+bin/*
+tmp/*
+
+*~
+*.a
+*.exe
