@@ -14,9 +14,9 @@ libs_config = {
             '../src',
         ],
         "source": [
-            'v8/out/x64.release/obj/gen/experimental-libraries.cc',
-            'v8/out/x64.release/obj/gen/libraries.cc',
-            'v8/out/x64.release/obj/gen/trig-table.cc',
+            'v8/src/gen/experimental-libraries.cc',
+            'v8/src/gen/libraries.cc',
+            'v8/src/gen/trig-table.cc',
             'v8/src/accessors.cc',
             'v8/src/allocation-site-scopes.cc',
             'v8/src/allocation-tracker.cc',

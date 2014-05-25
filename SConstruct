@@ -9,7 +9,7 @@ build = "debug"
 config = {
     "project_name": "runtimejs",
     "binary_output_file": "disk/boot/kernel.bin",
-    "toolchain_bin_path": "tools/cross-4.8.2/bin",
+    "toolchain_bin_path": "tools/cross/bin",
     "fasm_pathname": "tools/cross/bin/fasm",
     "link_script": "etc/kernel.ld",
     "name_gxx": "x86_64-elf-g++",
