@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t runtimejs docker
+docker run --rm -w /mnt -v $(pwd):/mnt:rw runtimejs scons
