@@ -11,7 +11,7 @@ RUN cd home && mkdir cross
 
 ENV PREFIX /home/cross
 ENV TARGET x86_64-elf
-ENV PATH /home/cross/bin:$PATH
+ENV PATH /home/cross/bin:/home/fasm:$PATH
 
 RUN cd home && mkdir build-binutils && cd build-binutils && \
     ../binutils-2.24/configure --target=$TARGET --prefix="$PREFIX" --disable-nls --disable-werror && \
