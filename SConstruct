@@ -9,8 +9,8 @@ build = "debug"
 config = {
     "project_name": "runtimejs",
     "binary_output_file": "disk/boot/kernel.bin",
-    "toolchain_bin_path": "tools/cross/bin",
-    "fasm_pathname": "tools/cross/bin/fasm",
+    "toolchain_bin_path": "",
+    "fasm_pathname": "fasm",
     "link_script": "etc/kernel.ld",
     "name_gxx": "x86_64-elf-g++",
     "name_gcc": "x86_64-elf-gcc",
@@ -177,6 +177,7 @@ def EnvironmentCreate(build):
         LINKCOMSTR = '[cross] Link $TARGET',
         RANLIBCOMSTR = '[cross] Index $TARGET',
         ARCOMSTR = '[cross] Archive $TARGET',
+        ENV = {'PATH': os.environ['PATH']},
     )
 
     env.Append(
@@ -197,6 +198,7 @@ def EnvironmentCreateHost():
         LINKCOMSTR = '[host] Link $TARGET',
         RANLIBCOMSTR = '[host] Index $TARGET',
         ARCOMSTR = '[host] Archive $TARGET',
+        ENV = {'PATH': os.environ['PATH']},
     )
     return hostenv
 
