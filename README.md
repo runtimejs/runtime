@@ -5,6 +5,8 @@ Inspired by Node.js event-driven architecture and non-blocking I/O model, runtim
 
 Project is under development and currently does not provide many essential features. If you want to contribute, your help is very welcome.
 
+![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_1_compressed.png)
+
 Technical details
 ----
 
