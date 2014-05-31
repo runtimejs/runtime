@@ -133,6 +133,7 @@ public:
         MAX_STACK,
         INVALID_TYPE,
         EXTERNAL_BUFFER,
+        TYPEDARRAY_VIEW,
     };
 
     /**
@@ -222,6 +223,12 @@ public:
                 v8::Exception::Error(
                 v8::String::NewFromUtf8(iv8,
                 "ArrayBuffer have already transferred")));
+            return true;
+        case SerializeError::TYPEDARRAY_VIEW:
+            iv8->ThrowException(
+                v8::Exception::Error(
+                v8::String::NewFromUtf8(iv8,
+                "ArrayBufferView can't be transferred, use .buffer to get referenced buffer")));
             return true;
         default:
             RT_ASSERT(!"unknown serializer error");

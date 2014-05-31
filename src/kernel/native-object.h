@@ -29,6 +29,7 @@ public:
     DECLARE_NATIVE(InstallInternals);
     DECLARE_NATIVE(CallResult);
     DECLARE_NATIVE(Debug);
+    DECLARE_NATIVE(StopVideoLog);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("timeout", Timeout);
@@ -39,6 +40,7 @@ public:
         obj.SetCallback("callResult", CallResult);
         obj.SetCallback("initrdText", InitrdText);
         obj.SetCallback("debug", Debug);
+        obj.SetCallback("stopVideoLog", StopVideoLog);
     }
 private:
 };

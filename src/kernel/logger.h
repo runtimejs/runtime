@@ -109,15 +109,20 @@ public:
     void EnableConsole() {
         console_enabled_ = true;
     }
+
+    void DisableVideo() {
+        video_enabled_ = false;
+    }
 private:
     Logger()
         :	mode_(LoggerMode::VIDEO),
             console_enabled_(false), //false
+            video_enabled_(true),
             type_(LogDataType::DEFAULT) { }
     ~Logger() {}
 
     int PrintFormat(LogDataType type, const char* fmt, va_list va) {
-        bool video = true;
+        bool video = video_enabled_;
         bool console = console_enabled_;
 
         if (video) video_writer_.Lock();
@@ -133,7 +138,7 @@ private:
     }
 
     void PutChar(char c) {
-        bool video = true;
+        bool video = video_enabled_;
         bool console = console_enabled_;
 
         if (video) video_writer_.WriteChar(type_, c);
@@ -142,6 +147,7 @@ private:
 
     LoggerMode mode_;
     bool console_enabled_;
+    bool video_enabled_;
     LogWriterVideo video_writer_;
     LogWriterSerial serial_writer_;
     LogDataType type_;

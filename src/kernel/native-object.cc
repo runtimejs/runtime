@@ -244,6 +244,11 @@ NATIVE_FUNCTION(NativesObject, Debug) {
     RT_ASSERT(!"debug");
 }
 
+NATIVE_FUNCTION(NativesObject, StopVideoLog) {
+    PROLOGUE_NOTHIS;
+    GLOBAL_boot_services()->logger()->DisableVideo();
+}
+
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
     PROLOGUE;
     USEARG(0);

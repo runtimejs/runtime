@@ -356,9 +356,9 @@ void IrqsArch::SetUp() {
 
     // Special
     InstallGate(0x20, &int_gate_irq_timer, type);
-    InstallGate(0x21, &int_gate_irq_keyboard, type);
 
     // Other
+    InstallGate(0x21, &_irq_gate_21, type);
     InstallGate(0x22, &_irq_gate_22, type);
     InstallGate(0x23, &_irq_gate_23, type);
     InstallGate(0x24, &_irq_gate_24, type);

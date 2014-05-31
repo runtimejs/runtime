@@ -91,12 +91,12 @@ var __init = (function (__native) {
         return v;
     });
 
-    install(rt, "initrdRequire", function __initrdRequire(name) {
+    install(rt, "initrdRequire", function __initrdRequire(name, args) {
         var module = rt.initrdText(name);
         var exports = {};
         var require = function() { throw new Error("require is not supported"); };
-        var fn = new Function("exports", "require", module);
-        fn(exports, require);
+        var fn = new Function('exports', 'require', 'args', module);
+        fn(exports, require, args);
         return exports;
     });
 
@@ -106,6 +106,10 @@ var __init = (function (__native) {
 
     install(rt, "args", function __args() {
         return __native.args();
+    });
+
+    install(rt, 'stopVideoLog', function __stopVideoLog() {
+        return __native.stopVideoLog();
     });
 
     var resourcesCache = null;
@@ -137,6 +141,11 @@ var __init = (function (__native) {
                 __native.callResult(true, threadPtr, promiseid, result);
             }, function(result) {
                 __native.callResult(false, threadPtr, promiseid, result);
+            }).catch(function(err) {
+                // TODO: rethrow this error outside of promise handler
+                rt.log(err.stack);
+
+                __native.callResult(false, threadPtr, promiseid, null);
             });
 
             return;

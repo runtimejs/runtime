@@ -167,10 +167,15 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         return SerializeError::NONE;
     }
 
+    if (value->IsArrayBufferView()) {
+        return SerializeError::TYPEDARRAY_VIEW;
+    }
+
     if (value->IsFunction()) {
         ExportedFunction* efn { exporter->AddExport(value) };
         AppendType(Type::FUNCTION);
         stream_.AppendValue<ExportedFunction*>(efn);
+        return SerializeError::NONE;
     }
 
     // This check should be the last one
@@ -195,7 +200,6 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         AppendType(Type::HASHMAP);
         v8::Local<v8::Array> a { obj->GetOwnPropertyNames() };
         stream_.AppendValue<uint32_t>(a->Length());
-
         for (uint32_t i = 0; i < a->Length(); ++i) {
             v8::Local<v8::Value> k { a->Get(i) };
             {	SerializeError err { SerializeValue(exporter, k, stack_level + 1) };
