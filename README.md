@@ -1,7 +1,7 @@
 runtime.js
 ====
 
-Inspired by Node.js event-driven architecture and non-blocking I/O model, runtime.js kernel provides a platform that is specifically designed to run JavaScript applications.
+Inspired by Node.js event-driven architecture and non-blocking I/O model, runtime.js project goal is to provide a platform that is designed and optimized from the ground up to run JavaScript applications efficiently.
 
 Project is under development and currently does not provide many essential features. If you want to contribute, your help is very welcome.
 
