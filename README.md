@@ -43,3 +43,11 @@ To build
 
     scons
     
+####Run using QEMU
+
+    ./qemu.sh
+    
+    
+License
+----
+BSD
