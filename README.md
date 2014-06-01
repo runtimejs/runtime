@@ -15,8 +15,23 @@ Technical details
 - no heavy context switches, single address space
 - does not use cpu protection rings
 - non-blocking asynchronous IPC
-- drivers and system services are separate applications
+- drivers and system services are implemented in JavaScript
 - kernel written in C++11
+
+Status
+----
+
+####What's done
+
+- embedded V8 engine
+- multitasking (cooperative only)
+- IPC transferable functions and ArrayBuffers
+- SMP support
+- embedded ACPICA for ACPI support
+- simple keyboard and VGA display drivers
+- JavaScript REPL application
+- PCI bus driver device detection
+
 
 Build
 ----
