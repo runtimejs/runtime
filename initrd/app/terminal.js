@@ -443,7 +443,7 @@ var evalScope = (function() {
                 var result = evalScope.evaluate(text);
                 cons.write(result + '\n\n', textColorLight);
             } catch(e) {
-                cons.write(e.stack + '\n\n', textColorError);
+                cons.write(e.toString() + '\n\n', textColorError);
             }
 
             cons.editClear();
