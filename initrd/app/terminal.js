@@ -437,7 +437,7 @@ var evalScope = (function() {
             var textColorLight = gui.color('lightgray', 'black');
             var textColorError = gui.color('lightred', 'black');
 
-            cons.write(text + '\n', textColorDefault);
+            cons.write('> ' + text + '\n', textColorDefault);
 
             try {
                 var result = evalScope.evaluate(text);
