@@ -1,9 +1,11 @@
 runtime.js
 ====
 
-Inspired by Node.js event-driven architecture and non-blocking I/O model, runtime.js kernel provides a platform that is specifically designed to run JavaScript applications.
+Inspired by Node.js event-driven architecture and non-blocking I/O model, runtime.js project goal is to provide a platform that is designed and optimized from the ground up to run JavaScript applications efficiently.
 
 Project is under development and currently does not provide many essential features. If you want to contribute, your help is very welcome.
+
+![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_1_compressed.png)
 
 Technical details
 ----
@@ -13,8 +15,23 @@ Technical details
 - no heavy context switches, single address space
 - does not use cpu protection rings
 - non-blocking asynchronous IPC
-- drivers and system services are separate applications
+- drivers and system services are implemented in JavaScript
 - kernel written in C++11
+
+Status
+----
+
+####What's done
+
+- embedded V8 engine
+- multitasking (cooperative only)
+- IPC transferable functions and ArrayBuffers
+- SMP support
+- embedded ACPICA for ACPI support
+- simple keyboard and VGA display drivers
+- JavaScript REPL application
+- PCI bus driver device detection
+
 
 Build
 ----
@@ -41,3 +58,11 @@ To build
 
     scons
     
+####Run using QEMU
+
+    ./qemu.sh
+    
+    
+License
+----
+BSD
