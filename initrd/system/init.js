@@ -4,6 +4,69 @@
 
 rt = {};
 
+function Injector() {
+    "use strict";
+
+    var modules = new Map();
+
+    function getModule(name) {
+        if (modules.has(name)) {
+            return modules.get(name);
+        }
+
+        var d = {
+            name: name,
+            resolve: null,
+            reject: null,
+            promise: null,
+        };
+
+        d.promise = new Promise(function(resolve, reject) {
+            d.resolve = resolve;
+            d.reject = reject;
+        });
+
+        modules.set(name, d);
+        return d;
+    }
+
+    this.set = function(name, inject, fn) {
+        if ('string' !== typeof name) {
+            throw new Error('invalid module name');
+        }
+
+        if (!Array.isArray(inject)) {
+            throw new Error('invalid module dependency list');
+        }
+
+        Promise.all(inject.map(function(depName) {
+            if ('string' !== typeof depName) {
+                throw new Error('invalid dependency service name');
+            }
+
+            return getModule(depName).promise;
+        })).then(function(deps) {
+            getModule(name).resolve(fn.apply(null, deps));
+        }).catch(function(err) {
+            rt.log(err.stack);
+        });
+    };
+
+    this.get = function(value) {
+        if (Array.isArray(value)) {
+            return Promise.all(value.map(function(name) {
+                return getModule(name).promise;
+            }));
+        }
+
+        if ('string' !== typeof value) {
+            throw new Error('invalid module name');
+        }
+
+        return getModule(value).promise;
+    };
+}
+
 var __init = (function (__native) {
     "use strict";
 
@@ -91,15 +154,6 @@ var __init = (function (__native) {
         return v;
     });
 
-    install(rt, "initrdRequire", function __initrdRequire(name, args) {
-        var module = rt.initrdText(name);
-        var exports = {};
-        var require = function() { throw new Error("require is not supported"); };
-        var fn = new Function('exports', 'require', 'args', module);
-        fn(exports, require, args);
-        return exports;
-    });
-
     install(rt, "debug", function __debug() {
         return __native.debug();
     });
@@ -112,19 +166,20 @@ var __init = (function (__native) {
         return __native.stopVideoLog();
     });
 
-    var resourcesCache = null;
-
+    var resourcesLoaded = false;
     install(rt, "resources", function __resources() {
-
-        if (resourcesCache) {
-            return resourcesCache;
+        if (resourcesLoaded) {
+            throw new Error('resources already loaded');
         }
 
         var obj = __native.resources();
-        resourcesCache = obj;
+        resourcesLoaded = true;
         return obj;
     });
 
+    /**
+     * Helper function to support IPC function calls
+     */
     var callWrapper = function __callWrapper(fn, threadPtr, argsArray, promiseid) {
         if (null === fn) {
             // Invalid function call

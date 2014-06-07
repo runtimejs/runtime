@@ -167,6 +167,27 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
     args.GetReturnValue().Set(text);
 }
 
+NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+
+    v8::String::Utf8Value filename_utf8(arg0->ToString());
+    const char* filename_buf = *filename_utf8;
+    RT_ASSERT(filename_buf);
+
+    InitrdFile file = GLOBAL_initrd()->Get(filename_buf);
+    if (file.IsEmpty()) {
+        THROW_ERROR("Unable to load requested file");
+        return;
+    }
+
+    v8::Local<v8::String> text { v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(file.Data()),
+        v8::String::kNormalString, file.Size()) };
+
+    args.GetReturnValue().Set(text);
+}
+
 NATIVE_FUNCTION(NativesObject, Resources) {
     PROLOGUE_NOTHIS;
     Thread* th = isolate->current_thread();
@@ -178,6 +199,8 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     LOCAL_V8STRING(s_process_manager, "processManager");
     LOCAL_V8STRING(s_acpi, "acpi");
     LOCAL_V8STRING(s_allocator, "allocator");
+    LOCAL_V8STRING(s_loader, "loader");
+    LOCAL_V8STRING(s_natives, "natives");
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
@@ -200,8 +223,11 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     obj->Set(s_acpi, (new AcpiManagerObject(isolate, GLOBAL_engines()->acpi_manager()))
         ->GetInstance());
 
-    obj->Set(s_allocator, (new AllocatorObject(isolate))
-        ->GetInstance());
+    obj->Set(s_allocator, (new AllocatorObject(isolate))->GetInstance());
+
+    obj->Set(s_loader, v8::Function::New(iv8, KernelLoaderCallback));
+
+    obj->Set(s_natives, (new NativesObject(isolate))->GetInstance());
 
     args.GetReturnValue().Set(obj);
 }

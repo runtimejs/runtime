@@ -4,85 +4,49 @@
 
 rt.log('Loading system...');
 
-var injector = (function() {
-    var services = new Map();
+(function() {
+    "use strict";
 
-    function getService(name) {
-        if (services.has(name)) {
-            return services.get(name);
-        }
+    /**
+     * Create DI injector
+     */
+    var injector = new Injector();
 
-        var d = {
-            name: name,
-            resolve: null,
-            reject: null,
-            promise: null,
-        };
+    /**
+     * Pretend this is an AMD loader
+     */
+    var define = injector.set;
+    define.amd = {};
 
-        d.promise = new Promise(function(resolve, reject) {
-            d.resolve = resolve;
-            d.reject = reject;
-        });
-
-        services.set(name, d);
-        return d;
-    }
-
-    return {
-        set: function(name, inject, fn) {
-            if ('string' !== typeof name) {
-                throw new Error('invalid service name');
-            }
-
-            if (!Array.isArray(inject)) {
-                throw new Error('invalid service inject list');
-            }
-
-            Promise.all(inject.map(function(depName) {
-                if ('string' !== typeof depName) {
-                    throw new Error('invalid dependency service name');
-                }
-
-                return getService(depName).promise;
-            })).then(function(deps) {
-                getService(name).resolve(fn.apply(null, deps));
-            }).catch(function(err) {
-                rt.log(err.stack);
-            });
-        },
-        get: function(value) {
-            if (Array.isArray(value)) {
-                return Promise.all(value.map(function(name) {
-                    return getService(name).promise;
-                }));
-            }
-
-            if ('string' !== typeof value) {
-                throw new Error('invalid service name');
-            }
-
-            return getService(value).promise;
-        },
-    };
-})();
-
-(function(resources) {
-    var procManager = resources.processManager;
-
-    rt.initrdRequire('/system/device-manager.js', {
-        resources: resources,
-        injector: injector,
+    /**
+     * Component provides access to kernel resources
+     */
+    define('resources', [],
+    function() {
+        return rt.resources();
     });
 
-    injector.set('userSpace', ['textVideo', 'keyboard'], function(textVideo, keyboard) {
+    /**
+     * Kernel bootstrap component. This loads kernel loader,
+     * because it can't load itself
+     */
+    define('bootstrap', ['resources'],
+    function(resources) {
+        var loaderFactory = new Function('define',
+            resources.loader('/system/kernel-loader.js'));
+        loaderFactory(define);
+    });
 
-        procManager.create(rt.initrdText("/app/terminal.js"), {
-            resources: resources,
-            textVideo: textVideo,
-            keyboard: keyboard,
+    /**
+     * Main kernel component
+     */
+    define('kernel', ['resources', 'vga', 'keyboard'],
+    function(resources, vga, keyboard) {
+        resources.processManager.create(rt.initrdText("/app/terminal.js"), {
+            textVideo: vga.client,
+            keyboard: keyboard.client,
         });
 
         return {};
     });
-
-})(rt.resources());
+})();

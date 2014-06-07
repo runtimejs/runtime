@@ -24,6 +24,7 @@ public:
     DECLARE_NATIVE(Timeout);
     DECLARE_NATIVE(KernelLog);
     DECLARE_NATIVE(InitrdText);
+    DECLARE_NATIVE(KernelLoaderCallback);
     DECLARE_NATIVE(Resources);
     DECLARE_NATIVE(Args);
     DECLARE_NATIVE(InstallInternals);

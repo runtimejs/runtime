@@ -5,6 +5,8 @@
 // TODO: move eval scope into other context (thread)
 // to provide isolation
 var evalScope = (function() {
+    "use strict";
+
     return {
         evaluate: function(text) {
             return (1, eval)(text);
