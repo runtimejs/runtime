@@ -62,6 +62,20 @@ To build
 
     ./qemu.sh
     
+####Try prebuilt binaries in QEMU
+
+Download latest __kernel.bin__ and __initrd__ files from releases page https://github.com/runtimejs/runtime/releases
+
+Run
+```
+qemu-system-x86_64                                \
+    -m 512                                        \
+    -smp 2                                        \
+    -kernel kernel.bin                            \
+    -initrd initrd                                \
+    -serial stdio
+```
+    
 License
 ----
 BSD
