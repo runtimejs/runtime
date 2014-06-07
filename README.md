@@ -3,9 +3,7 @@ runtime.js
 
 __runtime.js__ is a kernel built on V8 JavaScript engine. It uses event-driven and non-blocking I/O model inspired by Node.js.
 
-The goal is to provide a platform that is designed and optimized from the ground up to run JavaScript applications efficiently.
-
-Project is currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
+This is an experimental project to design and implement a kernel that is optimized to run JavaScript applications. It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
 
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
 
@@ -63,7 +61,6 @@ To build
 ####Run using QEMU
 
     ./qemu.sh
-    
     
 License
 ----
