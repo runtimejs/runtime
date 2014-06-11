@@ -62,6 +62,10 @@ public:
         platform_arch_.AckIRQ();
     }
 
+    /**
+     * Print current stack backtrace
+     */
+    void PrintBacktrace();
 private:
     PlatformArch platform_arch_;
     IrqDispatcher irq_dispatcher_;

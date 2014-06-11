@@ -4,6 +4,16 @@
 
 rt = {};
 
+// V8 benchmark support
+load = function(name) {
+    var file = rt.initrdText('/benchmarks/' + name);
+    (1, eval)(file);
+}
+
+print = function(data) {
+    rt.log('[BENCH] ' + data);
+}
+
 function Injector() {
     "use strict";
 

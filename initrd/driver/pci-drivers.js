@@ -4,9 +4,9 @@
 
 /**
  * Device and driver info for PCI devices. PCI bus driver uses this data
- * to load specific device drivers
+ * to load required device drivers
  */
-var pciDeviceInfo = (function(exports) {
+define('pciDrivers', [], function() {
     "use strict";
 
     /**
@@ -46,6 +46,4 @@ var pciDeviceInfo = (function(exports) {
     return {
         findDevice: findDevice,
     };
-})(exports);
-
-exports.findDevice = pciDeviceInfo.findDevice;
+});

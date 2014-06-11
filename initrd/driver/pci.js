@@ -2,25 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function(args) {
+define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
     "use strict";
 
-    var pciDrivers = rt.initrdRequire("/driver/pci-drivers.js");
-    var resources = args.resources;
     var acpi = resources.acpi;
     var io = resources.ioRange;
     var irqRange = resources.irqRange;
     var procManager = resources.processManager;
     var memrange = resources.memoryRange;
     var allocator = resources.allocator;
-
-    var pciDriverInterface = rt.interface({
-        methods: {
-            allocDMA: function() {
-                return allocator.allocDMA();
-            },
-        },
-    });
 
     var acpiDevices = acpi.getPciDevices();
 
@@ -778,7 +768,6 @@
     });
 
     // Print devices info, use for debugging
-    /*
     pciManager.each(function(pciDevice) {
         var address = pciDevice.address();
         var vector = pciDevice.getIRQVector();
@@ -796,6 +785,6 @@
             classData.className + ' IRQ: ' + vector + ' PIN: ' + pins[devicePin];
         rt.log(info);
     });
-    */
 
-})(rt.args());
+    return {};
+});

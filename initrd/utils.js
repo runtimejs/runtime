@@ -2,41 +2,48 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-"use strict";
+define('utils', [],
+function() {
+    "use strict";
 
-exports.waitFor = function(conditionFunc, delay, maxRetry) {
-    if ('undefined' ===  typeof delay) {
-        delay = 1;
-    }
-
-    if ('undefined' ===  typeof maxRetry) {
-        maxRetry = 0;
-    }
-
-    return new Promise(function(resolve, reject) {
-        var count = 0;
-
-        if (conditionFunc()) {
-            resolve();
-            return;
+    function waitFor(conditionFunc, delay, maxRetry) {
+        if ('undefined' ===  typeof delay) {
+            delay = 1;
         }
 
-        var timeoutFunc = function() {
-            ++count;
+        if ('undefined' ===  typeof maxRetry) {
+            maxRetry = 0;
+        }
 
-            if (0 !== maxRetry && count > maxRetry) {
-                reject();
-                return;
-            }
+        return new Promise(function(resolve, reject) {
+            var count = 0;
 
             if (conditionFunc()) {
                 resolve();
                 return;
             }
 
-            rt.timeout(timeoutFunc, delay);
-        };
+            var timeoutFunc = function() {
+                ++count;
 
-        rt.timeout(timeoutFunc, delay);
-    });
-};
+                if (0 !== maxRetry && count > maxRetry) {
+                    reject();
+                    return;
+                }
+
+                if (conditionFunc()) {
+                    resolve();
+                    return;
+                }
+
+                rt.timeout(timeoutFunc, delay);
+            };
+
+            rt.timeout(timeoutFunc, delay);
+        });
+    };
+
+    return {
+        waitFor: waitFor,
+    };
+});

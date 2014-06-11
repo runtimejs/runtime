@@ -18,6 +18,7 @@ function(resources) {
             '/system/driver-utils.js',
             '/system/keyboard.js',
             '/system/driver/vga.js',
+            '/utils.js',
         ],
     };
 

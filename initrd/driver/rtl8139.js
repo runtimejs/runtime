@@ -4,6 +4,10 @@
 
 (function RTL8139Driver(args) {
     "use strict";
+
+    //TODO: remove this
+    return;
+
     var utils = rt.initrdRequire("/utils.js");
     var mmio = args.pci.bars[1];
     var iobuf = mmio.resource.buffer();

@@ -10,6 +10,8 @@ function(kernelLoader) {
      * TODO: move drivers out of the kernel
      */
     kernelLoader.load('/system/driver/ps2kbd.js');
+    kernelLoader.load('/driver/pci.js');
+    kernelLoader.load('/driver/pci-drivers.js');
 
     // Start PCI bus driver
     // procManager.create(rt.initrdText("/driver/pci.js"), {

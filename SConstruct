@@ -15,7 +15,7 @@ config = {
     "name_gxx": "x86_64-elf-g++",
     "name_gcc": "x86_64-elf-gcc",
     "name_as": "x86_64-elf-as",
-    "name_ld": "x86_64-elf-ld",
+    "name_ld": "x86_64-elf-gcc",
     "name_ar": "x86_64-elf-ar",
     "name_ranlib": "x86_64-elf-ranlib",
     "name_objcopy": "x86_64-elf-objcopy",
@@ -32,11 +32,8 @@ config = {
             '-nostartfiles',
             '-Wall',
             '-Wextra',
-            '-nostdinc',
             '-Wno-unused',
-            '-fno-builtin',
             '-fno-exceptions',
-            '-fno-stack-protector',
             '-Wno-unused-parameter',
             '-D__runtime_js__',
             '-DRUNTIMEJS_PLATFORM_X64',
@@ -45,6 +42,7 @@ config = {
         ]),
         "debug": set([
             '-g',
+            '-ggdb',
         ]),
     },
     "flags_gxx": {
@@ -54,7 +52,6 @@ config = {
             '-O3',
             '-fno-tree-vectorize',  # misaligned movdqa %xmm1,(%rsp) generated without this option and O3
             '-fno-rtti',
-            '-fno-strict-aliasing',
             '-U__STRICT_ANSI__',
             '-DENABLE_DEBUGGER_SUPPORT',
             '-DENABLE_DISASSEMBLER',
@@ -125,6 +122,7 @@ config = {
         'acpica',
         'printf',
         'musl',
+        'gcc',
     ],
 }
 
@@ -226,7 +224,7 @@ def BuildProject(env_base, mkinitrd):
 
     env.Replace(CPPPATH = config["includes"])
     env.Replace(LIBS = config["libs"])
-    env.Replace(LIBPATH = 'deps')
+    env.Replace(LIBPATH = ['deps'])
 
     proj_name = config["project_name"]
     env.Depends(proj_name, obj_js);

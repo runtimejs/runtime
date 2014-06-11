@@ -17,4 +17,4 @@ disk/boot/kernel.bin
 qt_rtproj.*
 /test-host
 *.autosave
-
+initrd/benchmarks
