@@ -76,7 +76,7 @@ int OS::GetUserTime(uint32_t* secs,  uint32_t* usecs) {
 
 
 double OS::TimeCurrentMillis() {
-  return 1;
+  return Time::Now().ToJsTime();
 }
 
 
