@@ -6,7 +6,8 @@ before_script:
     - sudo apt-get install -y p7zip-full
     - cd tools
     - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/cross.7z
-    - 7z x cross.7z
-    - export PATH=$(pwd)/tools/cross:$PATH
+    - 7z x cross.7z >/dev/null
+    - cd ..
+    - export PATH=$PWD/tools/cross/bin:$PATH
 
 script: scons
