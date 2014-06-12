@@ -1,0 +1,12 @@
+language: cpp
+compiler: gcc
+
+before_script:
+    - sudo apt-get update -qq
+    - sudo apt-get install -y p7zip
+    - cd tools
+    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/cross.7z
+    - 7z x cross.7z
+    - export PATH=$(pwd)/tools/cross:$PATH
+
+script: scons
