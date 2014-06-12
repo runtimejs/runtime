@@ -5,7 +5,9 @@ before_script:
     - cd tools
     - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.0-Linux-x86_64.tar.xz
     - tar -xf x86_64-elf-4.9.0-Linux-x86_64.tar.xz
+    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/fasm-1.71.21.tgz
+    - tar -xf fasm-1.71.21.tgz
     - cd ..
-    - export PATH=$PWD/tools/x86_64-elf-4.9.0-Linux-x86_64:$PATH
+    - export PATH=$PWD/tools/x86_64-elf-4.9.0-Linux-x86_64/bin:$PWD/tools/fasm:$PATH
 
 script: scons
