@@ -233,12 +233,12 @@ void OS::ClearTimezoneCache(TimezoneCache* cache) {
 
 
 const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
-  RT_ASSERT(!"LocalTimezone");
-  return nullptr;
+  // TODO: implement timezones
+  return "GMT";
 }
 
 double OS::LocalTimeOffset(TimezoneCache* cache) {
-  RT_ASSERT(!"LocalTimeOffset");
+  // TODO: implement timezones
   return 0;
 }
 
@@ -453,7 +453,6 @@ void Thread::set_name(const char* name) {
 void Thread::Start() {
   ASSERT(!"Thread::Start");
 }
-
 
 
 void Thread::Join() {
