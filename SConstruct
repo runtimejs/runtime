@@ -6,8 +6,17 @@ SetOption('num_jobs', 4)
 
 build = "debug"
 
+# Use host machine compiler to build special tools
+# like mkinitrd
+build_host = True
+
+# Travis CI does not support host c++11 compiler
+if "CI" in os.environ:
+    build_host = False
+
 config = {
     "project_name": "runtimejs",
+    "build_host": build_host,
     "binary_output_file": "disk/boot/kernel.bin",
     "toolchain_bin_path": "",
     "fasm_pathname": "fasm",
@@ -242,14 +251,20 @@ def BuildProject(env_base, mkinitrd):
     env.Depends(initrd, Glob('initrd/*.*'))
     env.Depends(initrd, Glob('initrd/*/*.*'))
     env.Depends(initrd, Glob('initrd/*/*/*.*'))
-    env.Depends(initrd, mkinitrd)
+
+    if mkinitrd is not None:
+        env.Depends(initrd, mkinitrd)
+
     env.Depends(output_bin, initrd);
     return
 
+mkinitrd = None
+
 # Build mkinitrd tool
-env_host = EnvironmentCreateHost()
-mkinitrd = BuildMkinitrd(env_host)
-BuildTestsHost(env_host)
+if config["build_host"]:
+    env_host = EnvironmentCreateHost()
+    mkinitrd = BuildMkinitrd(env_host)
+    BuildTestsHost(env_host)
 
 # Build kernel
 env_base = EnvironmentCreate(build)
