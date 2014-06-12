@@ -178,16 +178,27 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         return SerializeError::NONE;
     }
 
-    // This check should be the last one
+    // This condition check should be the last one
     if (value->IsObject()) {
         RT_ASSERT(isolate_);
         RT_ASSERT(isolate_->template_cache());
 
         v8::Local<v8::Object> obj { value->ToObject() };
+        NativeObjectWrapper* ptr { isolate_->template_cache()->GetWrapped(value) };
 
-        // Check if this is native object (wrapped instance)
-        void* ptr { isolate_->template_cache()->GetWrapped(value) };
+        // If current object is wrapped native
         if (nullptr != ptr) {
+            switch (ptr->type_id()) {
+            case NativeTypeId::TYPEID_FUNCTION: {
+                ExternalFunction* efn { static_cast<ExternalFunction*>(ptr) };
+                AppendType(Type::FUNCTION);
+                stream_.AppendValue<ExternalFunction*>(efn);
+                return SerializeError::NONE;
+            }
+            default:
+                break;
+            }
+
             if (allow_ref_) {
                 AppendType(Type::OBJECT_REF);
                 stream_.AppendValue<uint32_t>(AddRef(value));
