@@ -203,4 +203,19 @@ private:
     SharedSTLVector<v8::UniquePersistent<T>> data_;
 };
 
+/**
+ * RAII wrapper for v8 context Enter() and Exit() functions
+ */
+class ContextScope {
+public:
+    explicit inline ContextScope(v8::Local<v8::Context> context)
+        :	context_(context) {
+        context_->Enter();
+    }
+    inline ~ContextScope() { context_->Exit(); }
+
+private:
+    v8::Local<v8::Context> context_;
+};
+
 } // namespace rt

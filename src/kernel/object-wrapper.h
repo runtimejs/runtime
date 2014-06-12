@@ -48,45 +48,22 @@ private:
     v8::Local<v8::Object>& obj_;
 };
 
-class JsObjectWrapperBase {
+/**
+ * Wrapper for objects that own native object instance
+ */
+class JsObjectWrapperBase : public NativeObjectWrapper {
 public:
-    JsObjectWrapperBase(Isolate* isolate, WrappedTypeIds type_id)
-        :	isolate_(isolate),
-            instance_typeid_(type_id),
+    JsObjectWrapperBase(Isolate* isolate, NativeTypeId type_id)
+        :	NativeObjectWrapper(type_id),
+            isolate_(isolate),
             reference_count_(0) {
-        RT_ASSERT(isolate);
-    }
-
-    inline WrappedTypeIds type_id() const {
-        return instance_typeid_;
+        RT_ASSERT(isolate_);
     }
 
     inline v8::Local<v8::Object> GetInstance() {
         v8::EscapableHandleScope scope(isolate_->IsolateV8());
-        WrappedTypeIds type_id = instance_typeid_;
-
-        TemplateCache* tc = isolate_->template_cache();
-        if (object_.IsEmpty()) {
-
-            v8::Local<v8::Object> cached;
-            if (tc->Exists(type_id)) {
-                cached = tc->Get(type_id);
-            } else {
-                v8::Local<v8::Object> local_obj = tc->NewWrapped(this);
-                ObjectInit(ExportBuilder(isolate_, local_obj));
-                cached = local_obj;
-                tc->Put(type_id, cached);
-            }
-
-            v8::Local<v8::Object> loc = cached->Clone();
-            loc->SetAlignedPointerInInternalField(0, this);
-            object_ = std::move(v8::UniquePersistent<v8::Object>(isolate_->IsolateV8(), loc));
-            object_.MarkIndependent();
-            Weak();
-            return scope.Escape(loc);
-        } else {
-            return scope.Escape(v8::Local<v8::Object>::New(isolate_->IsolateV8(), object_));
-        }
+        EnsureInstance();
+        return scope.Escape(v8::Local<v8::Object>::New(isolate_->IsolateV8(), object_));
     }
 
     inline void AddReference() {
@@ -104,10 +81,12 @@ public:
     }
 
     inline void Weak() {
+        EnsureInstance();
         object_.SetWeak(this, WeakCallback);
     }
 
     inline void Unweak() {
+        EnsureInstance();
         object_.ClearWeak();
     }
 protected:
@@ -124,14 +103,42 @@ protected:
         delete w;
     }
 
-    v8::UniquePersistent<v8::Object> object_;
+    void EnsureInstance() {
+        if (!object_.IsEmpty()) {
+            return;
+        }
+
+        RT_ASSERT(isolate_);
+        RT_ASSERT(isolate_->IsolateV8());
+
+        v8::HandleScope scope(isolate_->IsolateV8());
+        TemplateCache* tc { isolate_->template_cache() };
+        RT_ASSERT(tc);
+
+        v8::Local<v8::Object> cached;
+        if (tc->Exists(type_id())) {
+            cached = tc->Get(type_id());
+        } else {
+            v8::Local<v8::Object> local_obj = tc->NewWrappedObject(this);
+            ObjectInit(ExportBuilder(isolate_, local_obj));
+            cached = local_obj;
+            tc->Put(type_id(), cached);
+        }
+
+        v8::Local<v8::Object> loc = cached->Clone();
+        loc->SetAlignedPointerInInternalField(0, static_cast<NativeObjectWrapper*>(this));
+        object_ = std::move(v8::UniquePersistent<v8::Object>(isolate_->IsolateV8(), loc));
+        object_.MarkIndependent();
+        Weak();
+    }
+
     Isolate* const isolate_;
-    WrappedTypeIds instance_typeid_;
+    v8::UniquePersistent<v8::Object> object_;
     uint32_t reference_count_;
     DELETE_COPY_AND_ASSIGN(JsObjectWrapperBase);
 };
 
-template<typename T, WrappedTypeIds TypeId>
+template<typename T, NativeTypeId TypeId>
 class JsObjectWrapper : public JsObjectWrapperBase {
 public:
     inline JsObjectWrapper(Isolate* isolate)
@@ -140,13 +147,15 @@ public:
     inline static T* FromHandle(Isolate* isolate, v8::Local<v8::Value> val) {
         RT_ASSERT(isolate);
         RT_ASSERT(isolate->template_cache());
-        void* ptr = isolate->template_cache()->GetWrapped(val);
+        NativeObjectWrapper* ptr = isolate->template_cache()->GetWrapped(val);
         if (nullptr == ptr) return nullptr;
         RT_ASSERT(ptr);
-        if (TypeId != (static_cast<JsObjectWrapper<T,TypeId>*>(ptr))->instance_typeid_) {
-            // Wrong type
+
+        // Wrong type check
+        if (TypeId != ptr->type_id()) {
             return nullptr;
         }
+
         return static_cast<T*>(ptr);
     }
 
@@ -154,11 +163,11 @@ protected:
     inline static T* GetThis(Isolate* isolate, v8::Local<v8::Object> that) {
         RT_ASSERT(isolate);
         RT_ASSERT(isolate->template_cache());
-        void* ptr = isolate->template_cache()->GetWrapped(that);
+        NativeObjectWrapper* ptr = isolate->template_cache()->GetWrapped(that);
         if (nullptr == ptr) return nullptr;
 
-        if (TypeId != (static_cast<JsObjectWrapper<T,TypeId>*>(ptr))->instance_typeid_) {
-            // Wrong type
+        // Wrong type check
+        if (TypeId != ptr->type_id()) {
             return nullptr;
         }
 

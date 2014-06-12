@@ -99,30 +99,6 @@ private:
     size_t pos_;
 };
 
-class ExportedFunction {
-public:
-    ExportedFunction(uint32_t index, size_t export_id, Isolate* isolate,
-                     ResourceHandle<EngineThread> recv)
-        :	active_(true), index_(index),
-            export_id_(export_id), isolate_(isolate),
-            recv_(recv) {
-        RT_ASSERT(isolate_);
-    }
-
-    uint32_t index() const { return index_; }
-    bool active() const { return active_; }
-    Isolate* isolate() const { return isolate_; }
-    size_t export_id() const { return export_id_; }
-    ResourceHandle<EngineThread> recv() const { return recv_; }
-
-private:
-    bool active_;
-    uint32_t index_;
-    size_t export_id_;
-    Isolate* isolate_;
-    ResourceHandle<EngineThread> recv_;
-};
-
 /**
  * Serialized data to be transferred between contexts or isolates
  */

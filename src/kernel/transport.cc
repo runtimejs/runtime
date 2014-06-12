@@ -172,9 +172,9 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     }
 
     if (value->IsFunction()) {
-        ExportedFunction* efn { exporter->AddExport(value) };
+        ExternalFunction* efn { exporter->AddExport(value) };
         AppendType(Type::FUNCTION);
-        stream_.AppendValue<ExportedFunction*>(efn);
+        stream_.AppendValue<ExternalFunction*>(efn);
         return SerializeError::NONE;
     }
 
@@ -299,9 +299,9 @@ v8::Local<v8::Value> TransportData::UnpackValue(Isolate* isolate, ByteStreamRead
         return scope.Escape(obj);
     }
     case Type::FUNCTION: {
-        ExportedFunction* efn = reader.ReadValue<ExportedFunction*>();
+        ExternalFunction* efn = reader.ReadValue<ExternalFunction*>();
         RT_ASSERT(isolate->template_cache());
-        v8::Local<v8::Value> fnobj { isolate->template_cache()->MakeRemoteFunction(efn) };
+        v8::Local<v8::Value> fnobj { isolate->template_cache()->NewWrappedFunction(efn) };
         return scope.Escape(fnobj);
     }
     default:

@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 define('platform', [], function() {
+    "use strict";
+
     return {
         timeout: function(delay) {
             return RUNTIME.timeout(delay >>> 0);

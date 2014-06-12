@@ -28,14 +28,14 @@ Thread::Thread(Isolate* isolate, uint64_t id,
 
 Thread::~Thread() {}
 
-ExportedFunction* FunctionExports::Add(v8::Local<v8::Value> v,
+ExternalFunction* FunctionExports::Add(v8::Local<v8::Value> v,
                                        ResourceHandle<EngineThread> recv) {
     uint32_t index = data_.size();
     RT_ASSERT(isolate_);
     RT_ASSERT(isolate_->IsolateV8());
     size_t export_id = ++export_id_;
     data_.push_back(std::move(FunctionExportData(isolate_->IsolateV8(), v, export_id)));
-    return new ExportedFunction(index, export_id, isolate_, recv);
+    return new ExternalFunction(index, export_id, isolate_, recv);
 }
 
 v8::Local<v8::Value> FunctionExports::Get(uint32_t index, size_t export_id) {
@@ -133,7 +133,7 @@ void Thread::Run() {
             v8::Local<v8::Value> unpacked { message->data().Unpack(isolate_) };
             RT_ASSERT(!unpacked.IsEmpty());
 
-            ExportedFunction* efn { message->exported_func() };
+            ExternalFunction* efn { message->exported_func() };
             RT_ASSERT(efn);
 
             v8::Local<v8::Value> fnval { exports_.Get(efn->index(), efn->export_id()) };

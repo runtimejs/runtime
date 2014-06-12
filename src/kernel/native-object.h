@@ -15,12 +15,12 @@ namespace rt {
 class AcpiManager;
 
 class NativesObject : public JsObjectWrapper<NativesObject,
-        WrappedTypeIds::TYPEID_NATIVES> {
+        NativeTypeId::TYPEID_NATIVES> {
 public:
     NativesObject(Isolate* isolate)
         :	JsObjectWrapper(isolate) {}
 
-    DECLARE_NATIVE(RemoteCall);
+    DECLARE_NATIVE(CallHandler);
     DECLARE_NATIVE(Timeout);
     DECLARE_NATIVE(KernelLog);
     DECLARE_NATIVE(InitrdText);
@@ -43,11 +43,10 @@ public:
         obj.SetCallback("debug", Debug);
         obj.SetCallback("stopVideoLog", StopVideoLog);
     }
-private:
 };
 
 class IoPortX64Object : public JsObjectWrapper<IoPortX64Object,
-        WrappedTypeIds::TYPEID_IOPORTX64> {
+        NativeTypeId::TYPEID_RESOURCE_IO_PORT> {
 public:
     IoPortX64Object(Isolate* isolate, uint16_t port_number)
         :	JsObjectWrapper(isolate),
@@ -73,7 +72,7 @@ private:
 };
 
 class AcpiHandleObject : public JsObjectWrapper<AcpiHandleObject,
-        WrappedTypeIds::TYPEID_ACPI_HANDLE> {
+        NativeTypeId::TYPEID_ACPI_HANDLE> {
 public:
     AcpiHandleObject(Isolate* isolate, ACPI_HANDLE handle)
         :	JsObjectWrapper(isolate),
@@ -123,7 +122,7 @@ private:
 };
 
 class AcpiManagerObject : public JsObjectWrapper<AcpiManagerObject,
-        WrappedTypeIds::TYPEID_ACPI_MANAGER> {
+        NativeTypeId::TYPEID_ACPI_MANAGER> {
 public:
     AcpiManagerObject(Isolate* isolate, AcpiManager* mgr)
         :	JsObjectWrapper(isolate),
@@ -143,7 +142,7 @@ private:
 };
 
 class ResourceMemoryRangeObject : public JsObjectWrapper<ResourceMemoryRangeObject,
-        WrappedTypeIds::TYPEID_RESOURCE_MEMORY_RANGE> {
+        NativeTypeId::TYPEID_RESOURCE_MEMORY_RANGE> {
 public:
     ResourceMemoryRangeObject(Isolate* isolate, ResourceHandle<ResourceMemoryRange> obj)
         :	JsObjectWrapper(isolate),
@@ -165,7 +164,7 @@ private:
 };
 
 class ResourceIORangeObject : public JsObjectWrapper<ResourceIORangeObject,
-        WrappedTypeIds::TYPEID_RESOURCE_IO_RANGE> {
+        NativeTypeId::TYPEID_RESOURCE_IO_RANGE> {
 public:
     ResourceIORangeObject(Isolate* isolate, ResourceHandle<ResourceIORange> obj)
         :	JsObjectWrapper(isolate),
@@ -189,7 +188,7 @@ private:
 };
 
 class ResourceIRQRangeObject : public JsObjectWrapper<ResourceIRQRangeObject,
-        WrappedTypeIds::TYPEID_RESOURCE_IRQ_RANGE> {
+        NativeTypeId::TYPEID_RESOURCE_IRQ_RANGE> {
 public:
     ResourceIRQRangeObject(Isolate* isolate, ResourceHandle<ResourceIRQRange> obj)
         :	JsObjectWrapper(isolate),
@@ -205,7 +204,7 @@ private:
 };
 
 class ResourceIRQObject : public JsObjectWrapper<ResourceIRQObject,
-        WrappedTypeIds::TYPEID_RESOURCE_IRQ> {
+        NativeTypeId::TYPEID_RESOURCE_IRQ> {
 public:
     ResourceIRQObject(Isolate* isolate, ResourceHandle<ResourceIRQ> obj)
         :	JsObjectWrapper(isolate),
@@ -221,7 +220,7 @@ private:
 };
 
 class ResourceMemoryBlockObject : public JsObjectWrapper<ResourceMemoryBlockObject,
-        WrappedTypeIds::TYPEID_RESOURCE_MEMORY_BLOCK> {
+        NativeTypeId::TYPEID_RESOURCE_MEMORY_BLOCK> {
 public:
     ResourceMemoryBlockObject(Isolate* isolate, ResourceHandle<ResourceMemoryBlock> obj)
         :	JsObjectWrapper(isolate),
@@ -243,7 +242,7 @@ private:
 class Process;
 
 class ProcessHandleObject : public JsObjectWrapper<ProcessHandleObject,
-    WrappedTypeIds::TYPEID_PROCESS_HANDLE> {
+    NativeTypeId::TYPEID_PROCESS_HANDLE> {
 public:
     ProcessHandleObject(Isolate* isolate, ResourceHandle<Process> proc)
         :	JsObjectWrapper(isolate),
@@ -260,7 +259,7 @@ private:
 class ProcessManager;
 
 class ProcessManagerHandleObject : public JsObjectWrapper<ProcessManagerHandleObject,
-    WrappedTypeIds::TYPEID_PROCESS_MANAGER_HANDLE> {
+    NativeTypeId::TYPEID_PROCESS_MANAGER_HANDLE> {
 public:
     ProcessManagerHandleObject(Isolate* isolate, ResourceHandle<ProcessManager> proc_mgr)
         :	JsObjectWrapper(isolate),
@@ -278,7 +277,7 @@ private:
 };
 
 class AllocatorObject : public JsObjectWrapper<AllocatorObject,
-    WrappedTypeIds::TYPEID_ALLOCATOR> {
+    NativeTypeId::TYPEID_ALLOCATOR> {
 public:
     AllocatorObject(Isolate* isolate)
         :	JsObjectWrapper(isolate) {

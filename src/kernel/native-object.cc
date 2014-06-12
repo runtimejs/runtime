@@ -21,11 +21,11 @@ using ::common::Nullable;
 template<typename T>
 using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
 
-NATIVE_FUNCTION(NativesObject, RemoteCall) {
+NATIVE_FUNCTION(NativesObject, CallHandler) {
     PROLOGUE_NOTHIS;
 
     if (args.IsConstructCall()) {
-        THROW_ERROR("Remote constructor call is not allowed");
+        THROW_ERROR("Constructor call is not allowed");
     }
 
     Thread* th = isolate->current_thread();
@@ -40,7 +40,7 @@ NATIVE_FUNCTION(NativesObject, RemoteCall) {
     void* ptr = obj->GetAlignedPointerFromInternalField(0);
     if (nullptr == ptr) return;
 
-    ExportedFunction* efn { static_cast<ExportedFunction*>(ptr) };
+    ExternalFunction* efn { static_cast<ExternalFunction*>(ptr) };
     RT_ASSERT(efn);
 
     Isolate* isolate_recv { efn->isolate() };

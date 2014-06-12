@@ -16,6 +16,7 @@
 #include <kernel/timeouts.h>
 #include <kernel/transport.h>
 #include <kernel/v8utils.h>
+#include <kernel/native-fn.h>
 
 namespace rt {
 
@@ -55,7 +56,7 @@ public:
         RT_ASSERT(isolate);
     }
 
-    ExportedFunction* Add(v8::Local<v8::Value> v, ResourceHandle<EngineThread> recv);
+    ExternalFunction* Add(v8::Local<v8::Value> v, ResourceHandle<EngineThread> recv);
     v8::Local<v8::Value> Get(uint32_t index, size_t export_id);
 
 private:
@@ -98,7 +99,7 @@ public:
 
     ResourceHandle<EngineThread> handle() const { return ethread_; }
 
-    ExportedFunction* AddExport(v8::Local<v8::Value> fn) {
+    ExternalFunction* AddExport(v8::Local<v8::Value> fn) {
         return exports_.Add(fn, ethread_);
     }
 

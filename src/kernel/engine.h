@@ -32,7 +32,7 @@ public:
 
     ThreadMessage(Type type, ResourceHandle<EngineThread> sender,
         TransportData data,
-        ExportedFunction* efn = nullptr,
+        ExternalFunction* efn = nullptr,
         size_t recv_index = 0)
         :	type_(type),
             sender_(sender),
@@ -42,7 +42,7 @@ public:
 
     Type type() const { return type_; }
     const TransportData& data() { return data_; }
-    ExportedFunction* exported_func() {
+    ExternalFunction* exported_func() {
         RT_ASSERT(efn_);
         return efn_;
     }
@@ -58,7 +58,7 @@ private:
     Type type_;
     ResourceHandle<EngineThread> sender_;
     TransportData data_;
-    ExportedFunction* efn_;
+    ExternalFunction* efn_;
     size_t recv_index_;
 };
 

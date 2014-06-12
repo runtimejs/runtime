@@ -4,31 +4,27 @@
 
 #include "template-cache.h"
 #include <kernel/native-object.h>
+#include <kernel/v8utils.h>
+#include <kernel/native-fn.h>
 
 namespace rt {
 
 TemplateCache::TemplateCache(Isolate* isolate)
     :	isolate_(isolate) {
     v8::Isolate* iv8 = isolate->IsolateV8();
+    RT_ASSERT(iv8);
     v8::HandleScope scope(iv8);
-    v8::Local<v8::FunctionTemplate> t =
-        v8::FunctionTemplate::New(iv8);
 
-    t->InstanceTemplate()->SetInternalFieldCount(2);
-    wrapper_template_.Set(iv8, t);
-
-    for (size_t i = 0; i < stor_exists_.size(); ++i) {
-        stor_exists_[i] = 0;
+    {	v8::Local<v8::FunctionTemplate> t { v8::FunctionTemplate::New(iv8) };
+        t->InstanceTemplate()->SetInternalFieldCount(1);
+        wrapper_template_.Set(iv8, t);
     }
 
-    // Use TemplateCache instance as keytoken
-    keytoken_.Set(iv8, v8::External::New(iv8, this));
-
-    v8::Local<v8::FunctionTemplate> fnt { v8::FunctionTemplate::New(iv8) };
-    fnt->InstanceTemplate()->SetInternalFieldCount(1);
-    fnt->InstanceTemplate()->SetCallAsFunctionHandler(NativesObject::RemoteCall);
-
-    remote_function_template_.Set(iv8, fnt);
+    {	v8::Local<v8::FunctionTemplate> t { v8::FunctionTemplate::New(iv8) };
+        t->InstanceTemplate()->SetInternalFieldCount(1);
+        t->InstanceTemplate()->SetCallAsFunctionHandler(NativesObject::CallHandler);
+        wrapper_callable_template_.Set(iv8, t);
+    }
 }
 
 v8::Local<v8::UnboundScript> TemplateCache::GetInitScript() {
@@ -57,11 +53,11 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     v8::Isolate* iv8 = isolate_->IsolateV8();
     RT_ASSERT(iv8);
     v8::EscapableHandleScope scope(iv8);
-    if (global_template_.IsEmpty()) {
-        global_template_.Set(iv8, v8::ObjectTemplate::New());
+    if (global_object_template_.IsEmpty()) {
+        global_object_template_.Set(iv8, v8::ObjectTemplate::New());
     }
     v8::Local<v8::Context> context = v8::Context::New(iv8, nullptr,
-        global_template_.Get(iv8));
+        global_object_template_.Get(iv8));
 
     ContextScope cs(context);
 
@@ -81,6 +77,32 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     init_func->Call(context->Global(), 1, &args_local[0]);
 
     return scope.Escape(context);
+}
+
+v8::Local<v8::Value> TemplateCache::NewWrappedFunction(ExternalFunction* data) {
+    RT_ASSERT(data);
+    v8::Isolate* iv8 = isolate_->IsolateV8();
+    RT_ASSERT(iv8);
+    v8::EscapableHandleScope scope(iv8);
+    v8::Local<v8::Object> obj { wrapper_callable_template_.Get(iv8)
+        ->InstanceTemplate()->NewInstance() };
+
+    obj->SetAlignedPointerInInternalField(0,
+        static_cast<NativeObjectWrapper*>(data));
+    return scope.Escape(obj);
+}
+
+v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativeobj) {
+    RT_ASSERT(nativeobj);
+    v8::Isolate* iv8 = isolate_->IsolateV8();
+    RT_ASSERT(iv8);
+    v8::EscapableHandleScope scope(iv8);
+    v8::Local<v8::Object> obj = wrapper_template_.Get(isolate_->IsolateV8())
+        ->InstanceTemplate()->NewInstance();
+
+    obj->SetAlignedPointerInInternalField(0,
+        static_cast<NativeObjectWrapper*>(nativeobj));
+    return scope.Escape(obj);
 }
 
 } // namespace rt
