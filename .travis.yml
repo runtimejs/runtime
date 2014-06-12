@@ -3,8 +3,9 @@ compiler: gcc
 
 before_script:
     - cd tools
-    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.0-Linux-x86_64.tar.xz | tar xz
+    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.0-Linux-x86_64.tar.xz
+    - tar -xf x86_64-elf-4.9.0-Linux-x86_64.tar.xz
     - cd ..
-    - export PATH=$PWD/tools/cross/bin:$PATH
+    - export PATH=$PWD/tools/x86_64-elf-4.9.0-Linux-x86_64:$PATH
 
 script: scons
