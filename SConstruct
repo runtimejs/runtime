@@ -247,15 +247,13 @@ def BuildProject(env_base, mkinitrd):
         proj_name + ' ' + binary_output)
     env.Depends(output_bin, output_elf);
 
-    initrd = env.Command('disk/boot/initrd', '', './makeinitrd.sh')
-    env.Depends(initrd, Glob('initrd/*.*'))
-    env.Depends(initrd, Glob('initrd/*/*.*'))
-    env.Depends(initrd, Glob('initrd/*/*/*.*'))
-
     if mkinitrd is not None:
+        initrd = env.Command('disk/boot/initrd', '', './makeinitrd.sh')
+        env.Depends(initrd, Glob('initrd/*.*'))
+        env.Depends(initrd, Glob('initrd/*/*.*'))
+        env.Depends(initrd, Glob('initrd/*/*/*.*'))
         env.Depends(initrd, mkinitrd)
-
-    env.Depends(output_bin, initrd);
+        env.Depends(output_bin, initrd);
     return
 
 mkinitrd = None
