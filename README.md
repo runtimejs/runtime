@@ -80,4 +80,4 @@ qemu-system-x86_64                                \
     
 License
 ----
-BSD
+Apache License, Version 2.0

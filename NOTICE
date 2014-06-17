@@ -1,0 +1,15 @@
+Runtime.JS
+Copyright 2014 Runtime.JS project authors
+
+This product includes software libraries:
+
+- ACPICA (https://www.acpica.org/), located at deps/acpica
+- EASTL (http://gpl.ea.com/), located at deps/eastl
+- libc++, C++ standard library (http://libcxx.llvm.org/), located at deps/libcxx
+- musl C standard library (http://www.musl-libc.org/), located at deps/musl
+- v8 JavaScript engine (https://code.google.com/p/v8/), located at deps/v8
+- tinyprintf (http://www.sparetimelabs.com/tinyprintf/tinyprintf.php), located at deps/printf
+- dlmalloc allocator by Doug Lea (ftp://gee.cs.oswego.edu/pub/misc/malloc.c)
+- crc64 function by Salvatore Sanfilippo <antirez at gmail dot com>
+
+These libraries have their own licenses.
