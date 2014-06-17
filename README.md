@@ -1,6 +1,8 @@
 runtime.js
 ====
 
+[![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=master)](https://travis-ci.org/runtimejs/runtime)
+
 __runtime.js__ is a kernel built on V8 JavaScript engine. It uses event-driven and non-blocking I/O model inspired by Node.js.
 
 This is an experimental project to design and implement a kernel that is optimized to run JavaScript applications. It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
