@@ -112,9 +112,8 @@ void Thread::Run() {
 
     v8::TryCatch trycatch;
 
-    for (ThreadMessage* raw : messages) {
-        RT_ASSERT(raw);
-        std::unique_ptr<ThreadMessage> message(raw);
+    for (ThreadMessage* message : messages) {
+        RT_ASSERT(message);
 
         ThreadMessage::Type type = message->type();
 
@@ -207,6 +206,10 @@ void Thread::Run() {
         default:
             RT_ASSERT(!"Unknown thread message");
             break;
+        }
+
+        if (!message->reusable()) {
+            delete message;
         }
     }
 

@@ -46,15 +46,14 @@ public:
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
 
-        RT_ASSERT(cpu_count >= 2); // System requirement: Dual core machine
-                                   // Temporary to support service core
+        global_ticks_counter_.Set(0);
 
         engines_.reserve(cpu_count);
         engines_execution_.reserve(cpu_count);
 
         for (uint32_t i = 0; i < cpu_count; ++i) {
             Engine* engine = nullptr;
-            if (0 == i) {
+            if (9999 == i) {
                 engine = new Engine(EngineType::SERVICE);
             } else {
                 engine = new Engine(EngineType::EXECUTION);
@@ -149,8 +148,26 @@ public:
         return 10;
     }
 
+    void Sleep(uint64_t microseconds) {
+        uint64_t before = global_ticks_counter_.Get();
+        uint64_t wait_ticks = microseconds / 1000 / MsPerTick();
+        if (wait_ticks < 1) wait_ticks = 1;
+
+        // Limit to 1 second max
+        if (wait_ticks > 100) {
+            wait_ticks = 100;
+        }
+
+        uint64_t after = before + wait_ticks;
+
+        while (global_ticks_counter_.Get() < after) {
+            Cpu::WaitPause();
+        }
+    }
+
     void TimerTick(SystemContextIRQ& irq_context) {
         const Engine* cpuengine = cpu_engine();
+        global_ticks_counter_.AddFetch(1);
         if (cpuengine->is_init()) {
             cpuengine->TimerTick(irq_context);
         } else {
@@ -209,6 +226,8 @@ private:
     AcpiManager* _acpi_manager;
     volatile uint64_t _non_isolate_ticks;
     ProcessManager proc_mgr_;
+
+    Atomic<uint64_t> global_ticks_counter_;
 
     mutable Locker _platform_locker;
 };

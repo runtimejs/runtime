@@ -89,6 +89,24 @@ private:
     DELETE_COPY_AND_ASSIGN(ScopedLock);
 };
 
+/**
+ * Create scope where no interrupt can occur. This should
+ * not be used in IRQ context, because it will set IF flag
+ * before IRETQ
+ */
+class NoInterrupsScope {
+public:
+    inline NoInterrupsScope() {
+        Cpu::DisableInterrupts();
+    }
+
+    inline ~NoInterrupsScope() {
+        Cpu::EnableInterrupts();
+    }
+private:
+    DELETE_COPY_AND_ASSIGN(NoInterrupsScope);
+};
+
 template<typename T>
 class LockingPtr {
 public:

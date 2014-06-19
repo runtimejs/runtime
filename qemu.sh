@@ -2,7 +2,7 @@
 
 qemu-system-x86_64                                          \
     -m 512                                                  \
-    -smp 2                                                  \
+    -smp 1                                                  \
     -s                                                      \
     -boot order=d                                           \
     -netdev user,id=mynet0,hostfwd=tcp::5555-:80            \

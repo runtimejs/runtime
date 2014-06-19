@@ -493,9 +493,9 @@ AcpiOsReadPciConfiguration (
 #ifndef ACPI_USE_ALTERNATE_PROTOTYPE_AcpiOsWritePciConfiguration
 ACPI_STATUS
 AcpiOsWritePciConfiguration (
-    ACPI_PCI_ID             *PciId,
-    UINT32                  Reg,
-    UINT64                  Value,
+    ACPI_PCI_ID             *pciid,
+    UINT32                  reg,
+    UINT64                  value,
     UINT32                  Width);
 #endif
 

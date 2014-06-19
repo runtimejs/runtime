@@ -167,10 +167,12 @@ void KernelMain::InitSystemBSP(void* mbt) {
     }
 
     GLOBAL_boot_services()->logger()->EnableConsole();
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_engines, Engines, cpus_found);
+    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_engines, Engines, 1 /*cpus_found*/ );
     Cpu::EnableInterrupts();
     GLOBAL_engines()->Startup();
-    GLOBAL_platform()->StartCPUs();
+
+    // Uncomment to enable SMP
+    // GLOBAL_platform()->StartCPUs();
 }
 
 void KernelMain::InitSystemAP() {

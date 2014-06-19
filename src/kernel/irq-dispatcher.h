@@ -28,16 +28,27 @@ namespace rt {
 class IRQBinding {
 public:
     IRQBinding(ResourceHandle<EngineThread> thread, size_t recv_index)
-        :	thread_(thread), recv_index_(recv_index) {}
+        :	thread_(thread), recv_index_(recv_index),
+            reusable_msg_(new ThreadMessage(ThreadMessage::Type::IRQ_RAISE,
+            ResourceHandle<EngineThread>(), TransportData(), nullptr, recv_index_)) {
+        reusable_msg_->MakeReusable();
+    }
+
+    IRQBinding(IRQBinding&& other)
+        :	thread_(other.thread_),
+            recv_index_(other.recv_index_),
+            reusable_msg_(std::move(other.reusable_msg_)) {}
 
     void Raise(SystemContextIRQ irq_context) const {
-        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::IRQ_RAISE,
-            ResourceHandle<EngineThread>(), TransportData(), nullptr, recv_index_));
-        thread_.get()->PushMessage(std::move(msg));
+        RT_ASSERT(reusable_msg_);
+        RT_ASSERT(reusable_msg_->reusable());
+        thread_.getUnsafe()->PushMessageIRQ(irq_context, reusable_msg_.get());
     }
 private:
     ResourceHandle<EngineThread> thread_;
     size_t recv_index_;
+    std::unique_ptr<ThreadMessage> reusable_msg_;
+    DELETE_COPY_AND_ASSIGN(IRQBinding);
 };
 
 /**
@@ -51,10 +62,10 @@ public:
      * Bind new handler for provided IRQ number
      */
     void Bind(uint8_t number, ResourceHandle<EngineThread> thread, size_t recv_index) {
-        RT_ASSERT(Cpu::id() > 0); // IRQ binding restricted to CPU > 0
-        ScopedLock lock(locker_);
+        NoInterrupsScope no_interrupts;
+        ScopedLock lock(bindings_locker_);
         RT_ASSERT(number < kIrqCount);
-        bindings_[number].push_back(IRQBinding(thread, recv_index));
+        bindings_[number].push_back(std::move(IRQBinding(thread, recv_index)));
     }
 
     /**
@@ -64,7 +75,7 @@ public:
 private:
     static const uint32_t kIrqCount = 225;
     SharedSTLVector<IRQBinding> bindings_[kIrqCount];
-    Locker locker_;
+    Locker bindings_locker_;
     DELETE_COPY_AND_ASSIGN(IrqDispatcher);
 };
 

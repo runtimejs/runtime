@@ -63,10 +63,14 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK Handle, ACPI_CPU_FLAGS Flags) {
     return;
 }
 
-void AcpiOsStall(UINT32 Microseconds) {}
+void AcpiOsStall(UINT32 Microseconds) {
+    printf("[ACPICA] Stall %d microsec\n", Microseconds);
+    GLOBAL_engines()->Sleep(Microseconds);
+}
 
 void AcpiOsSleep(UINT64 Milliseconds) {
-    RT_ASSERT(!"Not implemented");
+    printf("[ACPICA] Sleep %d ms\n", Milliseconds);
+    GLOBAL_engines()->Sleep(Milliseconds * 1000);
 }
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 InterruptLevel, ACPI_OSD_HANDLER Handler, void *Context) {
@@ -122,8 +126,24 @@ ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID* pciid, UINT32 reg, UINT64* v
     return AE_OK;
 }
 
-ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *PciId, UINT32 Register, UINT64 Value, UINT32 Width) {
-    RT_ASSERT(!"[ACPICA] write pci\n");
+ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID* pciid, UINT32 reg, UINT64 value, UINT32 Width) {
+    switch (Width) {
+    case 8:
+        IoPortsX64::PciWriteB(pciid->Bus, pciid->Device, pciid->Function, reg, value & 0xff);
+        break;
+    case 16:
+        IoPortsX64::PciWriteW(pciid->Bus, pciid->Device, pciid->Function, reg, value & 0xffff);
+        break;
+    case 32:
+        IoPortsX64::PciWriteDW(pciid->Bus, pciid->Device, pciid->Function, reg, value & 0xffffffff);
+        break;
+    case 64:
+        RT_ASSERT(!"AcpiOsWritePciConfiguration 64 bit is not supported.");
+    default:
+        return AE_BAD_PARAMETER;
+        break;
+    }
+
     return AE_OK;
 }
 

@@ -48,10 +48,12 @@ public:
             sender_(sender),
             data_(std::move(data)),
             efn_(efn),
-            recv_index_(recv_index) {}
+            recv_index_(recv_index),
+            reusable_(false) {}
 
     Type type() const { return type_; }
     const TransportData& data() { return data_; }
+
     ExternalFunction* exported_func() {
         RT_ASSERT(efn_);
         return efn_;
@@ -62,7 +64,12 @@ public:
         return sender_;
     }
 
+    void MakeReusable() {
+        reusable_ = true;
+    }
+
     size_t recv_index() const { return recv_index_; }
+    bool reusable() const { return reusable_; }
     DELETE_COPY_AND_ASSIGN(ThreadMessage);
 private:
     Type type_;
@@ -70,6 +77,7 @@ private:
     TransportData data_;
     ExternalFunction* efn_;
     size_t recv_index_;
+    bool reusable_;
 };
 
 class EngineThread : public Resource {
@@ -94,16 +102,39 @@ public:
 
     ThreadMessagesVector TakeMessages() {
         ThreadMessagesVector s;
-        {	ScopedLock lock(c_locker_);
+        {	NoInterrupsScope no_interrups;
+            ScopedLock lock(c_locker_);
             if (0 == messages_.size()) return s;
             messages_.swap(s);
+            messages_.reserve(128);
         }
         return s;
     }
 
+    /**
+     * Put message into realm processing queue. Use only
+     * for non-IRQ context calls, because it will disable and
+     * then enable interrupts on current CPU
+     */
     void PushMessage(std::unique_ptr<ThreadMessage> message) {
+        NoInterrupsScope no_interrups;
         ScopedLock lock(c_locker_);
+        RT_ASSERT(message);
         messages_.push_back(message.release());
+    }
+
+    /**
+     * Put message into realm processing queue. Use only
+     * for IRQ-context calls. It doesn't touch IRQ flag
+     */
+    void PushMessageIRQ(SystemContextIRQ irq_context, ThreadMessage* message) {
+        ScopedLock lock(c_locker_);
+        RT_ASSERT(message);
+
+        // We don't want to allocate memory in IRQ handler
+        if (messages_.size() < messages_.capacity()) {
+            messages_.push_back(message);
+        }
     }
 
     Isolate* isolate() const;

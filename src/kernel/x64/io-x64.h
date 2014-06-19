@@ -69,6 +69,22 @@ public:
         return (uint32_t)InDW(kPciDataPort);
     }
 
+    inline static void PciWriteB(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint8_t value) {
+        PciWriteAddr(bus, slot, func, offset);
+        OutB(kPciDataPort + (offset & 3), value);
+    }
+
+    inline static void PciWriteW(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint16_t value) {
+        RT_ASSERT((offset & 1) == 0); // aligned check
+        PciWriteAddr(bus, slot, func, offset);
+        OutW(kPciDataPort + (offset & 2), value);
+    }
+
+    inline static void PciWriteDW(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint32_t value) {
+        RT_ASSERT((offset & 3) == 0); // aligned check
+        PciWriteAddr(bus, slot, func, offset);
+        OutDW(kPciDataPort, value);
+    }
 private:
     static const uint32_t kPciAddressPort = 0xCF8;
     static const uint32_t kPciDataPort = 0xCFC;

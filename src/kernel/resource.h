@@ -59,6 +59,18 @@ public:
         return LockingPtr<R>(resource_, &resource_->locker_);
     }
 
+    /**
+     * Unsafe returns raw pointer instead of LockingPtr
+     * This used in IRQ handler to get thread handle
+     * PushMessage already uses lock, so its ok
+     *
+     * TODO: fix this, to avoid this call completely
+     */
+    R* getUnsafe() const {
+        RT_ASSERT(resource_ && "Using empty handle.");
+        return resource_;
+    }
+
     v8::Local<v8::Value> NewExternal(v8::Isolate* iv8) {
         RT_ASSERT(resource_ && "Using empty handle.");
         RT_ASSERT(iv8);
