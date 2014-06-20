@@ -9,13 +9,13 @@ It's currently under development and does not include many essential features. I
 
 You can use mailing list to ask any questions or share your ideas https://groups.google.com/group/runtimejs
 
-Some info on kernel architecture http://runtimejs.org/docs/arch.html
-
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
 
 
 Technical details
 ----
+
+Kernel architecture http://runtimejs.org/docs/arch.html
 
 - supported x86_64, 64 bit only
 - software isolated applications (processes or JS realms)
@@ -23,7 +23,7 @@ Technical details
 - does not use cpu protection rings
 - non-blocking asynchronous IPC
 - drivers and system services are implemented in JavaScript
-- kernel written in C++11
+- low-level kernel services are written in C++11
 
 Status
 ----
