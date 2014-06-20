@@ -80,7 +80,6 @@ void Thread::Run() {
 
     uint64_t ticks_now { isolate_->ticks_count() };
     while (timeouts_.Elapsed(ticks_now)) {
-//        printf("Elapsed on ticks = %lu\n", ticks_now);
         uint32_t timeout_id { timeouts_.Take() };
 
         {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(

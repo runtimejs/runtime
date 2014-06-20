@@ -47,7 +47,7 @@ public:
     TimeoutItemComparer() { }
     bool operator() (const TimeoutItem<T>& lhs,
                      const TimeoutItem<T>& rhs) const {
-        return (lhs.time() < rhs.time());
+        return (lhs.time() > rhs.time());
     }
 };
 

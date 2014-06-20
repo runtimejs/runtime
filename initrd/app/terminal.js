@@ -14,15 +14,24 @@
 
 // TODO: move eval scope into other context (thread)
 // to provide isolation
-var evalScope = (function() {
+
+var evalScope = function(print) {
     "use strict";
+
+    var console = {
+        log: function() {
+            print(Array.prototype.join.call(arguments, ' '));
+        },
+    };
+
+    var setTimeout = rt.timeout;
 
     return {
         evaluate: function(text) {
-            return (1, eval)(text);
+            return eval(text);
         },
     };
-})();
+};
 
 (function(args) {
     "use strict";
@@ -426,7 +435,15 @@ var evalScope = (function() {
             return;
         }
 
+        var textColorDefault = gui.color('darkgray', 'black');
+        var textColorLight = gui.color('lightgray', 'black');
+        var textColorError = gui.color('lightred', 'black');
         var cons = terminal.getActiveConsole();
+
+        function print(s) {
+            cons.write(s + '\n', textColorDefault);
+            gui.draw(terminal.getActiveConsole());
+        };
 
         switch (data.type) {
         case 'f1': terminal.setActiveConsoleIndex(0); break;
@@ -445,14 +462,10 @@ var evalScope = (function() {
                 break;
             }
 
-            var textColorDefault = gui.color('darkgray', 'black');
-            var textColorLight = gui.color('lightgray', 'black');
-            var textColorError = gui.color('lightred', 'black');
-
             cons.write('> ' + text + '\n', textColorDefault);
 
             try {
-                var result = evalScope.evaluate(text);
+                var result = evalScope(print).evaluate(text);
                 cons.write(result + '\n\n', textColorLight);
             } catch(e) {
                 cons.write(e.toString() + '\n\n', textColorError);
