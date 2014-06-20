@@ -3,6 +3,9 @@ Great to have you here. Here are a few ways you can help make this project bette
 The [issue tracker](https://github.com/runtimejs/runtime/issues) is the 
 preferred channel for bug reports, features requests and submitting pull requests.
 
+You can use mailing list to ask any questions or share your ideas
+https://groups.google.com/group/runtimejs
+
 <a name="features"></a>
 ## Feature requests
 

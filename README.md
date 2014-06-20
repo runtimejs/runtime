@@ -3,20 +3,27 @@ Runtime.JS [![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=m
 
 __Runtime.JS__ is a kernel built on V8 JavaScript engine. It uses event-driven and non-blocking I/O model inspired by Node.js.
 
-This is an experimental project to design and implement a kernel that is optimized to run JavaScript applications. It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
+The goal of this project is to design and implement a kernel that is optimized to run JavaScript applications. By providing environment for JavaScript code only, it is possible to rethink kernel design to improve security, reliability and performance of the system. 
+
+It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
+
+You can use mailing list to ask any questions or share your ideas https://groups.google.com/group/runtimejs
 
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
+
 
 Technical details
 ----
 
-- supported x86_64 only
-- software isolated applications (processes)
-- no heavy context switches, single address space
+Kernel architecture http://runtimejs.org/docs/arch.html
+
+- supported x86_64, 64 bit only
+- software isolated applications (processes or JS realms)
+- single address space, no hardware context switches
 - does not use cpu protection rings
 - non-blocking asynchronous IPC
 - drivers and system services are implemented in JavaScript
-- kernel written in C++11
+- low-level kernel services are written in C++11
 
 Status
 ----
@@ -26,11 +33,18 @@ Status
 - embedded V8 engine
 - multitasking (cooperative only)
 - IPC transferable functions and ArrayBuffers
-- SMP support
+- SMP support (currently disabled)
 - embedded ACPICA for ACPI support
 - simple keyboard and VGA display drivers
 - JavaScript REPL application
 - PCI bus driver device detection
+
+
+####Planned
+
+- network stack
+- virtual file system
+- virtio drivers for storage and network
 
 
 Build
