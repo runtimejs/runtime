@@ -5,6 +5,8 @@ __Runtime.JS__ is a kernel built on V8 JavaScript engine. It uses event-driven a
 
 This is an experimental project to design and implement a kernel that is optimized to run JavaScript applications. It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
 
+You can use mailing list to ask any questions or share your ideas https://groups.google.com/group/runtimejs
+
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
 
 Technical details
