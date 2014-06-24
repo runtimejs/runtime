@@ -3,19 +3,19 @@
 // found in the LICENSE file.
 
 #include <assert.h>
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM64
 
-#include "disasm.h"
-#include "arm64/decoder-arm64-inl.h"
-#include "arm64/disasm-arm64.h"
-#include "macro-assembler.h"
-#include "platform.h"
+#include "src/arm64/decoder-arm64-inl.h"
+#include "src/arm64/disasm-arm64.h"
+#include "src/disasm.h"
+#include "src/macro-assembler.h"
+#include "src/platform.h"
 
 namespace v8 {
 namespace internal {
@@ -1384,7 +1384,7 @@ int Disassembler::SubstituteImmediateField(Instruction* instr,
       switch (format[2]) {
         case 'L': {  // ILLiteral - Immediate Load Literal.
           AppendToOutput("pc%+" PRId64,
-                         instr->ImmLLiteral() << kLiteralEntrySizeLog2);
+                         instr->ImmLLiteral() << kLoadLiteralScaleLog2);
           return 9;
         }
         case 'S': {  // ILS - Immediate Load/Store.
@@ -1559,7 +1559,7 @@ int Disassembler::SubstituteConditionField(Instruction* instr,
   switch (format[1]) {
     case 'B': cond = instr->ConditionBranch(); break;
     case 'I': {
-      cond = InvertCondition(static_cast<Condition>(instr->Condition()));
+      cond = NegateCondition(static_cast<Condition>(instr->Condition()));
       break;
     }
     default: cond = instr->Condition();
@@ -1734,7 +1734,7 @@ namespace disasm {
 
 
 const char* NameConverter::NameOfAddress(byte* addr) const {
-  v8::internal::OS::SNPrintF(tmp_buffer_, "%p", addr);
+  v8::internal::SNPrintF(tmp_buffer_, "%p", addr);
   return tmp_buffer_.start();
 }
 
@@ -1752,7 +1752,7 @@ const char* NameConverter::NameOfCPURegister(int reg) const {
   if (ureg == v8::internal::kZeroRegCode) {
     return "xzr";
   }
-  v8::internal::OS::SNPrintF(tmp_buffer_, "x%u", ureg);
+  v8::internal::SNPrintF(tmp_buffer_, "x%u", ureg);
   return tmp_buffer_.start();
 }
 
@@ -1786,7 +1786,7 @@ class BufferDisassembler : public v8::internal::Disassembler {
   ~BufferDisassembler() { }
 
   virtual void ProcessOutput(v8::internal::Instruction* instr) {
-    v8::internal::OS::SNPrintF(out_buffer_, "%s", GetOutput());
+    v8::internal::SNPrintF(out_buffer_, "%s", GetOutput());
   }
 
  private:

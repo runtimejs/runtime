@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "profile-generator-inl.h"
+#include "src/profile-generator-inl.h"
 
-#include "compiler.h"
-#include "debug.h"
-#include "sampler.h"
-#include "global-handles.h"
-#include "scopeinfo.h"
-#include "unicode.h"
-#include "zone-inl.h"
+#include "src/compiler.h"
+#include "src/debug.h"
+#include "src/global-handles.h"
+#include "src/sampler.h"
+#include "src/scopeinfo.h"
+#include "src/unicode.h"
+#include "src/zone-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -43,7 +43,7 @@ const char* StringsStorage::GetCopy(const char* src) {
   HashMap::Entry* entry = GetEntry(src, len);
   if (entry->value == NULL) {
     Vector<char> dst = Vector<char>::New(len + 1);
-    OS::StrNCpy(dst, src, len);
+    StrNCpy(dst, src, len);
     dst[len] = '\0';
     entry->key = dst.start();
     entry->value = entry->key;
@@ -76,7 +76,7 @@ const char* StringsStorage::AddOrDisposeString(char* str, int len) {
 
 const char* StringsStorage::GetVFormatted(const char* format, va_list args) {
   Vector<char> str = Vector<char>::New(1024);
-  int len = OS::VSNPrintF(str, format, args);
+  int len = VSNPrintF(str, format, args);
   if (len == -1) {
     DeleteArray(str.start());
     return GetCopy(format);

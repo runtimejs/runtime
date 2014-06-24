@@ -4,43 +4,43 @@
 
 #include <stdlib.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "ast.h"
-#include "bootstrapper.h"
-#include "codegen.h"
-#include "compilation-cache.h"
-#include "cpu-profiler.h"
-#include "debug.h"
-#include "deoptimizer.h"
-#include "heap-profiler.h"
-#include "hydrogen.h"
-#include "isolate-inl.h"
-#include "lithium-allocator.h"
-#include "log.h"
-#include "messages.h"
-#include "platform.h"
-#include "regexp-stack.h"
-#include "runtime-profiler.h"
-#include "sampler.h"
-#include "scopeinfo.h"
-#include "serialize.h"
-#include "simulator.h"
-#include "spaces.h"
-#include "stub-cache.h"
-#include "sweeper-thread.h"
-#include "utils/random-number-generator.h"
-#include "version.h"
-#include "vm-state-inl.h"
+#include "src/ast.h"
+#include "src/bootstrapper.h"
+#include "src/codegen.h"
+#include "src/compilation-cache.h"
+#include "src/cpu-profiler.h"
+#include "src/debug.h"
+#include "src/deoptimizer.h"
+#include "src/heap-profiler.h"
+#include "src/hydrogen.h"
+#include "src/isolate-inl.h"
+#include "src/lithium-allocator.h"
+#include "src/log.h"
+#include "src/messages.h"
+#include "src/platform.h"
+#include "src/regexp-stack.h"
+#include "src/runtime-profiler.h"
+#include "src/sampler.h"
+#include "src/scopeinfo.h"
+#include "src/serialize.h"
+#include "src/simulator.h"
+#include "src/spaces.h"
+#include "src/stub-cache.h"
+#include "src/sweeper-thread.h"
+#include "src/utils/random-number-generator.h"
+#include "src/version.h"
+#include "src/vm-state-inl.h"
 
 
 namespace v8 {
 namespace internal {
 
-Atomic32 ThreadId::highest_thread_id_ = 0;
+base::Atomic32 ThreadId::highest_thread_id_ = 0;
 
 int ThreadId::AllocateThreadId() {
-  int new_id = NoBarrier_AtomicIncrement(&highest_thread_id_, 1);
+  int new_id = base::NoBarrier_AtomicIncrement(&highest_thread_id_, 1);
   return new_id;
 }
 
@@ -114,7 +114,7 @@ enum DefaultIsolateStatus {
 static DefaultIsolateStatus default_isolate_status_
     = kDefaultIsolateUninitialized;
 Isolate::ThreadDataTable* Isolate::thread_data_table_ = NULL;
-Atomic32 Isolate::isolate_counter_ = 0;
+base::Atomic32 Isolate::isolate_counter_ = 0;
 
 Isolate::PerIsolateThreadData*
     Isolate::FindOrAllocatePerThreadDataForThisThread() {
@@ -792,9 +792,8 @@ Object* Isolate::StackOverflow() {
       JSObject::GetDataProperty(Handle<JSObject>::cast(error),
                                 stackTraceLimit);
   if (!stack_trace_limit->IsNumber()) return heap()->exception();
-  double dlimit = stack_trace_limit->Number();
-  int limit = std::isnan(dlimit) ? 0 : static_cast<int>(dlimit);
-
+  int limit = FastD2IChecked(stack_trace_limit->Number());
+  if (limit < 0) limit = 0;
   Handle<JSArray> stack_trace = CaptureSimpleStackTrace(
       exception, factory()->undefined_value(), limit);
   JSObject::SetHiddenProperty(exception,
@@ -1036,7 +1035,7 @@ void Isolate::DoThrow(Object* exception, MessageLocation* location) {
 
   // Notify debugger of exception.
   if (catchable_by_javascript) {
-    debugger_->OnException(exception_handle, report_exception);
+    debug()->OnException(exception_handle, report_exception);
   }
 
   // Generate the message if required.
@@ -1166,20 +1165,15 @@ void Isolate::DoThrow(Object* exception, MessageLocation* location) {
 }
 
 
-bool Isolate::IsExternallyCaught() {
+bool Isolate::HasExternalTryCatch() {
   ASSERT(has_pending_exception());
 
-  if ((thread_local_top()->catcher_ == NULL) ||
-      (try_catch_handler() != thread_local_top()->catcher_)) {
-    // When throwing the exception, we found no v8::TryCatch
-    // which should care about this exception.
-    return false;
-  }
+  return (thread_local_top()->catcher_ != NULL) &&
+      (try_catch_handler() == thread_local_top()->catcher_);
+}
 
-  if (!is_catchable_by_javascript(pending_exception())) {
-    return true;
-  }
 
+bool Isolate::IsFinallyOnTop() {
   // Get the address of the external handler so we can compare the address to
   // determine which one is closer to the top of the stack.
   Address external_handler_address =
@@ -1199,18 +1193,18 @@ bool Isolate::IsExternallyCaught() {
       StackHandler::FromAddress(Isolate::handler(thread_local_top()));
   while (handler != NULL && handler->address() < external_handler_address) {
     ASSERT(!handler->is_catch());
-    if (handler->is_finally()) return false;
+    if (handler->is_finally()) return true;
 
     handler = handler->next();
   }
 
-  return true;
+  return false;
 }
 
 
 void Isolate::ReportPendingMessages() {
   ASSERT(has_pending_exception());
-  PropagatePendingExceptionToExternalTryCatch();
+  bool can_clear_message = PropagatePendingExceptionToExternalTryCatch();
 
   HandleScope scope(this);
   if (thread_local_top_.pending_exception_ ==
@@ -1237,7 +1231,7 @@ void Isolate::ReportPendingMessages() {
       }
     }
   }
-  clear_pending_message();
+  if (can_clear_message) clear_pending_message();
 }
 
 
@@ -1324,7 +1318,7 @@ Handle<Context> Isolate::global_context() {
 
 Handle<Context> Isolate::GetCallingNativeContext() {
   JavaScriptFrameIterator it(this);
-  if (debug_->InDebugger()) {
+  if (debug_->in_debug_scope()) {
     while (!it.done()) {
       JavaScriptFrame* frame = it.frame();
       Context* context = Context::cast(frame->context());
@@ -1343,8 +1337,8 @@ Handle<Context> Isolate::GetCallingNativeContext() {
 
 
 char* Isolate::ArchiveThread(char* to) {
-  OS::MemCopy(to, reinterpret_cast<char*>(thread_local_top()),
-              sizeof(ThreadLocalTop));
+  MemCopy(to, reinterpret_cast<char*>(thread_local_top()),
+          sizeof(ThreadLocalTop));
   InitializeThreadLocal();
   clear_pending_exception();
   clear_pending_message();
@@ -1354,10 +1348,10 @@ char* Isolate::ArchiveThread(char* to) {
 
 
 char* Isolate::RestoreThread(char* from) {
-  OS::MemCopy(reinterpret_cast<char*>(thread_local_top()), from,
-              sizeof(ThreadLocalTop));
-  // This might be just paranoia, but it seems to be needed in case a
-  // thread_local_top_ is restored on a separate OS thread.
+  MemCopy(reinterpret_cast<char*>(thread_local_top()), from,
+          sizeof(ThreadLocalTop));
+// This might be just paranoia, but it seems to be needed in case a
+// thread_local_top_ is restored on a separate OS thread.
 #ifdef USE_SIMULATOR
   thread_local_top()->simulator_ = Simulator::current(this);
 #endif
@@ -1486,8 +1480,9 @@ Isolate::Isolate()
       sweeper_thread_(NULL),
       num_sweeper_threads_(0),
       stress_deopt_count_(0),
-      next_optimization_id_(0) {
-  id_ = NoBarrier_AtomicIncrement(&isolate_counter_, 1);
+      next_optimization_id_(0),
+      use_counter_callback_(NULL) {
+  id_ = base::NoBarrier_AtomicIncrement(&isolate_counter_, 1);
   TRACE_ISOLATE(constructor);
 
   memset(isolate_addresses_, 0,
@@ -1520,7 +1515,6 @@ Isolate::Isolate()
 
   InitializeLoggingAndCounters();
   debug_ = new Debug(this);
-  debugger_ = new Debugger(this);
 }
 
 
@@ -1561,6 +1555,8 @@ void Isolate::GlobalTearDown() {
 void Isolate::Deinit() {
   if (state_ == INITIALIZED) {
     TRACE_ISOLATE(deinit);
+
+    debug()->Unload();
 
     if (concurrent_recompilation_enabled()) {
       optimizing_compiler_thread_->Stop();
@@ -1730,8 +1726,6 @@ Isolate::~Isolate() {
   delete random_number_generator_;
   random_number_generator_ = NULL;
 
-  delete debugger_;
-  debugger_ = NULL;
   delete debug_;
   debug_ = NULL;
 }
@@ -1743,14 +1737,22 @@ void Isolate::InitializeThreadLocal() {
 }
 
 
-void Isolate::PropagatePendingExceptionToExternalTryCatch() {
+bool Isolate::PropagatePendingExceptionToExternalTryCatch() {
   ASSERT(has_pending_exception());
 
-  bool external_caught = IsExternallyCaught();
-  thread_local_top_.external_caught_exception_ = external_caught;
+  bool has_external_try_catch = HasExternalTryCatch();
+  if (!has_external_try_catch) {
+    thread_local_top_.external_caught_exception_ = false;
+    return true;
+  }
 
-  if (!external_caught) return;
+  bool catchable_by_js = is_catchable_by_javascript(pending_exception());
+  if (catchable_by_js && IsFinallyOnTop()) {
+    thread_local_top_.external_caught_exception_ = false;
+    return false;
+  }
 
+  thread_local_top_.external_caught_exception_ = true;
   if (thread_local_top_.pending_exception_ ==
              heap()->termination_exception()) {
     try_catch_handler()->can_continue_ = false;
@@ -1766,13 +1768,14 @@ void Isolate::PropagatePendingExceptionToExternalTryCatch() {
     handler->has_terminated_ = false;
     handler->exception_ = pending_exception();
     // Propagate to the external try-catch only if we got an actual message.
-    if (thread_local_top_.pending_message_obj_->IsTheHole()) return;
+    if (thread_local_top_.pending_message_obj_->IsTheHole()) return true;
 
     handler->message_obj_ = thread_local_top_.pending_message_obj_;
     handler->message_script_ = thread_local_top_.pending_message_script_;
     handler->message_start_pos_ = thread_local_top_.pending_message_start_pos_;
     handler->message_end_pos_ = thread_local_top_.pending_message_end_pos_;
   }
+  return true;
 }
 
 
@@ -1898,7 +1901,7 @@ bool Isolate::Init(Deserializer* des) {
   // once ResourceConstraints becomes an argument to the Isolate constructor.
   if (max_available_threads_ < 1) {
     // Choose the default between 1 and 4.
-    max_available_threads_ = Max(Min(CPU::NumberOfProcessorsOnline(), 4), 1);
+    max_available_threads_ = Max(Min(OS::NumberOfProcessorsOnline(), 4), 1);
   }
 
   if (!FLAG_job_based_sweeping) {
@@ -1964,6 +1967,13 @@ bool Isolate::Init(Deserializer* des) {
            Internals::kIsolateEmbedderDataOffset);
   CHECK_EQ(static_cast<int>(OFFSET_OF(Isolate, heap_.roots_)),
            Internals::kIsolateRootsOffset);
+  CHECK_EQ(static_cast<int>(
+               OFFSET_OF(Isolate, heap_.amount_of_external_allocated_memory_)),
+           Internals::kAmountOfExternalAllocatedMemoryOffset);
+  CHECK_EQ(static_cast<int>(OFFSET_OF(
+               Isolate,
+               heap_.amount_of_external_allocated_memory_at_last_global_gc_)),
+           Internals::kAmountOfExternalAllocatedMemoryAtLastGlobalGCOffset);
 
   state_ = INITIALIZED;
   time_millis_at_init_ = OS::TimeCurrentMillis();
@@ -2001,6 +2011,7 @@ bool Isolate::Init(Deserializer* des) {
     NumberToStringStub::InstallDescriptors(this);
     StringAddStub::InstallDescriptors(this);
     RegExpConstructResultStub::InstallDescriptors(this);
+    KeyedLoadGenericElementStub::InstallDescriptors(this);
   }
 
   CallDescriptors::InitializeForIsolate(this);
@@ -2255,15 +2266,16 @@ void Isolate::FireCallCompletedCallback() {
   if (!handle_scope_implementer()->CallDepthIsZero()) return;
   if (run_microtasks) RunMicrotasks();
   // Fire callbacks.  Increase call depth to prevent recursive callbacks.
-  handle_scope_implementer()->IncrementCallDepth();
+  v8::Isolate::SuppressMicrotaskExecutionScope suppress(
+      reinterpret_cast<v8::Isolate*>(this));
   for (int i = 0; i < call_completed_callbacks_.length(); i++) {
     call_completed_callbacks_.at(i)();
   }
-  handle_scope_implementer()->DecrementCallDepth();
 }
 
 
-void Isolate::EnqueueMicrotask(Handle<JSFunction> microtask) {
+void Isolate::EnqueueMicrotask(Handle<Object> microtask) {
+  ASSERT(microtask->IsJSFunction() || microtask->IsCallHandlerInfo());
   Handle<FixedArray> queue(heap()->microtask_queue(), this);
   int num_tasks = pending_microtask_count();
   ASSERT(num_tasks <= queue->length());
@@ -2281,15 +2293,16 @@ void Isolate::EnqueueMicrotask(Handle<JSFunction> microtask) {
 
 
 void Isolate::RunMicrotasks() {
-  // TODO(adamk): This ASSERT triggers in mjsunit tests which
-  // call the %RunMicrotasks runtime function. But it should
-  // never happen outside of tests, so it would be nice to
-  // uncomment it.
+  // %RunMicrotasks may be called in mjsunit tests, which violates
+  // this assertion, hence the check for --allow-natives-syntax.
+  // TODO(adamk): However, this also fails some layout tests.
   //
-  // ASSERT(handle_scope_implementer()->CallDepthIsZero());
+  // ASSERT(FLAG_allow_natives_syntax ||
+  //        handle_scope_implementer()->CallDepthIsZero());
 
   // Increase call depth to prevent recursive callbacks.
-  handle_scope_implementer()->IncrementCallDepth();
+  v8::Isolate::SuppressMicrotaskExecutionScope suppress(
+      reinterpret_cast<v8::Isolate*>(this));
 
   while (pending_microtask_count() > 0) {
     HandleScope scope(this);
@@ -2301,14 +2314,60 @@ void Isolate::RunMicrotasks() {
 
     for (int i = 0; i < num_tasks; i++) {
       HandleScope scope(this);
-      Handle<JSFunction> microtask(JSFunction::cast(queue->get(i)), this);
-      // TODO(adamk): This should ignore/clear exceptions instead of Checking.
-      Execution::Call(this, microtask, factory()->undefined_value(),
-                      0, NULL).Check();
+      Handle<Object> microtask(queue->get(i), this);
+      if (microtask->IsJSFunction()) {
+        Handle<JSFunction> microtask_function =
+            Handle<JSFunction>::cast(microtask);
+        SaveContext save(this);
+        set_context(microtask_function->context()->native_context());
+        Handle<Object> exception;
+        MaybeHandle<Object> result = Execution::TryCall(
+            microtask_function, factory()->undefined_value(),
+            0, NULL, &exception);
+        // If execution is terminating, just bail out.
+        if (result.is_null() &&
+            !exception.is_null() &&
+            *exception == heap()->termination_exception()) {
+          // Clear out any remaining callbacks in the queue.
+          heap()->set_microtask_queue(heap()->empty_fixed_array());
+          set_pending_microtask_count(0);
+          return;
+        }
+      } else {
+        Handle<CallHandlerInfo> callback_info =
+            Handle<CallHandlerInfo>::cast(microtask);
+        v8::MicrotaskCallback callback =
+            v8::ToCData<v8::MicrotaskCallback>(callback_info->callback());
+        void* data = v8::ToCData<void*>(callback_info->data());
+        callback(data);
+      }
     }
   }
+}
 
-  handle_scope_implementer()->DecrementCallDepth();
+
+void Isolate::SetUseCounterCallback(v8::Isolate::UseCounterCallback callback) {
+  ASSERT(!use_counter_callback_);
+  use_counter_callback_ = callback;
+}
+
+
+void Isolate::CountUsage(v8::Isolate::UseCounterFeature feature) {
+  if (use_counter_callback_) {
+    use_counter_callback_(reinterpret_cast<v8::Isolate*>(this), feature);
+  }
+}
+
+
+bool StackLimitCheck::JsHasOverflowed() const {
+  StackGuard* stack_guard = isolate_->stack_guard();
+#ifdef USE_SIMULATOR
+  // The simulator uses a separate JS stack.
+  Address jssp_address = Simulator::current(isolate_)->get_sp();
+  uintptr_t jssp = reinterpret_cast<uintptr_t>(jssp_address);
+  if (jssp < stack_guard->real_jslimit()) return true;
+#endif  // USE_SIMULATOR
+  return reinterpret_cast<uintptr_t>(this) < stack_guard->real_climit();
 }
 
 

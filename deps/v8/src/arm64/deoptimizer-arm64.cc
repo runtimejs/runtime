@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "codegen.h"
-#include "deoptimizer.h"
-#include "full-codegen.h"
-#include "safepoint-table.h"
+#include "src/codegen.h"
+#include "src/deoptimizer.h"
+#include "src/full-codegen.h"
+#include "src/safepoint-table.h"
 
 
 namespace v8 {
@@ -48,7 +48,7 @@ void Deoptimizer::PatchCodeForDeoptimization(Isolate* isolate, Code* code) {
     Address deopt_entry = GetDeoptimizationEntry(isolate, i, LAZY);
 
     PatchingAssembler patcher(call_address, patch_size() / kInstructionSize);
-    patcher.LoadLiteral(ip0, 2 * kInstructionSize);
+    patcher.ldr_pcrel(ip0, (2 * kInstructionSize) >> kLoadLiteralScaleLog2);
     patcher.blr(ip0);
     patcher.dc64(reinterpret_cast<intptr_t>(deopt_entry));
 

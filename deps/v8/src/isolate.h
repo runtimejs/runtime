@@ -5,24 +5,24 @@
 #ifndef V8_ISOLATE_H_
 #define V8_ISOLATE_H_
 
-#include "../include/v8-debug.h"
-#include "allocation.h"
-#include "assert-scope.h"
-#include "atomicops.h"
-#include "builtins.h"
-#include "contexts.h"
-#include "execution.h"
-#include "frames.h"
-#include "date.h"
-#include "global-handles.h"
-#include "handles.h"
-#include "hashmap.h"
-#include "heap.h"
-#include "optimizing-compiler-thread.h"
-#include "regexp-stack.h"
-#include "runtime-profiler.h"
-#include "runtime.h"
-#include "zone.h"
+#include "include/v8-debug.h"
+#include "src/allocation.h"
+#include "src/assert-scope.h"
+#include "src/base/atomicops.h"
+#include "src/builtins.h"
+#include "src/contexts.h"
+#include "src/date.h"
+#include "src/execution.h"
+#include "src/frames.h"
+#include "src/global-handles.h"
+#include "src/handles.h"
+#include "src/hashmap.h"
+#include "src/heap.h"
+#include "src/optimizing-compiler-thread.h"
+#include "src/regexp-stack.h"
+#include "src/runtime.h"
+#include "src/runtime-profiler.h"
+#include "src/zone.h"
 
 namespace v8 {
 namespace internal {
@@ -191,7 +191,7 @@ class ThreadId {
 
   int id_;
 
-  static Atomic32 highest_thread_id_;
+  static base::Atomic32 highest_thread_id_;
 
   friend class Isolate;
 };
@@ -604,7 +604,8 @@ class Isolate {
     thread_local_top_.scheduled_exception_ = heap_.the_hole_value();
   }
 
-  bool IsExternallyCaught();
+  bool HasExternalTryCatch();
+  bool IsFinallyOnTop();
 
   bool is_catchable_by_javascript(Object* exception) {
     return exception != heap()->termination_exception();
@@ -928,7 +929,6 @@ class Isolate {
     return &interp_canonicalize_mapping_;
   }
 
-  Debugger* debugger() {  return debugger_; }
   Debug* debug() { return debug_; }
 
   inline bool DebuggerHasBreakPoints();
@@ -1078,8 +1078,11 @@ class Isolate {
   void RemoveCallCompletedCallback(CallCompletedCallback callback);
   void FireCallCompletedCallback();
 
-  void EnqueueMicrotask(Handle<JSFunction> microtask);
+  void EnqueueMicrotask(Handle<Object> microtask);
   void RunMicrotasks();
+
+  void SetUseCounterCallback(v8::Isolate::UseCounterCallback callback);
+  void CountUsage(v8::Isolate::UseCounterFeature feature);
 
  private:
   Isolate();
@@ -1149,7 +1152,7 @@ class Isolate {
   static ThreadDataTable* thread_data_table_;
 
   // A global counter for all generated Isolates, might overflow.
-  static Atomic32 isolate_counter_;
+  static base::Atomic32 isolate_counter_;
 
   void Deinit();
 
@@ -1180,13 +1183,16 @@ class Isolate {
 
   void FillCache();
 
-  void PropagatePendingExceptionToExternalTryCatch();
+  // Propagate pending exception message to the v8::TryCatch.
+  // If there is no external try-catch or message was successfully propagated,
+  // then return true.
+  bool PropagatePendingExceptionToExternalTryCatch();
 
   // Traverse prototype chain to find out whether the object is derived from
   // the Error object.
   bool IsErrorObject(Handle<Object> obj);
 
-  Atomic32 id_;
+  base::Atomic32 id_;
   EntryStackItem* entry_stack_;
   int stack_trace_nesting_level_;
   StringStream* incomplete_message_;
@@ -1197,7 +1203,7 @@ class Isolate {
   Counters* counters_;
   CodeRange* code_range_;
   RecursiveMutex break_access_;
-  Atomic32 debugger_initialized_;
+  base::Atomic32 debugger_initialized_;
   Logger* logger_;
   StackGuard stack_guard_;
   StatsTable* stats_table_;
@@ -1258,7 +1264,6 @@ class Isolate {
   JSObject::SpillInformation js_spill_information_;
 #endif
 
-  Debugger* debugger_;
   Debug* debug_;
   CpuProfiler* cpu_profiler_;
   HeapProfiler* heap_profiler_;
@@ -1297,6 +1302,8 @@ class Isolate {
 
   // List of callbacks when a Call completes.
   List<CallCompletedCallback> call_completed_callbacks_;
+
+  v8::Isolate::UseCounterCallback use_counter_callback_;
 
   friend class ExecutionAccess;
   friend class HandleScopeImplementer;
@@ -1388,15 +1395,20 @@ class ExecutionAccess BASE_EMBEDDED {
 };
 
 
-// Support for checking for stack-overflows in C++ code.
+// Support for checking for stack-overflows.
 class StackLimitCheck BASE_EMBEDDED {
  public:
   explicit StackLimitCheck(Isolate* isolate) : isolate_(isolate) { }
 
-  bool HasOverflowed() const {
+  // Use this to check for stack-overflows in C++ code.
+  inline bool HasOverflowed() const {
     StackGuard* stack_guard = isolate_->stack_guard();
-    return (reinterpret_cast<uintptr_t>(this) < stack_guard->real_climit());
+    return reinterpret_cast<uintptr_t>(this) < stack_guard->real_climit();
   }
+
+  // Use this to check for stack-overflow when entering runtime from JS code.
+  bool JsHasOverflowed() const;
+
  private:
   Isolate* isolate_;
 };
@@ -1438,12 +1450,12 @@ class CodeTracer V8_FINAL : public Malloced {
     }
 
     if (FLAG_redirect_code_traces_to == NULL) {
-      OS::SNPrintF(filename_,
-                   "code-%d-%d.asm",
-                   OS::GetCurrentProcessId(),
-                   isolate_id);
+      SNPrintF(filename_,
+               "code-%d-%d.asm",
+               OS::GetCurrentProcessId(),
+               isolate_id);
     } else {
-      OS::StrNCpy(filename_, FLAG_redirect_code_traces_to, filename_.length());
+      StrNCpy(filename_, FLAG_redirect_code_traces_to, filename_.length());
     }
 
     WriteChars(filename_.start(), "", 0, false);

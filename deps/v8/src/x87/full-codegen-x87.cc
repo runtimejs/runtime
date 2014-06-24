@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X87
 
-#include "code-stubs.h"
-#include "codegen.h"
-#include "compiler.h"
-#include "debug.h"
-#include "full-codegen.h"
-#include "isolate-inl.h"
-#include "parser.h"
-#include "scopes.h"
-#include "stub-cache.h"
+#include "src/code-stubs.h"
+#include "src/codegen.h"
+#include "src/compiler.h"
+#include "src/debug.h"
+#include "src/full-codegen.h"
+#include "src/isolate-inl.h"
+#include "src/parser.h"
+#include "src/scopes.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -76,27 +76,6 @@ class JumpPatchSite BASE_EMBEDDED {
   bool info_emitted_;
 #endif
 };
-
-
-static void EmitStackCheck(MacroAssembler* masm_,
-                           int pointers = 0,
-                           Register scratch = esp) {
-    Label ok;
-    Isolate* isolate = masm_->isolate();
-    ASSERT(scratch.is(esp) == (pointers == 0));
-    ExternalReference stack_limit;
-    if (pointers != 0) {
-      __ mov(scratch, esp);
-      __ sub(scratch, Immediate(pointers * kPointerSize));
-      stack_limit = ExternalReference::address_of_real_stack_limit(isolate);
-    } else {
-      stack_limit = ExternalReference::address_of_stack_limit(isolate);
-    }
-    __ cmp(scratch, Operand::StaticVariable(stack_limit));
-    __ j(above_equal, &ok, Label::kNear);
-    __ call(isolate->builtins()->StackCheck(), RelocInfo::CODE_TARGET);
-    __ bind(&ok);
-}
 
 
 // Generate code for a JS function.  On entry to the function the receiver
@@ -168,7 +147,15 @@ void FullCodeGenerator::Generate() {
       __ push(Immediate(isolate()->factory()->undefined_value()));
     } else if (locals_count > 1) {
       if (locals_count >= 128) {
-        EmitStackCheck(masm_, locals_count, ecx);
+        Label ok;
+        __ mov(ecx, esp);
+        __ sub(ecx, Immediate(locals_count * kPointerSize));
+        ExternalReference stack_limit =
+            ExternalReference::address_of_real_stack_limit(isolate());
+        __ cmp(ecx, Operand::StaticVariable(stack_limit));
+        __ j(above_equal, &ok, Label::kNear);
+        __ InvokeBuiltin(Builtins::STACK_OVERFLOW, CALL_FUNCTION);
+        __ bind(&ok);
       }
       __ mov(eax, Immediate(isolate()->factory()->undefined_value()));
       const int kMaxPushes = 32;
@@ -198,6 +185,7 @@ void FullCodeGenerator::Generate() {
   int heap_slots = info->scope()->num_heap_slots() - Context::MIN_CONTEXT_SLOTS;
   if (heap_slots > 0) {
     Comment cmnt(masm_, "[ Allocate context");
+    bool need_write_barrier = true;
     // Argument to NewContext is the function, which is still in edi.
     if (FLAG_harmony_scoping && info->scope()->is_global_scope()) {
       __ push(edi);
@@ -206,6 +194,8 @@ void FullCodeGenerator::Generate() {
     } else if (heap_slots <= FastNewContextStub::kMaximumSlots) {
       FastNewContextStub stub(isolate(), heap_slots);
       __ CallStub(&stub);
+      // Result of FastNewContextStub is always in new space.
+      need_write_barrier = false;
     } else {
       __ push(edi);
       __ CallRuntime(Runtime::kHiddenNewFunctionContext, 1);
@@ -229,10 +219,17 @@ void FullCodeGenerator::Generate() {
         int context_offset = Context::SlotOffset(var->index());
         __ mov(Operand(esi, context_offset), eax);
         // Update the write barrier. This clobbers eax and ebx.
-        __ RecordWriteContextSlot(esi,
-                                  context_offset,
-                                  eax,
-                                  ebx);
+        if (need_write_barrier) {
+          __ RecordWriteContextSlot(esi,
+                                    context_offset,
+                                    eax,
+                                    ebx);
+        } else if (FLAG_debug_code) {
+          Label done;
+          __ JumpIfInNewSpace(esi, eax, &done, Label::kNear);
+          __ Abort(kExpectedNewSpaceObject);
+          __ bind(&done);
+        }
       }
     }
   }
@@ -298,7 +295,13 @@ void FullCodeGenerator::Generate() {
 
     { Comment cmnt(masm_, "[ Stack check");
       PrepareForBailoutForId(BailoutId::Declarations(), NO_REGISTERS);
-      EmitStackCheck(masm_);
+      Label ok;
+      ExternalReference stack_limit
+          = ExternalReference::address_of_stack_limit(isolate());
+      __ cmp(esp, Operand::StaticVariable(stack_limit));
+      __ j(above_equal, &ok, Label::kNear);
+      __ call(isolate()->builtins()->StackCheck(), RelocInfo::CODE_TARGET);
+      __ bind(&ok);
     }
 
     { Comment cmnt(masm_, "[ Body");
@@ -1201,8 +1204,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   Iteration loop_statement(this, stmt);
   increment_loop_depth();
 
-  // var iterator = iterable[@@iterator]()
-  VisitForAccumulatorValue(stmt->assign_iterator());
+  // var iterable = subject
+  VisitForAccumulatorValue(stmt->assign_iterable());
 
   // As with for-in, skip the loop if the iterator is null or undefined.
   __ CompareRoot(eax, Heap::kUndefinedValueRootIndex);
@@ -1210,15 +1213,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   __ CompareRoot(eax, Heap::kNullValueRootIndex);
   __ j(equal, loop_statement.break_label());
 
-  // Convert the iterator to a JS object.
-  Label convert, done_convert;
-  __ JumpIfSmi(eax, &convert);
-  __ CmpObjectType(eax, FIRST_SPEC_OBJECT_TYPE, ecx);
-  __ j(above_equal, &done_convert);
-  __ bind(&convert);
-  __ push(eax);
-  __ InvokeBuiltin(Builtins::TO_OBJECT, CALL_FUNCTION);
-  __ bind(&done_convert);
+  // var iterator = iterable[Symbol.iterator]();
+  VisitForEffect(stmt->assign_iterator());
 
   // Loop entry.
   __ bind(loop_statement.continue_label());
@@ -1726,7 +1722,7 @@ void FullCodeGenerator::VisitArrayLiteral(ArrayLiteral* expr) {
     allocation_site_mode = DONT_TRACK_ALLOCATION_SITE;
   }
 
-  if (expr->depth() > 1) {
+  if (expr->depth() > 1 || length > JSObject::kInitialMaxFastElementArray) {
     __ mov(ebx, Operand(ebp, JavaScriptFrameConstants::kFunctionOffset));
     __ push(FieldOperand(ebx, JSFunction::kLiteralsOffset));
     __ push(Immediate(Smi::FromInt(expr->literal_index())));
@@ -2460,7 +2456,7 @@ void FullCodeGenerator::EmitNamedPropertyAssignment(Assignment* expr) {
 
   Property* prop = expr->target()->AsProperty();
   ASSERT(prop != NULL);
-  ASSERT(prop->key()->AsLiteral() != NULL);
+  ASSERT(prop->key()->IsLiteral());
 
   // Record source code position before IC call.
   SetSourcePosition(expr->position());
@@ -3989,6 +3985,16 @@ void FullCodeGenerator::EmitFastAsciiArrayJoin(CallRuntime* expr) {
   __ add(esp, Immediate(3 * kPointerSize));
 
   __ mov(esi, Operand(ebp, StandardFrameConstants::kContextOffset));
+  context()->Plug(eax);
+}
+
+
+void FullCodeGenerator::EmitDebugIsActive(CallRuntime* expr) {
+  ASSERT(expr->arguments()->length() == 0);
+  ExternalReference debug_is_active =
+      ExternalReference::debug_is_active_address(isolate());
+  __ movzx_b(eax, Operand::StaticVariable(debug_is_active));
+  __ SmiTag(eax);
   context()->Plug(eax);
 }
 

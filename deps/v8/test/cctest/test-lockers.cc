@@ -27,19 +27,19 @@
 
 #include <limits.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "api.h"
-#include "isolate.h"
-#include "compilation-cache.h"
-#include "execution.h"
-#include "smart-pointers.h"
-#include "snapshot.h"
-#include "platform.h"
-#include "utils.h"
-#include "cctest.h"
-#include "parser.h"
-#include "unicode-inl.h"
+#include "src/api.h"
+#include "src/compilation-cache.h"
+#include "src/execution.h"
+#include "src/isolate.h"
+#include "src/parser.h"
+#include "src/platform.h"
+#include "src/smart-pointers.h"
+#include "src/snapshot.h"
+#include "src/unicode-inl.h"
+#include "src/utils.h"
+#include "test/cctest/cctest.h"
 
 using ::v8::Context;
 using ::v8::Extension;
@@ -247,6 +247,8 @@ class IsolateNonlockingThread : public JoinableThread {
 TEST(MultithreadedParallelIsolates) {
 #if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 10;
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_32_BIT
+  const int kNThreads = 4;
 #else
   const int kNThreads = 50;
 #endif
@@ -713,6 +715,8 @@ class IsolateGenesisThread : public JoinableThread {
 TEST(ExtensionsRegistration) {
 #if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 10;
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_32_BIT
+  const int kNThreads = 4;
 #else
   const int kNThreads = 40;
 #endif

@@ -5,10 +5,12 @@
 #ifndef V8_LOG_H_
 #define V8_LOG_H_
 
-#include "allocation.h"
-#include "objects.h"
-#include "platform.h"
-#include "platform/elapsed-timer.h"
+#include <string>
+
+#include "src/allocation.h"
+#include "src/objects.h"
+#include "src/platform.h"
+#include "src/platform/elapsed-timer.h"
 
 namespace v8 {
 namespace internal {
@@ -280,10 +282,7 @@ class Logger {
   void HeapSampleStats(const char* space, const char* kind,
                        intptr_t capacity, intptr_t used);
 
-  void SharedLibraryEvent(const char* library_path,
-                          uintptr_t start,
-                          uintptr_t end);
-  void SharedLibraryEvent(const wchar_t* library_path,
+  void SharedLibraryEvent(const std::string& library_path,
                           uintptr_t start,
                           uintptr_t end);
 
@@ -291,6 +290,7 @@ class Logger {
   enum StartEnd { START, END };
 
   void CodeDeoptEvent(Code* code);
+  void CurrentTimeEvent();
 
   void TimerEvent(StartEnd se, const char* name);
 
@@ -318,6 +318,7 @@ class Logger {
     static const char* v8_compile_full_code;
     static const char* v8_execute;
     static const char* v8_external;
+    static const char* v8_ic_miss;
 
    private:
     Isolate* isolate_;

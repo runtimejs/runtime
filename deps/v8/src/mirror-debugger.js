@@ -8,12 +8,11 @@ var next_transient_handle_ = -1;
 
 // Mirror cache.
 var mirror_cache_ = [];
+var mirror_cache_enabled_ = true;
 
 
-/**
- * Clear the mirror handle cache.
- */
-function ClearMirrorCache() {
+function ToggleMirrorCache(value) {
+  mirror_cache_enabled_ = value;
   next_handle_ = 0;
   mirror_cache_ = [];
 }
@@ -44,7 +43,7 @@ function MakeMirror(value, opt_transient) {
   var mirror;
 
   // Look for non transient mirrors in the mirror cache.
-  if (!opt_transient) {
+  if (!opt_transient && mirror_cache_enabled_) {
     for (id in mirror_cache_) {
       mirror = mirror_cache_[id];
       if (mirror.value() === value) {
@@ -88,7 +87,7 @@ function MakeMirror(value, opt_transient) {
     mirror = new ObjectMirror(value, OBJECT_TYPE, opt_transient);
   }
 
-  mirror_cache_[mirror.handle()] = mirror;
+  if (mirror_cache_enabled_) mirror_cache_[mirror.handle()] = mirror;
   return mirror;
 }
 
@@ -101,6 +100,7 @@ function MakeMirror(value, opt_transient) {
  *     undefined if no mirror with the requested handle was found
  */
 function LookupMirror(handle) {
+  if (!mirror_cache_enabled_) throw new Error("Mirror cache is disabled");
   return mirror_cache_[handle];
 }
 
@@ -424,7 +424,7 @@ Mirror.prototype.isScope = function() {
  * Allocate a handle id for this object.
  */
 Mirror.prototype.allocateHandle_ = function() {
-  this.handle_ = next_handle_++;
+  if (mirror_cache_enabled_) this.handle_ = next_handle_++;
 };
 
 

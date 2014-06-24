@@ -139,9 +139,6 @@ class V8_EXPORT Debug {
    */
   typedef void (*EventCallback)(const EventDetails& event_details);
 
-  // TODO(yangguo) Deprecate this.
-  typedef EventCallback EventCallback2;
-
   /**
    * Debug message callback function.
    *
@@ -152,9 +149,6 @@ class V8_EXPORT Debug {
    */
   typedef void (*MessageHandler)(const Message& message);
 
-  // TODO(yangguo) Deprecate this.
-  typedef MessageHandler MessageHandler2;
-
   /**
    * Callback function for the host to ensure debug messages are processed.
    */
@@ -162,12 +156,6 @@ class V8_EXPORT Debug {
 
   static bool SetDebugEventListener(EventCallback that,
                                     Handle<Value> data = Handle<Value>());
-
-  // TODO(yangguo) Deprecate this.
-  static bool SetDebugEventListener2(EventCallback2 that,
-                                     Handle<Value> data = Handle<Value>()) {
-    return SetDebugEventListener(that, data);
-  }
 
   // Schedule a debugger break to happen when JavaScript code is run
   // in the given isolate.
@@ -184,18 +172,8 @@ class V8_EXPORT Debug {
   // stops.
   static void DebugBreakForCommand(Isolate* isolate, ClientData* data);
 
-  // TODO(svenpanne) Remove this when Chrome is updated.
-  static void DebugBreakForCommand(ClientData* data, Isolate* isolate) {
-    DebugBreakForCommand(isolate, data);
-  }
-
   // Message based interface. The message protocol is JSON.
   static void SetMessageHandler(MessageHandler handler);
-
-  // TODO(yangguo) Deprecate this.
-  static void SetMessageHandler2(MessageHandler2 handler) {
-    SetMessageHandler(handler);
-  }
 
   static void SendCommand(Isolate* isolate,
                           const uint16_t* command, int length,
@@ -275,11 +253,6 @@ class V8_EXPORT Debug {
    * unexpectedly used. LiveEdit is enabled by default.
    */
   static void SetLiveEditEnabled(Isolate* isolate, bool enable);
-
-  // TODO(svenpanne) Remove this when Chrome is updated.
-  static void SetLiveEditEnabled(bool enable, Isolate* isolate) {
-    SetLiveEditEnabled(isolate, enable);
-  }
 };
 
 

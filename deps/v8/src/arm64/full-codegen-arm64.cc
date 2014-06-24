@@ -2,22 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM64
 
-#include "code-stubs.h"
-#include "codegen.h"
-#include "compiler.h"
-#include "debug.h"
-#include "full-codegen.h"
-#include "isolate-inl.h"
-#include "parser.h"
-#include "scopes.h"
-#include "stub-cache.h"
+#include "src/code-stubs.h"
+#include "src/codegen.h"
+#include "src/compiler.h"
+#include "src/debug.h"
+#include "src/full-codegen.h"
+#include "src/isolate-inl.h"
+#include "src/parser.h"
+#include "src/scopes.h"
+#include "src/stub-cache.h"
 
-#include "arm64/code-stubs-arm64.h"
-#include "arm64/macro-assembler-arm64.h"
+#include "src/arm64/code-stubs-arm64.h"
+#include "src/arm64/macro-assembler-arm64.h"
 
 namespace v8 {
 namespace internal {
@@ -85,29 +85,6 @@ class JumpPatchSite BASE_EMBEDDED {
   bool info_emitted_;
 #endif
 };
-
-
-static void EmitStackCheck(MacroAssembler* masm_,
-                           int pointers = 0,
-                           Register scratch = jssp) {
-  Isolate* isolate = masm_->isolate();
-  Label ok;
-  ASSERT(jssp.Is(__ StackPointer()));
-  ASSERT(scratch.Is(jssp) == (pointers == 0));
-  Heap::RootListIndex index;
-  if (pointers != 0) {
-    __ Sub(scratch, jssp, pointers * kPointerSize);
-    index = Heap::kRealStackLimitRootIndex;
-  } else {
-    index = Heap::kStackLimitRootIndex;
-  }
-  __ CompareRoot(scratch, index);
-  __ B(hs, &ok);
-  PredictableCodeSizeScope predictable(masm_,
-                                       Assembler::kCallSizeWithRelocation);
-  __ Call(isolate->builtins()->StackCheck(), RelocInfo::CODE_TARGET);
-  __ Bind(&ok);
-}
 
 
 // Generate code for a JS function. On entry to the function the receiver
@@ -181,7 +158,13 @@ void FullCodeGenerator::Generate() {
 
     if (locals_count > 0) {
       if (locals_count >= 128) {
-        EmitStackCheck(masm_, locals_count, x10);
+        Label ok;
+        ASSERT(jssp.Is(__ StackPointer()));
+        __ Sub(x10, jssp, locals_count * kPointerSize);
+        __ CompareRoot(x10, Heap::kRealStackLimitRootIndex);
+        __ B(hs, &ok);
+        __ InvokeBuiltin(Builtins::STACK_OVERFLOW, CALL_FUNCTION);
+        __ Bind(&ok);
       }
       __ LoadRoot(x10, Heap::kUndefinedValueRootIndex);
       if (FLAG_optimize_for_size) {
@@ -211,6 +194,7 @@ void FullCodeGenerator::Generate() {
   if (heap_slots > 0) {
     // Argument to NewContext is the function, which is still in x1.
     Comment cmnt(masm_, "[ Allocate context");
+    bool need_write_barrier = true;
     if (FLAG_harmony_scoping && info->scope()->is_global_scope()) {
       __ Mov(x10, Operand(info->scope()->GetScopeInfo()));
       __ Push(x1, x10);
@@ -218,6 +202,8 @@ void FullCodeGenerator::Generate() {
     } else if (heap_slots <= FastNewContextStub::kMaximumSlots) {
       FastNewContextStub stub(isolate(), heap_slots);
       __ CallStub(&stub);
+      // Result of FastNewContextStub is always in new space.
+      need_write_barrier = false;
     } else {
       __ Push(x1);
       __ CallRuntime(Runtime::kHiddenNewFunctionContext, 1);
@@ -241,8 +227,15 @@ void FullCodeGenerator::Generate() {
         __ Str(x10, target);
 
         // Update the write barrier.
-        __ RecordWriteContextSlot(
-            cp, target.offset(), x10, x11, kLRHasBeenSaved, kDontSaveFPRegs);
+        if (need_write_barrier) {
+          __ RecordWriteContextSlot(
+              cp, target.offset(), x10, x11, kLRHasBeenSaved, kDontSaveFPRegs);
+        } else if (FLAG_debug_code) {
+          Label done;
+          __ JumpIfInNewSpace(cp, &done);
+          __ Abort(kExpectedNewSpaceObject);
+          __ bind(&done);
+        }
       }
     }
   }
@@ -309,7 +302,14 @@ void FullCodeGenerator::Generate() {
 
   { Comment cmnt(masm_, "[ Stack check");
     PrepareForBailoutForId(BailoutId::Declarations(), NO_REGISTERS);
-    EmitStackCheck(masm_);
+    Label ok;
+    ASSERT(jssp.Is(__ StackPointer()));
+    __ CompareRoot(jssp, Heap::kStackLimitRootIndex);
+    __ B(hs, &ok);
+    PredictableCodeSizeScope predictable(masm_,
+                                         Assembler::kCallSizeWithRelocation);
+    __ Call(isolate()->builtins()->StackCheck(), RelocInfo::CODE_TARGET);
+    __ Bind(&ok);
   }
 
   { Comment cmnt(masm_, "[ Body");
@@ -449,7 +449,7 @@ void FullCodeGenerator::EmitReturnSequence() {
       // TODO(all): This implementation is overkill as it supports 2**31+1
       // arguments, consider how to improve it without creating a security
       // hole.
-      __ LoadLiteral(ip0, 3 * kInstructionSize);
+      __ ldr_pcrel(ip0, (3 * kInstructionSize) >> kLoadLiteralScaleLog2);
       __ add(current_sp, current_sp, ip0);
       __ ret();
       __ dc64(kXRegSize * (info_->scope()->num_parameters() + 1));
@@ -701,7 +701,7 @@ void FullCodeGenerator::Split(Condition cond,
     __ B(cond, if_true);
   } else if (if_true == fall_through) {
     ASSERT(if_false != fall_through);
-    __ B(InvertCondition(cond), if_false);
+    __ B(NegateCondition(cond), if_false);
   } else {
     __ B(cond, if_true);
     __ B(if_false);
@@ -1165,11 +1165,8 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
          FieldMemOperand(x2, DescriptorArray::kEnumCacheBridgeCacheOffset));
 
   // Set up the four remaining stack slots.
-  __ Push(x0);  // Map.
-  __ Mov(x0, Smi::FromInt(0));
-  // Push enumeration cache, enumeration cache length (as smi) and zero.
-  __ SmiTag(x1);
-  __ Push(x2, x1, x0);
+  __ Push(x0, x2);              // Map, enumeration cache.
+  __ SmiTagAndPush(x1, xzr);    // Enum cache length, zero (both as smis).
   __ B(&loop);
 
   __ Bind(&no_descriptors);
@@ -1273,8 +1270,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   Iteration loop_statement(this, stmt);
   increment_loop_depth();
 
-  // var iterator = iterable[@@iterator]()
-  VisitForAccumulatorValue(stmt->assign_iterator());
+  // var iterable = subject
+  VisitForAccumulatorValue(stmt->assign_iterable());
 
   // As with for-in, skip the loop if the iterator is null or undefined.
   Register iterator = x0;
@@ -1283,16 +1280,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   __ JumpIfRoot(iterator, Heap::kNullValueRootIndex,
                 loop_statement.break_label());
 
-  // Convert the iterator to a JS object.
-  Label convert, done_convert;
-  __ JumpIfSmi(iterator, &convert);
-  __ CompareObjectType(iterator, x1, x1, FIRST_SPEC_OBJECT_TYPE);
-  __ B(ge, &done_convert);
-  __ Bind(&convert);
-  __ Push(iterator);
-  __ InvokeBuiltin(Builtins::TO_OBJECT, CALL_FUNCTION);
-  __ Bind(&done_convert);
-  __ Push(iterator);
+  // var iterator = iterable[Symbol.iterator]();
+  VisitForEffect(stmt->assign_iterator());
 
   // Loop entry.
   __ Bind(loop_statement.continue_label());
@@ -1795,7 +1784,7 @@ void FullCodeGenerator::VisitArrayLiteral(ArrayLiteral* expr) {
   __ Ldr(x3, FieldMemOperand(x3, JSFunction::kLiteralsOffset));
   __ Mov(x2, Smi::FromInt(expr->literal_index()));
   __ Mov(x1, Operand(constant_elements));
-  if (expr->depth() > 1) {
+  if (expr->depth() > 1 || length > JSObject::kInitialMaxFastElementArray) {
     __ Mov(x0, Smi::FromInt(flags));
     __ Push(x3, x2, x1, x0);
     __ CallRuntime(Runtime::kHiddenCreateArrayLiteral, 4);
@@ -2234,7 +2223,7 @@ void FullCodeGenerator::EmitNamedPropertyAssignment(Assignment* expr) {
   // Assignment to a property, using a named store IC.
   Property* prop = expr->target()->AsProperty();
   ASSERT(prop != NULL);
-  ASSERT(prop->key()->AsLiteral() != NULL);
+  ASSERT(prop->key()->IsLiteral());
 
   // Record source code position before IC call.
   SetSourcePosition(expr->position());
@@ -3728,6 +3717,17 @@ void FullCodeGenerator::EmitFastAsciiArrayJoin(CallRuntime* expr) {
   __ LoadRoot(result, Heap::kUndefinedValueRootIndex);
   __ Bind(&done);
   context()->Plug(result);
+}
+
+
+void FullCodeGenerator::EmitDebugIsActive(CallRuntime* expr) {
+  ASSERT(expr->arguments()->length() == 0);
+  ExternalReference debug_is_active =
+      ExternalReference::debug_is_active_address(isolate());
+  __ Mov(x10, debug_is_active);
+  __ Ldrb(x0, MemOperand(x10));
+  __ SmiTag(x0);
+  context()->Plug(x0);
 }
 
 

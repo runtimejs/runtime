@@ -9,27 +9,26 @@
 # error "V8 does not support the SPARC CPU architecture."
 #endif
 
-#include <sys/stack.h>  // for stack alignment
-#include <unistd.h>  // getpagesize(), usleep()
-#include <sys/mman.h>  // mmap()
-#include <ucontext.h>  // walkstack(), getcontext()
-#include <dlfcn.h>     // dladdr
-#include <pthread.h>
-#include <semaphore.h>
-#include <time.h>
-#include <sys/time.h>  // gettimeofday(), timeradd()
+#include <dlfcn.h>  // dladdr
 #include <errno.h>
 #include <ieeefp.h>  // finite()
+#include <pthread.h>
+#include <semaphore.h>
 #include <signal.h>  // sigemptyset(), etc
+#include <sys/mman.h>  // mmap()
 #include <sys/regset.h>
+#include <sys/stack.h>  // for stack alignment
+#include <sys/time.h>  // gettimeofday(), timeradd()
+#include <time.h>
+#include <ucontext.h>  // walkstack(), getcontext()
+#include <unistd.h>  // getpagesize(), usleep()
 
 
 #undef MAP_TYPE
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "platform.h"
-#include "v8threads.h"
+#include "src/platform.h"
 
 
 // It seems there is a bug in some Solaris distributions (experienced in
@@ -78,10 +77,7 @@ void* OS::Allocate(const size_t requested,
   int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
   void* mbase = mmap(NULL, msize, prot, MAP_PRIVATE | MAP_ANON, -1, 0);
 
-  if (mbase == MAP_FAILED) {
-    LOG(Isolate::Current(), StringEvent("OS::Allocate", "mmap failed"));
-    return NULL;
-  }
+  if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
@@ -135,49 +131,12 @@ PosixMemoryMappedFile::~PosixMemoryMappedFile() {
 }
 
 
-void OS::LogSharedLibraryAddresses(Isolate* isolate) {
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  return std::vector<SharedLibraryAddress>();
 }
 
 
 void OS::SignalCodeMovingGC() {
-}
-
-
-struct StackWalker {
-  Vector<OS::StackFrame>& frames;
-  int index;
-};
-
-
-static int StackWalkCallback(uintptr_t pc, int signo, void* data) {
-  struct StackWalker* walker = static_cast<struct StackWalker*>(data);
-  Dl_info info;
-
-  int i = walker->index;
-
-  walker->frames[i].address = reinterpret_cast<void*>(pc);
-
-  // Make sure line termination is in place.
-  walker->frames[i].text[OS::kStackWalkMaxTextLen - 1] = '\0';
-
-  Vector<char> text = MutableCStrVector(walker->frames[i].text,
-                                        OS::kStackWalkMaxTextLen);
-
-  if (dladdr(reinterpret_cast<void*>(pc), &info) == 0) {
-    OS::SNPrintF(text, "[0x%p]", pc);
-  } else if ((info.dli_fname != NULL && info.dli_sname != NULL)) {
-    // We have symbol info.
-    OS::SNPrintF(text, "%s'%s+0x%x", info.dli_fname, info.dli_sname, pc);
-  } else {
-    // No local symbol info.
-    OS::SNPrintF(text,
-                 "%s'0x%p [0x%p]",
-                 info.dli_fname,
-                 pc - reinterpret_cast<uintptr_t>(info.dli_fbase),
-                 pc);
-  }
-  walker->index++;
-  return 0;
 }
 
 

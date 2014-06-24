@@ -5,8 +5,8 @@
 #ifndef V8_LIST_INL_H_
 #define V8_LIST_INL_H_
 
-#include "list.h"
-#include "platform.h"
+#include "src/list.h"
+#include "src/platform.h"
 
 namespace v8 {
 namespace internal {
@@ -65,7 +65,7 @@ template<typename T, class P>
 void List<T, P>::Resize(int new_capacity, P alloc) {
   ASSERT_LE(length_, new_capacity);
   T* new_data = NewData(new_capacity, alloc);
-  OS::MemCopy(new_data, data_, length_ * sizeof(T));
+  MemCopy(new_data, data_, length_ * sizeof(T));
   List<T, P>::DeleteData(data_);
   data_ = new_data;
   capacity_ = new_capacity;
@@ -219,7 +219,7 @@ int SortedListBSearch(const List<T>& list, P cmp) {
   int low = 0;
   int high = list.length() - 1;
   while (low <= high) {
-    int mid = (low + high) / 2;
+    int mid = low + (high - low) / 2;
     T mid_elem = list[mid];
 
     if (cmp(&mid_elem) > 0) {

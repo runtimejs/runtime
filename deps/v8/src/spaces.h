@@ -5,12 +5,13 @@
 #ifndef V8_SPACES_H_
 #define V8_SPACES_H_
 
-#include "allocation.h"
-#include "hashmap.h"
-#include "list.h"
-#include "log.h"
-#include "platform/mutex.h"
-#include "utils.h"
+#include "src/allocation.h"
+#include "src/base/atomicops.h"
+#include "src/hashmap.h"
+#include "src/list.h"
+#include "src/log.h"
+#include "src/platform/mutex.h"
+#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -282,6 +283,10 @@ class MemoryChunk {
   static MemoryChunk* FromAddress(Address a) {
     return reinterpret_cast<MemoryChunk*>(OffsetFrom(a) & ~kAlignmentMask);
   }
+  static const MemoryChunk* FromAddress(const byte* a) {
+    return reinterpret_cast<const MemoryChunk*>(
+        OffsetFrom(a) & ~kAlignmentMask);
+  }
 
   // Only works for addresses in pointer spaces, not data or code spaces.
   static inline MemoryChunk* FromAnyPointerAddress(Heap* heap, Address addr);
@@ -291,19 +296,19 @@ class MemoryChunk {
   bool is_valid() { return address() != NULL; }
 
   MemoryChunk* next_chunk() const {
-    return reinterpret_cast<MemoryChunk*>(Acquire_Load(&next_chunk_));
+    return reinterpret_cast<MemoryChunk*>(base::Acquire_Load(&next_chunk_));
   }
 
   MemoryChunk* prev_chunk() const {
-    return reinterpret_cast<MemoryChunk*>(Acquire_Load(&prev_chunk_));
+    return reinterpret_cast<MemoryChunk*>(base::Acquire_Load(&prev_chunk_));
   }
 
   void set_next_chunk(MemoryChunk* next) {
-    Release_Store(&next_chunk_, reinterpret_cast<AtomicWord>(next));
+    base::Release_Store(&next_chunk_, reinterpret_cast<base::AtomicWord>(next));
   }
 
   void set_prev_chunk(MemoryChunk* prev) {
-    Release_Store(&prev_chunk_, reinterpret_cast<AtomicWord>(prev));
+    base::Release_Store(&prev_chunk_, reinterpret_cast<base::AtomicWord>(prev));
   }
 
   Space* owner() const {
@@ -461,18 +466,17 @@ class MemoryChunk {
 
   ParallelSweepingState parallel_sweeping() {
     return static_cast<ParallelSweepingState>(
-        Acquire_Load(&parallel_sweeping_));
+        base::Acquire_Load(&parallel_sweeping_));
   }
 
   void set_parallel_sweeping(ParallelSweepingState state) {
-    Release_Store(&parallel_sweeping_, state);
+    base::Release_Store(&parallel_sweeping_, state);
   }
 
   bool TryParallelSweeping() {
-    return Acquire_CompareAndSwap(&parallel_sweeping_,
-                                  PARALLEL_SWEEPING_PENDING,
-                                  PARALLEL_SWEEPING_IN_PROGRESS) ==
-                                      PARALLEL_SWEEPING_PENDING;
+    return base::Acquire_CompareAndSwap(
+               &parallel_sweeping_, PARALLEL_SWEEPING_PENDING,
+               PARALLEL_SWEEPING_IN_PROGRESS) == PARALLEL_SWEEPING_PENDING;
   }
 
   // Manage live byte count (count of bytes known to be live,
@@ -627,7 +631,7 @@ class MemoryChunk {
   void InsertAfter(MemoryChunk* other);
   void Unlink();
 
-  inline Heap* heap() { return heap_; }
+  inline Heap* heap() const { return heap_; }
 
   static const int kFlagsOffset = kPointerSize;
 
@@ -707,7 +711,7 @@ class MemoryChunk {
   // count highest number of bytes ever allocated on the page.
   int high_water_mark_;
 
-  AtomicWord parallel_sweeping_;
+  base::AtomicWord parallel_sweeping_;
 
   // PagedSpace free-list statistics.
   intptr_t available_in_small_free_list_;
@@ -726,15 +730,15 @@ class MemoryChunk {
 
  private:
   // next_chunk_ holds a pointer of type MemoryChunk
-  AtomicWord next_chunk_;
+  base::AtomicWord next_chunk_;
   // prev_chunk_ holds a pointer of type MemoryChunk
-  AtomicWord prev_chunk_;
+  base::AtomicWord prev_chunk_;
 
   friend class MemoryAllocator;
 };
 
 
-STATIC_CHECK(sizeof(MemoryChunk) <= MemoryChunk::kHeaderSize);
+STATIC_ASSERT(sizeof(MemoryChunk) <= MemoryChunk::kHeaderSize);
 
 
 // -----------------------------------------------------------------------------
@@ -841,7 +845,7 @@ class Page : public MemoryChunk {
 };
 
 
-STATIC_CHECK(sizeof(Page) <= MemoryChunk::kHeaderSize);
+STATIC_ASSERT(sizeof(Page) <= MemoryChunk::kHeaderSize);
 
 
 class LargePage : public MemoryChunk {
@@ -863,7 +867,7 @@ class LargePage : public MemoryChunk {
   friend class MemoryAllocator;
 };
 
-STATIC_CHECK(sizeof(LargePage) <= MemoryChunk::kHeaderSize);
+STATIC_ASSERT(sizeof(LargePage) <= MemoryChunk::kHeaderSize);
 
 // ----------------------------------------------------------------------------
 // Space is the abstract superclass for all allocation spaces.
@@ -929,13 +933,13 @@ class CodeRange {
   // manage it.
   void TearDown();
 
-  bool exists() { return this != NULL && code_range_ != NULL; }
+  bool valid() { return code_range_ != NULL; }
   Address start() {
-    if (this == NULL || code_range_ == NULL) return NULL;
+    ASSERT(valid());
     return static_cast<Address>(code_range_->address());
   }
   bool contains(Address address) {
-    if (this == NULL || code_range_ == NULL) return false;
+    if (!valid()) return false;
     Address start = static_cast<Address>(code_range_->address());
     return start <= address && address < start + code_range_->size();
   }
@@ -985,8 +989,8 @@ class CodeRange {
   // Finds a block on the allocation list that contains at least the
   // requested amount of memory.  If none is found, sorts and merges
   // the existing free memory blocks, and searches again.
-  // If none can be found, terminates V8 with FatalProcessOutOfMemory.
-  void GetNextAllocationBlock(size_t requested);
+  // If none can be found, returns false.
+  bool GetNextAllocationBlock(size_t requested);
   // Compares the start addresses of two free blocks.
   static int CompareFreeBlockAddress(const FreeBlock* left,
                                      const FreeBlock* right);
@@ -1532,11 +1536,11 @@ class FreeListCategory {
   void RepairFreeList(Heap* heap);
 
   FreeListNode* top() const {
-    return reinterpret_cast<FreeListNode*>(NoBarrier_Load(&top_));
+    return reinterpret_cast<FreeListNode*>(base::NoBarrier_Load(&top_));
   }
 
   void set_top(FreeListNode* top) {
-    NoBarrier_Store(&top_, reinterpret_cast<AtomicWord>(top));
+    base::NoBarrier_Store(&top_, reinterpret_cast<base::AtomicWord>(top));
   }
 
   FreeListNode** GetEndAddress() { return &end_; }
@@ -1560,7 +1564,7 @@ class FreeListCategory {
 
  private:
   // top_ points to the top FreeListNode* in the free list category.
-  AtomicWord top_;
+  base::AtomicWord top_;
   FreeListNode* end_;
   Mutex mutex_;
 
@@ -2497,6 +2501,10 @@ class NewSpace : public Space {
   int MaximumCapacity() {
     ASSERT(to_space_.MaximumCapacity() == from_space_.MaximumCapacity());
     return to_space_.MaximumCapacity();
+  }
+
+  bool IsAtMaximumCapacity() {
+    return Capacity() == MaximumCapacity();
   }
 
   // Returns the initial capacity of a semispace.

@@ -5,8 +5,8 @@
 #ifndef V8_X87_CODE_STUBS_X87_H_
 #define V8_X87_CODE_STUBS_X87_H_
 
-#include "macro-assembler.h"
-#include "ic-inl.h"
+#include "src/ic-inl.h"
+#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -38,12 +38,12 @@ class StringHelper : public AllStatic {
   // Generate code for copying characters using the rep movs instruction.
   // Copies ecx characters from esi to edi. Copying of overlapping regions is
   // not supported.
-  static void GenerateCopyCharactersREP(MacroAssembler* masm,
-                                        Register dest,     // Must be edi.
-                                        Register src,      // Must be esi.
-                                        Register count,    // Must be ecx.
-                                        Register scratch,  // Neither of above.
-                                        bool ascii);
+  static void GenerateCopyCharacters(MacroAssembler* masm,
+                                     Register dest,
+                                     Register src,
+                                     Register count,
+                                     Register scratch,
+                                     String::Encoding encoding);
 
   // Generate string hash.
   static void GenerateHashInit(MacroAssembler* masm,

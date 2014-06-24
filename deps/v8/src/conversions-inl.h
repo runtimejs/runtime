@@ -5,20 +5,20 @@
 #ifndef V8_CONVERSIONS_INL_H_
 #define V8_CONVERSIONS_INL_H_
 
-#include <limits.h>        // Required for INT_MAX etc.
 #include <float.h>         // Required for DBL_MAX and on Win32 for finite()
+#include <limits.h>        // Required for INT_MAX etc.
 #include <stdarg.h>
 #include <cmath>
-#include "globals.h"       // Required for V8_INFINITY
+#include "src/globals.h"       // Required for V8_INFINITY
 
 // ----------------------------------------------------------------------------
 // Extra POSIX/ANSI functions for Win32/MSVC.
 
-#include "conversions.h"
-#include "double.h"
-#include "platform.h"
-#include "scanner.h"
-#include "strtod.h"
+#include "src/conversions.h"
+#include "src/double.h"
+#include "src/platform.h"
+#include "src/scanner.h"
+#include "src/strtod.h"
 
 namespace v8 {
 namespace internal {
@@ -58,7 +58,7 @@ inline unsigned int FastD2UI(double x) {
     Address mantissa_ptr = reinterpret_cast<Address>(&x) + kIntSize;
 #endif
     // Copy least significant 32 bits of mantissa.
-    OS::MemCopy(&result, mantissa_ptr, sizeof(result));
+    memcpy(&result, mantissa_ptr, sizeof(result));
     return negative ? ~result + 1 : result;
   }
   // Large number (outside uint32 range), Infinity or NaN.

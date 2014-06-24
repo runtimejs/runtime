@@ -4,16 +4,16 @@
 
 #include <limits.h>  // For LONG_MIN, LONG_MAX.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM
 
-#include "bootstrapper.h"
-#include "codegen.h"
-#include "cpu-profiler.h"
-#include "debug.h"
-#include "isolate-inl.h"
-#include "runtime.h"
+#include "src/bootstrapper.h"
+#include "src/codegen.h"
+#include "src/cpu-profiler.h"
+#include "src/debug.h"
+#include "src/isolate-inl.h"
+#include "src/runtime.h"
 
 namespace v8 {
 namespace internal {
@@ -254,6 +254,19 @@ void MacroAssembler::Move(DwVfpRegister dst, DwVfpRegister src) {
 }
 
 
+void MacroAssembler::Mls(Register dst, Register src1, Register src2,
+                         Register srcA, Condition cond) {
+  if (CpuFeatures::IsSupported(MLS)) {
+    CpuFeatureScope scope(this, MLS);
+    mls(dst, src1, src2, srcA, cond);
+  } else {
+    ASSERT(!dst.is(srcA));
+    mul(ip, src1, src2, LeaveCC, cond);
+    sub(dst, srcA, ip, LeaveCC, cond);
+  }
+}
+
+
 void MacroAssembler::And(Register dst, Register src1, const Operand& src2,
                          Condition cond) {
   if (!src2.is_reg() &&
@@ -401,6 +414,11 @@ void MacroAssembler::Store(Register src,
   } else if (r.IsInteger16() || r.IsUInteger16()) {
     strh(src, dst);
   } else {
+    if (r.IsHeapObject()) {
+      AssertNotSmi(src);
+    } else if (r.IsSmi()) {
+      AssertSmi(src);
+    }
     str(src, dst);
   }
 }
@@ -448,7 +466,8 @@ void MacroAssembler::RecordWriteField(
     LinkRegisterStatus lr_status,
     SaveFPRegsMode save_fp,
     RememberedSetAction remembered_set_action,
-    SmiCheck smi_check) {
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   // First, check if a write barrier is even needed. The tests below
   // catch stores of Smis.
   Label done;
@@ -477,7 +496,8 @@ void MacroAssembler::RecordWriteField(
               lr_status,
               save_fp,
               remembered_set_action,
-              OMIT_SMI_CHECK);
+              OMIT_SMI_CHECK,
+              pointers_to_here_check_for_value);
 
   bind(&done);
 
@@ -490,21 +510,98 @@ void MacroAssembler::RecordWriteField(
 }
 
 
+// Will clobber 4 registers: object, map, dst, ip.  The
+// register 'object' contains a heap object pointer.
+void MacroAssembler::RecordWriteForMap(Register object,
+                                       Register map,
+                                       Register dst,
+                                       LinkRegisterStatus lr_status,
+                                       SaveFPRegsMode fp_mode) {
+  if (emit_debug_code()) {
+    ldr(dst, FieldMemOperand(map, HeapObject::kMapOffset));
+    cmp(dst, Operand(isolate()->factory()->meta_map()));
+    Check(eq, kWrongAddressOrValuePassedToRecordWrite);
+  }
+
+  if (!FLAG_incremental_marking) {
+    return;
+  }
+
+  // Count number of write barriers in generated code.
+  isolate()->counters()->write_barriers_static()->Increment();
+  // TODO(mstarzinger): Dynamic counter missing.
+
+  if (emit_debug_code()) {
+    ldr(ip, FieldMemOperand(object, HeapObject::kMapOffset));
+    cmp(ip, map);
+    Check(eq, kWrongAddressOrValuePassedToRecordWrite);
+  }
+
+  Label done;
+
+  // A single check of the map's pages interesting flag suffices, since it is
+  // only set during incremental collection, and then it's also guaranteed that
+  // the from object's page's interesting flag is also set.  This optimization
+  // relies on the fact that maps can never be in new space.
+  CheckPageFlag(map,
+                map,  // Used as scratch.
+                MemoryChunk::kPointersToHereAreInterestingMask,
+                eq,
+                &done);
+
+  add(dst, object, Operand(HeapObject::kMapOffset - kHeapObjectTag));
+  if (emit_debug_code()) {
+    Label ok;
+    tst(dst, Operand((1 << kPointerSizeLog2) - 1));
+    b(eq, &ok);
+    stop("Unaligned cell in write barrier");
+    bind(&ok);
+  }
+
+  // Record the actual write.
+  if (lr_status == kLRHasNotBeenSaved) {
+    push(lr);
+  }
+  RecordWriteStub stub(isolate(), object, map, dst, OMIT_REMEMBERED_SET,
+                       fp_mode);
+  CallStub(&stub);
+  if (lr_status == kLRHasNotBeenSaved) {
+    pop(lr);
+  }
+
+  bind(&done);
+
+  // Clobber clobbered registers when running with the debug-code flag
+  // turned on to provoke errors.
+  if (emit_debug_code()) {
+    mov(dst, Operand(BitCast<int32_t>(kZapValue + 12)));
+    mov(map, Operand(BitCast<int32_t>(kZapValue + 16)));
+  }
+}
+
+
 // Will clobber 4 registers: object, address, scratch, ip.  The
 // register 'object' contains a heap object pointer.  The heap object
 // tag is shifted away.
-void MacroAssembler::RecordWrite(Register object,
-                                 Register address,
-                                 Register value,
-                                 LinkRegisterStatus lr_status,
-                                 SaveFPRegsMode fp_mode,
-                                 RememberedSetAction remembered_set_action,
-                                 SmiCheck smi_check) {
+void MacroAssembler::RecordWrite(
+    Register object,
+    Register address,
+    Register value,
+    LinkRegisterStatus lr_status,
+    SaveFPRegsMode fp_mode,
+    RememberedSetAction remembered_set_action,
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   ASSERT(!object.is(value));
   if (emit_debug_code()) {
     ldr(ip, MemOperand(address));
     cmp(ip, value);
     Check(eq, kWrongAddressOrValuePassedToRecordWrite);
+  }
+
+  if (remembered_set_action == OMIT_REMEMBERED_SET &&
+      !FLAG_incremental_marking) {
+    return;
   }
 
   // Count number of write barriers in generated code.
@@ -519,11 +616,13 @@ void MacroAssembler::RecordWrite(Register object,
     JumpIfSmi(value, &done);
   }
 
-  CheckPageFlag(value,
-                value,  // Used as scratch.
-                MemoryChunk::kPointersToHereAreInterestingMask,
-                eq,
-                &done);
+  if (pointers_to_here_check_for_value != kPointersToHereAreAlwaysInteresting) {
+    CheckPageFlag(value,
+                  value,  // Used as scratch.
+                  MemoryChunk::kPointersToHereAreInterestingMask,
+                  eq,
+                  &done);
+  }
   CheckPageFlag(object,
                 value,  // Used as scratch.
                 MemoryChunk::kPointersFromHereAreInterestingMask,
@@ -1980,34 +2079,12 @@ void MacroAssembler::AllocateAsciiConsString(Register result,
                                              Register scratch1,
                                              Register scratch2,
                                              Label* gc_required) {
-  Label allocate_new_space, install_map;
-  AllocationFlags flags = TAG_OBJECT;
-
-  ExternalReference high_promotion_mode = ExternalReference::
-      new_space_high_promotion_mode_active_address(isolate());
-  mov(scratch1, Operand(high_promotion_mode));
-  ldr(scratch1, MemOperand(scratch1, 0));
-  cmp(scratch1, Operand::Zero());
-  b(eq, &allocate_new_space);
-
   Allocate(ConsString::kSize,
            result,
            scratch1,
            scratch2,
            gc_required,
-           static_cast<AllocationFlags>(flags | PRETENURE_OLD_POINTER_SPACE));
-
-  jmp(&install_map);
-
-  bind(&allocate_new_space);
-  Allocate(ConsString::kSize,
-           result,
-           scratch1,
-           scratch2,
-           gc_required,
-           flags);
-
-  bind(&install_map);
+           TAG_OBJECT);
 
   InitializeNewString(result,
                       length,
@@ -2456,10 +2533,7 @@ void MacroAssembler::IndexFromHash(Register hash, Register index) {
   // conflict.
   ASSERT(TenToThe(String::kMaxCachedArrayIndexLength) <
          (1 << String::kArrayIndexValueBits));
-  // We want the smi-tagged index in key.  kArrayIndexValueMask has zeros in
-  // the low kHashShift bits.
-  Ubfx(hash, hash, String::kHashShift, String::kArrayIndexValueBits);
-  SmiTag(index, hash);
+  DecodeFieldToSmi<String::ArrayIndexValueBits>(index, hash);
 }
 
 
@@ -3556,15 +3630,9 @@ void MacroAssembler::GetRelocatedValueLocation(Register ldr_location,
   ldr(result, MemOperand(ldr_location));
   if (emit_debug_code()) {
     // Check that the instruction is a ldr reg, [<pc or pp> + offset] .
-    if (FLAG_enable_ool_constant_pool) {
-      and_(result, result, Operand(kLdrPpPattern));
-      cmp(result, Operand(kLdrPpPattern));
-      Check(eq, kTheInstructionToPatchShouldBeALoadFromPp);
-    } else {
-      and_(result, result, Operand(kLdrPCPattern));
-      cmp(result, Operand(kLdrPCPattern));
-      Check(eq, kTheInstructionToPatchShouldBeALoadFromPc);
-    }
+    and_(result, result, Operand(GetConsantPoolLoadPattern()));
+    cmp(result, Operand(GetConsantPoolLoadPattern()));
+    Check(eq, kTheInstructionToPatchShouldBeALoadFromConstantPool);
     // Result was clobbered. Restore it.
     ldr(result, MemOperand(ldr_location));
   }
@@ -3795,52 +3863,6 @@ void MacroAssembler::ClampDoubleToUint8(Register result_reg,
 }
 
 
-void MacroAssembler::Throw(BailoutReason reason) {
-  Label throw_start;
-  bind(&throw_start);
-#ifdef DEBUG
-  const char* msg = GetBailoutReason(reason);
-  if (msg != NULL) {
-    RecordComment("Throw message: ");
-    RecordComment(msg);
-  }
-#endif
-
-  mov(r0, Operand(Smi::FromInt(reason)));
-  push(r0);
-  // Disable stub call restrictions to always allow calls to throw.
-  if (!has_frame_) {
-    // We don't actually want to generate a pile of code for this, so just
-    // claim there is a stack frame, without generating one.
-    FrameScope scope(this, StackFrame::NONE);
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  } else {
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  }
-  // will not return here
-  if (is_const_pool_blocked()) {
-    // If the calling code cares throw the exact number of
-    // instructions generated, we insert padding here to keep the size
-    // of the ThrowMessage macro constant.
-    static const int kExpectedThrowMessageInstructions = 10;
-    int throw_instructions = InstructionsGeneratedSince(&throw_start);
-    ASSERT(throw_instructions <= kExpectedThrowMessageInstructions);
-    while (throw_instructions++ < kExpectedThrowMessageInstructions) {
-      nop();
-    }
-  }
-}
-
-
-void MacroAssembler::ThrowIf(Condition cc, BailoutReason reason) {
-  Label L;
-  b(NegateCondition(cc), &L);
-  Throw(reason);
-  // will not return here
-  bind(&L);
-}
-
-
 void MacroAssembler::LoadInstanceDescriptors(Register map,
                                              Register descriptors) {
   ldr(descriptors, FieldMemOperand(map, Map::kDescriptorsOffset));
@@ -3968,7 +3990,7 @@ void MacroAssembler::JumpIfDictionaryInPrototypeChain(
   bind(&loop_again);
   ldr(current, FieldMemOperand(current, HeapObject::kMapOffset));
   ldr(scratch1, FieldMemOperand(current, Map::kBitField2Offset));
-  Ubfx(scratch1, scratch1, Map::kElementsKindShift, Map::kElementsKindBitCount);
+  DecodeField<Map::ElementsKindBits>(scratch1);
   cmp(scratch1, Operand(DICTIONARY_ELEMENTS));
   b(eq, found);
   ldr(current, FieldMemOperand(current, Map::kPrototypeOffset));

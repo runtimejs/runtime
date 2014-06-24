@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "cctest.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 
@@ -102,7 +102,7 @@ TEST(PretenuringCallNew) {
       "  a = new f();"
       "}"
       "a;";
-  i::OS::SNPrintF(test_buf, program, call_count);
+  i::SNPrintF(test_buf, program, call_count);
   v8::Local<v8::Value> res = CompileRun(test_buf.start());
   Handle<JSObject> o =
       v8::Utils::OpenHandle(*v8::Handle<v8::Object>::Cast(res));

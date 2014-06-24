@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "execution.h"
+#include "src/execution.h"
 
-#include "bootstrapper.h"
-#include "codegen.h"
-#include "deoptimizer.h"
-#include "isolate-inl.h"
-#include "vm-state-inl.h"
+#include "src/bootstrapper.h"
+#include "src/codegen.h"
+#include "src/deoptimizer.h"
+#include "src/isolate-inl.h"
+#include "src/vm-state-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -104,7 +104,7 @@ MUST_USE_RESULT static MaybeHandle<Object> Invoke(
   if (has_exception) {
     isolate->ReportPendingMessages();
     // Reset stepping state when script exits with uncaught exception.
-    if (isolate->debugger()->is_active()) {
+    if (isolate->debug()->is_active()) {
       isolate->debug()->ClearStepping();
     }
     return MaybeHandle<Object>();
@@ -307,13 +307,6 @@ MaybeHandle<Object> Execution::TryGetConstructorDelegate(
 }
 
 
-bool StackGuard::IsStackOverflow() {
-  ExecutionAccess access(isolate_);
-  return (thread_local_.jslimit_ != kInterruptLimit &&
-          thread_local_.climit_ != kInterruptLimit);
-}
-
-
 void StackGuard::EnableInterrupts() {
   ExecutionAccess access(isolate_);
   if (has_pending_interrupts(access)) {
@@ -366,13 +359,13 @@ void StackGuard::ClearInterrupt(int flagbit) {
 }
 
 
-bool StackGuard::CheckAndClearInterrupt(InterruptFlag flag,
-                                        const ExecutionAccess& lock) {
+bool StackGuard::CheckAndClearInterrupt(InterruptFlag flag) {
+  ExecutionAccess access(isolate_);
   int flagbit = 1 << flag;
   bool result = (thread_local_.interrupt_flags_ & flagbit);
   thread_local_.interrupt_flags_ &= ~flagbit;
-  if (!should_postpone_interrupts(lock) && !has_pending_interrupts(lock)) {
-    reset_limits(lock);
+  if (!should_postpone_interrupts(access) && !has_pending_interrupts(access)) {
+    reset_limits(access);
   }
   return result;
 }
@@ -380,7 +373,7 @@ bool StackGuard::CheckAndClearInterrupt(InterruptFlag flag,
 
 char* StackGuard::ArchiveStackGuard(char* to) {
   ExecutionAccess access(isolate_);
-  OS::MemCopy(to, reinterpret_cast<char*>(&thread_local_), sizeof(ThreadLocal));
+  MemCopy(to, reinterpret_cast<char*>(&thread_local_), sizeof(ThreadLocal));
   ThreadLocal blank;
 
   // Set the stack limits using the old thread_local_.
@@ -397,8 +390,7 @@ char* StackGuard::ArchiveStackGuard(char* to) {
 
 char* StackGuard::RestoreStackGuard(char* from) {
   ExecutionAccess access(isolate_);
-  OS::MemCopy(
-      reinterpret_cast<char*>(&thread_local_), from, sizeof(ThreadLocal));
+  MemCopy(reinterpret_cast<char*>(&thread_local_), from, sizeof(ThreadLocal));
   isolate_->heap()->SetStackLimits();
   return from + sizeof(ThreadLocal);
 }
@@ -655,104 +647,43 @@ Handle<String> Execution::GetStackTraceLine(Handle<Object> recv,
 }
 
 
-void Execution::DebugBreakHelper(Isolate* isolate) {
-  // Just continue if breaks are disabled.
-  if (isolate->debug()->disable_break()) return;
-
-  // Ignore debug break during bootstrapping.
-  if (isolate->bootstrapper()->IsActive()) return;
-
-  // Ignore debug break if debugger is not active.
-  if (!isolate->debugger()->is_active()) return;
-
-  StackLimitCheck check(isolate);
-  if (check.HasOverflowed()) return;
-
-  { JavaScriptFrameIterator it(isolate);
-    ASSERT(!it.done());
-    Object* fun = it.frame()->function();
-    if (fun && fun->IsJSFunction()) {
-      // Don't stop in builtin functions.
-      if (JSFunction::cast(fun)->IsBuiltin()) return;
-      GlobalObject* global = JSFunction::cast(fun)->context()->global_object();
-      // Don't stop in debugger functions.
-      if (isolate->debug()->IsDebugGlobal(global)) return;
-    }
-  }
-
-  // Collect the break state before clearing the flags.
-  bool debug_command_only = isolate->stack_guard()->CheckDebugCommand() &&
-                            !isolate->stack_guard()->CheckDebugBreak();
-
-  isolate->stack_guard()->ClearDebugBreak();
-
-  Execution::ProcessDebugMessages(isolate, debug_command_only);
-}
-
-
-void Execution::ProcessDebugMessages(Isolate* isolate,
-                                     bool debug_command_only) {
-  isolate->stack_guard()->ClearDebugCommand();
-
-  StackLimitCheck check(isolate);
-  if (check.HasOverflowed()) return;
-
-  HandleScope scope(isolate);
-  // Enter the debugger. Just continue if we fail to enter the debugger.
-  EnterDebugger debugger(isolate);
-  if (debugger.FailedToEnter()) return;
-
-  // Notify the debug event listeners. Indicate auto continue if the break was
-  // a debug command break.
-  isolate->debugger()->OnDebugBreak(isolate->factory()->undefined_value(),
-                                    debug_command_only);
-}
-
-
 Object* StackGuard::HandleInterrupts() {
-  bool has_api_interrupt = false;
   {
     ExecutionAccess access(isolate_);
     if (should_postpone_interrupts(access)) {
       return isolate_->heap()->undefined_value();
     }
-
-    if (CheckAndClearInterrupt(GC_REQUEST, access)) {
-      isolate_->heap()->CollectAllGarbage(Heap::kNoGCFlags, "GC interrupt");
-    }
-
-    if (CheckDebugBreak() || CheckDebugCommand()) {
-      Execution::DebugBreakHelper(isolate_);
-    }
-
-    if (CheckAndClearInterrupt(TERMINATE_EXECUTION, access)) {
-      return isolate_->TerminateExecution();
-    }
-
-    if (CheckAndClearInterrupt(FULL_DEOPT, access)) {
-      Deoptimizer::DeoptimizeAll(isolate_);
-    }
-
-    if (CheckAndClearInterrupt(DEOPT_MARKED_ALLOCATION_SITES, access)) {
-      isolate_->heap()->DeoptMarkedAllocationSites();
-    }
-
-    if (CheckAndClearInterrupt(INSTALL_CODE, access)) {
-      ASSERT(isolate_->concurrent_recompilation_enabled());
-      isolate_->optimizing_compiler_thread()->InstallOptimizedFunctions();
-    }
-
-    has_api_interrupt = CheckAndClearInterrupt(API_INTERRUPT, access);
-
-    isolate_->counters()->stack_interrupts()->Increment();
-    isolate_->counters()->runtime_profiler_ticks()->Increment();
-    isolate_->runtime_profiler()->OptimizeNow();
   }
 
-  if (has_api_interrupt) {
+  if (CheckAndClearInterrupt(GC_REQUEST)) {
+    isolate_->heap()->CollectAllGarbage(Heap::kNoGCFlags, "GC interrupt");
+  }
+
+  if (CheckDebugBreak() || CheckDebugCommand()) {
+    isolate_->debug()->HandleDebugBreak();
+  }
+
+  if (CheckAndClearInterrupt(TERMINATE_EXECUTION)) {
+    return isolate_->TerminateExecution();
+  }
+
+  if (CheckAndClearInterrupt(DEOPT_MARKED_ALLOCATION_SITES)) {
+    isolate_->heap()->DeoptMarkedAllocationSites();
+  }
+
+  if (CheckAndClearInterrupt(INSTALL_CODE)) {
+    ASSERT(isolate_->concurrent_recompilation_enabled());
+    isolate_->optimizing_compiler_thread()->InstallOptimizedFunctions();
+  }
+
+  if (CheckAndClearInterrupt(API_INTERRUPT)) {
     // Callback must be invoked outside of ExecusionAccess lock.
     isolate_->InvokeApiInterruptCallback();
   }
+
+  isolate_->counters()->stack_interrupts()->Increment();
+  isolate_->counters()->runtime_profiler_ticks()->Increment();
+  isolate_->runtime_profiler()->OptimizeNow();
 
   return isolate_->heap()->undefined_value();
 }

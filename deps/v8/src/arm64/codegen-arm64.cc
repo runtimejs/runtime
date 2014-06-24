@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM64
 
-#include "codegen.h"
-#include "macro-assembler.h"
-#include "simulator-arm64.h"
+#include "src/arm64/simulator-arm64.h"
+#include "src/codegen.h"
+#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -473,7 +473,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
     __ Assert(eq, kExternalStringExpectedButNotFound);
   }
   // Rule out short external strings.
-  STATIC_CHECK(kShortExternalStringTag != 0);
+  STATIC_ASSERT(kShortExternalStringTag != 0);
   // TestAndBranchIfAnySet can emit Tbnz. Do not use it because call_runtime
   // can be bound far away in deferred code.
   __ Tst(result, kShortExternalStringMask);

@@ -2,28 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "assembler.h"
-#include "isolate.h"
-#include "elements.h"
-#include "bootstrapper.h"
-#include "debug.h"
-#include "deoptimizer.h"
-#include "frames.h"
-#include "heap-profiler.h"
-#include "hydrogen.h"
+#include "src/assembler.h"
+#include "src/base/once.h"
+#include "src/bootstrapper.h"
+#include "src/debug.h"
+#include "src/deoptimizer.h"
+#include "src/elements.h"
+#include "src/frames.h"
+#include "src/heap-profiler.h"
+#include "src/hydrogen.h"
+#include "src/isolate.h"
 #ifdef V8_USE_DEFAULT_PLATFORM
-#include "libplatform/default-platform.h"
+#include "src/libplatform/default-platform.h"
 #endif
-#include "lithium-allocator.h"
-#include "objects.h"
-#include "once.h"
-#include "platform.h"
-#include "sampler.h"
-#include "runtime-profiler.h"
-#include "serialize.h"
-#include "store-buffer.h"
+#include "src/lithium-allocator.h"
+#include "src/objects.h"
+#include "src/platform.h"
+#include "src/runtime-profiler.h"
+#include "src/sampler.h"
+#include "src/serialize.h"
+#include "src/store-buffer.h"
 
 namespace v8 {
 namespace internal {
@@ -95,7 +95,7 @@ void V8::InitializeOncePerProcessImpl() {
 #endif
   Sampler::SetUp();
   CpuFeatures::Probe(false);
-  OS::PostSetUp();
+  init_memcopy_functions();
   // The custom exp implementation needs 16KB of lookup data; initialize it
   // on demand.
   init_fast_sqrt_function();
@@ -111,7 +111,7 @@ void V8::InitializeOncePerProcessImpl() {
 
 
 void V8::InitializeOncePerProcess() {
-  CallOnce(&init_once, &InitializeOncePerProcessImpl);
+  base::CallOnce(&init_once, &InitializeOncePerProcessImpl);
 }
 
 

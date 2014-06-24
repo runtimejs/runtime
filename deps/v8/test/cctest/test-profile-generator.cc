@@ -27,12 +27,13 @@
 //
 // Tests of profiles generator and utilities.
 
-#include "v8.h"
-#include "profile-generator-inl.h"
-#include "profiler-extension.h"
-#include "cctest.h"
-#include "cpu-profiler.h"
-#include "../include/v8-profiler.h"
+#include "src/v8.h"
+
+#include "include/v8-profiler.h"
+#include "src/cpu-profiler.h"
+#include "src/profile-generator-inl.h"
+#include "test/cctest/cctest.h"
+#include "test/cctest/profiler-extension.h"
 
 using i::CodeEntry;
 using i::CodeMap;
@@ -601,7 +602,7 @@ TEST(Issue51919) {
       CpuProfilesCollection::kMaxSimultaneousProfiles> titles;
   for (int i = 0; i < CpuProfilesCollection::kMaxSimultaneousProfiles; ++i) {
     i::Vector<char> title = i::Vector<char>::New(16);
-    i::OS::SNPrintF(title, "%d", i);
+    i::SNPrintF(title, "%d", i);
     CHECK(collection.StartProfiling(title.start(), false));
     titles[i] = title.start();
   }
@@ -661,11 +662,11 @@ TEST(ProfileNodeScriptId) {
 
   current = PickChild(current, "b");
   CHECK_NE(NULL, const_cast<v8::CpuProfileNode*>(current));
-  CHECK_EQ(script_b->GetId(), current->GetScriptId());
+  CHECK_EQ(script_b->GetUnboundScript()->GetId(), current->GetScriptId());
 
   current = PickChild(current, "a");
   CHECK_NE(NULL, const_cast<v8::CpuProfileNode*>(current));
-  CHECK_EQ(script_a->GetId(), current->GetScriptId());
+  CHECK_EQ(script_a->GetUnboundScript()->GetId(), current->GetScriptId());
 }
 
 

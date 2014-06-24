@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "factory.h"
+#include "src/factory.h"
 
-#include "conversions.h"
-#include "isolate-inl.h"
-#include "macro-assembler.h"
+#include "src/conversions.h"
+#include "src/isolate-inl.h"
+#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -115,18 +115,23 @@ Handle<FixedArrayBase> Factory::NewFixedDoubleArrayWithHoles(
 
 
 Handle<ConstantPoolArray> Factory::NewConstantPoolArray(
-    int number_of_int64_entries,
-    int number_of_code_ptr_entries,
-    int number_of_heap_ptr_entries,
-    int number_of_int32_entries) {
-  ASSERT(number_of_int64_entries > 0 || number_of_code_ptr_entries > 0 ||
-         number_of_heap_ptr_entries > 0 || number_of_int32_entries > 0);
+    const ConstantPoolArray::NumberOfEntries& small) {
+  ASSERT(small.total_count() > 0);
   CALL_HEAP_FUNCTION(
       isolate(),
-      isolate()->heap()->AllocateConstantPoolArray(number_of_int64_entries,
-                                                   number_of_code_ptr_entries,
-                                                   number_of_heap_ptr_entries,
-                                                   number_of_int32_entries),
+      isolate()->heap()->AllocateConstantPoolArray(small),
+      ConstantPoolArray);
+}
+
+
+Handle<ConstantPoolArray> Factory::NewExtendedConstantPoolArray(
+    const ConstantPoolArray::NumberOfEntries& small,
+    const ConstantPoolArray::NumberOfEntries& extended) {
+  ASSERT(small.total_count() > 0);
+  ASSERT(extended.total_count() > 0);
+  CALL_HEAP_FUNCTION(
+      isolate(),
+      isolate()->heap()->AllocateExtendedConstantPoolArray(small, extended),
       ConstantPoolArray);
 }
 
@@ -146,7 +151,6 @@ Handle<AccessorPair> Factory::NewAccessorPair() {
       Handle<AccessorPair>::cast(NewStruct(ACCESSOR_PAIR_TYPE));
   accessors->set_getter(*the_hole_value(), SKIP_WRITE_BARRIER);
   accessors->set_setter(*the_hole_value(), SKIP_WRITE_BARRIER);
-  accessors->set_access_flags(Smi::FromInt(0), SKIP_WRITE_BARRIER);
   return accessors;
 }
 
@@ -207,9 +211,7 @@ template Handle<String> Factory::InternalizeStringWithKey<
 MaybeHandle<String> Factory::NewStringFromOneByte(Vector<const uint8_t> string,
                                                   PretenureFlag pretenure) {
   int length = string.length();
-  if (length == 1) {
-    return LookupSingleCharacterStringFromCode(string[0]);
-  }
+  if (length == 1) return LookupSingleCharacterStringFromCode(string[0]);
   Handle<SeqOneByteString> result;
   ASSIGN_RETURN_ON_EXCEPTION(
       isolate(),
@@ -236,22 +238,55 @@ MaybeHandle<String> Factory::NewStringFromUtf8(Vector<const char> string,
     // since UTF8 is backwards compatible with ASCII.
     return NewStringFromOneByte(Vector<const uint8_t>::cast(string), pretenure);
   }
+
   // Non-ASCII and we need to decode.
-  CALL_HEAP_FUNCTION(
-      isolate(),
-      isolate()->heap()->AllocateStringFromUtf8Slow(string,
-                                                    non_ascii_start,
-                                                    pretenure),
+  Access<UnicodeCache::Utf8Decoder>
+      decoder(isolate()->unicode_cache()->utf8_decoder());
+  decoder->Reset(string.start() + non_ascii_start,
+                 length - non_ascii_start);
+  int utf16_length = decoder->Utf16Length();
+  ASSERT(utf16_length > 0);
+  // Allocate string.
+  Handle<SeqTwoByteString> result;
+  ASSIGN_RETURN_ON_EXCEPTION(
+      isolate(), result,
+      NewRawTwoByteString(non_ascii_start + utf16_length, pretenure),
       String);
+  // Copy ascii portion.
+  uint16_t* data = result->GetChars();
+  const char* ascii_data = string.start();
+  for (int i = 0; i < non_ascii_start; i++) {
+    *data++ = *ascii_data++;
+  }
+  // Now write the remainder.
+  decoder->WriteUtf16(data, utf16_length);
+  return result;
 }
 
 
 MaybeHandle<String> Factory::NewStringFromTwoByte(Vector<const uc16> string,
                                                   PretenureFlag pretenure) {
-  CALL_HEAP_FUNCTION(
-      isolate(),
-      isolate()->heap()->AllocateStringFromTwoByte(string, pretenure),
-      String);
+  int length = string.length();
+  const uc16* start = string.start();
+  if (String::IsOneByte(start, length)) {
+    Handle<SeqOneByteString> result;
+    ASSIGN_RETURN_ON_EXCEPTION(
+        isolate(),
+        result,
+        NewRawOneByteString(length, pretenure),
+        String);
+    CopyChars(result->GetChars(), start, length);
+    return result;
+  } else {
+    Handle<SeqTwoByteString> result;
+    ASSIGN_RETURN_ON_EXCEPTION(
+        isolate(),
+        result,
+        NewRawTwoByteString(length, pretenure),
+        String);
+    CopyChars(result->GetChars(), start, length);
+    return result;
+  }
 }
 
 
@@ -323,6 +358,9 @@ MaybeHandle<Map> Factory::InternalizedStringMapForString(
 
 MaybeHandle<SeqOneByteString> Factory::NewRawOneByteString(
     int length, PretenureFlag pretenure) {
+  if (length > String::kMaxLength || length < 0) {
+    return isolate()->Throw<SeqOneByteString>(NewInvalidStringLengthError());
+  }
   CALL_HEAP_FUNCTION(
       isolate(),
       isolate()->heap()->AllocateRawOneByteString(length, pretenure),
@@ -332,6 +370,9 @@ MaybeHandle<SeqOneByteString> Factory::NewRawOneByteString(
 
 MaybeHandle<SeqTwoByteString> Factory::NewRawTwoByteString(
     int length, PretenureFlag pretenure) {
+  if (length > String::kMaxLength || length < 0) {
+    return isolate()->Throw<SeqTwoByteString>(NewInvalidStringLengthError());
+  }
   CALL_HEAP_FUNCTION(
       isolate(),
       isolate()->heap()->AllocateRawTwoByteString(length, pretenure),
@@ -581,8 +622,7 @@ MaybeHandle<String> Factory::NewExternalStringFromAscii(
     const ExternalAsciiString::Resource* resource) {
   size_t length = resource->length();
   if (length > static_cast<size_t>(String::kMaxLength)) {
-    isolate()->ThrowInvalidStringLength();
-    return MaybeHandle<String>();
+    return isolate()->Throw<String>(NewInvalidStringLengthError());
   }
 
   Handle<Map> map = external_ascii_string_map();
@@ -600,8 +640,7 @@ MaybeHandle<String> Factory::NewExternalStringFromTwoByte(
     const ExternalTwoByteString::Resource* resource) {
   size_t length = resource->length();
   if (length > static_cast<size_t>(String::kMaxLength)) {
-    isolate()->ThrowInvalidStringLength();
-    return MaybeHandle<String>();
+    return isolate()->Throw<String>(NewInvalidStringLengthError());
   }
 
   // For small strings we check whether the resource contains only
@@ -1092,7 +1131,7 @@ Handle<String> Factory::EmergencyNewError(const char* message,
   char* p = &buffer[0];
 
   Vector<char> v(buffer, kBufferSize);
-  OS::StrNCpy(v, message, space);
+  StrNCpy(v, message, space);
   space -= Min(space, strlen(message));
   p = &buffer[kBufferSize] - space;
 
@@ -1105,7 +1144,7 @@ Handle<String> Factory::EmergencyNewError(const char* message,
             Object::GetElement(isolate(), args, i).ToHandleChecked());
         SmartArrayPointer<char> arg = arg_str->ToCString();
         Vector<char> v2(p, static_cast<int>(space));
-        OS::StrNCpy(v2, arg.get(), space);
+        StrNCpy(v2, arg.get(), space);
         space -= Min(space, strlen(arg.get()));
         p = &buffer[kBufferSize] - space;
       }
@@ -1406,7 +1445,8 @@ Handle<Code> Factory::NewCode(const CodeDesc& desc,
   int obj_size = Code::SizeFor(body_size);
 
   Handle<Code> code = NewCodeRaw(obj_size, immovable);
-  ASSERT(!isolate()->code_range()->exists() ||
+  ASSERT(isolate()->code_range() == NULL ||
+         !isolate()->code_range()->valid() ||
          isolate()->code_range()->contains(code->address()));
 
   // The code object has not been fully initialized yet.  We rely on the
@@ -1778,8 +1818,15 @@ void Factory::ReinitializeJSReceiver(Handle<JSReceiver> object,
   // before object re-initialization is finished and filler object is installed.
   DisallowHeapAllocation no_allocation;
 
+  // Put in filler if the new object is smaller than the old.
+  if (size_difference > 0) {
+    Address address = object->address() + map->instance_size();
+    heap->CreateFillerObjectAt(address, size_difference);
+    heap->AdjustLiveBytes(address, -size_difference, Heap::FROM_MUTATOR);
+  }
+
   // Reset the map for the object.
-  object->set_map(*map);
+  object->synchronized_set_map(*map);
   Handle<JSObject> jsobj = Handle<JSObject>::cast(object);
 
   // Reinitialize the object from the constructor map.
@@ -1791,12 +1838,6 @@ void Factory::ReinitializeJSReceiver(Handle<JSReceiver> object,
     Handle<JSFunction> js_function = Handle<JSFunction>::cast(object);
     Handle<Context> context(isolate()->context()->native_context());
     InitializeFunction(js_function, shared.ToHandleChecked(), context);
-  }
-
-  // Put in filler if the new object is smaller than the old.
-  if (size_difference > 0) {
-    heap->CreateFillerObjectAt(
-        object->address() + map->instance_size(), size_difference);
   }
 }
 
@@ -1823,7 +1864,7 @@ void Factory::ReinitializeJSGlobalProxy(Handle<JSGlobalProxy> object,
   DisallowHeapAllocation no_allocation;
 
   // Reset the map for the object.
-  object->set_map(constructor->initial_map());
+  object->synchronized_set_map(*map);
 
   Heap* heap = isolate()->heap();
   // Reinitialize the object from the constructor map.
@@ -2039,7 +2080,7 @@ Handle<DebugInfo> Factory::NewDebugInfo(Handle<SharedFunctionInfo> shared) {
   // debug info object to avoid allocation while setting up the debug info
   // object.
   Handle<FixedArray> break_points(
-      NewFixedArray(Debug::kEstimatedNofBreakPointsInFunction));
+      NewFixedArray(DebugInfo::kEstimatedNofBreakPointsInFunction));
 
   // Create and set up the debug info object. Debug info contains function, a
   // copy of the original code, the executing code and initial fixed array for

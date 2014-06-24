@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
-#include "accessors.h"
+#include "src/v8.h"
 
-#include "compiler.h"
-#include "contexts.h"
-#include "deoptimizer.h"
-#include "execution.h"
-#include "factory.h"
-#include "frames-inl.h"
-#include "isolate.h"
-#include "list-inl.h"
-#include "property-details.h"
-#include "api.h"
+#include "src/accessors.h"
+#include "src/api.h"
+#include "src/compiler.h"
+#include "src/contexts.h"
+#include "src/deoptimizer.h"
+#include "src/execution.h"
+#include "src/factory.h"
+#include "src/frames-inl.h"
+#include "src/isolate.h"
+#include "src/list-inl.h"
+#include "src/property-details.h"
 
 namespace v8 {
 namespace internal {
@@ -41,12 +41,26 @@ Handle<AccessorInfo> Accessors::MakeAccessor(
   info->set_property_attributes(attributes);
   info->set_all_can_read(false);
   info->set_all_can_write(false);
-  info->set_prohibits_overwriting(false);
   info->set_name(*name);
   Handle<Object> get = v8::FromCData(isolate, getter);
   Handle<Object> set = v8::FromCData(isolate, setter);
   info->set_getter(*get);
   info->set_setter(*set);
+  return info;
+}
+
+
+Handle<ExecutableAccessorInfo> Accessors::CloneAccessor(
+    Isolate* isolate,
+    Handle<ExecutableAccessorInfo> accessor) {
+  Factory* factory = isolate->factory();
+  Handle<ExecutableAccessorInfo> info = factory->NewExecutableAccessorInfo();
+  info->set_name(accessor->name());
+  info->set_flag(accessor->flag());
+  info->set_expected_receiver_type(accessor->expected_receiver_type());
+  info->set_getter(accessor->getter());
+  info->set_setter(accessor->setter());
+  info->set_data(accessor->data());
   return info;
 }
 

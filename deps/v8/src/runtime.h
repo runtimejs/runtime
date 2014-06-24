@@ -5,8 +5,8 @@
 #ifndef V8_RUNTIME_H_
 #define V8_RUNTIME_H_
 
-#include "allocation.h"
-#include "zone.h"
+#include "src/allocation.h"
+#include "src/zone.h"
 
 namespace v8 {
 namespace internal {
@@ -206,7 +206,7 @@ namespace internal {
   F(GetTemplateField, 2, 1) \
   F(DisableAccessChecks, 1, 1) \
   F(EnableAccessChecks, 1, 1) \
-  F(SetAccessorProperty, 6, 1) \
+  F(SetAccessorProperty, 5, 1) \
   \
   /* Dates */ \
   F(DateCurrentTime, 0, 1) \
@@ -272,8 +272,8 @@ namespace internal {
   F(SetDelete, 2, 1) \
   F(SetClear, 1, 1) \
   F(SetGetSize, 1, 1) \
-  F(SetCreateIterator, 2, 1) \
   \
+  F(SetIteratorInitialize, 3, 1) \
   F(SetIteratorNext, 1, 1) \
   \
   /* Harmony maps */ \
@@ -284,8 +284,8 @@ namespace internal {
   F(MapClear, 1, 1) \
   F(MapSet, 3, 1) \
   F(MapGetSize, 1, 1) \
-  F(MapCreateIterator, 2, 1) \
   \
+  F(MapIteratorInitialize, 3, 1) \
   F(MapIteratorNext, 1, 1) \
   \
   /* Harmony weak maps and sets */ \
@@ -306,9 +306,9 @@ namespace internal {
   F(ObservationWeakMapCreate, 0, 1) \
   F(ObserverObjectAndRecordHaveSameOrigin, 3, 1) \
   F(ObjectWasCreatedInCurrentOrigin, 1, 1) \
-  F(ObjectObserveInObjectContext, 3, 1) \
-  F(ObjectGetNotifierInObjectContext, 1, 1) \
-  F(ObjectNotifierPerformChangeInObjectContext, 3, 1) \
+  F(GetObjectContextObjectObserve, 1, 1) \
+  F(GetObjectContextObjectGetNotifier, 1, 1) \
+  F(GetObjectContextNotifierPerformChange, 1, 1) \
   \
   /* Harmony typed arrays */ \
   F(ArrayBufferInitialize, 2, 1)\
@@ -438,6 +438,7 @@ namespace internal {
   F(DebugConstructedBy, 2, 1) \
   F(DebugGetPrototype, 1, 1) \
   F(DebugSetScriptSource, 2, 1) \
+  F(DebugCallbackSupportsStepping, 1, 1) \
   F(SystemBreak, 0, 1) \
   F(DebugDisassembleFunction, 1, 1) \
   F(DebugDisassembleConstructor, 1, 1) \
@@ -553,8 +554,8 @@ namespace internal {
   F(NumberToSmi, 1, 1) \
   F(NumberToStringSkipCache, 1, 1) \
   \
-  F(NewArgumentsFast, 3, 1) \
-  F(NewStrictArgumentsFast, 3, 1) \
+  F(NewSloppyArguments, 3, 1) \
+  F(NewStrictArguments, 3, 1) \
   \
   /* Harmony generators */ \
   F(CreateJSGeneratorObject, 0, 1) \
@@ -582,7 +583,6 @@ namespace internal {
   F(ReThrow, 1, 1) \
   F(ThrowReferenceError, 1, 1) \
   F(ThrowNotDateError, 0, 1) \
-  F(ThrowMessage, 1, 1) \
   F(StackGuard, 0, 1) \
   F(Interrupt, 0, 1) \
   F(PromoteScheduledException, 0, 1) \
@@ -655,13 +655,16 @@ namespace internal {
   F(RegExpExec, 4, 1)                                                        \
   F(RegExpConstructResult, 3, 1)                                             \
   F(GetFromCache, 2, 1)                                                      \
-  F(NumberToString, 1, 1)
+  F(NumberToString, 1, 1)                                                    \
+  F(DebugIsActive, 0, 1)
 
 
 // ----------------------------------------------------------------------------
 // INLINE_OPTIMIZED_FUNCTION_LIST defines all inlined functions accessed
 // with a native call of the form %_name from within JS code that also have
 // a corresponding runtime function, that is called from non-optimized code.
+// For the benefit of (fuzz) tests, the runtime version can also be called
+// directly as %name (i.e. without the leading underscore).
 // Entries have the form F(name, number of arguments, number of return values).
 #define INLINE_OPTIMIZED_FUNCTION_LIST(F) \
   /* Typed Arrays */                                                         \
@@ -679,9 +682,7 @@ namespace internal {
   F(DoubleHi, 1, 1)                                                          \
   F(DoubleLo, 1, 1)                                                          \
   F(MathSqrtRT, 1, 1)                                                        \
-  F(MathLogRT, 1, 1)                                                         \
-  /* Debugger */                                                             \
-  F(DebugCallbackSupportsStepping, 1, 1)
+  F(MathLogRT, 1, 1)
 
 
 //---------------------------------------------------------------------------
@@ -734,6 +735,7 @@ class Runtime : public AllStatic {
   enum FunctionId {
 #define F(name, nargs, ressize) k##name,
     RUNTIME_FUNCTION_LIST(F)
+    INLINE_OPTIMIZED_FUNCTION_LIST(F)
 #undef F
 #define F(name, nargs, ressize) kHidden##name,
     RUNTIME_HIDDEN_FUNCTION_LIST(F)

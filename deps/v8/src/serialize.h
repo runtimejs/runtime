@@ -5,7 +5,10 @@
 #ifndef V8_SERIALIZE_H_
 #define V8_SERIALIZE_H_
 
-#include "hashmap.h"
+#include "src/hashmap.h"
+#include "src/heap-profiler.h"
+#include "src/isolate.h"
+#include "src/snapshot-source-sink.h"
 
 namespace v8 {
 namespace internal {
@@ -34,7 +37,7 @@ const int kReferenceIdBits = 16;
 const int kReferenceIdMask = (1 << kReferenceIdBits) - 1;
 const int kReferenceTypeShift = kReferenceIdBits;
 
-const int kDeoptTableSerializeEntryCount = 12;
+const int kDeoptTableSerializeEntryCount = 64;
 
 // ExternalReferenceTable is a helper class that defines the relationship
 // between external references and their encodings. It is used to build
@@ -132,49 +135,6 @@ class ExternalReferenceDecoder {
 };
 
 
-class SnapshotByteSource {
- public:
-  SnapshotByteSource(const byte* array, int length)
-    : data_(array), length_(length), position_(0) { }
-
-  bool HasMore() { return position_ < length_; }
-
-  int Get() {
-    ASSERT(position_ < length_);
-    return data_[position_++];
-  }
-
-  int32_t GetUnalignedInt() {
-#if defined(V8_HOST_CAN_READ_UNALIGNED) &&  __BYTE_ORDER == __LITTLE_ENDIAN
-    int32_t answer;
-    ASSERT(position_ + sizeof(answer) <= length_ + 0u);
-    answer = *reinterpret_cast<const int32_t*>(data_ + position_);
-#else
-    int32_t answer = data_[position_];
-    answer |= data_[position_ + 1] << 8;
-    answer |= data_[position_ + 2] << 16;
-    answer |= data_[position_ + 3] << 24;
-#endif
-    return answer;
-  }
-
-  void Advance(int by) { position_ += by; }
-
-  inline void CopyRaw(byte* to, int number_of_bytes);
-
-  inline int GetInt();
-
-  bool AtEOF();
-
-  int position() { return position_; }
-
- private:
-  const byte* data_;
-  int length_;
-  int position_;
-};
-
-
 // The Serializer/Deserializer class is a common superclass for Serializer and
 // Deserializer which is used to store common constants and methods used by
 // both.
@@ -268,26 +228,6 @@ class SerializerDeserializer: public ObjectVisitor {
 };
 
 
-int SnapshotByteSource::GetInt() {
-  // This way of variable-length encoding integers does not suffer from branch
-  // mispredictions.
-  uint32_t answer = GetUnalignedInt();
-  int bytes = answer & 3;
-  Advance(bytes);
-  uint32_t mask = 0xffffffffu;
-  mask >>= 32 - (bytes << 3);
-  answer &= mask;
-  answer >>= 2;
-  return answer;
-}
-
-
-void SnapshotByteSource::CopyRaw(byte* to, int number_of_bytes) {
-  OS::MemCopy(to, data_ + position_, number_of_bytes);
-  position_ += number_of_bytes;
-}
-
-
 // A Deserializer reads a snapshot and reconstructs the Object graph it defines.
 class Deserializer: public SerializerDeserializer {
  public:
@@ -334,10 +274,6 @@ class Deserializer: public SerializerDeserializer {
   Address Allocate(int space_index, int size) {
     Address address = high_water_[space_index];
     high_water_[space_index] = address + size;
-    HeapProfiler* profiler = isolate_->heap_profiler();
-    if (profiler->is_tracking_allocations()) {
-      profiler->AllocationEvent(address, size);
-    }
     return address;
   }
 
@@ -365,18 +301,6 @@ class Deserializer: public SerializerDeserializer {
   ExternalReferenceDecoder* external_reference_decoder_;
 
   DISALLOW_COPY_AND_ASSIGN(Deserializer);
-};
-
-
-class SnapshotByteSink {
- public:
-  virtual ~SnapshotByteSink() { }
-  virtual void Put(int byte, const char* description) = 0;
-  virtual void PutSection(int byte, const char* description) {
-    Put(byte, description);
-  }
-  void PutInt(uintptr_t integer, const char* description);
-  virtual int Position() = 0;
 };
 
 
@@ -456,7 +380,6 @@ class Serializer : public SerializerDeserializer {
   static const int kInvalidRootIndex = -1;
 
   int RootIndex(HeapObject* heap_object, HowToCode from);
-  virtual bool ShouldBeInThePartialSnapshotCache(HeapObject* o) = 0;
   intptr_t root_index_wave_front() { return root_index_wave_front_; }
   void set_root_index_wave_front(intptr_t value) {
     ASSERT(value >= root_index_wave_front_);
@@ -572,15 +495,15 @@ class PartialSerializer : public Serializer {
   }
 
   // Serialize the objects reachable from a single object pointer.
-  virtual void Serialize(Object** o);
+  void Serialize(Object** o);
   virtual void SerializeObject(Object* o,
                                HowToCode how_to_code,
                                WhereToPoint where_to_point,
                                int skip);
 
- protected:
-  virtual int PartialSnapshotCacheIndex(HeapObject* o);
-  virtual bool ShouldBeInThePartialSnapshotCache(HeapObject* o) {
+ private:
+  int PartialSnapshotCacheIndex(HeapObject* o);
+  bool ShouldBeInThePartialSnapshotCache(HeapObject* o) {
     // Scripts should be referred only through shared function infos.  We can't
     // allow them to be part of the partial snapshot because they contain a
     // unique ID, and deserializing several partial snapshots containing script
@@ -593,7 +516,7 @@ class PartialSerializer : public Serializer {
                startup_serializer_->isolate()->heap()->fixed_cow_array_map();
   }
 
- private:
+
   Serializer* startup_serializer_;
   DISALLOW_COPY_AND_ASSIGN(PartialSerializer);
 };
@@ -624,11 +547,6 @@ class StartupSerializer : public Serializer {
     SerializeStrongReferences();
     SerializeWeakReferences();
     Pad();
-  }
-
- private:
-  virtual bool ShouldBeInThePartialSnapshotCache(HeapObject* o) {
-    return false;
   }
 };
 

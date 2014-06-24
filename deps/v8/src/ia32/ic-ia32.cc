@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_IA32
 
-#include "codegen.h"
-#include "ic-inl.h"
-#include "runtime.h"
-#include "stub-cache.h"
+#include "src/codegen.h"
+#include "src/ic-inl.h"
+#include "src/runtime.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -947,14 +947,18 @@ void LoadIC::GenerateNormal(MacroAssembler* masm) {
   //  -- edx    : receiver
   //  -- esp[0] : return address
   // -----------------------------------
-  Label miss;
+  Label miss, slow;
 
   GenerateNameDictionaryReceiverCheck(masm, edx, eax, ebx, &miss);
 
   // eax: elements
   // Search the dictionary placing the result in eax.
-  GenerateDictionaryLoad(masm, &miss, eax, ecx, edi, ebx, eax);
+  GenerateDictionaryLoad(masm, &slow, eax, ecx, edi, ebx, eax);
   __ ret(0);
+
+  // Dictionary load failed, go slow (but don't miss).
+  __ bind(&slow);
+  GenerateRuntimeGetProperty(masm);
 
   // Cache miss: Jump to runtime.
   __ bind(&miss);

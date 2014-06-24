@@ -4,16 +4,16 @@
 
 
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_MIPS
 
-#include "codegen.h"
-#include "debug.h"
-#include "deoptimizer.h"
-#include "full-codegen.h"
-#include "runtime.h"
-#include "stub-cache.h"
+#include "src/codegen.h"
+#include "src/debug.h"
+#include "src/deoptimizer.h"
+#include "src/full-codegen.h"
+#include "src/runtime.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -616,6 +616,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
 
     // Receiver for constructor call allocated.
     // t4: JSObject
+    __ bind(&allocated);
 
     if (create_memento) {
       __ lw(a2, MemOperand(sp, kPointerSize * 2));
@@ -631,7 +632,6 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       __ bind(&count_incremented);
     }
 
-    __ bind(&allocated);
     __ Push(t4, t4);
 
     // Reload the number of arguments from the stack.

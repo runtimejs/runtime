@@ -2,17 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_IA32
 
-#include "cpu-profiler.h"
-#include "unicode.h"
-#include "log.h"
-#include "regexp-stack.h"
-#include "macro-assembler.h"
-#include "regexp-macro-assembler.h"
-#include "ia32/regexp-macro-assembler-ia32.h"
+#include "src/cpu-profiler.h"
+#include "src/log.h"
+#include "src/macro-assembler.h"
+#include "src/regexp-macro-assembler.h"
+#include "src/regexp-stack.h"
+#include "src/unicode.h"
+
+#include "src/ia32/regexp-macro-assembler-ia32.h"
 
 namespace v8 {
 namespace internal {
@@ -1076,7 +1077,8 @@ int RegExpMacroAssemblerIA32::CheckStackGuardState(Address* return_address,
                                                    Code* re_code,
                                                    Address re_frame) {
   Isolate* isolate = frame_entry<Isolate*>(re_frame, kIsolate);
-  if (isolate->stack_guard()->IsStackOverflow()) {
+  StackLimitCheck check(isolate);
+  if (check.JsHasOverflowed()) {
     isolate->StackOverflow();
     return EXCEPTION;
   }

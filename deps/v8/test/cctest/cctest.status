@@ -67,12 +67,13 @@
 
   # This tests only the type system, so there is no point in running several
   # variants.
+  'test-hydrogen-types/*': [PASS, NO_VARIANTS],
   'test-types/*': [PASS, NO_VARIANTS],
 
-  # BUG(2999).
-  'test-cpu-profiler/CollectCpuProfile': [PASS, FLAKY],
-  # BUG(3287).
-  'test-cpu-profiler/SampleWhenFrameIsNotSetup': [PASS, FLAKY],
+  # The cpu profiler tests are notoriously flaky.
+  # BUG(2999). (test/cpu-profiler/CollectCpuProfile)
+  # BUG(3287). (test-cpu-profiler/SampleWhenFrameIsNotSetup)
+  'test-cpu-profiler/*': [PASS, FLAKY],
 
   ############################################################################
   # Slow tests.
@@ -87,6 +88,10 @@
 ['arch == arm64', {
 
   'test-api/Bug618': [PASS],
+
+  # BUG(v8:3385).
+  'test-serialize/DeserializeFromSecondSerialization': [PASS, FAIL],
+  'test-serialize/DeserializeFromSecondSerializationAndRunScript2': [PASS, FAIL],
 
   # BUG(v8:2999).
   'test-cpu-profiler/CollectCpuProfile': [PASS, FAIL],
@@ -146,7 +151,6 @@
 
   # BUG(2999).
   'test-cpu-profiler/CollectCpuProfile': [PASS, FAIL],
-  'test-cpu-profiler/JsNativeJsSample': [PASS, FLAKY],
 
   # BUG(3055).
   'test-cpu-profiler/JsNative1JsNative2JsSample': [PASS, ['mode == release', FAIL], ['mode == debug', FLAKY]],
@@ -203,6 +207,23 @@
   'test-serialize/DeserializeAndRunScript2': [SKIP],
   'test-serialize/DeserializeFromSecondSerialization': [SKIP],
 }],  # 'arch == mipsel or arch == mips'
+
+##############################################################################
+['arch == x87', {
+
+  # TODO (weiliang): Enable below tests after fixing the double register
+  # allocation limit in X87 port.
+  'test-serialize/Serialize': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/Deserialize': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/SerializeTwice': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/ContextSerialization': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/ContextDeserialization': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/PartialDeserialization': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/PartialSerialization': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/DeserializeAndRunScript2': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/DeserializeFromSecondSerializationAndRunScript2': [PASS, ['mode == debug', SKIP]],
+  'test-serialize/DeserializeFromSecondSerialization': [PASS, ['mode == debug', SKIP]],
+}],  # 'arch == x87'
 
 ##############################################################################
 ['arch == android_arm or arch == android_ia32', {

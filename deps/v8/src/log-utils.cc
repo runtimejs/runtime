@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "log-utils.h"
-#include "string-stream.h"
+#include "src/log-utils.h"
+#include "src/string-stream.h"
 
 namespace v8 {
 namespace internal {
@@ -112,7 +112,7 @@ void Log::MessageBuilder::Append(const char* format, ...) {
 void Log::MessageBuilder::AppendVA(const char* format, va_list args) {
   Vector<char> buf(log_->message_buffer_ + pos_,
                    Log::kMessageBufferSize - pos_);
-  int result = v8::internal::OS::VSNPrintF(buf, format, args);
+  int result = v8::internal::VSNPrintF(buf, format, args);
 
   // Result is -1 if output was truncated.
   if (result >= 0) {
@@ -211,7 +211,7 @@ void Log::MessageBuilder::AppendStringPart(const char* str, int len) {
   }
   Vector<char> buf(log_->message_buffer_ + pos_,
                    Log::kMessageBufferSize - pos_);
-  OS::StrNCpy(buf, str, len);
+  StrNCpy(buf, str, len);
   pos_ += len;
   ASSERT(pos_ <= Log::kMessageBufferSize);
 }

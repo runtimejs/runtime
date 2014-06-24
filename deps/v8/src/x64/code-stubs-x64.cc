@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X64
 
-#include "bootstrapper.h"
-#include "code-stubs.h"
-#include "regexp-macro-assembler.h"
-#include "stub-cache.h"
-#include "runtime.h"
+#include "src/bootstrapper.h"
+#include "src/code-stubs.h"
+#include "src/regexp-macro-assembler.h"
+#include "src/runtime.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -116,6 +116,16 @@ void RegExpConstructResultStub::InitializeInterfaceDescriptor(
   descriptor->register_params_ = registers;
   descriptor->deoptimization_handler_ =
       Runtime::FunctionForId(Runtime::kHiddenRegExpConstructResult)->entry;
+}
+
+
+void KeyedLoadGenericElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  static Register registers[] = { rdx, rax };
+  descriptor->register_param_count_ = 2;
+  descriptor->register_params_ = registers;
+  descriptor->deoptimization_handler_ =
+      Runtime::FunctionForId(Runtime::kKeyedGetProperty)->entry;
 }
 
 
@@ -316,16 +326,6 @@ void ElementsTransitionAndStoreStub::InitializeInterfaceDescriptor(
   descriptor->register_params_ = registers;
   descriptor->deoptimization_handler_ =
       FUNCTION_ADDR(ElementsTransitionAndStoreIC_Miss);
-}
-
-
-void ArrayShiftStub::InitializeInterfaceDescriptor(
-    CodeStubInterfaceDescriptor* descriptor) {
-  static Register registers[] = { rax };
-  descriptor->register_param_count_ = 1;
-  descriptor->register_params_ = registers;
-  descriptor->deoptimization_handler_ =
-      Builtins::c_function_address(Builtins::c_ArrayShift);
 }
 
 
@@ -1173,7 +1173,7 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   __ bind(&runtime);
   __ Integer32ToSmi(rcx, rcx);
   __ movp(args.GetArgumentOperand(2), rcx);  // Patch argument count.
-  __ TailCallRuntime(Runtime::kHiddenNewArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewSloppyArguments, 3, 1);
 }
 
 
@@ -1200,7 +1200,7 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   __ movp(args.GetArgumentOperand(1), rdx);
 
   __ bind(&runtime);
-  __ TailCallRuntime(Runtime::kHiddenNewArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewSloppyArguments, 3, 1);
 }
 
 
@@ -1301,7 +1301,7 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
 
   // Do the runtime call to allocate the arguments object.
   __ bind(&runtime);
-  __ TailCallRuntime(Runtime::kHiddenNewStrictArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewStrictArguments, 3, 1);
 }
 
 
@@ -1449,8 +1449,8 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
   // (5b) Is subject external?  If yes, go to (8).
   __ testb(rbx, Immediate(kStringRepresentationMask));
   // The underlying external string is never a short external string.
-  STATIC_CHECK(ExternalString::kMaxShortLength < ConsString::kMinLength);
-  STATIC_CHECK(ExternalString::kMaxShortLength < SlicedString::kMinLength);
+  STATIC_ASSERT(ExternalString::kMaxShortLength < ConsString::kMinLength);
+  STATIC_ASSERT(ExternalString::kMaxShortLength < SlicedString::kMinLength);
   __ j(not_zero, &external_string);  // Go to (8)
 
   // (6) One byte sequential.  Load regexp code for one byte.
@@ -2364,15 +2364,21 @@ static void EmitLoadTypeFeedbackVector(MacroAssembler* masm, Register vector) {
 }
 
 
-void CallICStub::Generate_MonomorphicArray(MacroAssembler* masm, Label* miss) {
+void CallIC_ArrayStub::Generate(MacroAssembler* masm) {
   // rdi - function
-  // rbx - feedback vector
   // rdx - slot id (as integer)
-  __ LoadGlobalFunction(Context::ARRAY_FUNCTION_INDEX, rcx);
-  __ cmpq(rdi, rcx);
-  __ j(not_equal, miss);
+  Label miss;
+  int argc = state_.arg_count();
+  ParameterCount actual(argc);
 
-  __ movq(rax, Immediate(arg_count()));
+  EmitLoadTypeFeedbackVector(masm, rbx);
+  __ SmiToInteger32(rdx, rdx);
+
+  __ LoadGlobalFunction(Context::ARRAY_FUNCTION_INDEX, rcx);
+  __ cmpp(rdi, rcx);
+  __ j(not_equal, &miss);
+
+  __ movp(rax, Immediate(arg_count()));
   __ movp(rbx, FieldOperand(rbx, rdx, times_pointer_size,
                             FixedArray::kHeaderSize));
 
@@ -2380,26 +2386,9 @@ void CallICStub::Generate_MonomorphicArray(MacroAssembler* masm, Label* miss) {
   __ AssertUndefinedOrAllocationSite(rbx);
   ArrayConstructorStub stub(masm->isolate(), arg_count());
   __ TailCallStub(&stub);
-}
-
-
-void CallICStub::Generate_CustomFeedbackCall(MacroAssembler* masm) {
-  // rdi - function
-  // rbx - feedback vector
-  // rdx - slot id
-  Label miss;
-
-  __ SmiToInteger32(rdx, rdx);
-
-  if (state_.stub_type() == CallIC::MONOMORPHIC_ARRAY) {
-    Generate_MonomorphicArray(masm, &miss);
-  } else {
-    // So far there is only one customer for our custom feedback scheme.
-    UNREACHABLE();
-  }
 
   __ bind(&miss);
-  GenerateMiss(masm);
+  GenerateMiss(masm, IC::kCallIC_Customization_Miss);
 
   // The slow case, we need this no matter what to complete a call after a miss.
   CallFunctionNoFeedback(masm,
@@ -2426,14 +2415,9 @@ void CallICStub::Generate(MacroAssembler* masm) {
 
   EmitLoadTypeFeedbackVector(masm, rbx);
 
-  if (state_.stub_type() != CallIC::DEFAULT) {
-    Generate_CustomFeedbackCall(masm);
-    return;
-  }
-
   // The checks. First, does rdi match the recorded monomorphic target?
   __ SmiToInteger32(rdx, rdx);
-  __ cmpq(rdi, FieldOperand(rbx, rdx, times_pointer_size,
+  __ cmpp(rdi, FieldOperand(rbx, rdx, times_pointer_size,
                             FixedArray::kHeaderSize));
   __ j(not_equal, &extra_checks_or_miss);
 
@@ -2482,7 +2466,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
 
   // We are here because tracing is on or we are going monomorphic.
   __ bind(&miss);
-  GenerateMiss(masm);
+  GenerateMiss(masm, IC::kCallIC_Miss);
 
   // the slow case
   __ bind(&slow_start);
@@ -2498,7 +2482,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
 }
 
 
-void CallICStub::GenerateMiss(MacroAssembler* masm) {
+void CallICStub::GenerateMiss(MacroAssembler* masm, IC::UtilityId id) {
   // Get the receiver of the function from the stack; 1 ~ return address.
   __ movp(rcx, Operand(rsp, (state_.arg_count() + 1) * kPointerSize));
 
@@ -2513,7 +2497,7 @@ void CallICStub::GenerateMiss(MacroAssembler* masm) {
     __ Push(rdx);
 
     // Call the entry.
-    ExternalReference miss = ExternalReference(IC_Utility(IC::kCallIC_Miss),
+    ExternalReference miss = ExternalReference(IC_Utility(id),
                                                masm->isolate());
     __ CallExternalReference(miss, 4);
 
@@ -3160,49 +3144,21 @@ void StringCharFromCodeGenerator::GenerateSlow(
 }
 
 
-void StringHelper::GenerateCopyCharactersREP(MacroAssembler* masm,
-                                             Register dest,
-                                             Register src,
-                                             Register count,
-                                             bool ascii) {
-  // Copy characters using rep movs of doublewords. Align destination on 4 byte
-  // boundary before starting rep movs. Copy remaining characters after running
-  // rep movs.
-  // Count is positive int32, dest and src are character pointers.
-  ASSERT(dest.is(rdi));  // rep movs destination
-  ASSERT(src.is(rsi));  // rep movs source
-  ASSERT(count.is(rcx));  // rep movs count
-
+void StringHelper::GenerateCopyCharacters(MacroAssembler* masm,
+                                          Register dest,
+                                          Register src,
+                                          Register count,
+                                          String::Encoding encoding) {
   // Nothing to do for zero characters.
   Label done;
   __ testl(count, count);
   __ j(zero, &done, Label::kNear);
 
   // Make count the number of bytes to copy.
-  if (!ascii) {
+  if (encoding == String::TWO_BYTE_ENCODING) {
     STATIC_ASSERT(2 == sizeof(uc16));
     __ addl(count, count);
   }
-
-  // Don't enter the rep movs if there are less than 4 bytes to copy.
-  Label last_bytes;
-  __ testl(count, Immediate(~(kPointerSize - 1)));
-  __ j(zero, &last_bytes, Label::kNear);
-
-  // Copy from edi to esi using rep movs instruction.
-  __ movl(kScratchRegister, count);
-  // Number of doublewords to copy.
-  __ shrl(count, Immediate(kPointerSizeLog2));
-  __ repmovsp();
-
-  // Find number of bytes left.
-  __ movl(count, kScratchRegister);
-  __ andp(count, Immediate(kPointerSize - 1));
-
-  // Check if there are more bytes to copy.
-  __ bind(&last_bytes);
-  __ testl(count, count);
-  __ j(zero, &done, Label::kNear);
 
   // Copy remaining characters.
   Label loop;
@@ -3423,7 +3379,7 @@ void SubStringStub::Generate(MacroAssembler* masm) {
 
   // Handle external string.
   // Rule out short external strings.
-  STATIC_CHECK(kShortExternalStringTag != 0);
+  STATIC_ASSERT(kShortExternalStringTag != 0);
   __ testb(rbx, Immediate(kShortExternalStringMask));
   __ j(not_zero, &runtime);
   __ movp(rdi, FieldOperand(rdi, ExternalString::kResourceDataOffset));
@@ -3441,10 +3397,9 @@ void SubStringStub::Generate(MacroAssembler* masm) {
 
   // rax: result string
   // rcx: result string length
-  __ movp(r14, rsi);  // esi used by following code.
   {  // Locate character of sub string start.
     SmiIndex smi_as_index = masm->SmiToIndex(rdx, rdx, times_1);
-    __ leap(rsi, Operand(rdi, smi_as_index.reg, smi_as_index.scale,
+    __ leap(r14, Operand(rdi, smi_as_index.reg, smi_as_index.scale,
                         SeqOneByteString::kHeaderSize - kHeapObjectTag));
   }
   // Locate first character of result.
@@ -3452,11 +3407,10 @@ void SubStringStub::Generate(MacroAssembler* masm) {
 
   // rax: result string
   // rcx: result length
-  // rdi: first character of result
+  // r14: first character of result
   // rsi: character of sub string start
-  // r14: original value of rsi
-  StringHelper::GenerateCopyCharactersREP(masm, rdi, rsi, rcx, true);
-  __ movp(rsi, r14);  // Restore rsi.
+  StringHelper::GenerateCopyCharacters(
+      masm, rdi, r14, rcx, String::ONE_BYTE_ENCODING);
   __ IncrementCounter(counters->sub_string_native(), 1);
   __ ret(SUB_STRING_ARGUMENT_COUNT * kPointerSize);
 
@@ -3466,10 +3420,9 @@ void SubStringStub::Generate(MacroAssembler* masm) {
 
   // rax: result string
   // rcx: result string length
-  __ movp(r14, rsi);  // esi used by following code.
   {  // Locate character of sub string start.
     SmiIndex smi_as_index = masm->SmiToIndex(rdx, rdx, times_2);
-    __ leap(rsi, Operand(rdi, smi_as_index.reg, smi_as_index.scale,
+    __ leap(r14, Operand(rdi, smi_as_index.reg, smi_as_index.scale,
                         SeqOneByteString::kHeaderSize - kHeapObjectTag));
   }
   // Locate first character of result.
@@ -3478,10 +3431,9 @@ void SubStringStub::Generate(MacroAssembler* masm) {
   // rax: result string
   // rcx: result length
   // rdi: first character of result
-  // rsi: character of sub string start
-  // r14: original value of rsi
-  StringHelper::GenerateCopyCharactersREP(masm, rdi, rsi, rcx, false);
-  __ movp(rsi, r14);  // Restore esi.
+  // r14: character of sub string start
+  StringHelper::GenerateCopyCharacters(
+      masm, rdi, r14, rcx, String::TWO_BYTE_ENCODING);
   __ IncrementCounter(counters->sub_string_native(), 1);
   __ ret(SUB_STRING_ARGUMENT_COUNT * kPointerSize);
 
@@ -4895,8 +4847,7 @@ void InternalArrayConstructorStub::Generate(MacroAssembler* masm) {
   // but the following masking takes care of that anyway.
   __ movzxbp(rcx, FieldOperand(rcx, Map::kBitField2Offset));
   // Retrieve elements_kind from bit field 2.
-  __ andp(rcx, Immediate(Map::kElementsKindMask));
-  __ shrp(rcx, Immediate(Map::kElementsKindShift));
+  __ DecodeField<Map::ElementsKindBits>(rcx);
 
   if (FLAG_debug_code) {
     Label done;

@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "bootstrapper.h"
-#include "code-stubs.h"
-#include "cpu-profiler.h"
-#include "stub-cache.h"
-#include "factory.h"
-#include "gdb-jit.h"
-#include "macro-assembler.h"
+#include "src/bootstrapper.h"
+#include "src/code-stubs.h"
+#include "src/cpu-profiler.h"
+#include "src/factory.h"
+#include "src/gdb-jit.h"
+#include "src/macro-assembler.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -470,6 +470,12 @@ Type* CompareNilICStub::GetInputType(Zone* zone, Handle<Map> map) {
 }
 
 
+void CallIC_ArrayStub::PrintState(StringStream* stream) {
+  state_.Print(stream);
+  stream->Add(" (Array)");
+}
+
+
 void CallICStub::PrintState(StringStream* stream) {
   state_.Print(stream);
 }
@@ -754,6 +760,13 @@ void StringAddStub::InstallDescriptors(Isolate* isolate) {
 // static
 void RegExpConstructResultStub::InstallDescriptors(Isolate* isolate) {
   RegExpConstructResultStub stub(isolate);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void KeyedLoadGenericElementStub::InstallDescriptors(Isolate* isolate) {
+  KeyedLoadGenericElementStub stub(isolate);
   InstallDescriptor(isolate, &stub);
 }
 

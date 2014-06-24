@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X64
 
-#include "macro-assembler.h"
-#include "serialize.h"
+#include "src/macro-assembler.h"
+#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -19,8 +19,6 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
   CPU cpu;
   CHECK(cpu.has_sse2());  // SSE2 support is mandatory.
   CHECK(cpu.has_cmov());  // CMOV support is mandatory.
-
-  supported_ |= OS::CpuFeaturesImpliedByPlatform();
 
   // Only use statically determined features for cross compile (snapshot).
   if (cross_compile) return;
@@ -361,9 +359,9 @@ void Assembler::GrowBuffer() {
   intptr_t pc_delta = desc.buffer - buffer_;
   intptr_t rc_delta = (desc.buffer + desc.buffer_size) -
       (buffer_ + buffer_size_);
-  OS::MemMove(desc.buffer, buffer_, desc.instr_size);
-  OS::MemMove(rc_delta + reloc_info_writer.pos(),
-              reloc_info_writer.pos(), desc.reloc_size);
+  MemMove(desc.buffer, buffer_, desc.instr_size);
+  MemMove(rc_delta + reloc_info_writer.pos(), reloc_info_writer.pos(),
+          desc.reloc_size);
 
   // Switch buffers.
   if (isolate() != NULL &&
@@ -2785,6 +2783,16 @@ void Assembler::xorpd(XMMRegister dst, XMMRegister src) {
 
 
 void Assembler::sqrtsd(XMMRegister dst, XMMRegister src) {
+  EnsureSpace ensure_space(this);
+  emit(0xF2);
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x51);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::sqrtsd(XMMRegister dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   emit(0xF2);
   emit_optional_rex_32(dst, src);

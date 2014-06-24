@@ -8,31 +8,31 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/prctl.h>
-#include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/time.h>
 #include <sys/types.h>
-#include <stdlib.h>
 
 // Ubuntu Dapper requires memory pages to be marked as
 // executable. Otherwise, OS raises an exception when executing code
 // in that page.
-#include <sys/types.h>  // mmap & munmap
+#include <errno.h>
+#include <fcntl.h>      // open
+#include <stdarg.h>
+#include <strings.h>    // index
 #include <sys/mman.h>   // mmap & munmap
 #include <sys/stat.h>   // open
-#include <fcntl.h>      // open
+#include <sys/types.h>  // mmap & munmap
 #include <unistd.h>     // sysconf
-#include <strings.h>    // index
-#include <errno.h>
-#include <stdarg.h>
 
 // GLibc on ARM defines mcontext_t has a typedef for 'struct sigcontext'.
 // Old versions of the C library <signal.h> didn't define the type.
 #if defined(__ANDROID__) && !defined(__BIONIC_HAVE_UCONTEXT_T) && \
     (defined(__arm__) || defined(__aarch64__)) && \
     !defined(__BIONIC_HAVE_STRUCT_SIGCONTEXT)
-#include <asm/sigcontext.h>
+#include <asm/sigcontext.h>  // NOLINT
 #endif
 
 #if defined(LEAK_SANITIZER)
@@ -41,10 +41,9 @@
 
 #undef MAP_TYPE
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "platform.h"
-#include "v8threads.h"
+#include "src/platform.h"
 
 
 namespace v8 {
@@ -119,11 +118,7 @@ void* OS::Allocate(const size_t requested,
   int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
   void* addr = OS::GetRandomMmapAddr();
   void* mbase = mmap(addr, msize, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (mbase == MAP_FAILED) {
-    LOG(i::Isolate::Current(),
-        StringEvent("OS::Allocate", "mmap failed"));
-    return NULL;
-  }
+  if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
@@ -187,12 +182,13 @@ PosixMemoryMappedFile::~PosixMemoryMappedFile() {
 }
 
 
-void OS::LogSharedLibraryAddresses(Isolate* isolate) {
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  std::vector<SharedLibraryAddress> result;
   // This function assumes that the layout of the file is as follows:
   // hex_start_addr-hex_end_addr rwxp <unused data> [binary_file_name]
   // If we encounter an unexpected situation we abort scanning further entries.
   FILE* fp = fopen("/proc/self/maps", "r");
-  if (fp == NULL) return;
+  if (fp == NULL) return result;
 
   // Allocate enough room to be able to store a full file name.
   const int kLibNameLen = FILENAME_MAX + 1;
@@ -232,7 +228,7 @@ void OS::LogSharedLibraryAddresses(Isolate* isolate) {
         snprintf(lib_name, kLibNameLen,
                  "%08" V8PRIxPTR "-%08" V8PRIxPTR, start, end);
       }
-      LOG(isolate, SharedLibraryEvent(lib_name, start, end));
+      result.push_back(SharedLibraryAddress(lib_name, start, end));
     } else {
       // Entry not describing executable data. Skip to end of line to set up
       // reading the next entry.
@@ -244,6 +240,7 @@ void OS::LogSharedLibraryAddresses(Isolate* isolate) {
   }
   free(lib_name);
   fclose(fp);
+  return result;
 }
 
 

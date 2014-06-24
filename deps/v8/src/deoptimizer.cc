@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "accessors.h"
-#include "codegen.h"
-#include "deoptimizer.h"
-#include "disasm.h"
-#include "full-codegen.h"
-#include "global-handles.h"
-#include "macro-assembler.h"
-#include "prettyprinter.h"
+#include "src/accessors.h"
+#include "src/codegen.h"
+#include "src/deoptimizer.h"
+#include "src/disasm.h"
+#include "src/full-codegen.h"
+#include "src/global-handles.h"
+#include "src/macro-assembler.h"
+#include "src/prettyprinter.h"
 
 
 namespace v8 {
@@ -1841,7 +1841,8 @@ Handle<Object> Deoptimizer::MaterializeNextHeapObject() {
         object->set_elements(FixedArrayBase::cast(*elements));
         for (int i = 0; i < length - 3; ++i) {
           Handle<Object> value = MaterializeNextValue();
-          object->FastPropertyAtPut(i, *value);
+          FieldIndex index = FieldIndex::ForPropertyIndex(object->map(), i);
+          object->FastPropertyAtPut(index, *value);
         }
         break;
       }
@@ -2906,8 +2907,7 @@ int32_t TranslationIterator::Next() {
 Handle<ByteArray> TranslationBuffer::CreateByteArray(Factory* factory) {
   int length = contents_.length();
   Handle<ByteArray> result = factory->NewByteArray(length, TENURED);
-  OS::MemCopy(
-      result->GetDataStartAddress(), contents_.ToVector().start(), length);
+  MemCopy(result->GetDataStartAddress(), contents_.ToVector().start(), length);
   return result;
 }
 
@@ -3407,7 +3407,8 @@ Handle<Object> SlotRefValueBuilder::GetNext(Isolate* isolate, int lvl) {
           object->set_elements(FixedArrayBase::cast(*elements));
           for (int i = 0; i < length - 3; ++i) {
             Handle<Object> value = GetNext(isolate, lvl + 1);
-            object->FastPropertyAtPut(i, *value);
+            FieldIndex index = FieldIndex::ForPropertyIndex(object->map(), i);
+            object->FastPropertyAtPut(index, *value);
           }
           return object;
         }

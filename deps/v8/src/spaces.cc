@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "full-codegen.h"
-#include "macro-assembler.h"
-#include "mark-compact.h"
-#include "msan.h"
-#include "platform.h"
+#include "src/full-codegen.h"
+#include "src/macro-assembler.h"
+#include "src/mark-compact.h"
+#include "src/msan.h"
+#include "src/platform.h"
 
 namespace v8 {
 namespace internal {
@@ -115,15 +115,17 @@ bool CodeRange::SetUp(size_t requested) {
   ASSERT(code_range_ == NULL);
 
   if (requested == 0) {
-    // On 64-bit platform(s), we put all code objects in a 512 MB range of
-    // virtual address space, so that they can call each other with near calls.
-    if (kIs64BitArch) {
-      requested = 512 * MB;
+    // When a target requires the code range feature, we put all code objects
+    // in a kMaximalCodeRangeSize range of virtual address space, so that
+    // they can call each other with near calls.
+    if (kRequiresCodeRange) {
+      requested = kMaximalCodeRangeSize;
     } else {
       return true;
     }
   }
 
+  ASSERT(!kRequiresCodeRange || requested <= kMaximalCodeRangeSize);
   code_range_ = new VirtualMemory(requested);
   CHECK(code_range_ != NULL);
   if (!code_range_->IsReserved()) {
@@ -156,12 +158,12 @@ int CodeRange::CompareFreeBlockAddress(const FreeBlock* left,
 }
 
 
-void CodeRange::GetNextAllocationBlock(size_t requested) {
+bool CodeRange::GetNextAllocationBlock(size_t requested) {
   for (current_allocation_block_index_++;
        current_allocation_block_index_ < allocation_list_.length();
        current_allocation_block_index_++) {
     if (requested <= allocation_list_[current_allocation_block_index_].size) {
-      return;  // Found a large enough allocation block.
+      return true;  // Found a large enough allocation block.
     }
   }
 
@@ -188,12 +190,12 @@ void CodeRange::GetNextAllocationBlock(size_t requested) {
        current_allocation_block_index_ < allocation_list_.length();
        current_allocation_block_index_++) {
     if (requested <= allocation_list_[current_allocation_block_index_].size) {
-      return;  // Found a large enough allocation block.
+      return true;  // Found a large enough allocation block.
     }
   }
 
   // Code range is full or too fragmented.
-  V8::FatalProcessOutOfMemory("CodeRange::GetNextAllocationBlock");
+  return false;
 }
 
 
@@ -203,9 +205,8 @@ Address CodeRange::AllocateRawMemory(const size_t requested_size,
   ASSERT(commit_size <= requested_size);
   ASSERT(current_allocation_block_index_ < allocation_list_.length());
   if (requested_size > allocation_list_[current_allocation_block_index_].size) {
-    // Find an allocation block large enough.  This function call may
-    // call V8::FatalProcessOutOfMemory if it cannot find a large enough block.
-    GetNextAllocationBlock(requested_size);
+    // Find an allocation block large enough.
+    if (!GetNextAllocationBlock(requested_size)) return NULL;
   }
   // Commit the requested memory at the start of the current allocation block.
   size_t aligned_requested = RoundUp(requested_size, MemoryChunk::kAlignment);
@@ -228,7 +229,8 @@ Address CodeRange::AllocateRawMemory(const size_t requested_size,
   allocation_list_[current_allocation_block_index_].start += *allocated;
   allocation_list_[current_allocation_block_index_].size -= *allocated;
   if (*allocated == current.size) {
-    GetNextAllocationBlock(0);  // This block is used up, get the next one.
+    // This block is used up, get the next one.
+    if (!GetNextAllocationBlock(0)) return NULL;
   }
   return current.start;
 }
@@ -322,9 +324,12 @@ void MemoryAllocator::FreeMemory(VirtualMemory* reservation,
     size_executable_ -= size;
   }
   // Code which is part of the code-range does not have its own VirtualMemory.
-  ASSERT(!isolate_->code_range()->contains(
-      static_cast<Address>(reservation->address())));
-  ASSERT(executable == NOT_EXECUTABLE || !isolate_->code_range()->exists());
+  ASSERT(isolate_->code_range() == NULL ||
+         !isolate_->code_range()->contains(
+             static_cast<Address>(reservation->address())));
+  ASSERT(executable == NOT_EXECUTABLE ||
+         isolate_->code_range() == NULL ||
+         !isolate_->code_range()->valid());
   reservation->Release();
 }
 
@@ -342,11 +347,14 @@ void MemoryAllocator::FreeMemory(Address base,
     ASSERT(size_executable_ >= size);
     size_executable_ -= size;
   }
-  if (isolate_->code_range()->contains(static_cast<Address>(base))) {
+  if (isolate_->code_range() != NULL &&
+      isolate_->code_range()->contains(static_cast<Address>(base))) {
     ASSERT(executable == EXECUTABLE);
     isolate_->code_range()->FreeRawMemory(base, size);
   } else {
-    ASSERT(executable == NOT_EXECUTABLE || !isolate_->code_range()->exists());
+    ASSERT(executable == NOT_EXECUTABLE ||
+           isolate_->code_range() == NULL ||
+           !isolate_->code_range()->valid());
     bool result = VirtualMemory::ReleaseRegion(base, size);
     USE(result);
     ASSERT(result);
@@ -522,7 +530,8 @@ bool MemoryChunk::CommitArea(size_t requested) {
       }
     } else {
       CodeRange* code_range = heap_->isolate()->code_range();
-      ASSERT(code_range->exists() && IsFlagSet(IS_EXECUTABLE));
+      ASSERT(code_range != NULL && code_range->valid() &&
+             IsFlagSet(IS_EXECUTABLE));
       if (!code_range->CommitRawMemory(start, length)) return false;
     }
 
@@ -538,7 +547,8 @@ bool MemoryChunk::CommitArea(size_t requested) {
       if (!reservation_.Uncommit(start, length)) return false;
     } else {
       CodeRange* code_range = heap_->isolate()->code_range();
-      ASSERT(code_range->exists() && IsFlagSet(IS_EXECUTABLE));
+      ASSERT(code_range != NULL && code_range->valid() &&
+             IsFlagSet(IS_EXECUTABLE));
       if (!code_range->UncommitRawMemory(start, length)) return false;
     }
   }
@@ -628,7 +638,7 @@ MemoryChunk* MemoryAllocator::AllocateChunk(intptr_t reserve_area_size,
                                  OS::CommitPageSize());
     // Allocate executable memory either from code range or from the
     // OS.
-    if (isolate_->code_range()->exists()) {
+    if (isolate_->code_range() != NULL && isolate_->code_range()->valid()) {
       base = isolate_->code_range()->AllocateRawMemory(chunk_size,
                                                        commit_size,
                                                        &chunk_size);
@@ -1050,8 +1060,9 @@ intptr_t PagedSpace::SizeOfFirstPage() {
     case PROPERTY_CELL_SPACE:
       size = 8 * kPointerSize * KB;
       break;
-    case CODE_SPACE:
-      if (heap()->isolate()->code_range()->exists()) {
+    case CODE_SPACE: {
+      CodeRange* code_range = heap()->isolate()->code_range();
+      if (code_range != NULL && code_range->valid()) {
         // When code range exists, code pages are allocated in a special way
         // (from the reserved code range). That part of the code is not yet
         // upgraded to handle small pages.
@@ -1062,6 +1073,7 @@ intptr_t PagedSpace::SizeOfFirstPage() {
             kPointerSize);
       }
       break;
+    }
     default:
       UNREACHABLE();
   }
@@ -2046,11 +2058,13 @@ void FreeListNode::set_next(FreeListNode* next) {
   // stage.
   if (map() == GetHeap()->raw_unchecked_free_space_map()) {
     ASSERT(map() == NULL || Size() >= kNextOffset + kPointerSize);
-    NoBarrier_Store(reinterpret_cast<AtomicWord*>(address() + kNextOffset),
-                    reinterpret_cast<AtomicWord>(next));
+    base::NoBarrier_Store(
+        reinterpret_cast<base::AtomicWord*>(address() + kNextOffset),
+        reinterpret_cast<base::AtomicWord>(next));
   } else {
-    NoBarrier_Store(reinterpret_cast<AtomicWord*>(address() + kPointerSize),
-                    reinterpret_cast<AtomicWord>(next));
+    base::NoBarrier_Store(
+        reinterpret_cast<base::AtomicWord*>(address() + kPointerSize),
+        reinterpret_cast<base::AtomicWord>(next));
   }
 }
 
@@ -2071,7 +2085,7 @@ intptr_t FreeListCategory::Concatenate(FreeListCategory* category) {
       category->end()->set_next(top());
     }
     set_top(category->top());
-    NoBarrier_Store(&top_, category->top_);
+    base::NoBarrier_Store(&top_, category->top_);
     available_ += category->available();
     category->Reset();
   }

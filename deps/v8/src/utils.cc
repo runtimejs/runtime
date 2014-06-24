@@ -5,11 +5,11 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "checks.h"
-#include "platform.h"
-#include "utils.h"
+#include "src/checks.h"
+#include "src/platform.h"
+#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -29,7 +29,7 @@ void SimpleStringBuilder::AddString(const char* s) {
 void SimpleStringBuilder::AddSubstring(const char* s, int n) {
   ASSERT(!is_finalized() && position_ + n <= buffer_.length());
   ASSERT(static_cast<size_t>(n) <= strlen(s));
-  OS::MemCopy(&buffer_[position_], s, n * kCharSize);
+  MemCopy(&buffer_[position_], s, n * kCharSize);
   position_ += n;
 }
 
@@ -102,6 +102,25 @@ void PrintPID(const char* format, ...) {
 }
 
 
+int SNPrintF(Vector<char> str, const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = VSNPrintF(str, format, args);
+  va_end(args);
+  return result;
+}
+
+
+int VSNPrintF(Vector<char> str, const char* format, va_list args) {
+  return OS::VSNPrintF(str.start(), str.length(), format, args);
+}
+
+
+void StrNCpy(Vector<char> dest, const char* src, size_t n) {
+  OS::StrNCpy(dest.start(), dest.length(), src, n);
+}
+
+
 void Flush(FILE* out) {
   fflush(out);
 }
@@ -145,12 +164,12 @@ char* ReadLine(const char* prompt) {
       char* new_result = NewArray<char>(new_len);
       // Copy the existing input into the new array and set the new
       // array as the result.
-      OS::MemCopy(new_result, result, offset * kCharSize);
+      MemCopy(new_result, result, offset * kCharSize);
       DeleteArray(result);
       result = new_result;
     }
     // Copy the newly read line into the result.
-    OS::MemCopy(result + offset, line_buf, len * kCharSize);
+    MemCopy(result + offset, line_buf, len * kCharSize);
     offset += len;
   }
   ASSERT(result != NULL);
@@ -305,12 +324,93 @@ void StringBuilder::AddFormatted(const char* format, ...) {
 
 void StringBuilder::AddFormattedList(const char* format, va_list list) {
   ASSERT(!is_finalized() && position_ <= buffer_.length());
-  int n = OS::VSNPrintF(buffer_ + position_, format, list);
+  int n = VSNPrintF(buffer_ + position_, format, list);
   if (n < 0 || n >= (buffer_.length() - position_)) {
     position_ = buffer_.length();
   } else {
     position_ += n;
   }
+}
+
+
+#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X87
+static void MemMoveWrapper(void* dest, const void* src, size_t size) {
+  memmove(dest, src, size);
+}
+
+
+// Initialize to library version so we can call this at any time during startup.
+static MemMoveFunction memmove_function = &MemMoveWrapper;
+
+// Defined in codegen-ia32.cc.
+MemMoveFunction CreateMemMoveFunction();
+
+// Copy memory area to disjoint memory area.
+void MemMove(void* dest, const void* src, size_t size) {
+  if (size == 0) return;
+  // Note: here we rely on dependent reads being ordered. This is true
+  // on all architectures we currently support.
+  (*memmove_function)(dest, src, size);
+}
+
+#elif V8_OS_POSIX && V8_HOST_ARCH_ARM
+void MemCopyUint16Uint8Wrapper(uint16_t* dest, const uint8_t* src,
+                               size_t chars) {
+  uint16_t* limit = dest + chars;
+  while (dest < limit) {
+    *dest++ = static_cast<uint16_t>(*src++);
+  }
+}
+
+
+MemCopyUint8Function memcopy_uint8_function = &MemCopyUint8Wrapper;
+MemCopyUint16Uint8Function memcopy_uint16_uint8_function =
+    &MemCopyUint16Uint8Wrapper;
+// Defined in codegen-arm.cc.
+MemCopyUint8Function CreateMemCopyUint8Function(MemCopyUint8Function stub);
+MemCopyUint16Uint8Function CreateMemCopyUint16Uint8Function(
+    MemCopyUint16Uint8Function stub);
+
+#elif V8_OS_POSIX && V8_HOST_ARCH_MIPS
+MemCopyUint8Function memcopy_uint8_function = &MemCopyUint8Wrapper;
+// Defined in codegen-mips.cc.
+MemCopyUint8Function CreateMemCopyUint8Function(MemCopyUint8Function stub);
+#endif
+
+
+void init_memcopy_functions() {
+#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X87
+  MemMoveFunction generated_memmove = CreateMemMoveFunction();
+  if (generated_memmove != NULL) {
+    memmove_function = generated_memmove;
+  }
+#elif V8_OS_POSIX && V8_HOST_ARCH_ARM
+  memcopy_uint8_function = CreateMemCopyUint8Function(&MemCopyUint8Wrapper);
+  memcopy_uint16_uint8_function =
+      CreateMemCopyUint16Uint8Function(&MemCopyUint16Uint8Wrapper);
+#elif V8_OS_POSIX && V8_HOST_ARCH_MIPS
+  memcopy_uint8_function = CreateMemCopyUint8Function(&MemCopyUint8Wrapper);
+#endif
+}
+
+
+bool DoubleToBoolean(double d) {
+  // NaN, +0, and -0 should return the false object
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+  union IeeeDoubleLittleEndianArchType u;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+  union IeeeDoubleBigEndianArchType u;
+#endif
+  u.d = d;
+  if (u.bits.exp == 2047) {
+    // Detect NaN for IEEE double precision floating point.
+    if ((u.bits.man_low | u.bits.man_high) != 0) return false;
+  }
+  if (u.bits.exp == 0) {
+    // Detect +0, and -0 for IEEE double precision floating point.
+    if ((u.bits.man_low | u.bits.man_high) == 0) return false;
+  }
+  return true;
 }
 
 

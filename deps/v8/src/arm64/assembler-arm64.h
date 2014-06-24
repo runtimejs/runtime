@@ -7,13 +7,14 @@
 
 #include <list>
 #include <map>
+#include <vector>
 
-#include "cpu.h"
-#include "globals.h"
-#include "utils.h"
-#include "assembler.h"
-#include "serialize.h"
-#include "arm64/instructions-arm64.h"
+#include "src/arm64/instructions-arm64.h"
+#include "src/assembler.h"
+#include "src/cpu.h"
+#include "src/globals.h"
+#include "src/serialize.h"
+#include "src/utils.h"
 
 
 namespace v8 {
@@ -599,6 +600,31 @@ class CPURegList {
 #define kCallerSaved CPURegList::GetCallerSaved()
 #define kCallerSavedFP CPURegList::GetCallerSavedFP()
 
+// -----------------------------------------------------------------------------
+// Immediates.
+class Immediate {
+ public:
+  template<typename T>
+  inline explicit Immediate(Handle<T> handle);
+
+  // This is allowed to be an implicit constructor because Immediate is
+  // a wrapper class that doesn't normally perform any type conversion.
+  template<typename T>
+  inline Immediate(T value);  // NOLINT(runtime/explicit)
+
+  template<typename T>
+  inline Immediate(T value, RelocInfo::Mode rmode);
+
+  int64_t value() const { return value_; }
+  RelocInfo::Mode rmode() const { return rmode_; }
+
+ private:
+  void InitializeHandle(Handle<Object> value);
+
+  int64_t value_;
+  RelocInfo::Mode rmode_;
+};
+
 
 // -----------------------------------------------------------------------------
 // Operands.
@@ -634,8 +660,8 @@ class Operand {
   inline Operand(T t);  // NOLINT(runtime/explicit)
 
   // Implicit constructor for int types.
-  template<typename int_t>
-  inline Operand(int_t t, RelocInfo::Mode rmode);
+  template<typename T>
+  inline Operand(T t, RelocInfo::Mode rmode);
 
   inline bool IsImmediate() const;
   inline bool IsShiftedRegister() const;
@@ -646,15 +672,14 @@ class Operand {
   // which helps in the encoding of instructions that use the stack pointer.
   inline Operand ToExtendedRegister() const;
 
-  inline int64_t immediate() const;
+  inline Immediate immediate() const;
+  inline int64_t ImmediateValue() const;
   inline Register reg() const;
   inline Shift shift() const;
   inline Extend extend() const;
   inline unsigned shift_amount() const;
 
   // Relocation information.
-  RelocInfo::Mode rmode() const { return rmode_; }
-  void set_rmode(RelocInfo::Mode rmode) { rmode_ = rmode; }
   bool NeedsRelocation(const Assembler* assembler) const;
 
   // Helpers
@@ -662,13 +687,11 @@ class Operand {
   inline static Operand UntagSmiAndScale(Register smi, int scale);
 
  private:
-  void initialize_handle(Handle<Object> value);
-  int64_t immediate_;
+  Immediate immediate_;
   Register reg_;
   Shift shift_;
   Extend extend_;
   unsigned shift_amount_;
-  RelocInfo::Mode rmode_;
 };
 
 
@@ -707,6 +730,16 @@ class MemOperand {
   // handle indexed modes.
   inline Operand OffsetAsOperand() const;
 
+  enum PairResult {
+    kNotPair,   // Can't use a pair instruction.
+    kPairAB,    // Can use a pair instruction (operandA has lower address).
+    kPairBA     // Can use a pair instruction (operandB has lower address).
+  };
+  // Check if two MemOperand are consistent for stp/ldp use.
+  static PairResult AreConsistentForPair(const MemOperand& operandA,
+                                         const MemOperand& operandB,
+                                         int access_size_log2 = kXRegSizeLog2);
+
  private:
   Register base_;
   Register regoffset_;
@@ -715,6 +748,55 @@ class MemOperand {
   Shift shift_;
   Extend extend_;
   unsigned shift_amount_;
+};
+
+
+class ConstPool {
+ public:
+  explicit ConstPool(Assembler* assm)
+      : assm_(assm),
+        first_use_(-1),
+        shared_entries_count(0) {}
+  void RecordEntry(intptr_t data, RelocInfo::Mode mode);
+  int EntryCount() const {
+    return shared_entries_count + unique_entries_.size();
+  }
+  bool IsEmpty() const {
+    return shared_entries_.empty() && unique_entries_.empty();
+  }
+  // Distance in bytes between the current pc and the first instruction
+  // using the pool. If there are no pending entries return kMaxInt.
+  int DistanceToFirstUse();
+  // Offset after which instructions using the pool will be out of range.
+  int MaxPcOffset();
+  // Maximum size the constant pool can be with current entries. It always
+  // includes alignment padding and branch over.
+  int WorstCaseSize();
+  // Size in bytes of the literal pool *if* it is emitted at the current
+  // pc. The size will include the branch over the pool if it was requested.
+  int SizeIfEmittedAtCurrentPc(bool require_jump);
+  // Emit the literal pool at the current pc with a branch over the pool if
+  // requested.
+  void Emit(bool require_jump);
+  // Discard any pending pool entries.
+  void Clear();
+
+ private:
+  bool CanBeShared(RelocInfo::Mode mode);
+  void EmitMarker();
+  void EmitGuard();
+  void EmitEntries();
+
+  Assembler* assm_;
+  // Keep track of the first instruction requiring a constant pool entry
+  // since the previous constant pool was emitted.
+  int first_use_;
+  // values, pc offset(s) of entries which can be shared.
+  std::multimap<uint64_t, int> shared_entries_;
+  // Number of distinct literal in shared entries.
+  int shared_entries_count;
+  // values, pc offset of entries which cannot be shared.
+  std::vector<std::pair<uint64_t, int> > unique_entries_;
 };
 
 
@@ -741,7 +823,7 @@ class Assembler : public AssemblerBase {
   virtual ~Assembler();
 
   virtual void AbortedCodeGeneration() {
-    num_pending_reloc_info_ = 0;
+    constpool_.Clear();
   }
 
   // System functions ---------------------------------------------------------
@@ -869,7 +951,8 @@ class Assembler : public AssemblerBase {
   static const int kPatchDebugBreakSlotAddressOffset =  0;
 
   // Number of instructions necessary to be able to later patch it to a call.
-  // See Debug::GenerateSlot() and BreakLocationIterator::SetDebugBreakAtSlot().
+  // See DebugCodegen::GenerateSlot() and
+  // BreakLocationIterator::SetDebugBreakAtSlot().
   static const int kDebugBreakSlotInstructions = 4;
   static const int kDebugBreakSlotLength =
     kDebugBreakSlotInstructions * kInstructionSize;
@@ -889,9 +972,7 @@ class Assembler : public AssemblerBase {
   static bool IsConstantPoolAt(Instruction* instr);
   static int ConstantPoolSizeAt(Instruction* instr);
   // See Assembler::CheckConstPool for more info.
-  void ConstantPoolMarker(uint32_t size);
   void EmitPoolGuard();
-  void ConstantPoolGuard();
 
   // Prevent veneer pool emission until EndBlockVeneerPool is called.
   // Call to this function can be nested but must be followed by an equal
@@ -935,9 +1016,9 @@ class Assembler : public AssemblerBase {
   // function, compiled with and without debugger support (see for example
   // Debug::PrepareForBreakPoints()).
   // Compiling functions with debugger support generates additional code
-  // (Debug::GenerateSlot()). This may affect the emission of the pools and
-  // cause the version of the code with debugger support to have pools generated
-  // in different places.
+  // (DebugCodegen::GenerateSlot()). This may affect the emission of the pools
+  // and cause the version of the code with debugger support to have pools
+  // generated in different places.
   // Recording the position and size of emitted pools allows to correctly
   // compute the offset mappings between the different versions of a function in
   // all situations.
@@ -1368,9 +1449,6 @@ class Assembler : public AssemblerBase {
 
   // Memory instructions.
 
-  // Load literal from pc + offset_from_pc.
-  void LoadLiteral(const CPURegister& rt, int offset_from_pc);
-
   // Load integer or FP register.
   void ldr(const CPURegister& rt, const MemOperand& src);
 
@@ -1417,12 +1495,11 @@ class Assembler : public AssemblerBase {
   void stnp(const CPURegister& rt, const CPURegister& rt2,
             const MemOperand& dst);
 
-  // Load literal to register.
-  void ldr(const Register& rt, uint64_t imm);
+  // Load literal to register from a pc relative address.
+  void ldr_pcrel(const CPURegister& rt, int imm19);
 
-  // Load literal to FP register.
-  void ldr(const FPRegister& ft, double imm);
-  void ldr(const FPRegister& ft, float imm);
+  // Load literal to register.
+  void ldr(const CPURegister& rt, const Immediate& imm);
 
   // Move instructions. The default shift of -1 indicates that the move
   // instruction will calculate an appropriate 16-bit immediate and left shift
@@ -1676,7 +1753,9 @@ class Assembler : public AssemblerBase {
 
   // Code generation helpers --------------------------------------------------
 
-  unsigned num_pending_reloc_info() const { return num_pending_reloc_info_; }
+  bool IsConstPoolEmpty() const { return constpool_.IsEmpty(); }
+
+  Instruction* pc() const { return Instruction::Cast(pc_); }
 
   Instruction* InstructionAt(int offset) const {
     return reinterpret_cast<Instruction*>(buffer_ + offset);
@@ -1840,7 +1919,6 @@ class Assembler : public AssemblerBase {
   void CheckVeneerPool(bool force_emit, bool require_jump,
                        int margin = kVeneerDistanceMargin);
 
-
   class BlockPoolsScope {
    public:
     explicit BlockPoolsScope(Assembler* assem) : assem_(assem) {
@@ -1855,10 +1933,6 @@ class Assembler : public AssemblerBase {
 
     DISALLOW_IMPLICIT_CONSTRUCTORS(BlockPoolsScope);
   };
-
-  // Available for constrained code generation scopes. Prefer
-  // MacroAssembler::Mov() when possible.
-  inline void LoadRelocated(const CPURegister& rt, const Operand& operand);
 
  protected:
   inline const Register& AppropriateZeroRegFor(const CPURegister& reg) const;
@@ -1926,6 +2000,7 @@ class Assembler : public AssemblerBase {
     const CPURegister& rt, const CPURegister& rt2);
   static inline LoadStorePairNonTemporalOp StorePairNonTemporalOpFor(
     const CPURegister& rt, const CPURegister& rt2);
+  static inline LoadLiteralOp LoadLiteralOpFor(const CPURegister& rt);
 
   // Remove the specified branch from the unbound label link chain.
   // If available, a veneer for this label can be used for other branches in the
@@ -1958,11 +2033,6 @@ class Assembler : public AssemblerBase {
                                 const CPURegister& rt2,
                                 const MemOperand& addr,
                                 LoadStorePairNonTemporalOp op);
-  // Register the relocation information for the operand and load its value
-  // into rt.
-  void LoadRelocatedValue(const CPURegister& rt,
-                          const Operand& operand,
-                          LoadLiteralOp op);
   void ConditionalSelect(const Register& rd,
                          const Register& rn,
                          const Register& rm,
@@ -2009,6 +2079,11 @@ class Assembler : public AssemblerBase {
   // instructions.
   void BlockConstPoolFor(int instructions);
 
+  // Set how far from current pc the next constant pool check will be.
+  void SetNextConstPoolCheckIn(int instructions) {
+    next_constant_pool_check_ = pc_offset() + instructions * kInstructionSize;
+  }
+
   // Emit the instruction at pc_.
   void Emit(Instr instruction) {
     STATIC_ASSERT(sizeof(*pc_) == 1);
@@ -2040,12 +2115,13 @@ class Assembler : public AssemblerBase {
   int next_constant_pool_check_;
 
   // Constant pool generation
-  // Pools are emitted in the instruction stream, preferably after unconditional
-  // jumps or after returns from functions (in dead code locations).
-  // If a long code sequence does not contain unconditional jumps, it is
-  // necessary to emit the constant pool before the pool gets too far from the
-  // location it is accessed from. In this case, we emit a jump over the emitted
-  // constant pool.
+  // Pools are emitted in the instruction stream. They are emitted when:
+  //  * the distance to the first use is above a pre-defined distance or
+  //  * the numbers of entries in the pool is above a pre-defined size or
+  //  * code generation is finished
+  // If a pool needs to be emitted before code generation is finished a branch
+  // over the emitted pool will be inserted.
+
   // Constants in the pool may be addresses of functions that gets relocated;
   // if so, a relocation info entry is associated to the constant pool entry.
 
@@ -2053,33 +2129,21 @@ class Assembler : public AssemblerBase {
   // expensive. By default we only check again once a number of instructions
   // has been generated. That also means that the sizing of the buffers is not
   // an exact science, and that we rely on some slop to not overrun buffers.
-  static const int kCheckConstPoolIntervalInst = 128;
-  static const int kCheckConstPoolInterval =
-    kCheckConstPoolIntervalInst * kInstructionSize;
+  static const int kCheckConstPoolInterval = 128;
 
-  // Constants in pools are accessed via pc relative addressing, which can
-  // reach +/-4KB thereby defining a maximum distance between the instruction
-  // and the accessed constant.
-  static const int kMaxDistToConstPool = 4 * KB;
-  static const int kMaxNumPendingRelocInfo =
-    kMaxDistToConstPool / kInstructionSize;
+  // Distance to first use after a which a pool will be emitted. Pool entries
+  // are accessed with pc relative load therefore this cannot be more than
+  // 1 * MB. Since constant pool emission checks are interval based this value
+  // is an approximation.
+  static const int kApproxMaxDistToConstPool = 64 * KB;
 
-
-  // Average distance beetween a constant pool and the first instruction
-  // accessing the constant pool. Longer distance should result in less I-cache
-  // pollution.
-  // In practice the distance will be smaller since constant pool emission is
-  // forced after function return and sometimes after unconditional branches.
-  static const int kAvgDistToConstPool =
-    kMaxDistToConstPool - kCheckConstPoolInterval;
+  // Number of pool entries after which a pool will be emitted. Since constant
+  // pool emission checks are interval based this value is an approximation.
+  static const int kApproxMaxPoolEntryCount = 512;
 
   // Emission of the constant pool may be blocked in some code sequences.
   int const_pool_blocked_nesting_;  // Block emission if this is not zero.
   int no_const_pool_before_;  // Block emission before this pc offset.
-
-  // Keep track of the first instruction requiring a constant pool entry
-  // since the previous constant pool was emitted.
-  int first_const_pool_use_;
 
   // Emission of the veneer pools may be blocked in some code sequences.
   int veneer_pool_blocked_nesting_;  // Block emission if this is not zero.
@@ -2096,10 +2160,8 @@ class Assembler : public AssemblerBase {
   // If every instruction in a long sequence is accessing the pool, we need one
   // pending relocation entry per instruction.
 
-  // the buffer of pending relocation info
-  RelocInfo pending_reloc_info_[kMaxNumPendingRelocInfo];
-  // number of pending reloc info entries in the buffer
-  int num_pending_reloc_info_;
+  // The pending constant pool.
+  ConstPool constpool_;
 
   // Relocation for a type-recording IC has the AST id added to it.  This
   // member variable is a way to pass the information from the call site to
@@ -2186,6 +2248,7 @@ class Assembler : public AssemblerBase {
   PositionsRecorder positions_recorder_;
   friend class PositionsRecorder;
   friend class EnsureSpace;
+  friend class ConstPool;
 };
 
 class PatchingAssembler : public Assembler {
@@ -2218,7 +2281,7 @@ class PatchingAssembler : public Assembler {
     // Verify we have generated the number of instruction we expected.
     ASSERT((pc_offset() + kGap) == buffer_size_);
     // Verify no relocation information has been emitted.
-    ASSERT(num_pending_reloc_info() == 0);
+    ASSERT(IsConstPoolEmpty());
     // Flush the Instruction cache.
     size_t length = buffer_size_ - kGap;
     CPU::FlushICache(buffer_, length);

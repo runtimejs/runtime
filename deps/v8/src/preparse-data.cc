@@ -2,14 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "../include/v8stdint.h"
-
-#include "preparse-data-format.h"
-#include "preparse-data.h"
-
-#include "checks.h"
-#include "globals.h"
-#include "hashmap.h"
+#include "include/v8stdint.h"
+#include "src/checks.h"
+#include "src/globals.h"
+#include "src/hashmap.h"
+#include "src/preparse-data.h"
+#include "src/preparse-data-format.h"
 
 namespace v8 {
 namespace internal {
@@ -66,7 +64,7 @@ Vector<unsigned> CompleteParserRecorder::ExtractData() {
   int total_size = PreparseDataConstants::kHeaderSize + function_size;
   Vector<unsigned> data = Vector<unsigned>::New(total_size);
   preamble_[PreparseDataConstants::kFunctionsSizeOffset] = function_size;
-  OS::MemCopy(data.start(), preamble_, sizeof(preamble_));
+  MemCopy(data.start(), preamble_, sizeof(preamble_));
   if (function_size > 0) {
     function_store_.WriteTo(data.SubVector(PreparseDataConstants::kHeaderSize,
                                            total_size));

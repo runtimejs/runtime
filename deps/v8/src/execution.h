@@ -5,7 +5,7 @@
 #ifndef V8_EXECUTION_H_
 #define V8_EXECUTION_H_
 
-#include "handles.h"
+#include "src/handles.h"
 
 namespace v8 {
 namespace internal {
@@ -104,9 +104,6 @@ class Execution V8_FINAL : public AllStatic {
                                           Handle<Object> pos,
                                           Handle<Object> is_global);
 
-  static void DebugBreakHelper(Isolate* isolate);
-  static void ProcessDebugMessages(Isolate* isolate, bool debug_command_only);
-
   // Get a function delegate (or undefined) for the given non-function
   // object. Used for support calling objects as functions.
   static Handle<Object> GetFunctionDelegate(Isolate* isolate,
@@ -148,14 +145,11 @@ class StackGuard V8_FINAL {
   // it has been set up.
   void ClearThread(const ExecutionAccess& lock);
 
-  bool IsStackOverflow();
-
 #define INTERRUPT_LIST(V)                                       \
   V(DEBUGBREAK, DebugBreak)                                     \
   V(DEBUGCOMMAND, DebugCommand)                                 \
   V(TERMINATE_EXECUTION, TerminateExecution)                    \
   V(GC_REQUEST, GC)                                             \
-  V(FULL_DEOPT, FullDeopt)                                      \
   V(INSTALL_CODE, InstallCode)                                  \
   V(API_INTERRUPT, ApiInterrupt)                                \
   V(DEOPT_MARKED_ALLOCATION_SITES, DeoptMarkedAllocationSites)
@@ -207,7 +201,7 @@ enum InterruptFlag {
   bool CheckInterrupt(int flagbit);
   void RequestInterrupt(int flagbit);
   void ClearInterrupt(int flagbit);
-  bool CheckAndClearInterrupt(InterruptFlag flag, const ExecutionAccess& lock);
+  bool CheckAndClearInterrupt(InterruptFlag flag);
 
   // You should hold the ExecutionAccess lock when calling this method.
   bool has_pending_interrupts(const ExecutionAccess& lock) {
@@ -233,7 +227,7 @@ enum InterruptFlag {
   void EnableInterrupts();
   void DisableInterrupts();
 
-#if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64
+#if V8_TARGET_ARCH_64_BIT
   static const uintptr_t kInterruptLimit = V8_UINT64_C(0xfffffffffffffffe);
   static const uintptr_t kIllegalLimit = V8_UINT64_C(0xfffffffffffffff8);
 #else
@@ -268,6 +262,11 @@ enum InterruptFlag {
     int nesting_;
     int postpone_interrupts_nesting_;
     int interrupt_flags_;
+  };
+
+  class StackPointer {
+   public:
+    inline uintptr_t address() { return reinterpret_cast<uintptr_t>(this); }
   };
 
   // TODO(isolates): Technically this could be calculated directly from a

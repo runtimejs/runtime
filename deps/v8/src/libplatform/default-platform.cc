@@ -2,16 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "default-platform.h"
+#include "src/libplatform/default-platform.h"
 
 #include <algorithm>
 #include <queue>
 
 // TODO(jochen): We should have our own version of checks.h.
-#include "../checks.h"
-// TODO(jochen): Why is cpu.h not in platform/?
-#include "../cpu.h"
-#include "worker-thread.h"
+#include "src/checks.h"
+#include "src/libplatform/worker-thread.h"
+#include "src/platform.h"
 
 namespace v8 {
 namespace internal {
@@ -40,7 +39,7 @@ void DefaultPlatform::SetThreadPoolSize(int thread_pool_size) {
   LockGuard<Mutex> guard(&lock_);
   ASSERT(thread_pool_size >= 0);
   if (thread_pool_size < 1)
-    thread_pool_size = CPU::NumberOfProcessorsOnline();
+    thread_pool_size = OS::NumberOfProcessorsOnline();
   thread_pool_size_ =
       std::max(std::min(thread_pool_size, kMaxThreadPoolSize), 1);
 }

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X64
 
-#include "codegen.h"
-#include "macro-assembler.h"
+#include "src/codegen.h"
+#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -518,7 +518,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
     __ Assert(zero, kExternalStringExpectedButNotFound);
   }
   // Rule out short external strings.
-  STATIC_CHECK(kShortExternalStringTag != 0);
+  STATIC_ASSERT(kShortExternalStringTag != 0);
   __ testb(result, Immediate(kShortExternalStringTag));
   __ j(not_zero, call_runtime);
   // Check encoding.

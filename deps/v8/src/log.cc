@@ -4,21 +4,21 @@
 
 #include <stdarg.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "bootstrapper.h"
-#include "code-stubs.h"
-#include "cpu-profiler.h"
-#include "deoptimizer.h"
-#include "global-handles.h"
-#include "log.h"
-#include "log-utils.h"
-#include "macro-assembler.h"
-#include "platform.h"
-#include "runtime-profiler.h"
-#include "serialize.h"
-#include "string-stream.h"
-#include "vm-state-inl.h"
+#include "src/bootstrapper.h"
+#include "src/code-stubs.h"
+#include "src/cpu-profiler.h"
+#include "src/deoptimizer.h"
+#include "src/global-handles.h"
+#include "src/log.h"
+#include "src/log-utils.h"
+#include "src/macro-assembler.h"
+#include "src/platform.h"
+#include "src/runtime-profiler.h"
+#include "src/serialize.h"
+#include "src/string-stream.h"
+#include "src/vm-state-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -106,7 +106,7 @@ class CodeEventLogger::NameBuffer {
 
   void AppendBytes(const char* bytes, int size) {
     size = Min(size, kUtf8BufferSize - utf8_pos_);
-    OS::MemCopy(utf8_buffer_ + utf8_pos_, bytes, size);
+    MemCopy(utf8_buffer_ + utf8_pos_, bytes, size);
     utf8_pos_ += size;
   }
 
@@ -122,7 +122,7 @@ class CodeEventLogger::NameBuffer {
   void AppendInt(int n) {
     Vector<char> buffer(utf8_buffer_ + utf8_pos_,
                         kUtf8BufferSize - utf8_pos_);
-    int size = OS::SNPrintF(buffer, "%d", n);
+    int size = SNPrintF(buffer, "%d", n);
     if (size > 0 && utf8_pos_ + size <= kUtf8BufferSize) {
       utf8_pos_ += size;
     }
@@ -131,7 +131,7 @@ class CodeEventLogger::NameBuffer {
   void AppendHex(uint32_t n) {
     Vector<char> buffer(utf8_buffer_ + utf8_pos_,
                         kUtf8BufferSize - utf8_pos_);
-    int size = OS::SNPrintF(buffer, "%x", n);
+    int size = SNPrintF(buffer, "%x", n);
     if (size > 0 && utf8_pos_ + size <= kUtf8BufferSize) {
       utf8_pos_ += size;
     }
@@ -259,7 +259,7 @@ PerfBasicLogger::PerfBasicLogger()
   // Open the perf JIT dump file.
   int bufferSize = sizeof(kFilenameFormatString) + kFilenameBufferPadding;
   ScopedVector<char> perf_dump_name(bufferSize);
-  int size = OS::SNPrintF(
+  int size = SNPrintF(
       perf_dump_name,
       kFilenameFormatString,
       OS::GetCurrentProcessId());
@@ -383,7 +383,7 @@ PerfJitLogger::PerfJitLogger()
   // Open the perf JIT dump file.
   int bufferSize = sizeof(kFilenameFormatString) + kFilenameBufferPadding;
   ScopedVector<char> perf_dump_name(bufferSize);
-  int size = OS::SNPrintF(
+  int size = SNPrintF(
       perf_dump_name,
       kFilenameFormatString,
       OS::GetCurrentProcessId());
@@ -536,8 +536,8 @@ LowLevelLogger::LowLevelLogger(const char* name)
   // Open the low-level log file.
   size_t len = strlen(name);
   ScopedVector<char> ll_name(static_cast<int>(len + sizeof(kLogExt)));
-  OS::MemCopy(ll_name.start(), name, len);
-  OS::MemCopy(ll_name.start() + len, kLogExt, sizeof(kLogExt));
+  MemCopy(ll_name.start(), name, len);
+  MemCopy(ll_name.start() + len, kLogExt, sizeof(kLogExt));
   ll_output_handle_ = OS::FOpen(ll_name.start(), OS::LogFileOpenMode);
   setvbuf(ll_output_handle_, NULL, _IOFBF, kLogBufferSize);
 
@@ -554,14 +554,18 @@ LowLevelLogger::~LowLevelLogger() {
 void LowLevelLogger::LogCodeInfo() {
 #if V8_TARGET_ARCH_IA32
   const char arch[] = "ia32";
-#elif V8_TARGET_ARCH_X64
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_64_BIT
   const char arch[] = "x64";
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_32_BIT
+  const char arch[] = "x32";
 #elif V8_TARGET_ARCH_ARM
   const char arch[] = "arm";
 #elif V8_TARGET_ARCH_MIPS
   const char arch[] = "mips";
 #elif V8_TARGET_ARCH_X87
   const char arch[] = "x87";
+#elif V8_TARGET_ARCH_ARM64
+  const char arch[] = "arm64";
 #else
   const char arch[] = "unknown";
 #endif
@@ -867,7 +871,12 @@ void Profiler::Engage() {
   if (engaged_) return;
   engaged_ = true;
 
-  OS::LogSharedLibraryAddresses(isolate_);
+  std::vector<OS::SharedLibraryAddress> addresses =
+      OS::GetSharedLibraryAddresses();
+  for (size_t i = 0; i < addresses.size(); ++i) {
+    LOG(isolate_, SharedLibraryEvent(
+        addresses[i].library_path, addresses[i].start, addresses[i].end));
+  }
 
   // Start thread processing the profiler buffer.
   running_ = true;
@@ -1048,26 +1057,13 @@ void Logger::ApiNamedSecurityCheck(Object* key) {
 }
 
 
-void Logger::SharedLibraryEvent(const char* library_path,
+void Logger::SharedLibraryEvent(const std::string& library_path,
                                 uintptr_t start,
                                 uintptr_t end) {
   if (!log_->IsEnabled() || !FLAG_prof) return;
   Log::MessageBuilder msg(log_);
   msg.Append("shared-library,\"%s\",0x%08" V8PRIxPTR ",0x%08" V8PRIxPTR "\n",
-             library_path,
-             start,
-             end);
-  msg.WriteToLogFile();
-}
-
-
-void Logger::SharedLibraryEvent(const wchar_t* library_path,
-                                uintptr_t start,
-                                uintptr_t end) {
-  if (!log_->IsEnabled() || !FLAG_prof) return;
-  Log::MessageBuilder msg(log_);
-  msg.Append("shared-library,\"%ls\",0x%08" V8PRIxPTR ",0x%08" V8PRIxPTR "\n",
-             library_path,
+             library_path.c_str(),
              start,
              end);
   msg.WriteToLogFile();
@@ -1080,6 +1076,16 @@ void Logger::CodeDeoptEvent(Code* code) {
   Log::MessageBuilder msg(log_);
   int since_epoch = static_cast<int>(timer_.Elapsed().InMicroseconds());
   msg.Append("code-deopt,%ld,%d\n", since_epoch, code->CodeSize());
+  msg.WriteToLogFile();
+}
+
+
+void Logger::CurrentTimeEvent() {
+  if (!log_->IsEnabled()) return;
+  ASSERT(FLAG_log_internal_timer_events);
+  Log::MessageBuilder msg(log_);
+  int since_epoch = static_cast<int>(timer_.Elapsed().InMicroseconds());
+  msg.Append("current-time,%ld\n", since_epoch);
   msg.WriteToLogFile();
 }
 
@@ -1129,6 +1135,7 @@ const char* Logger::TimerEventScope::v8_compile_full_code =
     "V8.CompileFullCode";
 const char* Logger::TimerEventScope::v8_execute = "V8.Execute";
 const char* Logger::TimerEventScope::v8_external = "V8.External";
+const char* Logger::TimerEventScope::v8_ic_miss = "V8.IcMiss";
 
 
 void Logger::LogRegExpSource(Handle<JSRegExp> regexp) {
@@ -1708,7 +1715,7 @@ void Logger::TickEvent(TickSample* sample, bool overflow) {
   if (overflow) {
     msg.Append(",overflow");
   }
-  for (int i = 0; i < sample->frames_count; ++i) {
+  for (unsigned i = 0; i < sample->frames_count; ++i) {
     msg.Append(',');
     msg.AppendAddress(sample->stack[i]);
   }
