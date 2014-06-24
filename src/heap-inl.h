@@ -7,14 +7,15 @@
 
 #include <cmath>
 
-#include "heap.h"
-#include "heap-profiler.h"
-#include "isolate.h"
-#include "list-inl.h"
-#include "objects.h"
-#include "platform.h"
-#include "store-buffer.h"
-#include "store-buffer-inl.h"
+#include "src/cpu-profiler.h"
+#include "src/heap.h"
+#include "src/heap-profiler.h"
+#include "src/isolate.h"
+#include "src/list-inl.h"
+#include "src/objects.h"
+#include "src/platform.h"
+#include "src/store-buffer.h"
+#include "src/store-buffer-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -98,9 +99,7 @@ AllocationResult Heap::AllocateInternalizedStringImpl(
 AllocationResult Heap::AllocateOneByteInternalizedString(
     Vector<const uint8_t> str,
     uint32_t hash_field) {
-  if (str.length() > String::kMaxLength) {
-    return isolate()->ThrowInvalidStringLength();
-  }
+  CHECK_GE(String::kMaxLength, str.length());
   // Compute map and object size.
   Map* map = ascii_internalized_string_map();
   int size = SeqOneByteString::SizeFor(str.length());
@@ -122,8 +121,8 @@ AllocationResult Heap::AllocateOneByteInternalizedString(
   ASSERT_EQ(size, answer->Size());
 
   // Fill in the characters.
-  OS::MemCopy(answer->address() + SeqOneByteString::kHeaderSize,
-              str.start(), str.length());
+  MemCopy(answer->address() + SeqOneByteString::kHeaderSize, str.start(),
+          str.length());
 
   return answer;
 }
@@ -131,9 +130,7 @@ AllocationResult Heap::AllocateOneByteInternalizedString(
 
 AllocationResult Heap::AllocateTwoByteInternalizedString(Vector<const uc16> str,
                                                          uint32_t hash_field) {
-  if (str.length() > String::kMaxLength) {
-    return isolate()->ThrowInvalidStringLength();
-  }
+  CHECK_GE(String::kMaxLength, str.length());
   // Compute map and object size.
   Map* map = internalized_string_map();
   int size = SeqTwoByteString::SizeFor(str.length());
@@ -154,8 +151,8 @@ AllocationResult Heap::AllocateTwoByteInternalizedString(Vector<const uc16> str,
   ASSERT_EQ(size, answer->Size());
 
   // Fill in the characters.
-  OS::MemCopy(answer->address() + SeqTwoByteString::kHeaderSize,
-              str.start(), str.length() * kUC16Size);
+  MemCopy(answer->address() + SeqTwoByteString::kHeaderSize, str.start(),
+          str.length() * kUC16Size);
 
   return answer;
 }
@@ -184,7 +181,6 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
   ASSERT(AllowHandleAllocation::IsAllowed());
   ASSERT(AllowHeapAllocation::IsAllowed());
   ASSERT(gc_state_ == NOT_IN_GC);
-  HeapProfiler* profiler = isolate_->heap_profiler();
 #ifdef DEBUG
   if (FLAG_gc_interval >= 0 &&
       AllowAllocationFailure::IsAllowed(isolate_) &&
@@ -204,8 +200,8 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
         retry_space != NEW_SPACE) {
       space = retry_space;
     } else {
-      if (profiler->is_tracking_allocations() && allocation.To(&object)) {
-        profiler->AllocationEvent(object->address(), size_in_bytes);
+      if (allocation.To(&object)) {
+        OnAllocationEvent(object, size_in_bytes);
       }
       return allocation;
     }
@@ -216,7 +212,12 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
   } else if (OLD_DATA_SPACE == space) {
     allocation = old_data_space_->AllocateRaw(size_in_bytes);
   } else if (CODE_SPACE == space) {
-    allocation = code_space_->AllocateRaw(size_in_bytes);
+    if (size_in_bytes <= code_space()->AreaSize()) {
+      allocation = code_space_->AllocateRaw(size_in_bytes);
+    } else {
+      // Large code objects are allocated in large object space.
+      allocation = lo_space_->AllocateRaw(size_in_bytes, EXECUTABLE);
+    }
   } else if (LO_SPACE == space) {
     allocation = lo_space_->AllocateRaw(size_in_bytes, NOT_EXECUTABLE);
   } else if (CELL_SPACE == space) {
@@ -227,11 +228,96 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
     ASSERT(MAP_SPACE == space);
     allocation = map_space_->AllocateRaw(size_in_bytes);
   }
-  if (allocation.IsRetry()) old_gen_exhausted_ = true;
-  if (profiler->is_tracking_allocations() && allocation.To(&object)) {
-    profiler->AllocationEvent(object->address(), size_in_bytes);
+  if (allocation.To(&object)) {
+    OnAllocationEvent(object, size_in_bytes);
+  } else {
+    old_gen_exhausted_ = true;
   }
   return allocation;
+}
+
+
+void Heap::OnAllocationEvent(HeapObject* object, int size_in_bytes) {
+  HeapProfiler* profiler = isolate_->heap_profiler();
+  if (profiler->is_tracking_allocations()) {
+    profiler->AllocationEvent(object->address(), size_in_bytes);
+  }
+
+  if (FLAG_verify_predictable) {
+    ++allocations_count_;
+
+    UpdateAllocationsHash(object);
+    UpdateAllocationsHash(size_in_bytes);
+
+    if ((FLAG_dump_allocations_digest_at_alloc > 0) &&
+        (--dump_allocations_hash_countdown_ == 0)) {
+      dump_allocations_hash_countdown_ = FLAG_dump_allocations_digest_at_alloc;
+      PrintAlloctionsHash();
+    }
+  }
+}
+
+
+void Heap::OnMoveEvent(HeapObject* target,
+                       HeapObject* source,
+                       int size_in_bytes) {
+  HeapProfiler* heap_profiler = isolate_->heap_profiler();
+  if (heap_profiler->is_tracking_object_moves()) {
+    heap_profiler->ObjectMoveEvent(source->address(), target->address(),
+                                   size_in_bytes);
+  }
+
+  if (isolate_->logger()->is_logging_code_events() ||
+      isolate_->cpu_profiler()->is_profiling()) {
+    if (target->IsSharedFunctionInfo()) {
+      PROFILE(isolate_, SharedFunctionInfoMoveEvent(
+          source->address(), target->address()));
+    }
+  }
+
+  if (FLAG_verify_predictable) {
+    ++allocations_count_;
+
+    UpdateAllocationsHash(source);
+    UpdateAllocationsHash(target);
+    UpdateAllocationsHash(size_in_bytes);
+
+    if ((FLAG_dump_allocations_digest_at_alloc > 0) &&
+        (--dump_allocations_hash_countdown_ == 0)) {
+      dump_allocations_hash_countdown_ = FLAG_dump_allocations_digest_at_alloc;
+      PrintAlloctionsHash();
+    }
+  }
+}
+
+
+void Heap::UpdateAllocationsHash(HeapObject* object) {
+  Address object_address = object->address();
+  MemoryChunk* memory_chunk = MemoryChunk::FromAddress(object_address);
+  AllocationSpace allocation_space = memory_chunk->owner()->identity();
+
+  STATIC_ASSERT(kSpaceTagSize + kPageSizeBits <= 32);
+  uint32_t value =
+      static_cast<uint32_t>(object_address - memory_chunk->address()) |
+      (static_cast<uint32_t>(allocation_space) << kPageSizeBits);
+
+  UpdateAllocationsHash(value);
+}
+
+
+void Heap::UpdateAllocationsHash(uint32_t value) {
+  uint16_t c1 = static_cast<uint16_t>(value);
+  uint16_t c2 = static_cast<uint16_t>(value >> 16);
+  raw_allocations_hash_ =
+      StringHasher::AddCharacterCore(raw_allocations_hash_, c1);
+  raw_allocations_hash_ =
+      StringHasher::AddCharacterCore(raw_allocations_hash_, c2);
+}
+
+
+void Heap::PrintAlloctionsHash() {
+  uint32_t hash = StringHasher::GetHashCore(raw_allocations_hash_);
+  PrintF("\n### Allocations = %u, hash = 0x%08x\n", allocations_count_, hash);
 }
 
 
@@ -302,15 +388,12 @@ bool Heap::OldGenerationAllocationLimitReached() {
 
 
 bool Heap::ShouldBePromoted(Address old_address, int object_size) {
-  // An object should be promoted if:
-  // - the object has survived a scavenge operation or
-  // - to space is already 25% full.
+  // An object should be promoted if the object has survived a
+  // scavenge operation.
   NewSpacePage* page = NewSpacePage::FromAddress(old_address);
   Address age_mark = new_space_.age_mark();
-  bool below_mark = page->IsFlagSet(MemoryChunk::NEW_SPACE_BELOW_AGE_MARK) &&
+  return page->IsFlagSet(MemoryChunk::NEW_SPACE_BELOW_AGE_MARK) &&
       (!page->ContainsLimit(age_mark) || old_address < age_mark);
-  return below_mark || (new_space_.Size() + object_size) >=
-                        (new_space_.EffectiveCapacity() >> 2);
 }
 
 
@@ -429,7 +512,7 @@ void Heap::MoveBlock(Address dst, Address src, int byte_size) {
       *dst_slot++ = *src_slot++;
     }
   } else {
-    OS::MemMove(dst, src, static_cast<size_t>(byte_size));
+    MemMove(dst, src, static_cast<size_t>(byte_size));
   }
 }
 
@@ -527,48 +610,6 @@ bool Heap::CollectGarbage(AllocationSpace space,
 }
 
 
-int64_t Heap::AdjustAmountOfExternalAllocatedMemory(
-    int64_t change_in_bytes) {
-  ASSERT(HasBeenSetUp());
-  int64_t amount = amount_of_external_allocated_memory_ + change_in_bytes;
-  if (change_in_bytes > 0) {
-    // Avoid overflow.
-    if (amount > amount_of_external_allocated_memory_) {
-      amount_of_external_allocated_memory_ = amount;
-    } else {
-      // Give up and reset the counters in case of an overflow.
-      amount_of_external_allocated_memory_ = 0;
-      amount_of_external_allocated_memory_at_last_global_gc_ = 0;
-    }
-    int64_t amount_since_last_global_gc = PromotedExternalMemorySize();
-    if (amount_since_last_global_gc > external_allocation_limit_) {
-      CollectAllGarbage(kNoGCFlags, "external memory allocation limit reached");
-    }
-  } else {
-    // Avoid underflow.
-    if (amount >= 0) {
-      amount_of_external_allocated_memory_ = amount;
-    } else {
-      // Give up and reset the counters in case of an underflow.
-      amount_of_external_allocated_memory_ = 0;
-      amount_of_external_allocated_memory_at_last_global_gc_ = 0;
-    }
-  }
-  if (FLAG_trace_external_memory) {
-    PrintPID("%8.0f ms: ", isolate()->time_millis_since_init());
-    PrintF("Adjust amount of external memory: delta=%6" V8_PTR_PREFIX "d KB, "
-           "amount=%6" V8_PTR_PREFIX "d KB, since_gc=%6" V8_PTR_PREFIX "d KB, "
-           "isolate=0x%08" V8PRIxPTR ".\n",
-           static_cast<intptr_t>(change_in_bytes / KB),
-           static_cast<intptr_t>(amount_of_external_allocated_memory_ / KB),
-           static_cast<intptr_t>(PromotedExternalMemorySize() / KB),
-           reinterpret_cast<intptr_t>(isolate()));
-  }
-  ASSERT(amount_of_external_allocated_memory_ >= 0);
-  return amount_of_external_allocated_memory_;
-}
-
-
 Isolate* Heap::isolate() {
   return reinterpret_cast<Isolate*>(reinterpret_cast<intptr_t>(this) -
       reinterpret_cast<size_t>(reinterpret_cast<Isolate*>(4)->heap()) + 4);
@@ -582,10 +623,9 @@ Isolate* Heap::isolate() {
 // Warning: Do not use the identifiers __object__, __maybe_object__ or
 // __scope__ in a call to this macro.
 
-#define RETURN_OBJECT_UNLESS_EXCEPTION(ISOLATE, RETURN_VALUE, RETURN_EMPTY)    \
-  if (!__allocation__.IsRetry()) {                                             \
-    __object__ = __allocation__.ToObjectChecked();                             \
-    if (__object__ == (ISOLATE)->heap()->exception()) { RETURN_EMPTY; }        \
+#define RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                      \
+  if (__allocation__.To(&__object__)) {                                        \
+    ASSERT(__object__ != (ISOLATE)->heap()->exception());                      \
     RETURN_VALUE;                                                              \
   }
 
@@ -593,18 +633,18 @@ Isolate* Heap::isolate() {
   do {                                                                         \
     AllocationResult __allocation__ = FUNCTION_CALL;                           \
     Object* __object__ = NULL;                                                 \
-    RETURN_OBJECT_UNLESS_EXCEPTION(ISOLATE, RETURN_VALUE, RETURN_EMPTY)        \
+    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                          \
     (ISOLATE)->heap()->CollectGarbage(__allocation__.RetrySpace(),             \
                                       "allocation failure");                   \
     __allocation__ = FUNCTION_CALL;                                            \
-    RETURN_OBJECT_UNLESS_EXCEPTION(ISOLATE, RETURN_VALUE, RETURN_EMPTY)        \
+    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                          \
     (ISOLATE)->counters()->gc_last_resort_from_handles()->Increment();         \
     (ISOLATE)->heap()->CollectAllAvailableGarbage("last resort gc");           \
     {                                                                          \
       AlwaysAllocateScope __scope__(ISOLATE);                                  \
       __allocation__ = FUNCTION_CALL;                                          \
     }                                                                          \
-    RETURN_OBJECT_UNLESS_EXCEPTION(ISOLATE, RETURN_VALUE, RETURN_EMPTY)        \
+    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                          \
       /* TODO(1181417): Fix this. */                                           \
     v8::internal::Heap::FatalProcessOutOfMemory("CALL_AND_RETRY_LAST", true);  \
     RETURN_EMPTY;                                                              \

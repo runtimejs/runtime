@@ -5,8 +5,8 @@
 #ifndef V8_MARK_COMPACT_H_
 #define V8_MARK_COMPACT_H_
 
-#include "compiler-intrinsics.h"
-#include "spaces.h"
+#include "src/compiler-intrinsics.h"
+#include "src/spaces.h"
 
 namespace v8 {
 namespace internal {
@@ -649,13 +649,6 @@ class MarkCompactCollector {
 
   bool TryPromoteObject(HeapObject* object, int object_size);
 
-  inline Object* encountered_weak_collections() {
-    return encountered_weak_collections_;
-  }
-  inline void set_encountered_weak_collections(Object* weak_collection) {
-    encountered_weak_collections_ = weak_collection;
-  }
-
   void InvalidateCode(Code* code);
 
   void ClearMarkbits();
@@ -877,7 +870,7 @@ class MarkCompactCollector {
   // regions to each space's free list.
   void SweepSpaces();
 
-  int DiscoverAndPromoteBlackObjectsOnPage(NewSpace* new_space,
+  int DiscoverAndEvacuateBlackObjectsOnPage(NewSpace* new_space,
                                            NewSpacePage* p);
 
   void EvacuateNewSpace();
@@ -902,6 +895,9 @@ class MarkCompactCollector {
 
   void ParallelSweepSpaceComplete(PagedSpace* space);
 
+  // Updates store buffer and slot buffer for a pointer in a migrating object.
+  void RecordMigratedSlot(Object* value, Address slot);
+
 #ifdef DEBUG
   friend class MarkObjectVisitor;
   static void VisitObject(HeapObject* obj);
@@ -913,7 +909,6 @@ class MarkCompactCollector {
   Heap* heap_;
   MarkingDeque marking_deque_;
   CodeFlusher* code_flusher_;
-  Object* encountered_weak_collections_;
   bool have_code_to_deoptimize_;
 
   List<Page*> evacuation_candidates_;

@@ -5,9 +5,9 @@
 #ifndef V8_IA32_MACRO_ASSEMBLER_IA32_H_
 #define V8_IA32_MACRO_ASSEMBLER_IA32_H_
 
-#include "assembler.h"
-#include "frames.h"
-#include "v8globals.h"
+#include "src/assembler.h"
+#include "src/frames.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -18,6 +18,10 @@ typedef Operand MemOperand;
 
 enum RememberedSetAction { EMIT_REMEMBERED_SET, OMIT_REMEMBERED_SET };
 enum SmiCheck { INLINE_SMI_CHECK, OMIT_SMI_CHECK };
+enum PointersToHereCheck {
+  kPointersToHereMaybeInteresting,
+  kPointersToHereAreAlwaysInteresting
+};
 
 
 enum RegisterValueType {
@@ -140,7 +144,9 @@ class MacroAssembler: public Assembler {
       Register scratch,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK);
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting);
 
   // As above, but the offset has the tag presubtracted.  For use with
   // Operand(reg, off).
@@ -151,14 +157,17 @@ class MacroAssembler: public Assembler {
       Register scratch,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK) {
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting) {
     RecordWriteField(context,
                      offset + kHeapObjectTag,
                      value,
                      scratch,
                      save_fp,
                      remembered_set_action,
-                     smi_check);
+                     smi_check,
+                     pointers_to_here_check_for_value);
   }
 
   // Notify the garbage collector that we wrote a pointer into a fixed array.
@@ -173,7 +182,9 @@ class MacroAssembler: public Assembler {
       Register index,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK);
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting);
 
   // For page containing |object| mark region covering |address|
   // dirty. |object| is the object being stored into, |value| is the
@@ -186,7 +197,9 @@ class MacroAssembler: public Assembler {
       Register value,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK);
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting);
 
   // For page containing |object| mark the region covering the object's map
   // dirty. |object| is the object being stored into, |map| is the Map object
@@ -465,7 +478,7 @@ class MacroAssembler: public Assembler {
     j(not_carry, is_smi);
   }
 
-  void LoadUint32(XMMRegister dst, Register src, XMMRegister scratch);
+  void LoadUint32(XMMRegister dst, Register src);
 
   // Jump the register contains a smi.
   inline void JumpIfSmi(Register value,
@@ -497,9 +510,26 @@ class MacroAssembler: public Assembler {
   void DecodeField(Register reg) {
     static const int shift = Field::kShift;
     static const int mask = Field::kMask >> Field::kShift;
-    sar(reg, shift);
+    if (shift != 0) {
+      sar(reg, shift);
+    }
     and_(reg, Immediate(mask));
   }
+
+  template<typename Field>
+  void DecodeFieldToSmi(Register reg) {
+    static const int shift = Field::kShift;
+    static const int mask = (Field::kMask >> Field::kShift) << kSmiTagSize;
+    STATIC_ASSERT((mask & (0x80000000u >> (kSmiTagSize - 1))) == 0);
+    STATIC_ASSERT(kSmiTag == 0);
+    if (shift < kSmiTagSize) {
+      shl(reg, kSmiTagSize - shift);
+    } else if (shift > kSmiTagSize) {
+      sar(reg, shift - kSmiTagSize);
+    }
+    and_(reg, Immediate(mask));
+  }
+
   void LoadPowerOf2(XMMRegister dst, Register scratch, int power);
 
   // Abort execution if argument is not a number, enabled via --debug-code.
@@ -535,12 +565,6 @@ class MacroAssembler: public Assembler {
 
   // Throw past all JS frames to the top JS entry frame.
   void ThrowUncatchable(Register value);
-
-  // Throw a message string as an exception.
-  void Throw(BailoutReason reason);
-
-  // Throw a message string as an exception if a condition is not true.
-  void ThrowIf(Condition cc, BailoutReason reason);
 
   // ---------------------------------------------------------------------------
   // Inline caching support

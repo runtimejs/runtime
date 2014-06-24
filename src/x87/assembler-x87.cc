@@ -34,13 +34,13 @@
 // significantly by Google Inc.
 // Copyright 2012 the V8 project authors. All rights reserved.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X87
 
-#include "disassembler.h"
-#include "macro-assembler.h"
-#include "serialize.h"
+#include "src/disassembler.h"
+#include "src/macro-assembler.h"
+#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -50,10 +50,6 @@ namespace internal {
 
 void CpuFeatures::ProbeImpl(bool cross_compile) {
   CPU cpu;
-  // SAHF must be available in compat/legacy mode.
-  CHECK(cpu.has_sahf());
-  supported_ |= 1u << SAHF;
-  supported_ |= OS::CpuFeaturesImpliedByPlatform();
 
   // Only use statically determined features for cross compile (snapshot).
   if (cross_compile) return;
@@ -1876,9 +1872,9 @@ void Assembler::GrowBuffer() {
   // Copy the data.
   int pc_delta = desc.buffer - buffer_;
   int rc_delta = (desc.buffer + desc.buffer_size) - (buffer_ + buffer_size_);
-  OS::MemMove(desc.buffer, buffer_, desc.instr_size);
-  OS::MemMove(rc_delta + reloc_info_writer.pos(),
-              reloc_info_writer.pos(), desc.reloc_size);
+  MemMove(desc.buffer, buffer_, desc.instr_size);
+  MemMove(rc_delta + reloc_info_writer.pos(), reloc_info_writer.pos(),
+          desc.reloc_size);
 
   // Switch buffers.
   if (isolate()->assembler_spare_buffer() == NULL &&

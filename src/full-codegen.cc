@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "codegen.h"
-#include "compiler.h"
-#include "debug.h"
-#include "full-codegen.h"
-#include "liveedit.h"
-#include "macro-assembler.h"
-#include "prettyprinter.h"
-#include "scopes.h"
-#include "scopeinfo.h"
-#include "snapshot.h"
-#include "stub-cache.h"
+#include "src/codegen.h"
+#include "src/compiler.h"
+#include "src/debug.h"
+#include "src/full-codegen.h"
+#include "src/liveedit.h"
+#include "src/macro-assembler.h"
+#include "src/prettyprinter.h"
+#include "src/scopeinfo.h"
+#include "src/scopes.h"
+#include "src/snapshot.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -328,7 +328,6 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
   code->set_allow_osr_at_loop_nesting_level(0);
   code->set_profiler_ticks(0);
   code->set_back_edge_table_offset(table_offset);
-  code->set_back_edges_patched_for_osr(false);
   CodeGenerator::PrintCode(code, info);
   info->SetCode(code);
 #ifdef ENABLE_GDB_JIT_INTERFACE
@@ -348,7 +347,7 @@ unsigned FullCodeGenerator::EmitBackEdgeTable() {
   // The back edge table consists of a length (in number of entries)
   // field, and then a sequence of entries.  Each entry is a pair of AST id
   // and code-relative pc offset.
-  masm()->Align(kIntSize);
+  masm()->Align(kPointerSize);
   unsigned offset = masm()->pc_offset();
   unsigned length = back_edges_.length();
   __ dd(length);
@@ -823,7 +822,7 @@ void FullCodeGenerator::SetStatementPosition(Statement* stmt) {
     // If the position recording did record a new position generate a debug
     // break slot to make the statement breakable.
     if (position_recorded) {
-      Debug::GenerateSlot(masm_);
+      DebugCodegen::GenerateSlot(masm_);
     }
   }
 }
@@ -849,7 +848,7 @@ void FullCodeGenerator::SetExpressionPosition(Expression* expr) {
     // If the position recording did record a new position generate a debug
     // break slot to make the statement breakable.
     if (position_recorded) {
-      Debug::GenerateSlot(masm_);
+      DebugCodegen::GenerateSlot(masm_);
     }
   }
 }
@@ -1052,7 +1051,9 @@ void FullCodeGenerator::VisitBlock(Block* stmt) {
 
   Scope* saved_scope = scope();
   // Push a block context when entering a block with block scoped variables.
-  if (stmt->scope() != NULL) {
+  if (stmt->scope() == NULL) {
+    PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
+  } else {
     scope_ = stmt->scope();
     ASSERT(!scope_->is_module_scope());
     { Comment cmnt(masm_, "[ Extend block context");
@@ -1063,17 +1064,17 @@ void FullCodeGenerator::VisitBlock(Block* stmt) {
       // Replace the context stored in the frame.
       StoreToFrameField(StandardFrameConstants::kContextOffset,
                         context_register());
+      PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
     }
     { Comment cmnt(masm_, "[ Declarations");
       VisitDeclarations(scope_->declarations());
+      PrepareForBailoutForId(stmt->DeclsId(), NO_REGISTERS);
     }
   }
 
-  PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
   VisitStatements(stmt->statements());
   scope_ = saved_scope;
   __ bind(nested_block.break_label());
-  PrepareForBailoutForId(stmt->ExitId(), NO_REGISTERS);
 
   // Pop block context if necessary.
   if (stmt->scope() != NULL) {
@@ -1082,6 +1083,7 @@ void FullCodeGenerator::VisitBlock(Block* stmt) {
     StoreToFrameField(StandardFrameConstants::kContextOffset,
                       context_register());
   }
+  PrepareForBailoutForId(stmt->ExitId(), NO_REGISTERS);
 }
 
 
@@ -1614,9 +1616,11 @@ void BackEdgeTable::Patch(Isolate* isolate, Code* unoptimized) {
   DisallowHeapAllocation no_gc;
   Code* patch = isolate->builtins()->builtin(Builtins::kOnStackReplacement);
 
-  // Iterate over the back edge table and patch every interrupt
+  // Increment loop nesting level by one and iterate over the back edge table
+  // to find the matching loops to patch the interrupt
   // call to an unconditional call to the replacement code.
-  int loop_nesting_level = unoptimized->allow_osr_at_loop_nesting_level();
+  int loop_nesting_level = unoptimized->allow_osr_at_loop_nesting_level() + 1;
+  if (loop_nesting_level > Code::kMaxLoopNestingMarker) return;
 
   BackEdgeTable back_edges(unoptimized, &no_gc);
   for (uint32_t i = 0; i < back_edges.length(); i++) {
@@ -1628,8 +1632,8 @@ void BackEdgeTable::Patch(Isolate* isolate, Code* unoptimized) {
     }
   }
 
-  unoptimized->set_back_edges_patched_for_osr(true);
-  ASSERT(Verify(isolate, unoptimized, loop_nesting_level));
+  unoptimized->set_allow_osr_at_loop_nesting_level(loop_nesting_level);
+  ASSERT(Verify(isolate, unoptimized));
 }
 
 
@@ -1638,7 +1642,6 @@ void BackEdgeTable::Revert(Isolate* isolate, Code* unoptimized) {
   Code* patch = isolate->builtins()->builtin(Builtins::kInterruptCheck);
 
   // Iterate over the back edge table and revert the patched interrupt calls.
-  ASSERT(unoptimized->back_edges_patched_for_osr());
   int loop_nesting_level = unoptimized->allow_osr_at_loop_nesting_level();
 
   BackEdgeTable back_edges(unoptimized, &no_gc);
@@ -1651,10 +1654,9 @@ void BackEdgeTable::Revert(Isolate* isolate, Code* unoptimized) {
     }
   }
 
-  unoptimized->set_back_edges_patched_for_osr(false);
   unoptimized->set_allow_osr_at_loop_nesting_level(0);
   // Assert that none of the back edges are patched anymore.
-  ASSERT(Verify(isolate, unoptimized, -1));
+  ASSERT(Verify(isolate, unoptimized));
 }
 
 
@@ -1680,10 +1682,9 @@ void BackEdgeTable::RemoveStackCheck(Handle<Code> code, uint32_t pc_offset) {
 
 
 #ifdef DEBUG
-bool BackEdgeTable::Verify(Isolate* isolate,
-                           Code* unoptimized,
-                           int loop_nesting_level) {
+bool BackEdgeTable::Verify(Isolate* isolate, Code* unoptimized) {
   DisallowHeapAllocation no_gc;
+  int loop_nesting_level = unoptimized->allow_osr_at_loop_nesting_level();
   BackEdgeTable back_edges(unoptimized, &no_gc);
   for (uint32_t i = 0; i < back_edges.length(); i++) {
     uint32_t loop_depth = back_edges.loop_depth(i);

@@ -147,6 +147,23 @@ if (support_smi_only_arrays) {
   })();
 
 
+  // Verify that feedback is turned off if the call site goes megamorphic.
+  (function (){
+    function foo(arg) { return arg(); }
+    foo(Array);
+    foo(function() {});
+    foo(Array);
+
+    gc();
+
+    a = foo(Array);
+    a[0] = 3.5;
+    b = foo(Array);
+    // b doesn't benefit from elements kind feedback at a megamorphic site.
+    assertKind(elements_kind.fast_smi_only, b);
+  })();
+
+
   // Verify that crankshaft consumes type feedback.
   (function (){
     function create0() {

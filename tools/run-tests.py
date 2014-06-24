@@ -86,6 +86,7 @@ SUPPORTED_ARCHS = ["android_arm",
                    "nacl_ia32",
                    "nacl_x64",
                    "x64",
+                   "x32",
                    "arm64"]
 # Double the timeout for these:
 SLOW_ARCHS = ["android_arm",
@@ -157,6 +158,9 @@ def BuildOptions():
   result.add_option("--no-snap", "--nosnap",
                     help='Test a build compiled without snapshot.',
                     default=False, dest="no_snap", action="store_true")
+  result.add_option("--no-sorting", "--nosorting",
+                    help="Don't sort tests according to duration of last run.",
+                    default=False, dest="no_sorting", action="store_true")
   result.add_option("--no-stress", "--nostress",
                     help="Don't run crankshaft --always-opt --stress-op test",
                     default=False, dest="no_stress", action="store_true")
@@ -255,6 +259,9 @@ def ProcessOptions(options):
 
   if options.gc_stress:
     options.extra_flags += GC_STRESS_FLAGS
+
+  if options.asan:
+    options.extra_flags.append("--invoke-weak-callbacks")
 
   if options.j == 0:
     options.j = multiprocessing.cpu_count()
@@ -408,7 +415,8 @@ def Execute(arch, mode, args, options, suites, workspace):
                         options.command_prefix,
                         options.extra_flags,
                         options.no_i18n,
-                        options.random_seed)
+                        options.random_seed,
+                        options.no_sorting)
 
   # TODO(all): Combine "simulator" and "simulator_run".
   simulator_run = not options.dont_skip_simulator_slow_tests and \

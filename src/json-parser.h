@@ -5,13 +5,13 @@
 #ifndef V8_JSON_PARSER_H_
 #define V8_JSON_PARSER_H_
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "char-predicates-inl.h"
-#include "conversions.h"
-#include "messages.h"
-#include "spaces-inl.h"
-#include "token.h"
+#include "src/char-predicates-inl.h"
+#include "src/conversions.h"
+#include "src/messages.h"
+#include "src/spaces-inl.h"
+#include "src/token.h"
 
 namespace v8 {
 namespace internal {
@@ -358,19 +358,19 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
         bool follow_expected = false;
         Handle<Map> target;
         if (seq_ascii) {
-          key = JSObject::ExpectedTransitionKey(map);
+          key = Map::ExpectedTransitionKey(map);
           follow_expected = !key.is_null() && ParseJsonString(key);
         }
         // If the expected transition hits, follow it.
         if (follow_expected) {
-          target = JSObject::ExpectedTransitionTarget(map);
+          target = Map::ExpectedTransitionTarget(map);
         } else {
           // If the expected transition failed, parse an internalized string and
           // try to find a matching transition.
           key = ParseJsonInternalizedString();
           if (key.is_null()) return ReportUnexpectedCharacter();
 
-          target = JSObject::FindTransitionToField(map, key);
+          target = Map::FindTransitionToField(map, key);
           // If a transition was found, follow it and continue.
           transitioning = !target.is_null();
         }
@@ -414,7 +414,8 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
         int length = properties.length();
         for (int i = 0; i < length; i++) {
           Handle<Object> value = properties[i];
-          json_object->FastPropertyAtPut(i, *value);
+          FieldIndex index = FieldIndex::ForPropertyIndex(*map, i);
+          json_object->FastPropertyAtPut(index, *value);
         }
       } else {
         key = ParseJsonInternalizedString();
@@ -438,7 +439,8 @@ Handle<Object> JsonParser<seq_ascii>::ParseJsonObject() {
       int length = properties.length();
       for (int i = 0; i < length; i++) {
         Handle<Object> value = properties[i];
-        json_object->FastPropertyAtPut(i, *value);
+        FieldIndex index = FieldIndex::ForPropertyIndex(*map, i);
+        json_object->FastPropertyAtPut(index, *value);
       }
     }
   }

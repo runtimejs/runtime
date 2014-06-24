@@ -27,18 +27,18 @@
 
 #include <stdlib.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "api.h"
-#include "cctest.h"
-#include "compilation-cache.h"
-#include "debug.h"
-#include "deoptimizer.h"
-#include "frames.h"
-#include "platform.h"
-#include "platform/condition-variable.h"
-#include "stub-cache.h"
-#include "utils.h"
+#include "src/api.h"
+#include "src/compilation-cache.h"
+#include "src/debug.h"
+#include "src/deoptimizer.h"
+#include "src/frames.h"
+#include "src/platform.h"
+#include "src/platform/condition-variable.h"
+#include "src/stub-cache.h"
+#include "src/utils.h"
+#include "test/cctest/cctest.h"
 
 
 using ::v8::internal::Mutex;
@@ -182,9 +182,9 @@ static int SetBreakPointFromJS(v8::Isolate* isolate,
                                const char* function_name,
                                int line, int position) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.setBreakPoint(%s,%d,%d)",
-               function_name, line, position);
+  SNPrintF(buffer,
+           "debug.Debug.setBreakPoint(%s,%d,%d)",
+           function_name, line, position);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Handle<v8::String> str = v8::String::NewFromUtf8(isolate, buffer.start());
   return v8::Script::Compile(str)->Run()->Int32Value();
@@ -197,14 +197,14 @@ static int SetScriptBreakPointByIdFromJS(v8::Isolate* isolate, int script_id,
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
   if (column >= 0) {
     // Column specified set script break point on precise location.
-    OS::SNPrintF(buffer,
-                 "debug.Debug.setScriptBreakPointById(%d,%d,%d)",
-                 script_id, line, column);
+    SNPrintF(buffer,
+             "debug.Debug.setScriptBreakPointById(%d,%d,%d)",
+             script_id, line, column);
   } else {
     // Column not specified set script break point on line.
-    OS::SNPrintF(buffer,
-                 "debug.Debug.setScriptBreakPointById(%d,%d)",
-                 script_id, line);
+    SNPrintF(buffer,
+             "debug.Debug.setScriptBreakPointById(%d,%d)",
+             script_id, line);
   }
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   {
@@ -226,14 +226,14 @@ static int SetScriptBreakPointByNameFromJS(v8::Isolate* isolate,
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
   if (column >= 0) {
     // Column specified set script break point on precise location.
-    OS::SNPrintF(buffer,
-                 "debug.Debug.setScriptBreakPointByName(\"%s\",%d,%d)",
-                 script_name, line, column);
+    SNPrintF(buffer,
+             "debug.Debug.setScriptBreakPointByName(\"%s\",%d,%d)",
+             script_name, line, column);
   } else {
     // Column not specified set script break point on line.
-    OS::SNPrintF(buffer,
-                 "debug.Debug.setScriptBreakPointByName(\"%s\",%d)",
-                 script_name, line);
+    SNPrintF(buffer,
+             "debug.Debug.setScriptBreakPointByName(\"%s\",%d)",
+             script_name, line);
   }
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   {
@@ -260,9 +260,9 @@ static void ClearBreakPoint(int break_point) {
 static void ClearBreakPointFromJS(v8::Isolate* isolate,
                                   int break_point_number) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.clearBreakPoint(%d)",
-               break_point_number);
+  SNPrintF(buffer,
+           "debug.Debug.clearBreakPoint(%d)",
+           break_point_number);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Script::Compile(v8::String::NewFromUtf8(isolate, buffer.start()))->Run();
 }
@@ -271,9 +271,9 @@ static void ClearBreakPointFromJS(v8::Isolate* isolate,
 static void EnableScriptBreakPointFromJS(v8::Isolate* isolate,
                                          int break_point_number) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.enableScriptBreakPoint(%d)",
-               break_point_number);
+  SNPrintF(buffer,
+           "debug.Debug.enableScriptBreakPoint(%d)",
+           break_point_number);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Script::Compile(v8::String::NewFromUtf8(isolate, buffer.start()))->Run();
 }
@@ -282,9 +282,9 @@ static void EnableScriptBreakPointFromJS(v8::Isolate* isolate,
 static void DisableScriptBreakPointFromJS(v8::Isolate* isolate,
                                           int break_point_number) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.disableScriptBreakPoint(%d)",
-               break_point_number);
+  SNPrintF(buffer,
+           "debug.Debug.disableScriptBreakPoint(%d)",
+           break_point_number);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Script::Compile(v8::String::NewFromUtf8(isolate, buffer.start()))->Run();
 }
@@ -294,9 +294,9 @@ static void ChangeScriptBreakPointConditionFromJS(v8::Isolate* isolate,
                                                   int break_point_number,
                                                   const char* condition) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.changeScriptBreakPointCondition(%d, \"%s\")",
-               break_point_number, condition);
+  SNPrintF(buffer,
+           "debug.Debug.changeScriptBreakPointCondition(%d, \"%s\")",
+           break_point_number, condition);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Script::Compile(v8::String::NewFromUtf8(isolate, buffer.start()))->Run();
 }
@@ -306,9 +306,9 @@ static void ChangeScriptBreakPointIgnoreCountFromJS(v8::Isolate* isolate,
                                                     int break_point_number,
                                                     int ignoreCount) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-  OS::SNPrintF(buffer,
-               "debug.Debug.changeScriptBreakPointIgnoreCount(%d, %d)",
-               break_point_number, ignoreCount);
+  SNPrintF(buffer,
+           "debug.Debug.changeScriptBreakPointIgnoreCount(%d, %d)",
+           break_point_number, ignoreCount);
   buffer[SMALL_STRING_BUFFER_SIZE - 1] = '\0';
   v8::Script::Compile(v8::String::NewFromUtf8(isolate, buffer.start()))->Run();
 }
@@ -1638,7 +1638,7 @@ TEST(ScriptBreakPointByIdThroughJavaScript) {
       env->Global()->Get(v8::String::NewFromUtf8(env->GetIsolate(), "g")));
 
   // Get the script id knowing that internally it is a 32 integer.
-  int script_id = script->GetId();
+  int script_id = script->GetUnboundScript()->GetId();
 
   // Call f and g without break points.
   break_point_hit_count = 0;
@@ -2624,7 +2624,7 @@ bool GetEvaluateStringResult(char *message, char* buffer, int buffer_size) {
   if (len > buffer_size - 1) {
     len = buffer_size - 1;
   }
-  OS::StrNCpy(buf, pos1, len);
+  StrNCpy(buf, pos1, len);
   buffer[buffer_size - 1] = '\0';
   return true;
 }
@@ -4189,7 +4189,7 @@ TEST(DisableBreak) {
   {
     v8::Debug::DebugBreak(env->GetIsolate());
     i::Isolate* isolate = reinterpret_cast<i::Isolate*>(env->GetIsolate());
-    v8::internal::DisableBreak disable_break(isolate, true);
+    v8::internal::DisableBreak disable_break(isolate->debug(), true);
     f->Call(env->Global(), 0, NULL);
     CHECK_EQ(1, break_point_hit_count);
   }
@@ -4368,15 +4368,15 @@ TEST(InterceptorPropertyMirror) {
   // Check that the properties are interceptor properties.
   for (int i = 0; i < 3; i++) {
     EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-    OS::SNPrintF(buffer,
-                 "named_values[%d] instanceof debug.PropertyMirror", i);
+    SNPrintF(buffer,
+             "named_values[%d] instanceof debug.PropertyMirror", i);
     CHECK(CompileRun(buffer.start())->BooleanValue());
 
-    OS::SNPrintF(buffer, "named_values[%d].propertyType()", i);
+    SNPrintF(buffer, "named_values[%d].propertyType()", i);
     CHECK_EQ(v8::internal::INTERCEPTOR,
              CompileRun(buffer.start())->Int32Value());
 
-    OS::SNPrintF(buffer, "named_values[%d].isNative()", i);
+    SNPrintF(buffer, "named_values[%d].isNative()", i);
     CHECK(CompileRun(buffer.start())->BooleanValue());
   }
 
@@ -4387,8 +4387,8 @@ TEST(InterceptorPropertyMirror) {
   // Check that the properties are interceptor properties.
   for (int i = 0; i < 2; i++) {
     EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-    OS::SNPrintF(buffer,
-                 "indexed_values[%d] instanceof debug.PropertyMirror", i);
+    SNPrintF(buffer,
+             "indexed_values[%d] instanceof debug.PropertyMirror", i);
     CHECK(CompileRun(buffer.start())->BooleanValue());
   }
 
@@ -4399,7 +4399,7 @@ TEST(InterceptorPropertyMirror) {
   // Check that the properties are interceptor properties.
   for (int i = 0; i < 5; i++) {
     EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> buffer;
-    OS::SNPrintF(buffer, "both_values[%d] instanceof debug.PropertyMirror", i);
+    SNPrintF(buffer, "both_values[%d] instanceof debug.PropertyMirror", i);
     CHECK(CompileRun(buffer.start())->BooleanValue());
   }
 
@@ -4724,7 +4724,7 @@ class ThreadBarrier V8_FINAL {
   Mutex mutex_;
   int num_blocked_;
 
-  STATIC_CHECK(N > 0);
+  STATIC_ASSERT(N > 0);
 
   DISALLOW_COPY_AND_ASSIGN(ThreadBarrier);
 };
@@ -6647,7 +6647,7 @@ TEST(ProcessDebugMessagesThreaded) {
 
   counting_message_handler_counter = 0;
 
-  v8::Debug::SetMessageHandler2(CountingMessageHandler);
+  v8::Debug::SetMessageHandler(CountingMessageHandler);
   send_command_thread_ = new SendCommandThread(isolate);
   send_command_thread_->Start();
 
@@ -6659,7 +6659,7 @@ TEST(ProcessDebugMessagesThreaded) {
 
   CHECK_EQ(100, counting_message_handler_counter);
 
-  v8::Debug::SetMessageHandler2(NULL);
+  v8::Debug::SetMessageHandler(NULL);
   CheckDebuggerUnloaded();
 }
 
@@ -6926,7 +6926,7 @@ TEST(DebugEventBreakData) {
   expected_break_data = NULL;
   was_debug_event_called = false;
   was_debug_break_called = false;
-  v8::Debug::DebugBreakForCommand(NULL, isolate);
+  v8::Debug::DebugBreakForCommand(isolate, NULL);
   v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
                                               "(function(x){return x;})(1);"))
       ->Run();
@@ -6937,7 +6937,7 @@ TEST(DebugEventBreakData) {
   expected_break_data = data1;
   was_debug_event_called = false;
   was_debug_break_called = false;
-  v8::Debug::DebugBreakForCommand(data1, isolate);
+  v8::Debug::DebugBreakForCommand(isolate, data1);
   v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
                                               "(function(x){return x+1;})(1);"))
       ->Run();
@@ -6959,7 +6959,7 @@ TEST(DebugEventBreakData) {
   was_debug_event_called = false;
   was_debug_break_called = false;
   v8::Debug::DebugBreak(isolate);
-  v8::Debug::DebugBreakForCommand(data2, isolate);
+  v8::Debug::DebugBreakForCommand(isolate, data2);
   v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
                                               "(function(x){return x+3;})(1);"))
       ->Run();
@@ -7150,9 +7150,9 @@ static void TestDebugBreakInLoop(const char* loop_head,
       terminate_after_max_break_point_hit = true;
 
       EmbeddedVector<char, 1024> buffer;
-      OS::SNPrintF(buffer,
-                   "function f() {%s%s%s}",
-                   loop_head, loop_bodies[i], loop_tail);
+      SNPrintF(buffer,
+               "function f() {%s%s%s}",
+               loop_head, loop_bodies[i], loop_tail);
 
       // Function with infinite loop.
       CompileRun(buffer.start());
@@ -7231,7 +7231,7 @@ static void DebugBreakInlineListener(
   int break_id = CcTest::i_isolate()->debug()->break_id();
   char script[128];
   i::Vector<char> script_vector(script, sizeof(script));
-  OS::SNPrintF(script_vector, "%%GetFrameCount(%d)", break_id);
+  SNPrintF(script_vector, "%%GetFrameCount(%d)", break_id);
   v8::Local<v8::Value> result = CompileRun(script);
 
   int frame_count = result->Int32Value();
@@ -7240,7 +7240,7 @@ static void DebugBreakInlineListener(
   for (int i = 0; i < frame_count; i++) {
     // The 5. element in the returned array of GetFrameDetails contains the
     // source position of that frame.
-    OS::SNPrintF(script_vector, "%%GetFrameDetails(%d, %d)[5]", break_id, i);
+    SNPrintF(script_vector, "%%GetFrameDetails(%d, %d)[5]", break_id, i);
     v8::Local<v8::Value> result = CompileRun(script);
     CHECK_EQ(expected_line_number[i],
              i::Script::GetLineNumber(source_script, result->Int32Value()));
@@ -7347,7 +7347,7 @@ TEST(LiveEditEnabled) {
   v8::internal::FLAG_allow_natives_syntax = true;
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
-  v8::Debug::SetLiveEditEnabled(true, env->GetIsolate());
+  v8::Debug::SetLiveEditEnabled(env->GetIsolate(), true);
   CompileRun("%LiveEditCompareStrings('', '')");
 }
 
@@ -7356,7 +7356,7 @@ TEST(LiveEditDisabled) {
   v8::internal::FLAG_allow_natives_syntax = true;
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
-  v8::Debug::SetLiveEditEnabled(false, env->GetIsolate());
+  v8::Debug::SetLiveEditEnabled(env->GetIsolate(), false);
   CompileRun("%LiveEditCompareStrings('', '')");
 }
 
@@ -7424,4 +7424,50 @@ TEST(DebugBreakStackTrace) {
              "    }"
              "  }"
              "})()");
+}
+
+
+v8::internal::Semaphore terminate_requested_semaphore(0);
+v8::internal::Semaphore terminate_fired_semaphore(0);
+bool terminate_already_fired = false;
+
+
+static void DebugBreakTriggerTerminate(
+    const v8::Debug::EventDetails& event_details) {
+  if (event_details.GetEvent() != v8::Break || terminate_already_fired) return;
+  terminate_requested_semaphore.Signal();
+  // Wait for at most 2 seconds for the terminate request.
+  CHECK(terminate_fired_semaphore.WaitFor(i::TimeDelta::FromSeconds(2)));
+  terminate_already_fired = true;
+  v8::internal::Isolate* isolate =
+      v8::Utils::OpenHandle(*event_details.GetEventContext())->GetIsolate();
+  CHECK(isolate->stack_guard()->CheckTerminateExecution());
+}
+
+
+class TerminationThread : public v8::internal::Thread {
+ public:
+  explicit TerminationThread(v8::Isolate* isolate) : Thread("terminator"),
+                                                     isolate_(isolate) { }
+
+  virtual void Run() {
+    terminate_requested_semaphore.Wait();
+    v8::V8::TerminateExecution(isolate_);
+    terminate_fired_semaphore.Signal();
+  }
+
+ private:
+  v8::Isolate* isolate_;
+};
+
+
+TEST(DebugBreakOffThreadTerminate) {
+  DebugLocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+  v8::Debug::SetDebugEventListener(DebugBreakTriggerTerminate);
+  TerminationThread terminator(isolate);
+  terminator.Start();
+  v8::Debug::DebugBreak(isolate);
+  CompileRun("while (true);");
 }

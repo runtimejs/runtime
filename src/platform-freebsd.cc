@@ -8,29 +8,28 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
-#include <sys/time.h>
+#include <stdlib.h>
 #include <sys/resource.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ucontext.h>
-#include <stdlib.h>
 
-#include <sys/types.h>  // mmap & munmap
+#include <sys/fcntl.h>  // open
 #include <sys/mman.h>   // mmap & munmap
 #include <sys/stat.h>   // open
-#include <sys/fcntl.h>  // open
+#include <sys/types.h>  // mmap & munmap
 #include <unistd.h>     // getpagesize
 // If you don't have execinfo.h then you need devel/libexecinfo from ports.
-#include <strings.h>    // index
 #include <errno.h>
-#include <stdarg.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <strings.h>    // index
 
 #undef MAP_TYPE
 
-#include "v8.h"
-#include "v8threads.h"
+#include "src/v8.h"
 
-#include "platform.h"
+#include "src/platform.h"
 
 
 namespace v8 {
@@ -62,10 +61,7 @@ void* OS::Allocate(const size_t requested,
   int prot = PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0);
   void* mbase = mmap(NULL, msize, prot, MAP_PRIVATE | MAP_ANON, -1, 0);
 
-  if (mbase == MAP_FAILED) {
-    LOG(Isolate::Current(), StringEvent("OS::Allocate", "mmap failed"));
-    return NULL;
-  }
+  if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
@@ -124,10 +120,11 @@ static unsigned StringToLong(char* buffer) {
 }
 
 
-void OS::LogSharedLibraryAddresses(Isolate* isolate) {
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  std::vector<SharedLibraryAddress> result;
   static const int MAP_LENGTH = 1024;
   int fd = open("/proc/self/maps", O_RDONLY);
-  if (fd < 0) return;
+  if (fd < 0) return result;
   while (true) {
     char addr_buffer[11];
     addr_buffer[0] = '0';
@@ -158,9 +155,10 @@ void OS::LogSharedLibraryAddresses(Isolate* isolate) {
     // There may be no filename in this line.  Skip to next.
     if (start_of_path == NULL) continue;
     buffer[bytes_read] = 0;
-    LOG(isolate, SharedLibraryEvent(start_of_path, start, end));
+    result.push_back(SharedLibraryAddress(start_of_path, start, end));
   }
   close(fd);
+  return result;
 }
 
 

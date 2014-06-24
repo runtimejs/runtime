@@ -2,18 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "api.h"
-#include "arguments.h"
-#include "ast.h"
-#include "code-stubs.h"
-#include "cpu-profiler.h"
-#include "gdb-jit.h"
-#include "ic-inl.h"
-#include "stub-cache.h"
-#include "type-info.h"
-#include "vm-state-inl.h"
+#include "src/api.h"
+#include "src/arguments.h"
+#include "src/ast.h"
+#include "src/code-stubs.h"
+#include "src/cpu-profiler.h"
+#include "src/gdb-jit.h"
+#include "src/ic-inl.h"
+#include "src/stub-cache.h"
+#include "src/type-info.h"
+#include "src/vm-state-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -302,17 +302,17 @@ Handle<Code> StubCache::ComputeStore(InlineCacheState ic_state,
 
 
 Handle<Code> StubCache::ComputeCompareNil(Handle<Map> receiver_map,
-                                          CompareNilICStub& stub) {
+                                          CompareNilICStub* stub) {
   Handle<String> name(isolate_->heap()->empty_string());
   if (!receiver_map->is_shared()) {
     Handle<Code> cached_ic = FindIC(name, receiver_map, Code::COMPARE_NIL_IC,
-                                    stub.GetExtraICState());
+                                    stub->GetExtraICState());
     if (!cached_ic.is_null()) return cached_ic;
   }
 
   Code::FindAndReplacePattern pattern;
   pattern.Add(isolate_->factory()->meta_map(), receiver_map);
-  Handle<Code> ic = stub.GetCodeCopy(pattern);
+  Handle<Code> ic = stub->GetCodeCopy(pattern);
 
   if (!receiver_map->is_shared()) {
     Map::UpdateCodeCache(receiver_map, name, ic);
@@ -546,83 +546,28 @@ static Object* ThrowReferenceError(Isolate* isolate, Name* name) {
 }
 
 
-MUST_USE_RESULT static MaybeHandle<Object> LoadWithInterceptor(
-    Arguments* args,
-    PropertyAttributes* attrs) {
-  ASSERT(args->length() == StubCache::kInterceptorArgsLength);
-  Handle<Name> name_handle =
-      args->at<Name>(StubCache::kInterceptorArgsNameIndex);
-  Handle<InterceptorInfo> interceptor_info =
-      args->at<InterceptorInfo>(StubCache::kInterceptorArgsInfoIndex);
-  Handle<JSObject> receiver_handle =
-      args->at<JSObject>(StubCache::kInterceptorArgsThisIndex);
-  Handle<JSObject> holder_handle =
-      args->at<JSObject>(StubCache::kInterceptorArgsHolderIndex);
-
-  Isolate* isolate = receiver_handle->GetIsolate();
-
-  // TODO(rossberg): Support symbols in the API.
-  if (name_handle->IsSymbol()) {
-    return JSObject::GetPropertyPostInterceptor(
-        holder_handle, receiver_handle, name_handle, attrs);
-  }
-  Handle<String> name = Handle<String>::cast(name_handle);
-
-  Address getter_address = v8::ToCData<Address>(interceptor_info->getter());
-  v8::NamedPropertyGetterCallback getter =
-      FUNCTION_CAST<v8::NamedPropertyGetterCallback>(getter_address);
-  ASSERT(getter != NULL);
-
-  PropertyCallbackArguments callback_args(isolate,
-                                          interceptor_info->data(),
-                                          *receiver_handle,
-                                          *holder_handle);
-  {
-    HandleScope scope(isolate);
-    // Use the interceptor getter.
-    v8::Handle<v8::Value> r =
-        callback_args.Call(getter, v8::Utils::ToLocal(name));
-    RETURN_EXCEPTION_IF_SCHEDULED_EXCEPTION(isolate, Object);
-    if (!r.IsEmpty()) {
-      *attrs = NONE;
-      Handle<Object> result = v8::Utils::OpenHandle(*r);
-      result->VerifyApiCallResultType();
-      return scope.CloseAndEscape(result);
-    }
-  }
-
-  return JSObject::GetPropertyPostInterceptor(
-      holder_handle, receiver_handle, name_handle, attrs);
-}
-
-
 /**
  * Loads a property with an interceptor performing post interceptor
  * lookup if interceptor failed.
  */
-RUNTIME_FUNCTION(LoadPropertyWithInterceptorForLoad) {
-  PropertyAttributes attr = NONE;
+RUNTIME_FUNCTION(LoadPropertyWithInterceptor) {
   HandleScope scope(isolate);
-  Handle<Object> result;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result, LoadWithInterceptor(&args, &attr));
+  ASSERT(args.length() == StubCache::kInterceptorArgsLength);
+  Handle<Name> name =
+      args.at<Name>(StubCache::kInterceptorArgsNameIndex);
+  Handle<JSObject> receiver =
+      args.at<JSObject>(StubCache::kInterceptorArgsThisIndex);
+  Handle<JSObject> holder =
+      args.at<JSObject>(StubCache::kInterceptorArgsHolderIndex);
 
-  // If the property is present, return it.
-  if (attr != ABSENT) return *result;
+  Handle<Object> result;
+  LookupIterator it(receiver, name, holder);
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+      isolate, result, JSObject::GetProperty(&it));
+
+  if (it.IsFound()) return *result;
+
   return ThrowReferenceError(isolate, Name::cast(args[0]));
-}
-
-
-RUNTIME_FUNCTION(LoadPropertyWithInterceptorForCall) {
-  PropertyAttributes attr;
-  HandleScope scope(isolate);
-  Handle<Object> result;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result, LoadWithInterceptor(&args, &attr));
-  // This is call IC. In this case, we simply return the undefined result which
-  // will lead to an exception when trying to invoke the result as a
-  // function.
-  return *result;
 }
 
 
@@ -888,7 +833,7 @@ Handle<Code> LoadStubCompiler::CompileLoadField(
     Handle<HeapType> type,
     Handle<JSObject> holder,
     Handle<Name> name,
-    PropertyIndex field,
+    FieldIndex field,
     Representation representation) {
   Register reg = HandlerFrontend(type, receiver(), holder, name);
   GenerateLoadField(reg, holder, field, representation);
@@ -966,7 +911,7 @@ void LoadStubCompiler::GenerateLoadPostInterceptor(
     LookupResult* lookup) {
   Handle<JSObject> holder(lookup->holder());
   if (lookup->IsField()) {
-    PropertyIndex field = lookup->GetFieldIndex();
+    FieldIndex field = lookup->GetFieldIndex();
     if (interceptor_holder.is_identical_to(holder)) {
       GenerateLoadField(
           interceptor_reg, holder, field, lookup->representation());

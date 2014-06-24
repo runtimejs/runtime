@@ -3,15 +3,15 @@
 // found in the LICENSE file.
 
 #include <assert.h>
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdio.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X64
 
-#include "disasm.h"
-#include "lazy-instance.h"
+#include "src/base/lazy-instance.h"
+#include "src/disasm.h"
 
 namespace disasm {
 
@@ -248,7 +248,7 @@ void InstructionTable::AddJumpConditionalShort() {
 }
 
 
-static v8::internal::LazyInstance<InstructionTable>::type instruction_table =
+static v8::base::LazyInstance<InstructionTable>::type instruction_table =
     LAZY_INSTANCE_INITIALIZER;
 
 
@@ -430,7 +430,7 @@ void DisassemblerX64::AppendToBuffer(const char* format, ...) {
   v8::internal::Vector<char> buf = tmp_buffer_ + tmp_buffer_pos_;
   va_list args;
   va_start(args, format);
-  int result = v8::internal::OS::VSNPrintF(buf, format, args);
+  int result = v8::internal::VSNPrintF(buf, format, args);
   va_end(args);
   tmp_buffer_pos_ += result;
 }
@@ -1793,14 +1793,14 @@ int DisassemblerX64::InstructionDecode(v8::internal::Vector<char> out_buffer,
   int outp = 0;
   // Instruction bytes.
   for (byte* bp = instr; bp < data; bp++) {
-    outp += v8::internal::OS::SNPrintF(out_buffer + outp, "%02x", *bp);
+    outp += v8::internal::SNPrintF(out_buffer + outp, "%02x", *bp);
   }
   for (int i = 6 - instr_len; i >= 0; i--) {
-    outp += v8::internal::OS::SNPrintF(out_buffer + outp, "  ");
+    outp += v8::internal::SNPrintF(out_buffer + outp, "  ");
   }
 
-  outp += v8::internal::OS::SNPrintF(out_buffer + outp, " %s",
-                                     tmp_buffer_.start());
+  outp += v8::internal::SNPrintF(out_buffer + outp, " %s",
+                                 tmp_buffer_.start());
   return instr_len;
 }
 
@@ -1827,7 +1827,7 @@ static const char* xmm_regs[16] = {
 
 
 const char* NameConverter::NameOfAddress(byte* addr) const {
-  v8::internal::OS::SNPrintF(tmp_buffer_, "%p", addr);
+  v8::internal::SNPrintF(tmp_buffer_, "%p", addr);
   return tmp_buffer_.start();
 }
 

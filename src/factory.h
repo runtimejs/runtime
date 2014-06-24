@@ -5,7 +5,7 @@
 #ifndef V8_FACTORY_H_
 #define V8_FACTORY_H_
 
-#include "isolate.h"
+#include "src/isolate.h"
 
 namespace v8 {
 namespace internal {
@@ -45,10 +45,11 @@ class Factory V8_FINAL {
       PretenureFlag pretenure = NOT_TENURED);
 
   Handle<ConstantPoolArray> NewConstantPoolArray(
-      int number_of_int64_entries,
-      int number_of_code_ptr_entries,
-      int number_of_heap_ptr_entries,
-      int number_of_int32_entries);
+      const ConstantPoolArray::NumberOfEntries& small);
+
+  Handle<ConstantPoolArray> NewExtendedConstantPoolArray(
+      const ConstantPoolArray::NumberOfEntries& small,
+      const ConstantPoolArray::NumberOfEntries& extended);
 
   Handle<OrderedHashSet> NewOrderedHashSet();
   Handle<OrderedHashMap> NewOrderedHashMap();
@@ -120,6 +121,23 @@ class Factory V8_FINAL {
     return NewStringFromOneByte(
         OneByteVector(str), pretenure).ToHandleChecked();
   }
+
+
+  // Allocates and fully initializes a String.  There are two String
+  // encodings: ASCII and two byte. One should choose between the three string
+  // allocation functions based on the encoding of the string buffer used to
+  // initialized the string.
+  //   - ...FromAscii initializes the string from a buffer that is ASCII
+  //     encoded (it does not check that the buffer is ASCII encoded) and the
+  //     result will be ASCII encoded.
+  //   - ...FromUTF8 initializes the string from a buffer that is UTF-8
+  //     encoded.  If the characters are all single-byte characters, the
+  //     result will be ASCII encoded, otherwise it will converted to two
+  //     byte.
+  //   - ...FromTwoByte initializes the string from a buffer that is two-byte
+  //     encoded.  If the characters are all single-byte characters, the
+  //     result will be converted to ASCII, otherwise it will be left as
+  //     two-byte.
 
   // TODO(dcarney): remove this function.
   MUST_USE_RESULT inline MaybeHandle<String> NewStringFromAscii(

@@ -25,12 +25,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "v8.h"
+#include "src/v8.h"
+#include "test/cctest/cctest.h"
 
-#include "platform.h"
-#include "isolate.h"
-
-#include "cctest.h"
+#include "src/isolate.h"
+#include "src/platform.h"
 
 
 enum Turn {

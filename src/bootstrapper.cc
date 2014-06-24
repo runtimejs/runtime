@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "bootstrapper.h"
+#include "src/bootstrapper.h"
 
-#include "accessors.h"
-#include "isolate-inl.h"
-#include "natives.h"
-#include "snapshot.h"
-#include "trig-table.h"
-#include "extensions/externalize-string-extension.h"
-#include "extensions/free-buffer-extension.h"
-#include "extensions/gc-extension.h"
-#include "extensions/statistics-extension.h"
-#include "extensions/trigger-failure-extension.h"
-#include "code-stubs.h"
+#include "src/accessors.h"
+#include "src/code-stubs.h"
+#include "src/extensions/externalize-string-extension.h"
+#include "src/extensions/free-buffer-extension.h"
+#include "src/extensions/gc-extension.h"
+#include "src/extensions/statistics-extension.h"
+#include "src/extensions/trigger-failure-extension.h"
+#include "src/isolate-inl.h"
+#include "src/natives.h"
+#include "src/snapshot.h"
+#include "src/trig-table.h"
 
 namespace v8 {
 namespace internal {
@@ -262,24 +262,32 @@ class Genesis BASE_EMBEDDED {
   void TransferNamedProperties(Handle<JSObject> from, Handle<JSObject> to);
   void TransferIndexedProperties(Handle<JSObject> from, Handle<JSObject> to);
 
-  enum PrototypePropertyMode {
-    DONT_ADD_PROTOTYPE,
-    ADD_READONLY_PROTOTYPE,
-    ADD_WRITEABLE_PROTOTYPE
+  enum FunctionMode {
+    // With prototype.
+    FUNCTION_WITH_WRITEABLE_PROTOTYPE,
+    FUNCTION_WITH_READONLY_PROTOTYPE,
+    // Without prototype.
+    FUNCTION_WITHOUT_PROTOTYPE,
+    BOUND_FUNCTION
   };
 
-  Handle<Map> CreateFunctionMap(PrototypePropertyMode prototype_mode);
+  static bool IsFunctionModeWithPrototype(FunctionMode function_mode) {
+    return (function_mode == FUNCTION_WITH_WRITEABLE_PROTOTYPE ||
+            function_mode == FUNCTION_WITH_READONLY_PROTOTYPE);
+  }
+
+  Handle<Map> CreateFunctionMap(FunctionMode function_mode);
 
   void SetFunctionInstanceDescriptor(Handle<Map> map,
-                                     PrototypePropertyMode prototypeMode);
+                                     FunctionMode function_mode);
   void MakeFunctionInstancePrototypeWritable();
 
   Handle<Map> CreateStrictFunctionMap(
-      PrototypePropertyMode prototype_mode,
+      FunctionMode function_mode,
       Handle<JSFunction> empty_function);
 
   void SetStrictFunctionInstanceDescriptor(Handle<Map> map,
-                                           PrototypePropertyMode propertyMode);
+                                           FunctionMode function_mode);
 
   static bool CompileBuiltin(Isolate* isolate, int index);
   static bool CompileExperimentalBuiltin(Isolate* isolate, int index);
@@ -334,10 +342,10 @@ Handle<Context> Bootstrapper::CreateEnvironment(
 
 static void SetObjectPrototype(Handle<JSObject> object, Handle<Object> proto) {
   // object.__proto__ = proto;
-  Handle<Map> old_to_map = Handle<Map>(object->map());
-  Handle<Map> new_to_map = Map::Copy(old_to_map);
-  new_to_map->set_prototype(*proto);
-  object->set_map(*new_to_map);
+  Handle<Map> old_map = Handle<Map>(object->map());
+  Handle<Map> new_map = Map::Copy(old_map);
+  new_map->set_prototype(*proto);
+  JSObject::MigrateToMap(object, new_map);
 }
 
 
@@ -382,8 +390,8 @@ static Handle<JSFunction> InstallFunction(Handle<JSObject> target,
 
 
 void Genesis::SetFunctionInstanceDescriptor(
-    Handle<Map> map, PrototypePropertyMode prototypeMode) {
-  int size = (prototypeMode == DONT_ADD_PROTOTYPE) ? 4 : 5;
+    Handle<Map> map, FunctionMode function_mode) {
+  int size = IsFunctionModeWithPrototype(function_mode) ? 5 : 4;
   Map::EnsureDescriptorSlack(map, size);
 
   PropertyAttributes attribs = static_cast<PropertyAttributes>(
@@ -417,8 +425,8 @@ void Genesis::SetFunctionInstanceDescriptor(
                           caller, attribs);
     map->AppendDescriptor(&d);
   }
-  if (prototypeMode != DONT_ADD_PROTOTYPE) {
-    if (prototypeMode == ADD_WRITEABLE_PROTOTYPE) {
+  if (IsFunctionModeWithPrototype(function_mode)) {
+    if (function_mode == FUNCTION_WITH_WRITEABLE_PROTOTYPE) {
       attribs = static_cast<PropertyAttributes>(attribs & ~READ_ONLY);
     }
     Handle<AccessorInfo> prototype =
@@ -430,10 +438,10 @@ void Genesis::SetFunctionInstanceDescriptor(
 }
 
 
-Handle<Map> Genesis::CreateFunctionMap(PrototypePropertyMode prototype_mode) {
+Handle<Map> Genesis::CreateFunctionMap(FunctionMode function_mode) {
   Handle<Map> map = factory()->NewMap(JS_FUNCTION_TYPE, JSFunction::kSize);
-  SetFunctionInstanceDescriptor(map, prototype_mode);
-  map->set_function_with_prototype(prototype_mode != DONT_ADD_PROTOTYPE);
+  SetFunctionInstanceDescriptor(map, function_mode);
+  map->set_function_with_prototype(IsFunctionModeWithPrototype(function_mode));
   return map;
 }
 
@@ -445,14 +453,15 @@ Handle<JSFunction> Genesis::CreateEmptyFunction(Isolate* isolate) {
   // Functions with this map will not have a 'prototype' property, and
   // can not be used as constructors.
   Handle<Map> function_without_prototype_map =
-      CreateFunctionMap(DONT_ADD_PROTOTYPE);
+      CreateFunctionMap(FUNCTION_WITHOUT_PROTOTYPE);
   native_context()->set_sloppy_function_without_prototype_map(
       *function_without_prototype_map);
 
   // Allocate the function map. This map is temporary, used only for processing
   // of builtins.
   // Later the map is replaced with writable prototype map, allocated below.
-  Handle<Map> function_map = CreateFunctionMap(ADD_READONLY_PROTOTYPE);
+  Handle<Map> function_map =
+      CreateFunctionMap(FUNCTION_WITH_READONLY_PROTOTYPE);
   native_context()->set_sloppy_function_map(*function_map);
   native_context()->set_sloppy_function_with_readonly_prototype_map(
       *function_map);
@@ -460,7 +469,7 @@ Handle<JSFunction> Genesis::CreateEmptyFunction(Isolate* isolate) {
   // The final map for functions. Writeable prototype.
   // This map is installed in MakeFunctionInstancePrototypeWritable.
   sloppy_function_map_writable_prototype_ =
-      CreateFunctionMap(ADD_WRITEABLE_PROTOTYPE);
+      CreateFunctionMap(FUNCTION_WITH_WRITEABLE_PROTOTYPE);
 
   Factory* factory = isolate->factory();
 
@@ -514,7 +523,8 @@ Handle<JSFunction> Genesis::CreateEmptyFunction(Isolate* isolate) {
   sloppy_function_map_writable_prototype_->set_prototype(*empty_function);
 
   // Allocate the function map first and then patch the prototype later
-  Handle<Map> empty_function_map = CreateFunctionMap(DONT_ADD_PROTOTYPE);
+  Handle<Map> empty_function_map =
+      CreateFunctionMap(FUNCTION_WITHOUT_PROTOTYPE);
   empty_function_map->set_prototype(
       native_context()->object_function()->prototype());
   empty_function->set_map(*empty_function_map);
@@ -523,8 +533,8 @@ Handle<JSFunction> Genesis::CreateEmptyFunction(Isolate* isolate) {
 
 
 void Genesis::SetStrictFunctionInstanceDescriptor(
-    Handle<Map> map, PrototypePropertyMode prototypeMode) {
-  int size = (prototypeMode == DONT_ADD_PROTOTYPE) ? 4 : 5;
+    Handle<Map> map, FunctionMode function_mode) {
+  int size = IsFunctionModeWithPrototype(function_mode) ? 5 : 4;
   Map::EnsureDescriptorSlack(map, size);
 
   Handle<AccessorPair> arguments(factory()->NewAccessorPair());
@@ -534,9 +544,17 @@ void Genesis::SetStrictFunctionInstanceDescriptor(
   PropertyAttributes ro_attribs =
       static_cast<PropertyAttributes>(DONT_ENUM | DONT_DELETE | READ_ONLY);
 
-  Handle<AccessorInfo> length =
-      Accessors::FunctionLengthInfo(isolate(), ro_attribs);
-  {  // Add length.
+  // Add length.
+  if (function_mode == BOUND_FUNCTION) {
+    Handle<String> length_string = isolate()->factory()->length_string();
+    FieldDescriptor d(length_string, 0, ro_attribs, Representation::Tagged());
+    map->AppendDescriptor(&d);
+  } else {
+    ASSERT(function_mode == FUNCTION_WITH_WRITEABLE_PROTOTYPE ||
+           function_mode == FUNCTION_WITH_READONLY_PROTOTYPE ||
+           function_mode == FUNCTION_WITHOUT_PROTOTYPE);
+    Handle<AccessorInfo> length =
+        Accessors::FunctionLengthInfo(isolate(), ro_attribs);
     CallbacksDescriptor d(Handle<Name>(Name::cast(length->name())),
                           length, ro_attribs);
     map->AppendDescriptor(&d);
@@ -557,10 +575,11 @@ void Genesis::SetStrictFunctionInstanceDescriptor(
     CallbacksDescriptor d(factory()->caller_string(), caller, rw_attribs);
     map->AppendDescriptor(&d);
   }
-  if (prototypeMode != DONT_ADD_PROTOTYPE) {
+  if (IsFunctionModeWithPrototype(function_mode)) {
     // Add prototype.
     PropertyAttributes attribs =
-        prototypeMode == ADD_WRITEABLE_PROTOTYPE ? rw_attribs : ro_attribs;
+        function_mode == FUNCTION_WITH_WRITEABLE_PROTOTYPE ? rw_attribs
+                                                           : ro_attribs;
     Handle<AccessorInfo> prototype =
         Accessors::FunctionPrototypeInfo(isolate(), attribs);
     CallbacksDescriptor d(Handle<Name>(Name::cast(prototype->name())),
@@ -605,11 +624,11 @@ Handle<JSFunction> Genesis::GetGeneratorPoisonFunction() {
 
 
 Handle<Map> Genesis::CreateStrictFunctionMap(
-    PrototypePropertyMode prototype_mode,
+    FunctionMode function_mode,
     Handle<JSFunction> empty_function) {
   Handle<Map> map = factory()->NewMap(JS_FUNCTION_TYPE, JSFunction::kSize);
-  SetStrictFunctionInstanceDescriptor(map, prototype_mode);
-  map->set_function_with_prototype(prototype_mode != DONT_ADD_PROTOTYPE);
+  SetStrictFunctionInstanceDescriptor(map, function_mode);
+  map->set_function_with_prototype(IsFunctionModeWithPrototype(function_mode));
   map->set_prototype(*empty_function);
   return map;
 }
@@ -618,7 +637,7 @@ Handle<Map> Genesis::CreateStrictFunctionMap(
 void Genesis::CreateStrictModeFunctionMaps(Handle<JSFunction> empty) {
   // Allocate map for the prototype-less strict mode instances.
   Handle<Map> strict_function_without_prototype_map =
-      CreateStrictFunctionMap(DONT_ADD_PROTOTYPE, empty);
+      CreateStrictFunctionMap(FUNCTION_WITHOUT_PROTOTYPE, empty);
   native_context()->set_strict_function_without_prototype_map(
       *strict_function_without_prototype_map);
 
@@ -626,18 +645,23 @@ void Genesis::CreateStrictModeFunctionMaps(Handle<JSFunction> empty) {
   // only for processing of builtins.
   // Later the map is replaced with writable prototype map, allocated below.
   Handle<Map> strict_function_map =
-      CreateStrictFunctionMap(ADD_READONLY_PROTOTYPE, empty);
+      CreateStrictFunctionMap(FUNCTION_WITH_READONLY_PROTOTYPE, empty);
   native_context()->set_strict_function_map(*strict_function_map);
 
   // The final map for the strict mode functions. Writeable prototype.
   // This map is installed in MakeFunctionInstancePrototypeWritable.
   strict_function_map_writable_prototype_ =
-      CreateStrictFunctionMap(ADD_WRITEABLE_PROTOTYPE, empty);
+      CreateStrictFunctionMap(FUNCTION_WITH_WRITEABLE_PROTOTYPE, empty);
+  // Special map for bound functions.
+  Handle<Map> bound_function_map =
+      CreateStrictFunctionMap(BOUND_FUNCTION, empty);
+  native_context()->set_bound_function_map(*bound_function_map);
 
   // Complete the callbacks.
   PoisonArgumentsAndCaller(strict_function_without_prototype_map);
   PoisonArgumentsAndCaller(strict_function_map);
   PoisonArgumentsAndCaller(strict_function_map_writable_prototype_);
+  PoisonArgumentsAndCaller(bound_function_map);
 }
 
 
@@ -1071,7 +1095,7 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     native_context()->set_json_object(*json_object);
   }
 
-  { // -- A r r a y B u f f e r
+  {  // -- A r r a y B u f f e r
     Handle<JSFunction> array_buffer_fun =
         InstallFunction(
             global, "ArrayBuffer", JS_ARRAY_BUFFER_TYPE,
@@ -1081,7 +1105,7 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     native_context()->set_array_buffer_fun(*array_buffer_fun);
   }
 
-  { // -- T y p e d A r r a y s
+  {  // -- T y p e d A r r a y s
 #define INSTALL_TYPED_ARRAY(Type, type, TYPE, ctype, size)                    \
     {                                                                         \
       Handle<JSFunction> fun;                                                 \
@@ -1145,11 +1169,13 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     LookupResult lookup(isolate);
     result->LookupOwn(factory->callee_string(), &lookup);
     ASSERT(lookup.IsField());
-    ASSERT(lookup.GetFieldIndex().field_index() == Heap::kArgumentsCalleeIndex);
+    ASSERT(lookup.GetFieldIndex().property_index() ==
+           Heap::kArgumentsCalleeIndex);
 
     result->LookupOwn(factory->length_string(), &lookup);
     ASSERT(lookup.IsField());
-    ASSERT(lookup.GetFieldIndex().field_index() == Heap::kArgumentsLengthIndex);
+    ASSERT(lookup.GetFieldIndex().property_index() ==
+           Heap::kArgumentsLengthIndex);
 
     ASSERT(result->map()->inobject_properties() > Heap::kArgumentsCalleeIndex);
     ASSERT(result->map()->inobject_properties() > Heap::kArgumentsLengthIndex);
@@ -1245,7 +1271,8 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     LookupResult lookup(isolate);
     result->LookupOwn(factory->length_string(), &lookup);
     ASSERT(lookup.IsField());
-    ASSERT(lookup.GetFieldIndex().field_index() == Heap::kArgumentsLengthIndex);
+    ASSERT(lookup.GetFieldIndex().property_index() ==
+           Heap::kArgumentsLengthIndex);
 
     ASSERT(result->map()->inobject_properties() > Heap::kArgumentsLengthIndex);
 
@@ -1343,16 +1370,24 @@ void Genesis::InitializeExperimentalGlobal() {
     InstallFunction(global, "Set", JS_SET_TYPE, JSSet::kSize,
                     isolate()->initial_object_prototype(), Builtins::kIllegal);
     {   // -- S e t I t e r a t o r
-      Handle<Map> map = isolate()->factory()->NewMap(
-          JS_SET_ITERATOR_TYPE, JSSetIterator::kSize);
-      map->set_constructor(native_context()->closure());
-      native_context()->set_set_iterator_map(*map);
+      Handle<JSObject> builtins(native_context()->builtins());
+      Handle<JSFunction> set_iterator_function =
+          InstallFunction(builtins, "SetIterator", JS_SET_ITERATOR_TYPE,
+                          JSSetIterator::kSize,
+                          isolate()->initial_object_prototype(),
+                          Builtins::kIllegal);
+      native_context()->set_set_iterator_map(
+          set_iterator_function->initial_map());
     }
     {   // -- M a p I t e r a t o r
-      Handle<Map> map = isolate()->factory()->NewMap(
-          JS_MAP_ITERATOR_TYPE, JSMapIterator::kSize);
-      map->set_constructor(native_context()->closure());
-      native_context()->set_map_iterator_map(*map);
+      Handle<JSObject> builtins(native_context()->builtins());
+      Handle<JSFunction> map_iterator_function =
+          InstallFunction(builtins, "MapIterator", JS_MAP_ITERATOR_TYPE,
+                          JSMapIterator::kSize,
+                          isolate()->initial_object_prototype(),
+                          Builtins::kIllegal);
+      native_context()->set_map_iterator_map(
+          map_iterator_function->initial_map());
     }
   }
 
@@ -1477,7 +1512,7 @@ bool Genesis::CompileNative(Isolate* isolate,
                             Vector<const char> name,
                             Handle<String> source) {
   HandleScope scope(isolate);
-  Debugger::IgnoreScope compiling_natives(isolate->debugger());
+  SuppressDebug compiling_natives(isolate->debug());
   // During genesis, the boilerplate for stack overflow won't work until the
   // environment has been at least partially initialized. Add a stack check
   // before entering JS code to catch overflow early.
@@ -1587,6 +1622,7 @@ void Genesis::InstallNativeFunctions() {
   INSTALL_NATIVE(JSFunction, "PromiseReject", promise_reject);
   INSTALL_NATIVE(JSFunction, "PromiseChain", promise_chain);
   INSTALL_NATIVE(JSFunction, "PromiseCatch", promise_catch);
+  INSTALL_NATIVE(JSFunction, "PromiseThen", promise_then);
 
   INSTALL_NATIVE(JSFunction, "NotifyChange", observers_notify_change);
   INSTALL_NATIVE(JSFunction, "EnqueueSpliceRecord", observers_enqueue_splice);
@@ -1609,6 +1645,10 @@ void Genesis::InstallExperimentalNativeFunctions() {
     INSTALL_NATIVE(JSFunction, "DerivedGetTrap", derived_get_trap);
     INSTALL_NATIVE(JSFunction, "DerivedSetTrap", derived_set_trap);
     INSTALL_NATIVE(JSFunction, "ProxyEnumerate", proxy_enumerate);
+  }
+
+  if (FLAG_harmony_symbols) {
+    INSTALL_NATIVE(Symbol, "symbolIterator", iterator_symbol);
   }
 }
 
@@ -2009,6 +2049,7 @@ bool Genesis::InstallExperimentalNatives() {
     INSTALL_EXPERIMENTAL_NATIVE(i, symbols, "symbol.js")
     INSTALL_EXPERIMENTAL_NATIVE(i, proxies, "proxy.js")
     INSTALL_EXPERIMENTAL_NATIVE(i, collections, "collection.js")
+    INSTALL_EXPERIMENTAL_NATIVE(i, collections, "collection-iterator.js")
     INSTALL_EXPERIMENTAL_NATIVE(i, generators, "generator.js")
     INSTALL_EXPERIMENTAL_NATIVE(i, iteration, "array-iterator.js")
     INSTALL_EXPERIMENTAL_NATIVE(i, strings, "harmony-string.js")
@@ -2408,7 +2449,7 @@ void Genesis::TransferNamedProperties(Handle<JSObject> from,
         case FIELD: {
           HandleScope inner(isolate());
           Handle<Name> key = Handle<Name>(descs->GetKey(i));
-          int index = descs->GetFieldIndex(i);
+          FieldIndex index = FieldIndex::ForDescriptor(from->map(), i);
           ASSERT(!descs->GetDetails(i).representation().IsDouble());
           Handle<Object> value = Handle<Object>(from->RawFastPropertyAt(index),
                                                 isolate());
@@ -2499,10 +2540,8 @@ void Genesis::TransferObject(Handle<JSObject> from, Handle<JSObject> to) {
   TransferIndexedProperties(from, to);
 
   // Transfer the prototype (new map is needed).
-  Handle<Map> old_to_map = Handle<Map>(to->map());
-  Handle<Map> new_to_map = Map::Copy(old_to_map);
-  new_to_map->set_prototype(from->map()->prototype());
-  to->set_map(*new_to_map);
+  Handle<Object> proto(from->map()->prototype(), isolate());
+  SetObjectPrototype(to, proto);
 }
 
 

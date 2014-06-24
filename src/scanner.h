@@ -7,20 +7,22 @@
 #ifndef V8_SCANNER_H_
 #define V8_SCANNER_H_
 
-#include "allocation.h"
-#include "char-predicates.h"
-#include "checks.h"
-#include "globals.h"
-#include "hashmap.h"
-#include "list.h"
-#include "token.h"
-#include "unicode-inl.h"
-#include "utils.h"
+#include "src/allocation.h"
+#include "src/char-predicates.h"
+#include "src/checks.h"
+#include "src/globals.h"
+#include "src/hashmap.h"
+#include "src/list.h"
+#include "src/token.h"
+#include "src/unicode-inl.h"
+#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
 
 
+class AstRawString;
+class AstValueFactory;
 class ParserRecorder;
 
 
@@ -258,7 +260,7 @@ class LiteralBuffer {
 
   void ExpandBuffer() {
     Vector<byte> new_store = Vector<byte>::New(NewCapacity(kInitialCapacity));
-    OS::MemCopy(new_store.start(), backing_store_.start(), position_);
+    MemCopy(new_store.start(), backing_store_.start(), position_);
     backing_store_.Dispose();
     backing_store_ = new_store;
   }
@@ -376,9 +378,8 @@ class Scanner {
     return next_.literal_chars->is_contextual_keyword(keyword);
   }
 
-  Handle<String> AllocateNextLiteralString(Isolate* isolate,
-                                           PretenureFlag tenured);
-  Handle<String> AllocateInternalizedString(Isolate* isolate);
+  const AstRawString* CurrentSymbol(AstValueFactory* ast_value_factory);
+  const AstRawString* NextSymbol(AstValueFactory* ast_value_factory);
 
   double DoubleValue();
   bool UnescapedLiteralMatches(const char* data, int length) {

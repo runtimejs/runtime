@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "typing.h"
+#include "src/typing.h"
 
-#include "frames.h"
-#include "frames-inl.h"
-#include "parser.h"  // for CompileTimeValue; TODO(rossberg): should move
-#include "scopes.h"
+#include "src/frames.h"
+#include "src/frames-inl.h"
+#include "src/parser.h"  // for CompileTimeValue; TODO(rossberg): should move
+#include "src/scopes.h"
 
 namespace v8 {
 namespace internal {
@@ -675,7 +675,7 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
       Bounds l = expr->left()->bounds();
       Bounds r = expr->right()->bounds();
       Type* lower =
-          l.lower->Is(Type::None()) || r.lower->Is(Type::None()) ?
+          !l.lower->IsInhabited() || !r.lower->IsInhabited() ?
               Type::None(zone()) :
           l.lower->Is(Type::String()) || r.lower->Is(Type::String()) ?
               Type::String(zone()) :

@@ -33,12 +33,12 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
 
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_MIPS
 
-#include "mips/assembler-mips-inl.h"
-#include "serialize.h"
+#include "src/mips/assembler-mips-inl.h"
+#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -87,7 +87,6 @@ const char* DoubleRegister::AllocationIndexToString(int index) {
 
 
 void CpuFeatures::ProbeImpl(bool cross_compile) {
-  supported_ |= OS::CpuFeaturesImpliedByPlatform();
   supported_ |= CpuFeaturesImpliedByCompiler();
 
   // Only use statically determined features for cross compile (snapshot).
@@ -250,28 +249,30 @@ static const int kNegOffset = 0x00008000;
 // addiu(sp, sp, 4) aka Pop() operation or part of Pop(r)
 // operations as post-increment of sp.
 const Instr kPopInstruction = ADDIU | (kRegister_sp_Code << kRsShift)
-      | (kRegister_sp_Code << kRtShift) | (kPointerSize & kImm16Mask);
+      | (kRegister_sp_Code << kRtShift)
+      | (kPointerSize & kImm16Mask);  // NOLINT
 // addiu(sp, sp, -4) part of Push(r) operation as pre-decrement of sp.
 const Instr kPushInstruction = ADDIU | (kRegister_sp_Code << kRsShift)
-      | (kRegister_sp_Code << kRtShift) | (-kPointerSize & kImm16Mask);
+      | (kRegister_sp_Code << kRtShift)
+      | (-kPointerSize & kImm16Mask);  // NOLINT
 // sw(r, MemOperand(sp, 0))
 const Instr kPushRegPattern = SW | (kRegister_sp_Code << kRsShift)
-      |  (0 & kImm16Mask);
+      | (0 & kImm16Mask);  // NOLINT
 //  lw(r, MemOperand(sp, 0))
 const Instr kPopRegPattern = LW | (kRegister_sp_Code << kRsShift)
-      |  (0 & kImm16Mask);
+      | (0 & kImm16Mask);  // NOLINT
 
 const Instr kLwRegFpOffsetPattern = LW | (kRegister_fp_Code << kRsShift)
-      |  (0 & kImm16Mask);
+      | (0 & kImm16Mask);  // NOLINT
 
 const Instr kSwRegFpOffsetPattern = SW | (kRegister_fp_Code << kRsShift)
-      |  (0 & kImm16Mask);
+      | (0 & kImm16Mask);  // NOLINT
 
 const Instr kLwRegFpNegOffsetPattern = LW | (kRegister_fp_Code << kRsShift)
-      |  (kNegOffset & kImm16Mask);
+      | (kNegOffset & kImm16Mask);  // NOLINT
 
 const Instr kSwRegFpNegOffsetPattern = SW | (kRegister_fp_Code << kRsShift)
-      |  (kNegOffset & kImm16Mask);
+      | (kNegOffset & kImm16Mask);  // NOLINT
 // A mask for the Rt register for push, pop, lw, sw instructions.
 const Instr kRtMask = kRtFieldMask;
 const Instr kLwSwInstrTypeMask = 0xffe00000;
@@ -1183,7 +1184,7 @@ void Assembler::jal_or_jalr(int32_t target, Register rs) {
 }
 
 
-//-------Data-processing-instructions---------
+// -------Data-processing-instructions---------
 
 // Arithmetic.
 
@@ -1326,7 +1327,7 @@ void Assembler::rotrv(Register rd, Register rt, Register rs) {
 }
 
 
-//------------Memory-instructions-------------
+// ------------Memory-instructions-------------
 
 // Helper for base-reg + offset, when offset is larger than int16.
 void Assembler::LoadRegPlusOffsetToAt(const MemOperand& src) {
@@ -1443,7 +1444,7 @@ void Assembler::lui(Register rd, int32_t j) {
 }
 
 
-//-------------Misc-instructions--------------
+// -------------Misc-instructions--------------
 
 // Break / Trap instructions.
 void Assembler::break_(uint32_t code, bool break_as_stop) {
@@ -1616,7 +1617,7 @@ void Assembler::pref(int32_t hint, const MemOperand& rs) {
 }
 
 
-//--------Coprocessor-instructions----------------
+// --------Coprocessor-instructions----------------
 
 // Load, store, move.
 void Assembler::lwc1(FPURegister fd, const MemOperand& src) {
@@ -1675,7 +1676,7 @@ void Assembler::cfc1(Register rt, FPUControlRegister fs) {
 
 void Assembler::DoubleAsTwoUInt32(double d, uint32_t* lo, uint32_t* hi) {
   uint64_t i;
-  OS::MemCopy(&i, &d, 8);
+  memcpy(&i, &d, 8);
 
   *lo = i & 0xffffffff;
   *hi = i >> 32;
@@ -1990,9 +1991,9 @@ void Assembler::GrowBuffer() {
   // Copy the data.
   int pc_delta = desc.buffer - buffer_;
   int rc_delta = (desc.buffer + desc.buffer_size) - (buffer_ + buffer_size_);
-  OS::MemMove(desc.buffer, buffer_, desc.instr_size);
-  OS::MemMove(reloc_info_writer.pos() + rc_delta,
-              reloc_info_writer.pos(), desc.reloc_size);
+  MemMove(desc.buffer, buffer_, desc.instr_size);
+  MemMove(reloc_info_writer.pos() + rc_delta, reloc_info_writer.pos(),
+          desc.reloc_size);
 
   // Switch buffers.
   DeleteArray(buffer_);

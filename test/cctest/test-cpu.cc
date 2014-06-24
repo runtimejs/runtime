@@ -25,10 +25,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "cctest.h"
-#include "cpu.h"
+#include "src/cpu.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 
@@ -51,5 +51,5 @@ TEST(FeatureImplications) {
 
 
 TEST(NumberOfProcessorsOnline) {
-  CHECK_GT(CPU::NumberOfProcessorsOnline(), 0);
+  CHECK_GT(OS::NumberOfProcessorsOnline(), 0);
 }

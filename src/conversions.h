@@ -7,10 +7,10 @@
 
 #include <limits>
 
-#include "checks.h"
-#include "handles.h"
-#include "objects.h"
-#include "utils.h"
+#include "src/checks.h"
+#include "src/handles.h"
+#include "src/objects.h"
+#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -41,7 +41,8 @@ inline bool isBinaryDigit(int x) {
 
 // The fast double-to-(unsigned-)int conversion routine does not guarantee
 // rounding towards zero.
-// For NaN and values outside the int range, return INT_MIN or INT_MAX.
+// If x is NaN, the result is INT_MIN.  Otherwise the result is the argument x,
+// clamped to [INT_MIN, INT_MAX] and then rounded to an integer.
 inline int FastD2IChecked(double x) {
   if (!(x >= INT_MIN)) return INT_MIN;  // Negation to catch NaNs.
   if (x > INT_MAX) return INT_MAX;
@@ -160,6 +161,17 @@ static inline bool IsInt32Double(double value) {
          value >= kMinInt &&
          value <= kMaxInt &&
          value == FastI2D(FastD2I(value));
+}
+
+
+// UInteger32 is an integer that can be represented as an unsigned 32-bit
+// integer. It has to be in the range [0, 2^32 - 1].
+// We also have to check for negative 0 as it is not a UInteger32.
+static inline bool IsUint32Double(double value) {
+  return !IsMinusZero(value) &&
+         value >= 0 &&
+         value <= kMaxUInt32 &&
+         value == FastUI2D(FastD2UI(value));
 }
 
 

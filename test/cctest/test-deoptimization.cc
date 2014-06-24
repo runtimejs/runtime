@@ -27,16 +27,16 @@
 
 #include <stdlib.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "api.h"
-#include "cctest.h"
-#include "compilation-cache.h"
-#include "debug.h"
-#include "deoptimizer.h"
-#include "isolate.h"
-#include "platform.h"
-#include "stub-cache.h"
+#include "src/api.h"
+#include "src/compilation-cache.h"
+#include "src/debug.h"
+#include "src/deoptimizer.h"
+#include "src/isolate.h"
+#include "src/platform.h"
+#include "src/stub-cache.h"
+#include "test/cctest/cctest.h"
 
 using ::v8::internal::Deoptimizer;
 using ::v8::internal::EmbeddedVector;
@@ -397,9 +397,9 @@ static void CompileConstructorWithDeoptimizingValueOf() {
 static void TestDeoptimizeBinaryOpHelper(LocalContext* env,
                                          const char* binary_op) {
   EmbeddedVector<char, SMALL_STRING_BUFFER_SIZE> f_source_buffer;
-  OS::SNPrintF(f_source_buffer,
-               "function f(x, y) { return x %s y; };",
-               binary_op);
+  SNPrintF(f_source_buffer,
+           "function f(x, y) { return x %s y; };",
+           binary_op);
   char* f_source = f_source_buffer.start();
 
   AllowNativesSyntaxNoInlining options;

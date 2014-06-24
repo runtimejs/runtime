@@ -5,8 +5,7 @@
 #ifndef V8_RUNTIME_PROFILER_H_
 #define V8_RUNTIME_PROFILER_H_
 
-#include "allocation.h"
-#include "atomicops.h"
+#include "src/allocation.h"
 
 namespace v8 {
 namespace internal {
@@ -24,7 +23,7 @@ class RuntimeProfiler {
 
   void NotifyICChanged() { any_ic_changed_ = true; }
 
-  void AttemptOnStackReplacement(JSFunction* function);
+  void AttemptOnStackReplacement(JSFunction* function, int nesting_levels = 1);
 
  private:
   void Optimize(JSFunction* function, const char* reason);

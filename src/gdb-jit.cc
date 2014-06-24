@@ -3,18 +3,18 @@
 // found in the LICENSE file.
 
 #ifdef ENABLE_GDB_JIT_INTERFACE
-#include "v8.h"
-#include "gdb-jit.h"
+#include "src/v8.h"
 
-#include "bootstrapper.h"
-#include "compiler.h"
-#include "frames.h"
-#include "frames-inl.h"
-#include "global-handles.h"
-#include "messages.h"
-#include "natives.h"
-#include "platform.h"
-#include "scopes.h"
+#include "src/bootstrapper.h"
+#include "src/compiler.h"
+#include "src/frames-inl.h"
+#include "src/frames.h"
+#include "src/gdb-jit.h"
+#include "src/global-handles.h"
+#include "src/messages.h"
+#include "src/natives.h"
+#include "src/platform.h"
+#include "src/scopes.h"
 
 namespace v8 {
 namespace internal {
@@ -649,16 +649,17 @@ class ELF BASE_EMBEDDED {
   void WriteHeader(Writer* w) {
     ASSERT(w->position() == 0);
     Writer::Slot<ELFHeader> header = w->CreateSlotHere<ELFHeader>();
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_X87
+#if (V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_X87 || \
+     (V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_32_BIT))
     const uint8_t ident[16] =
         { 0x7f, 'E', 'L', 'F', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-#elif V8_TARGET_ARCH_X64
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_64_BIT
     const uint8_t ident[16] =
         { 0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 #else
 #error Unsupported target architecture.
 #endif
-    OS::MemCopy(header->ident, ident, 16);
+    memcpy(header->ident, ident, 16);
     header->type = 1;
 #if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X87
     header->machine = 3;
@@ -762,7 +763,8 @@ class ELFSymbol BASE_EMBEDDED {
   Binding binding() const {
     return static_cast<Binding>(info >> 4);
   }
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_X87
+#if (V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_X87 || \
+     (V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_32_BIT))
   struct SerializedLayout {
     SerializedLayout(uint32_t name,
                      uintptr_t value,
@@ -785,7 +787,7 @@ class ELFSymbol BASE_EMBEDDED {
     uint8_t other;
     uint16_t section;
   };
-#elif V8_TARGET_ARCH_X64
+#elif V8_TARGET_ARCH_X64 && V8_TARGET_ARCH_64_BIT
   struct SerializedLayout {
     SerializedLayout(uint32_t name,
                      uintptr_t value,
@@ -1833,7 +1835,7 @@ static JITCodeEntry* CreateCodeEntry(Address symfile_addr,
 
   entry->symfile_addr_ = reinterpret_cast<Address>(entry + 1);
   entry->symfile_size_ = symfile_size;
-  OS::MemCopy(entry->symfile_addr_, symfile_addr, symfile_size);
+  MemCopy(entry->symfile_addr_, symfile_addr, symfile_size);
 
   entry->prev_ = entry->next_ = NULL;
 
@@ -1857,12 +1859,12 @@ static void RegisterCodeEntry(JITCodeEntry* entry,
     static const char* kObjFileExt = ".o";
     char file_name[64];
 
-    OS::SNPrintF(Vector<char>(file_name, kMaxFileNameSize),
-                 "%s%s%d%s",
-                 kElfFilePrefix,
-                 (name_hint != NULL) ? name_hint : "",
-                 file_num++,
-                 kObjFileExt);
+    SNPrintF(Vector<char>(file_name, kMaxFileNameSize),
+             "%s%s%d%s",
+             kElfFilePrefix,
+             (name_hint != NULL) ? name_hint : "",
+             file_num++,
+             kObjFileExt);
     WriteBytes(file_name, entry->symfile_addr_, entry->symfile_size_);
   }
 #endif

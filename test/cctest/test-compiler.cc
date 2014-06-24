@@ -28,11 +28,11 @@
 #include <stdlib.h>
 #include <wchar.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "compiler.h"
-#include "disasm.h"
-#include "cctest.h"
+#include "src/compiler.h"
+#include "src/disasm.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 
@@ -75,7 +75,7 @@ static Handle<JSFunction> Compile(const char* source) {
 static double Inc(Isolate* isolate, int x) {
   const char* source = "result = %d + 1;";
   EmbeddedVector<char, 512> buffer;
-  OS::SNPrintF(buffer, source, x);
+  SNPrintF(buffer, source, x);
 
   Handle<JSFunction> fun = Compile(buffer.start());
   if (fun.is_null()) return -1;
@@ -278,7 +278,7 @@ TEST(GetScriptLineNumber) {
   for (int i = 0; i < max_rows; ++i) {
     if (i > 0)
       buffer[i - 1] = '\n';
-    OS::MemCopy(&buffer[i], function_f, sizeof(function_f) - 1);
+    MemCopy(&buffer[i], function_f, sizeof(function_f) - 1);
     v8::Handle<v8::String> script_body =
         v8::String::NewFromUtf8(CcTest::isolate(), buffer.start());
     v8::Script::Compile(script_body, &origin)->Run();
@@ -422,7 +422,7 @@ static void CheckCodeForUnsafeLiteral(Handle<JSFunction> f) {
     v8::internal::EmbeddedVector<char, 128> decode_buffer;
     v8::internal::EmbeddedVector<char, 128> smi_hex_buffer;
     Smi* smi = Smi::FromInt(12345678);
-    OS::SNPrintF(smi_hex_buffer, "0x%lx", reinterpret_cast<intptr_t>(smi));
+    SNPrintF(smi_hex_buffer, "0x%" V8PRIxPTR, reinterpret_cast<intptr_t>(smi));
     while (pc < end) {
       int num_const = d.ConstantPoolSizeAt(pc);
       if (num_const >= 0) {

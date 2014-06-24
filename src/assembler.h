@@ -35,14 +35,14 @@
 #ifndef V8_ASSEMBLER_H_
 #define V8_ASSEMBLER_H_
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "allocation.h"
-#include "builtins.h"
-#include "gdb-jit.h"
-#include "isolate.h"
-#include "runtime.h"
-#include "token.h"
+#include "src/allocation.h"
+#include "src/builtins.h"
+#include "src/gdb-jit.h"
+#include "src/isolate.h"
+#include "src/runtime.h"
+#include "src/token.h"
 
 namespace v8 {
 
@@ -874,8 +874,6 @@ class ExternalReference BASE_EMBEDDED {
       Isolate* isolate);
   static ExternalReference old_data_space_allocation_limit_address(
       Isolate* isolate);
-  static ExternalReference new_space_high_promotion_mode_active_address(
-      Isolate* isolate);
 
   static ExternalReference mod_two_doubles_operation(Isolate* isolate);
   static ExternalReference power_double_double_function(Isolate* isolate);
@@ -913,6 +911,7 @@ class ExternalReference BASE_EMBEDDED {
 
   static ExternalReference cpu_features();
 
+  static ExternalReference debug_is_active_address(Isolate* isolate);
   static ExternalReference debug_after_break_target_address(Isolate* isolate);
   static ExternalReference debug_restarter_frame_function_pointer_address(
       Isolate* isolate);

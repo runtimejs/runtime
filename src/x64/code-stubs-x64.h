@@ -5,7 +5,7 @@
 #ifndef V8_X64_CODE_STUBS_X64_H_
 #define V8_X64_CODE_STUBS_X64_H_
 
-#include "ic-inl.h"
+#include "src/ic-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -36,11 +36,11 @@ class StringHelper : public AllStatic {
   // Generate code for copying characters using the rep movs instruction.
   // Copies rcx characters from rsi to rdi. Copying of overlapping regions is
   // not supported.
-  static void GenerateCopyCharactersREP(MacroAssembler* masm,
-                                        Register dest,     // Must be rdi.
-                                        Register src,      // Must be rsi.
-                                        Register count,    // Must be rcx.
-                                        bool ascii);
+  static void GenerateCopyCharacters(MacroAssembler* masm,
+                                     Register dest,
+                                     Register src,
+                                     Register count,
+                                     String::Encoding encoding);
 
 
   // Generate string hash.

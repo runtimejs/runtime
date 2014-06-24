@@ -5,10 +5,10 @@
 #ifndef V8_SPACES_INL_H_
 #define V8_SPACES_INL_H_
 
-#include "heap-profiler.h"
-#include "isolate.h"
-#include "spaces.h"
-#include "v8memory.h"
+#include "src/heap-profiler.h"
+#include "src/isolate.h"
+#include "src/spaces.h"
+#include "src/v8memory.h"
 
 namespace v8 {
 namespace internal {
@@ -253,26 +253,14 @@ HeapObject* PagedSpace::AllocateLinearly(int size_in_bytes) {
 // Raw allocation.
 AllocationResult PagedSpace::AllocateRaw(int size_in_bytes) {
   HeapObject* object = AllocateLinearly(size_in_bytes);
-  if (object != NULL) {
-    if (identity() == CODE_SPACE) {
-      SkipList::Update(object->address(), size_in_bytes);
+
+  if (object == NULL) {
+    object = free_list_.Allocate(size_in_bytes);
+    if (object == NULL) {
+      object = SlowAllocateRaw(size_in_bytes);
     }
-    return object;
   }
 
-  ASSERT(!heap()->linear_allocation() ||
-         (anchor_.next_chunk() == &anchor_ &&
-          anchor_.prev_chunk() == &anchor_));
-
-  object = free_list_.Allocate(size_in_bytes);
-  if (object != NULL) {
-    if (identity() == CODE_SPACE) {
-      SkipList::Update(object->address(), size_in_bytes);
-    }
-    return object;
-  }
-
-  object = SlowAllocateRaw(size_in_bytes);
   if (object != NULL) {
     if (identity() == CODE_SPACE) {
       SkipList::Update(object->address(), size_in_bytes);

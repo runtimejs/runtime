@@ -29,16 +29,16 @@
 
 #include <ctype.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "allocation-tracker.h"
-#include "cctest.h"
-#include "hashmap.h"
-#include "heap-profiler.h"
-#include "snapshot.h"
-#include "debug.h"
-#include "utils-inl.h"
-#include "../include/v8-profiler.h"
+#include "include/v8-profiler.h"
+#include "src/allocation-tracker.h"
+#include "src/debug.h"
+#include "src/hashmap.h"
+#include "src/heap-profiler.h"
+#include "src/snapshot.h"
+#include "src/utils-inl.h"
+#include "test/cctest/cctest.h"
 
 using i::AllocationTraceNode;
 using i::AllocationTraceTree;
@@ -777,7 +777,7 @@ class TestJSONStream : public v8::OutputStream {
     if (abort_countdown_ == 0) return kAbort;
     CHECK_GT(chars_written, 0);
     i::Vector<char> chunk = buffer_.AddBlock(chars_written, '\0');
-    i::OS::MemCopy(chunk.start(), buffer, chars_written);
+    i::MemCopy(chunk.start(), buffer, chars_written);
     return kContinue;
   }
   virtual WriteResult WriteUint32Chunk(uint32_t* buffer, int chars_written) {
@@ -2104,7 +2104,7 @@ TEST(ManyLocalsInSharedContext) {
   // ... well check just every 15th because otherwise it's too slow in debug.
   for (int i = 0; i < num_objects - 1; i += 15) {
     i::EmbeddedVector<char, 100> var_name;
-    i::OS::SNPrintF(var_name, "f_%d", i);
+    i::SNPrintF(var_name, "f_%d", i);
     const v8::HeapGraphNode* f_object = GetProperty(
         context_object, v8::HeapGraphEdge::kContextVariable, var_name.start());
     CHECK_NE(NULL, f_object);
@@ -2199,7 +2199,7 @@ static const v8::HeapGraphNode* GetNodeByPath(const v8::HeapSnapshot* snapshot,
       v8::String::Utf8Value edge_name(edge->GetName());
       v8::String::Utf8Value node_name(to_node->GetName());
       i::EmbeddedVector<char, 100> name;
-      i::OS::SNPrintF(name, "%s::%s", *edge_name, *node_name);
+      i::SNPrintF(name, "%s::%s", *edge_name, *node_name);
       if (strstr(name.start(), path[current_depth])) {
         node = to_node;
         break;

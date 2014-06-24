@@ -66,9 +66,7 @@ void StaticNewSpaceVisitor<StaticVisitor>::Initialize() {
 
   table_.Register(kVisitFreeSpace, &VisitFreeSpace);
 
-  table_.Register(kVisitJSWeakMap, &JSObjectVisitor::Visit);
-
-  table_.Register(kVisitJSWeakSet, &JSObjectVisitor::Visit);
+  table_.Register(kVisitJSWeakCollection, &JSObjectVisitor::Visit);
 
   table_.Register(kVisitJSRegExp, &JSObjectVisitor::Visit);
 
@@ -182,9 +180,7 @@ void StaticMarkingVisitor<StaticVisitor>::Initialize() {
 
   table_.Register(kVisitSeqTwoByteString, &DataObjectVisitor::Visit);
 
-  table_.Register(kVisitJSWeakMap, &StaticVisitor::VisitWeakCollection);
-
-  table_.Register(kVisitJSWeakSet, &StaticVisitor::VisitWeakCollection);
+  table_.Register(kVisitJSWeakCollection, &VisitWeakCollection);
 
   table_.Register(kVisitOddball,
                   &FixedBodyVisitor<StaticVisitor,
@@ -286,7 +282,6 @@ void StaticMarkingVisitor<StaticVisitor>::VisitCodeTarget(
   // Monomorphic ICs are preserved when possible, but need to be flushed
   // when they might be keeping a Context alive, or when the heap is about
   // to be serialized.
-
   if (FLAG_cleanup_code_caches_at_gc && target->is_inline_cache_stub()
       && (target->ic_state() == MEGAMORPHIC || target->ic_state() == GENERIC ||
           target->ic_state() == POLYMORPHIC || heap->flush_monomorphic_ics() ||
@@ -402,6 +397,40 @@ void StaticMarkingVisitor<StaticVisitor>::VisitAllocationSite(
 
 
 template<typename StaticVisitor>
+void StaticMarkingVisitor<StaticVisitor>::VisitWeakCollection(
+    Map* map, HeapObject* object) {
+  Heap* heap = map->GetHeap();
+  JSWeakCollection* weak_collection =
+      reinterpret_cast<JSWeakCollection*>(object);
+
+  // Enqueue weak collection in linked list of encountered weak collections.
+  if (weak_collection->next() == heap->undefined_value()) {
+    weak_collection->set_next(heap->encountered_weak_collections());
+    heap->set_encountered_weak_collections(weak_collection);
+  }
+
+  // Skip visiting the backing hash table containing the mappings and the
+  // pointer to the other enqueued weak collections, both are post-processed.
+  StaticVisitor::VisitPointers(heap,
+      HeapObject::RawField(object, JSWeakCollection::kPropertiesOffset),
+      HeapObject::RawField(object, JSWeakCollection::kTableOffset));
+  STATIC_ASSERT(JSWeakCollection::kTableOffset + kPointerSize ==
+      JSWeakCollection::kNextOffset);
+  STATIC_ASSERT(JSWeakCollection::kNextOffset + kPointerSize ==
+      JSWeakCollection::kSize);
+
+  // Partially initialized weak collection is enqueued, but table is ignored.
+  if (!weak_collection->table()->IsHashTable()) return;
+
+  // Mark the backing hash table without pushing it on the marking stack.
+  Object** slot = HeapObject::RawField(object, JSWeakCollection::kTableOffset);
+  HeapObject* obj = HeapObject::cast(*slot);
+  heap->mark_compact_collector()->RecordSlot(slot, slot, obj);
+  StaticVisitor::MarkObjectWithoutPush(heap, obj);
+}
+
+
+template<typename StaticVisitor>
 void StaticMarkingVisitor<StaticVisitor>::VisitCode(
     Map* map, HeapObject* object) {
   Heap* heap = map->GetHeap();
@@ -468,23 +497,24 @@ template<typename StaticVisitor>
 void StaticMarkingVisitor<StaticVisitor>::VisitConstantPoolArray(
     Map* map, HeapObject* object) {
   Heap* heap = map->GetHeap();
-  ConstantPoolArray* constant_pool = ConstantPoolArray::cast(object);
-  for (int i = 0; i < constant_pool->count_of_code_ptr_entries(); i++) {
-    int index = constant_pool->first_code_ptr_index() + i;
-    Address code_entry =
-        reinterpret_cast<Address>(constant_pool->RawFieldOfElementAt(index));
+  ConstantPoolArray* array = ConstantPoolArray::cast(object);
+  ConstantPoolArray::Iterator code_iter(array, ConstantPoolArray::CODE_PTR);
+  while (!code_iter.is_finished()) {
+    Address code_entry = reinterpret_cast<Address>(
+        array->RawFieldOfElementAt(code_iter.next_index()));
     StaticVisitor::VisitCodeEntry(heap, code_entry);
   }
-  for (int i = 0; i < constant_pool->count_of_heap_ptr_entries(); i++) {
-    int index = constant_pool->first_heap_ptr_index() + i;
-    Object** slot = constant_pool->RawFieldOfElementAt(index);
+
+  ConstantPoolArray::Iterator heap_iter(array, ConstantPoolArray::HEAP_PTR);
+  while (!heap_iter.is_finished()) {
+    Object** slot = array->RawFieldOfElementAt(heap_iter.next_index());
     HeapObject* object = HeapObject::cast(*slot);
     heap->mark_compact_collector()->RecordSlot(slot, slot, object);
     bool is_weak_object =
-        (constant_pool->get_weak_object_state() ==
+        (array->get_weak_object_state() ==
               ConstantPoolArray::WEAK_OBJECTS_IN_OPTIMIZED_CODE &&
          Code::IsWeakObjectInOptimizedCode(object)) ||
-        (constant_pool->get_weak_object_state() ==
+        (array->get_weak_object_state() ==
               ConstantPoolArray::WEAK_OBJECTS_IN_IC &&
          Code::IsWeakObjectInIC(object));
     if (!is_weak_object) {

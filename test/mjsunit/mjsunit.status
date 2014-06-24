@@ -48,6 +48,9 @@
   # This test non-deterministically runs out of memory on Windows ia32.
   'regress/regress-crbug-160010': [SKIP],
 
+  # Issue 3389: deopt_every_n_garbage_collections is unsafe
+  'regress/regress-2653': [SKIP],
+
   ##############################################################################
   # Too slow in debug mode with --stress-opt mode.
   'compiler/regress-stacktrace-methods': [PASS, ['mode == debug', SKIP]],
@@ -201,13 +204,6 @@
   'regress/regress-2185-2': [PASS, TIMEOUT],
   'whitespaces': [PASS, TIMEOUT, SLOW],
 
-  # Stack manipulations in LiveEdit is not implemented for this arch.
-  'debug-liveedit-check-stack': [SKIP],
-  'debug-liveedit-stack-padding': [SKIP],
-  'debug-liveedit-restart-frame': [SKIP],
-  'debug-liveedit-double-call': [SKIP],
-  'harmony/generators-debug-liveedit': [SKIP],
-
   # BUG(v8:3147). It works on other architectures by accident.
   'regress/regress-conditional-position': [FAIL],
 
@@ -298,13 +294,6 @@
   # should be platform-independent.
   'regress/regress-1132': [SKIP],
 
-  # Stack manipulations in LiveEdit is not implemented for this arch.
-  'debug-liveedit-check-stack': [SKIP],
-  'debug-liveedit-stack-padding': [SKIP],
-  'debug-liveedit-restart-frame': [SKIP],
-  'debug-liveedit-double-call': [SKIP],
-  'harmony/generators-debug-liveedit': [SKIP],
-
   # Currently always deopt on minus zero
   'math-floor-of-div-minus-zero': [SKIP],
 
@@ -349,13 +338,6 @@
   # the test requires too much time to run.  However, the problem test covers
   # should be platform-independent.
   'regress/regress-1132': [SKIP],
-
-  # Stack manipulations in LiveEdit is not implemented for this arch.
-  'debug-liveedit-check-stack': [SKIP],
-  'debug-liveedit-stack-padding': [SKIP],
-  'debug-liveedit-restart-frame': [SKIP],
-  'debug-liveedit-double-call': [SKIP],
-  'harmony/generators-debug-liveedit': [SKIP],
 
   # Currently always deopt on minus zero
   'math-floor-of-div-minus-zero': [SKIP],

@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ast.h"
+#include "src/ast.h"
 
 #include <cmath>  // For isfinite.
-#include "builtins.h"
-#include "code-stubs.h"
-#include "contexts.h"
-#include "conversions.h"
-#include "hashmap.h"
-#include "parser.h"
-#include "property-details.h"
-#include "property.h"
-#include "scopes.h"
-#include "string-stream.h"
-#include "type-info.h"
+#include "src/builtins.h"
+#include "src/code-stubs.h"
+#include "src/contexts.h"
+#include "src/conversions.h"
+#include "src/hashmap.h"
+#include "src/parser.h"
+#include "src/property.h"
+#include "src/property-details.h"
+#include "src/scopes.h"
+#include "src/string-stream.h"
+#include "src/type-info.h"
 
 namespace v8 {
 namespace internal {
@@ -34,17 +34,17 @@ AST_NODE_LIST(DECL_ACCEPT)
 
 
 bool Expression::IsSmiLiteral() const {
-  return AsLiteral() != NULL && AsLiteral()->value()->IsSmi();
+  return IsLiteral() && AsLiteral()->value()->IsSmi();
 }
 
 
 bool Expression::IsStringLiteral() const {
-  return AsLiteral() != NULL && AsLiteral()->value()->IsString();
+  return IsLiteral() && AsLiteral()->value()->IsString();
 }
 
 
 bool Expression::IsNullLiteral() const {
-  return AsLiteral() != NULL && AsLiteral()->value()->IsNull();
+  return IsLiteral() && AsLiteral()->value()->IsNull();
 }
 
 
@@ -55,14 +55,13 @@ bool Expression::IsUndefinedLiteral(Isolate* isolate) const {
   // The global identifier "undefined" is immutable. Everything
   // else could be reassigned.
   return var != NULL && var->location() == Variable::UNALLOCATED &&
-         String::Equals(var_proxy->name(),
-                        isolate->factory()->undefined_string());
+         var_proxy->raw_name()->IsOneByteEqualTo("undefined");
 }
 
 
 VariableProxy::VariableProxy(Zone* zone, Variable* var, int position)
     : Expression(zone, position),
-      name_(var->name()),
+      name_(var->raw_name()),
       var_(NULL),  // Will be set by the call to BindTo.
       is_this_(var->is_this()),
       is_trivial_(false),
@@ -73,7 +72,7 @@ VariableProxy::VariableProxy(Zone* zone, Variable* var, int position)
 
 
 VariableProxy::VariableProxy(Zone* zone,
-                             Handle<String> name,
+                             const AstRawString* name,
                              bool is_this,
                              Interface* interface,
                              int position)
@@ -84,8 +83,6 @@ VariableProxy::VariableProxy(Zone* zone,
       is_trivial_(false),
       is_lvalue_(false),
       interface_(interface) {
-  // Names must be canonicalized for fast equality checks.
-  ASSERT(name->IsInternalizedString());
 }
 
 
@@ -93,7 +90,7 @@ void VariableProxy::BindTo(Variable* var) {
   ASSERT(var_ == NULL);  // must be bound only once
   ASSERT(var != NULL);  // must bind
   ASSERT(!FLAG_harmony_modules || interface_->IsUnified(var->interface()));
-  ASSERT((is_this() && var->is_this()) || name_.is_identical_to(var->name()));
+  ASSERT((is_this() && var->is_this()) || name_ == var->raw_name());
   // Ideally CONST-ness should match. However, this is very hard to achieve
   // because we don't know the exact semantics of conflicting (const and
   // non-const) multiple variable declarations, const vars introduced via
@@ -180,19 +177,17 @@ void FunctionLiteral::InitializeSharedInfo(
 }
 
 
-ObjectLiteralProperty::ObjectLiteralProperty(
-    Zone* zone, Literal* key, Expression* value) {
+ObjectLiteralProperty::ObjectLiteralProperty(Zone* zone,
+                                             AstValueFactory* ast_value_factory,
+                                             Literal* key, Expression* value) {
   emit_store_ = true;
   key_ = key;
   value_ = value;
-  Handle<Object> k = key->value();
-  if (k->IsInternalizedString() &&
-      String::Equals(Handle<String>::cast(k),
-                     zone->isolate()->factory()->proto_string())) {
+  if (key->raw_value()->EqualsString(ast_value_factory->proto_string())) {
     kind_ = PROTOTYPE;
   } else if (value_->AsMaterializedLiteral() != NULL) {
     kind_ = MATERIALIZED_LITERAL;
-  } else if (value_->AsLiteral() != NULL) {
+  } else if (value_->IsLiteral()) {
     kind_ = CONSTANT;
   } else {
     kind_ = COMPUTED;
@@ -390,7 +385,7 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
 
 Handle<Object> MaterializedLiteral::GetBoilerplateValue(Expression* expression,
                                                         Isolate* isolate) {
-  if (expression->AsLiteral() != NULL) {
+  if (expression->IsLiteral()) {
     return expression->AsLiteral()->value();
   }
   if (CompileTimeValue::IsCompileTimeValue(expression)) {
@@ -499,7 +494,7 @@ static bool IsVoidOfLiteral(Expression* expr) {
   UnaryOperation* maybe_unary = expr->AsUnaryOperation();
   return maybe_unary != NULL &&
       maybe_unary->op() == Token::VOID &&
-      maybe_unary->expression()->AsLiteral() != NULL;
+      maybe_unary->expression()->IsLiteral();
 }
 
 
@@ -1122,9 +1117,8 @@ void AstConstructionVisitor::VisitCallRuntime(CallRuntime* node) {
     // optimize them.
     add_flag(kDontInline);
   } else if (node->function()->intrinsic_type == Runtime::INLINE &&
-      (node->name()->IsOneByteEqualTo(
-          STATIC_ASCII_VECTOR("_ArgumentsLength")) ||
-       node->name()->IsOneByteEqualTo(STATIC_ASCII_VECTOR("_Arguments")))) {
+             (node->raw_name()->IsOneByteEqualTo("_ArgumentsLength") ||
+              node->raw_name()->IsOneByteEqualTo("_Arguments"))) {
     // Don't inline the %_ArgumentsLength or %_Arguments because their
     // implementation will not work.  There is no stack frame to get them
     // from.
@@ -1139,17 +1133,17 @@ void AstConstructionVisitor::VisitCallRuntime(CallRuntime* node) {
 
 
 Handle<String> Literal::ToString() {
-  if (value_->IsString()) return Handle<String>::cast(value_);
+  if (value_->IsString()) return value_->AsString()->string();
   ASSERT(value_->IsNumber());
   char arr[100];
   Vector<char> buffer(arr, ARRAY_SIZE(arr));
   const char* str;
-  if (value_->IsSmi()) {
+  if (value()->IsSmi()) {
     // Optimization only, the heap number case would subsume this.
-    OS::SNPrintF(buffer, "%d", Smi::cast(*value_)->value());
+    SNPrintF(buffer, "%d", Smi::cast(*value())->value());
     str = arr;
   } else {
-    str = DoubleToCString(value_->Number(), buffer);
+    str = DoubleToCString(value()->Number(), buffer);
   }
   return isolate_->factory()->NewStringFromAsciiChecked(str);
 }

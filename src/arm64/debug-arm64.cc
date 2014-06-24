@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM64
 
-#include "codegen.h"
-#include "debug.h"
+#include "src/codegen.h"
+#include "src/debug.h"
 
 namespace v8 {
 namespace internal {
@@ -46,7 +46,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
 
   // The first instruction of a patched return sequence must be a load literal
   // loading the address of the debug break return code.
-  patcher.LoadLiteral(ip0, 3 * kInstructionSize);
+  patcher.ldr_pcrel(ip0, (3 * kInstructionSize) >> kLoadLiteralScaleLog2);
   // TODO(all): check the following is correct.
   // The debug break return code will push a frame and call statically compiled
   // code. By using blr, even though control will not return after the branch,
@@ -80,8 +80,8 @@ bool BreakLocationIterator::IsDebugBreakAtSlot() {
 
 
 void BreakLocationIterator::SetDebugBreakAtSlot() {
-  // Patch the code emitted by Debug::GenerateSlots, changing the debug break
-  // slot code from
+  // Patch the code emitted by DebugCodegen::GenerateSlots, changing the debug
+  // break slot code from
   //   mov x0, x0    @ nop DEBUG_BREAK_NOP
   //   mov x0, x0    @ nop DEBUG_BREAK_NOP
   //   mov x0, x0    @ nop DEBUG_BREAK_NOP
@@ -105,7 +105,7 @@ void BreakLocationIterator::SetDebugBreakAtSlot() {
 
   // The first instruction of a patched debug break slot must be a load literal
   // loading the address of the debug break slot code.
-  patcher.LoadLiteral(ip0, 2 * kInstructionSize);
+  patcher.ldr_pcrel(ip0, (2 * kInstructionSize) >> kLoadLiteralScaleLog2);
   // TODO(all): check the following is correct.
   // The debug break slot code will push a frame and call statically compiled
   // code. By using blr, event hough control will not return after the branch,
@@ -123,7 +123,6 @@ void BreakLocationIterator::ClearDebugBreakAtSlot() {
                      Assembler::kDebugBreakSlotInstructions);
 }
 
-const bool Debug::FramePaddingLayout::kIsSupported = false;
 
 static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
                                           RegList object_regs,
@@ -131,6 +130,12 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
                                           Register scratch) {
   {
     FrameScope scope(masm, StackFrame::INTERNAL);
+
+    // Load padding words on stack.
+    __ Mov(scratch, Smi::FromInt(LiveEdit::kFramePaddingValue));
+    __ PushMultipleTimes(scratch, LiveEdit::kFramePaddingInitialSize);
+    __ Mov(scratch, Smi::FromInt(LiveEdit::kFramePaddingInitialSize));
+    __ Push(scratch);
 
     // Any live values (object_regs and non_object_regs) in caller-saved
     // registers (or lr) need to be stored on the stack so that their values are
@@ -158,9 +163,9 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
     while (!non_object_list.IsEmpty()) {
       // Store each non-object register as two SMIs.
       Register reg = Register(non_object_list.PopLowestIndex());
-      __ Push(reg);
-      __ Poke(wzr, 0);
-      __ Push(reg.W(), wzr);
+      __ Lsr(scratch, reg, 32);
+      __ SmiTagAndPush(scratch, reg);
+
       // Stack:
       //  jssp[12]: reg[63:32]
       //  jssp[8]: 0x00000000 (SMI tag & padding)
@@ -201,6 +206,9 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
       __ Bfxil(reg, scratch, 32, 32);
     }
 
+    // Don't bother removing padding bytes pushed on the stack
+    // as the frame is going to be restored right away.
+
     // Leave the internal frame.
   }
 
@@ -215,7 +223,7 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
 }
 
 
-void Debug::GenerateCallICStubDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateCallICStubDebugBreak(MacroAssembler* masm) {
   // Register state for CallICStub
   // ----------- S t a t e -------------
   //  -- x1 : function
@@ -225,7 +233,7 @@ void Debug::GenerateCallICStubDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateLoadICDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
   // Calling convention for IC load (from ic-arm.cc).
   // ----------- S t a t e -------------
   //  -- x2    : name
@@ -239,7 +247,7 @@ void Debug::GenerateLoadICDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateStoreICDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateStoreICDebugBreak(MacroAssembler* masm) {
   // Calling convention for IC store (from ic-arm.cc).
   // ----------- S t a t e -------------
   //  -- x0    : value
@@ -253,7 +261,7 @@ void Debug::GenerateStoreICDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateKeyedLoadICDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateKeyedLoadICDebugBreak(MacroAssembler* masm) {
   // ---------- S t a t e --------------
   //  -- lr     : return address
   //  -- x0     : key
@@ -262,7 +270,7 @@ void Debug::GenerateKeyedLoadICDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
   // ---------- S t a t e --------------
   //  -- x0     : value
   //  -- x1     : key
@@ -272,7 +280,7 @@ void Debug::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateCompareNilICDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateCompareNilICDebugBreak(MacroAssembler* masm) {
   // Register state for CompareNil IC
   // ----------- S t a t e -------------
   //  -- r0    : value
@@ -281,7 +289,7 @@ void Debug::GenerateCompareNilICDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateReturnDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateReturnDebugBreak(MacroAssembler* masm) {
   // In places other than IC call sites it is expected that r0 is TOS which
   // is an object - this is not generally the case so this should be used with
   // care.
@@ -289,7 +297,7 @@ void Debug::GenerateReturnDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateCallFunctionStubDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateCallFunctionStubDebugBreak(MacroAssembler* masm) {
   // Register state for CallFunctionStub (from code-stubs-arm64.cc).
   // ----------- S t a t e -------------
   //  -- x1 : function
@@ -298,7 +306,7 @@ void Debug::GenerateCallFunctionStubDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateCallConstructStubDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateCallConstructStubDebugBreak(MacroAssembler* masm) {
   // Calling convention for CallConstructStub (from code-stubs-arm64.cc).
   // ----------- S t a t e -------------
   //  -- x0 : number of arguments (not smi)
@@ -308,7 +316,8 @@ void Debug::GenerateCallConstructStubDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateCallConstructStubRecordDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateCallConstructStubRecordDebugBreak(
+    MacroAssembler* masm) {
   // Calling convention for CallConstructStub (from code-stubs-arm64.cc).
   // ----------- S t a t e -------------
   //  -- x0 : number of arguments (not smi)
@@ -321,7 +330,7 @@ void Debug::GenerateCallConstructStubRecordDebugBreak(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateSlot(MacroAssembler* masm) {
+void DebugCodegen::GenerateSlot(MacroAssembler* masm) {
   // Generate enough nop's to make space for a call instruction. Avoid emitting
   // the constant pool in the debug break slot code.
   InstructionAccurateScope scope(masm, Assembler::kDebugBreakSlotInstructions);
@@ -333,23 +342,48 @@ void Debug::GenerateSlot(MacroAssembler* masm) {
 }
 
 
-void Debug::GenerateSlotDebugBreak(MacroAssembler* masm) {
+void DebugCodegen::GenerateSlotDebugBreak(MacroAssembler* masm) {
   // In the places where a debug break slot is inserted no registers can contain
   // object pointers.
   Generate_DebugBreakCallHelper(masm, 0, 0, x10);
 }
 
 
-void Debug::GeneratePlainReturnLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnARM64);
+void DebugCodegen::GeneratePlainReturnLiveEdit(MacroAssembler* masm) {
+  __ Ret();
 }
 
 
-void Debug::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
-  masm->Abort(kLiveEditFrameDroppingIsNotSupportedOnARM64);
+void DebugCodegen::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
+  ExternalReference restarter_frame_function_slot =
+      ExternalReference::debug_restarter_frame_function_pointer_address(
+          masm->isolate());
+  UseScratchRegisterScope temps(masm);
+  Register scratch = temps.AcquireX();
+
+  __ Mov(scratch, restarter_frame_function_slot);
+  __ Str(xzr, MemOperand(scratch));
+
+  // We do not know our frame height, but set sp based on fp.
+  __ Sub(masm->StackPointer(), fp, kPointerSize);
+  __ AssertStackConsistency();
+
+  __ Pop(x1, fp, lr);  // Function, Frame, Return address.
+
+  // Load context from the function.
+  __ Ldr(cp, FieldMemOperand(x1, JSFunction::kContextOffset));
+
+  // Get function code.
+  __ Ldr(scratch, FieldMemOperand(x1, JSFunction::kSharedFunctionInfoOffset));
+  __ Ldr(scratch, FieldMemOperand(scratch, SharedFunctionInfo::kCodeOffset));
+  __ Add(scratch, scratch, Code::kHeaderSize - kHeapObjectTag);
+
+  // Re-run JSFunction, x1 is function, cp is context.
+  __ Br(scratch);
 }
 
-const bool Debug::kFrameDropperSupported = false;
+
+const bool LiveEdit::kFrameDropperSupported = true;
 
 } }  // namespace v8::internal
 

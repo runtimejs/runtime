@@ -28,21 +28,21 @@
 #include <stdlib.h>
 
 #ifdef __linux__
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 #include <utility>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "full-codegen.h"
-#include "global-handles.h"
-#include "snapshot.h"
-#include "cctest.h"
+#include "src/full-codegen.h"
+#include "src/global-handles.h"
+#include "src/snapshot.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 
@@ -92,7 +92,8 @@ TEST(Promotion) {
   CHECK(heap->InSpace(*array, NEW_SPACE));
 
   // Call mark compact GC, so array becomes an old object.
-  heap->CollectGarbage(OLD_POINTER_SPACE);
+  heap->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
+  heap->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
 
   // Array now sits in the old space
   CHECK(heap->InSpace(*array, OLD_POINTER_SPACE));

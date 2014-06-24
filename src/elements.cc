@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "arguments.h"
-#include "conversions.h"
-#include "elements.h"
-#include "objects.h"
-#include "utils.h"
+#include "src/arguments.h"
+#include "src/conversions.h"
+#include "src/elements.h"
+#include "src/objects.h"
+#include "src/utils.h"
 
 // Each concrete ElementsAccessor can handle exactly one ElementsKind,
 // several abstract ElementsAccessor classes are used to allow sharing
@@ -1436,9 +1436,7 @@ class DictionaryElementsAccessor
     }
 
     if (new_length == 0) {
-      // If the length of a slow array is reset to zero, we clear
-      // the array and flush backing storage. This has the added
-      // benefit that the array returns to fast mode.
+      // Flush the backing store.
       JSObject::ResetElements(array);
     } else {
       DisallowHeapAllocation no_gc;

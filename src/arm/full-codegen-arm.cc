@@ -2,22 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM
 
-#include "code-stubs.h"
-#include "codegen.h"
-#include "compiler.h"
-#include "debug.h"
-#include "full-codegen.h"
-#include "isolate-inl.h"
-#include "parser.h"
-#include "scopes.h"
-#include "stub-cache.h"
+#include "src/code-stubs.h"
+#include "src/codegen.h"
+#include "src/compiler.h"
+#include "src/debug.h"
+#include "src/full-codegen.h"
+#include "src/isolate-inl.h"
+#include "src/parser.h"
+#include "src/scopes.h"
+#include "src/stub-cache.h"
 
-#include "arm/code-stubs-arm.h"
-#include "arm/macro-assembler-arm.h"
+#include "src/arm/code-stubs-arm.h"
+#include "src/arm/macro-assembler-arm.h"
 
 namespace v8 {
 namespace internal {
@@ -88,31 +88,6 @@ class JumpPatchSite BASE_EMBEDDED {
 };
 
 
-static void EmitStackCheck(MacroAssembler* masm_,
-                           Register stack_limit_scratch,
-                           int pointers = 0,
-                           Register scratch = sp) {
-    Isolate* isolate = masm_->isolate();
-  Label ok;
-  ASSERT(scratch.is(sp) == (pointers == 0));
-  Heap::RootListIndex index;
-  if (pointers != 0) {
-    __ sub(scratch, sp, Operand(pointers * kPointerSize));
-    index = Heap::kRealStackLimitRootIndex;
-  } else {
-    index = Heap::kStackLimitRootIndex;
-  }
-  __ LoadRoot(stack_limit_scratch, index);
-  __ cmp(scratch, Operand(stack_limit_scratch));
-  __ b(hs, &ok);
-  Handle<Code> stack_check = isolate->builtins()->StackCheck();
-  PredictableCodeSizeScope predictable(masm_,
-      masm_->CallSize(stack_check, RelocInfo::CODE_TARGET));
-  __ Call(stack_check, RelocInfo::CODE_TARGET);
-  __ bind(&ok);
-}
-
-
 // Generate code for a JS function.  On entry to the function the receiver
 // and arguments have been pushed on the stack left to right.  The actual
 // argument count matches the formal parameter count expected by the
@@ -180,7 +155,13 @@ void FullCodeGenerator::Generate() {
     ASSERT(!info->function()->is_generator() || locals_count == 0);
     if (locals_count > 0) {
       if (locals_count >= 128) {
-        EmitStackCheck(masm_, r2, locals_count, r9);
+        Label ok;
+        __ sub(r9, sp, Operand(locals_count * kPointerSize));
+        __ LoadRoot(r2, Heap::kRealStackLimitRootIndex);
+        __ cmp(r9, Operand(r2));
+        __ b(hs, &ok);
+        __ InvokeBuiltin(Builtins::STACK_OVERFLOW, CALL_FUNCTION);
+        __ bind(&ok);
       }
       __ LoadRoot(r9, Heap::kUndefinedValueRootIndex);
       int kMaxPushes = FLAG_optimize_for_size ? 4 : 32;
@@ -212,6 +193,7 @@ void FullCodeGenerator::Generate() {
   if (heap_slots > 0) {
     // Argument to NewContext is the function, which is still in r1.
     Comment cmnt(masm_, "[ Allocate context");
+    bool need_write_barrier = true;
     if (FLAG_harmony_scoping && info->scope()->is_global_scope()) {
       __ push(r1);
       __ Push(info->scope()->GetScopeInfo());
@@ -219,6 +201,8 @@ void FullCodeGenerator::Generate() {
     } else if (heap_slots <= FastNewContextStub::kMaximumSlots) {
       FastNewContextStub stub(isolate(), heap_slots);
       __ CallStub(&stub);
+      // Result of FastNewContextStub is always in new space.
+      need_write_barrier = false;
     } else {
       __ push(r1);
       __ CallRuntime(Runtime::kHiddenNewFunctionContext, 1);
@@ -242,8 +226,15 @@ void FullCodeGenerator::Generate() {
         __ str(r0, target);
 
         // Update the write barrier.
-        __ RecordWriteContextSlot(
-            cp, target.offset(), r0, r3, kLRHasBeenSaved, kDontSaveFPRegs);
+        if (need_write_barrier) {
+          __ RecordWriteContextSlot(
+              cp, target.offset(), r0, r3, kLRHasBeenSaved, kDontSaveFPRegs);
+        } else if (FLAG_debug_code) {
+          Label done;
+          __ JumpIfInNewSpace(cp, r0, &done);
+          __ Abort(kExpectedNewSpaceObject);
+          __ bind(&done);
+        }
       }
     }
   }
@@ -311,7 +302,15 @@ void FullCodeGenerator::Generate() {
 
     { Comment cmnt(masm_, "[ Stack check");
       PrepareForBailoutForId(BailoutId::Declarations(), NO_REGISTERS);
-      EmitStackCheck(masm_, ip);
+      Label ok;
+      __ LoadRoot(ip, Heap::kStackLimitRootIndex);
+      __ cmp(sp, Operand(ip));
+      __ b(hs, &ok);
+      Handle<Code> stack_check = isolate()->builtins()->StackCheck();
+      PredictableCodeSizeScope predictable(masm_,
+          masm_->CallSize(stack_check, RelocInfo::CODE_TARGET));
+      __ Call(stack_check, RelocInfo::CODE_TARGET);
+      __ bind(&ok);
     }
 
     { Comment cmnt(masm_, "[ Body");
@@ -1263,8 +1262,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   Iteration loop_statement(this, stmt);
   increment_loop_depth();
 
-  // var iterator = iterable[@@iterator]()
-  VisitForAccumulatorValue(stmt->assign_iterator());
+  // var iterable = subject
+  VisitForAccumulatorValue(stmt->assign_iterable());
 
   // As with for-in, skip the loop if the iterator is null or undefined.
   __ CompareRoot(r0, Heap::kUndefinedValueRootIndex);
@@ -1272,16 +1271,8 @@ void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
   __ CompareRoot(r0, Heap::kNullValueRootIndex);
   __ b(eq, loop_statement.break_label());
 
-  // Convert the iterator to a JS object.
-  Label convert, done_convert;
-  __ JumpIfSmi(r0, &convert);
-  __ CompareObjectType(r0, r1, r1, FIRST_SPEC_OBJECT_TYPE);
-  __ b(ge, &done_convert);
-  __ bind(&convert);
-  __ push(r0);
-  __ InvokeBuiltin(Builtins::TO_OBJECT, CALL_FUNCTION);
-  __ bind(&done_convert);
-  __ push(r0);
+  // var iterator = iterable[Symbol.iterator]();
+  VisitForEffect(stmt->assign_iterator());
 
   // Loop entry.
   __ bind(loop_statement.continue_label());
@@ -1792,7 +1783,7 @@ void FullCodeGenerator::VisitArrayLiteral(ArrayLiteral* expr) {
   __ ldr(r3, FieldMemOperand(r3, JSFunction::kLiteralsOffset));
   __ mov(r2, Operand(Smi::FromInt(expr->literal_index())));
   __ mov(r1, Operand(constant_elements));
-  if (expr->depth() > 1) {
+  if (expr->depth() > 1 || length > JSObject::kInitialMaxFastElementArray) {
     __ mov(r0, Operand(Smi::FromInt(flags)));
     __ Push(r3, r2, r1, r0);
     __ CallRuntime(Runtime::kHiddenCreateArrayLiteral, 4);
@@ -2527,7 +2518,7 @@ void FullCodeGenerator::EmitNamedPropertyAssignment(Assignment* expr) {
   // Assignment to a property, using a named store IC.
   Property* prop = expr->target()->AsProperty();
   ASSERT(prop != NULL);
-  ASSERT(prop->key()->AsLiteral() != NULL);
+  ASSERT(prop->key()->IsLiteral());
 
   // Record source code position before IC call.
   SetSourcePosition(expr->position());
@@ -4018,6 +4009,17 @@ void FullCodeGenerator::EmitFastAsciiArrayJoin(CallRuntime* expr) {
 }
 
 
+void FullCodeGenerator::EmitDebugIsActive(CallRuntime* expr) {
+  ASSERT(expr->arguments()->length() == 0);
+  ExternalReference debug_is_active =
+      ExternalReference::debug_is_active_address(isolate());
+  __ mov(ip, Operand(debug_is_active));
+  __ ldrb(r0, MemOperand(ip));
+  __ SmiTag(r0);
+  context()->Plug(r0);
+}
+
+
 void FullCodeGenerator::VisitCallRuntime(CallRuntime* expr) {
   if (expr->function() != NULL &&
       expr->function()->intrinsic_type == Runtime::INLINE) {
@@ -4751,9 +4753,8 @@ void BackEdgeTable::PatchAt(Code* unoptimized_code,
                             Address pc,
                             BackEdgeState target_state,
                             Code* replacement_code) {
-  static const int kInstrSize = Assembler::kInstrSize;
   Address pc_immediate_load_address = GetInterruptImmediateLoadAddress(pc);
-  Address branch_address = pc_immediate_load_address - kInstrSize;
+  Address branch_address = pc_immediate_load_address - Assembler::kInstrSize;
   CodePatcher patcher(branch_address, 1);
   switch (target_state) {
     case INTERRUPT:
@@ -4768,7 +4769,7 @@ void BackEdgeTable::PatchAt(Code* unoptimized_code,
 
       // Calculate branch offet to the ok-label - this is the difference between
       // the branch address and |pc| (which points at <blx ip>) plus one instr.
-      int branch_offset = pc + kInstrSize - branch_address;
+      int branch_offset = pc + Assembler::kInstrSize - branch_address;
       patcher.masm()->b(branch_offset, pl);
       break;
     }
@@ -4798,11 +4799,10 @@ BackEdgeTable::BackEdgeState BackEdgeTable::GetBackEdgeState(
     Isolate* isolate,
     Code* unoptimized_code,
     Address pc) {
-  static const int kInstrSize = Assembler::kInstrSize;
-  ASSERT(Memory::int32_at(pc - kInstrSize) == kBlxIp);
+  ASSERT(Assembler::IsBlxIp(Memory::int32_at(pc - Assembler::kInstrSize)));
 
   Address pc_immediate_load_address = GetInterruptImmediateLoadAddress(pc);
-  Address branch_address = pc_immediate_load_address - kInstrSize;
+  Address branch_address = pc_immediate_load_address - Assembler::kInstrSize;
   Address interrupt_address = Assembler::target_address_at(
       pc_immediate_load_address, unoptimized_code);
 

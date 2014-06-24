@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "code-stubs.h"
-#include "hydrogen.h"
-#include "lithium.h"
+#include "src/code-stubs.h"
+#include "src/field-index.h"
+#include "src/hydrogen.h"
+#include "src/lithium.h"
 
 namespace v8 {
 namespace internal {
@@ -59,9 +60,7 @@ class CodeStubGraphBuilderBase : public HGraphBuilder {
   Isolate* isolate() { return info_.isolate(); }
 
   HLoadNamedField* BuildLoadNamedField(HValue* object,
-                                       Representation representation,
-                                       int offset,
-                                       bool is_inobject);
+                                       FieldIndex index);
 
   enum ArgumentClass {
     NONE,
@@ -298,7 +297,7 @@ HValue* CodeStubGraphBuilder<ToNumberStub>::BuildCodeStub() {
 
   // Convert the parameter to number using the builtin.
   HValue* function = AddLoadJSBuiltin(Builtins::TO_NUMBER);
-  Add<HPushArguments>(zone(), value);
+  Add<HPushArguments>(value);
   Push(Add<HInvokeFunction>(function, 1));
 
   if_number.End();
@@ -553,14 +552,15 @@ Handle<Code> KeyedLoadFastElementStub::GenerateCode() {
 
 
 HLoadNamedField* CodeStubGraphBuilderBase::BuildLoadNamedField(
-    HValue* object,
-    Representation representation,
-    int offset,
-    bool is_inobject) {
-  HObjectAccess access = is_inobject
+    HValue* object, FieldIndex index) {
+  Representation representation = index.is_double()
+      ? Representation::Double()
+      : Representation::Tagged();
+  int offset = index.offset();
+  HObjectAccess access = index.is_inobject()
       ? HObjectAccess::ForObservableJSObjectOffset(offset, representation)
       : HObjectAccess::ForBackingStoreOffset(offset, representation);
-  if (representation.IsDouble()) {
+  if (index.is_double()) {
     // Load the heap number.
     object = Add<HLoadNamedField>(
         object, static_cast<HValue*>(NULL),
@@ -574,10 +574,7 @@ HLoadNamedField* CodeStubGraphBuilderBase::BuildLoadNamedField(
 
 template<>
 HValue* CodeStubGraphBuilder<LoadFieldStub>::BuildCodeStub() {
-  return BuildLoadNamedField(GetParameter(0),
-                             casted_stub()->representation(),
-                             casted_stub()->offset(),
-                             casted_stub()->is_inobject());
+  return BuildLoadNamedField(GetParameter(0), casted_stub()->index());
 }
 
 
@@ -588,10 +585,10 @@ Handle<Code> LoadFieldStub::GenerateCode() {
 
 template<>
 HValue* CodeStubGraphBuilder<StringLengthStub>::BuildCodeStub() {
-  HValue* string = BuildLoadNamedField(
-      GetParameter(0), Representation::Tagged(), JSValue::kValueOffset, true);
-  return BuildLoadNamedField(
-      string, Representation::Tagged(), String::kLengthOffset, true);
+  HValue* string = BuildLoadNamedField(GetParameter(0),
+      FieldIndex::ForInObjectOffset(JSValue::kValueOffset));
+  return BuildLoadNamedField(string,
+      FieldIndex::ForInObjectOffset(String::kLengthOffset));
 }
 
 
@@ -724,6 +721,7 @@ HValue* CodeStubGraphBuilderBase::BuildArrayNArgumentsConstructor(
       ? JSArrayBuilder::FILL_WITH_HOLE
       : JSArrayBuilder::DONT_FILL_WITH_HOLE;
   HValue* new_object = array_builder->AllocateArray(checked_length,
+                                                    max_alloc_length,
                                                     checked_length,
                                                     fill_mode);
   HValue* elements = array_builder->GetElementsLocation();
@@ -922,20 +920,6 @@ HValue* CodeStubGraphBuilder<BinaryOpICStub>::BuildCodeInitializedStub() {
   // If we encounter a generic argument, the number conversion is
   // observable, thus we cannot afford to bail out after the fact.
   if (!state.HasSideEffects()) {
-    if (result_type->Is(Type::SignedSmall())) {
-      if (state.op() == Token::SHR) {
-        // TODO(olivf) Replace this by a SmiTagU Instruction.
-        // 0x40000000: this number would convert to negative when interpreting
-        // the register as signed value;
-        IfBuilder if_of(this);
-        if_of.IfNot<HCompareNumericAndBranch>(result,
-            Add<HConstant>(static_cast<int>(SmiValuesAre32Bits()
-                ? 0x80000000 : 0x40000000)), Token::EQ_STRICT);
-        if_of.Then();
-        if_of.ElseDeopt("UInt->Smi oveflow");
-        if_of.End();
-      }
-    }
     result = EnforceNumberType(result, result_type);
   }
 
@@ -1116,86 +1100,6 @@ HValue* CodeStubGraphBuilder<ElementsTransitionAndStoreStub>::BuildCodeStub() {
 
 
 Handle<Code> ElementsTransitionAndStoreStub::GenerateCode() {
-  return DoGenerateCode(this);
-}
-
-
-template <>
-HValue* CodeStubGraphBuilder<ArrayShiftStub>::BuildCodeStub() {
-  HValue* receiver = GetParameter(ArrayShiftStub::kReceiver);
-  ElementsKind kind = casted_stub()->kind();
-
-  // We may use double registers for copying.
-  if (IsFastDoubleElementsKind(kind)) info()->MarkAsSavesCallerDoubles();
-
-  HValue* length = Add<HLoadNamedField>(
-      receiver, static_cast<HValue*>(NULL),
-      HObjectAccess::ForArrayLength(kind));
-
-  IfBuilder if_lengthiszero(this);
-  HValue* lengthiszero = if_lengthiszero.If<HCompareNumericAndBranch>(
-      length, graph()->GetConstant0(), Token::EQ);
-  if_lengthiszero.Then();
-  {
-    Push(graph()->GetConstantUndefined());
-  }
-  if_lengthiszero.Else();
-  {
-    // Check if array length is below threshold.
-    IfBuilder if_inline(this);
-    if_inline.If<HCompareNumericAndBranch>(
-        length, Add<HConstant>(ArrayShiftStub::kInlineThreshold), Token::LTE);
-    if_inline.Then();
-    if_inline.ElseDeopt("Array length exceeds threshold");
-    if_inline.End();
-
-    // We cannot handle copy-on-write backing stores here.
-    HValue* elements = AddLoadElements(receiver);
-    if (IsFastSmiOrObjectElementsKind(kind)) {
-      Add<HCheckMaps>(elements, isolate()->factory()->fixed_array_map());
-    }
-
-    // Remember the result.
-    Push(AddElementAccess(elements, graph()->GetConstant0(), NULL,
-                          lengthiszero, kind, LOAD));
-
-    // Compute the new length.
-    HValue* new_length = AddUncasted<HSub>(length, graph()->GetConstant1());
-    new_length->ClearFlag(HValue::kCanOverflow);
-
-    // Copy the remaining elements.
-    LoopBuilder loop(this, context(), LoopBuilder::kPostIncrement);
-    {
-      HValue* new_key = loop.BeginBody(
-          graph()->GetConstant0(), new_length, Token::LT);
-      HValue* key = AddUncasted<HAdd>(new_key, graph()->GetConstant1());
-      key->ClearFlag(HValue::kCanOverflow);
-      HValue* element = AddUncasted<HLoadKeyed>(
-          elements, key, lengthiszero, kind, ALLOW_RETURN_HOLE);
-      HStoreKeyed* store = Add<HStoreKeyed>(elements, new_key, element, kind);
-      store->SetFlag(HValue::kAllowUndefinedAsNaN);
-    }
-    loop.EndBody();
-
-    // Put a hole at the end.
-    HValue* hole = IsFastSmiOrObjectElementsKind(kind)
-        ? Add<HConstant>(isolate()->factory()->the_hole_value())
-        : Add<HConstant>(FixedDoubleArray::hole_nan_as_double());
-    if (IsFastSmiOrObjectElementsKind(kind)) kind = FAST_HOLEY_ELEMENTS;
-    Add<HStoreKeyed>(elements, new_length, hole, kind, INITIALIZING_STORE);
-
-    // Remember new length.
-    Add<HStoreNamedField>(
-        receiver, HObjectAccess::ForArrayLength(kind),
-        new_length, STORE_TO_INITIALIZED_ENTRY);
-  }
-  if_lengthiszero.End();
-
-  return Pop();
-}
-
-
-Handle<Code> ArrayShiftStub::GenerateCode() {
   return DoGenerateCode(this);
 }
 
@@ -1420,7 +1324,7 @@ HValue* CodeStubGraphBuilder<FastNewContextStub>::BuildCodeStub() {
   // Allocate the context in new space.
   HAllocate* function_context = Add<HAllocate>(
       Add<HConstant>(length * kPointerSize + FixedArray::kHeaderSize),
-      HType::Tagged(), NOT_TENURED, FIXED_ARRAY_TYPE);
+      HType::HeapObject(), NOT_TENURED, FIXED_ARRAY_TYPE);
 
   // Set up the object header.
   AddStoreMapConstant(function_context,
@@ -1472,7 +1376,11 @@ HValue* CodeStubGraphBuilder<KeyedLoadDictionaryElementStub>::BuildCodeStub() {
 
   Add<HCheckSmi>(key);
 
-  return BuildUncheckedDictionaryElementLoad(receiver, key);
+  HValue* elements = AddLoadElements(receiver);
+
+  HValue* hash = BuildElementIndexHash(key);
+
+  return BuildUncheckedDictionaryElementLoad(receiver, elements, key, hash);
 }
 
 
@@ -1495,6 +1403,306 @@ HValue* CodeStubGraphBuilder<RegExpConstructResultStub>::BuildCodeStub() {
 
 
 Handle<Code> RegExpConstructResultStub::GenerateCode() {
+  return DoGenerateCode(this);
+}
+
+
+template <>
+class CodeStubGraphBuilder<KeyedLoadGenericElementStub>
+  : public CodeStubGraphBuilderBase {
+ public:
+  CodeStubGraphBuilder(Isolate* isolate,
+                       KeyedLoadGenericElementStub* stub)
+    : CodeStubGraphBuilderBase(isolate, stub) {}
+
+ protected:
+  virtual HValue* BuildCodeStub();
+
+  void BuildElementsKindLimitCheck(HGraphBuilder::IfBuilder* if_builder,
+                                   HValue* bit_field2,
+                                   ElementsKind kind);
+
+  void BuildFastElementLoad(HGraphBuilder::IfBuilder* if_builder,
+                            HValue* receiver,
+                            HValue* key,
+                            HValue* instance_type,
+                            HValue* bit_field2,
+                            ElementsKind kind);
+
+  void BuildExternalElementLoad(HGraphBuilder::IfBuilder* if_builder,
+                                HValue* receiver,
+                                HValue* key,
+                                HValue* instance_type,
+                                HValue* bit_field2,
+                                ElementsKind kind);
+
+  KeyedLoadGenericElementStub* casted_stub() {
+    return static_cast<KeyedLoadGenericElementStub*>(stub());
+  }
+};
+
+
+void CodeStubGraphBuilder<
+  KeyedLoadGenericElementStub>::BuildElementsKindLimitCheck(
+    HGraphBuilder::IfBuilder* if_builder,
+    HValue* bit_field2,
+    ElementsKind kind) {
+  ElementsKind next_kind = static_cast<ElementsKind>(kind + 1);
+  HValue* kind_limit = Add<HConstant>(
+      static_cast<int>(Map::ElementsKindBits::encode(next_kind)));
+
+  if_builder->If<HCompareNumericAndBranch>(bit_field2, kind_limit, Token::LT);
+  if_builder->Then();
+}
+
+
+void CodeStubGraphBuilder<KeyedLoadGenericElementStub>::BuildFastElementLoad(
+    HGraphBuilder::IfBuilder* if_builder,
+    HValue* receiver,
+    HValue* key,
+    HValue* instance_type,
+    HValue* bit_field2,
+    ElementsKind kind) {
+  ASSERT(!IsExternalArrayElementsKind(kind));
+
+  BuildElementsKindLimitCheck(if_builder, bit_field2, kind);
+
+  IfBuilder js_array_check(this);
+  js_array_check.If<HCompareNumericAndBranch>(
+      instance_type, Add<HConstant>(JS_ARRAY_TYPE), Token::EQ);
+  js_array_check.Then();
+  Push(BuildUncheckedMonomorphicElementAccess(receiver, key, NULL,
+                                              true, kind,
+                                              LOAD, NEVER_RETURN_HOLE,
+                                              STANDARD_STORE));
+  js_array_check.Else();
+  Push(BuildUncheckedMonomorphicElementAccess(receiver, key, NULL,
+                                              false, kind,
+                                              LOAD, NEVER_RETURN_HOLE,
+                                              STANDARD_STORE));
+  js_array_check.End();
+}
+
+
+void CodeStubGraphBuilder<
+  KeyedLoadGenericElementStub>::BuildExternalElementLoad(
+    HGraphBuilder::IfBuilder* if_builder,
+    HValue* receiver,
+    HValue* key,
+    HValue* instance_type,
+    HValue* bit_field2,
+    ElementsKind kind) {
+  ASSERT(IsExternalArrayElementsKind(kind));
+
+  BuildElementsKindLimitCheck(if_builder, bit_field2, kind);
+
+  Push(BuildUncheckedMonomorphicElementAccess(receiver, key, NULL,
+                                              false, kind,
+                                              LOAD, NEVER_RETURN_HOLE,
+                                              STANDARD_STORE));
+}
+
+
+HValue* CodeStubGraphBuilder<KeyedLoadGenericElementStub>::BuildCodeStub() {
+  HValue* receiver = GetParameter(0);
+  HValue* key = GetParameter(1);
+
+  // Split into a smi/integer case and unique string case.
+  HIfContinuation index_name_split_continuation(graph()->CreateBasicBlock(),
+                                                graph()->CreateBasicBlock());
+
+  BuildKeyedIndexCheck(key, &index_name_split_continuation);
+
+  IfBuilder index_name_split(this, &index_name_split_continuation);
+  index_name_split.Then();
+  {
+    // Key is an index (number)
+    key = Pop();
+
+    int bit_field_mask = (1 << Map::kIsAccessCheckNeeded) |
+      (1 << Map::kHasIndexedInterceptor);
+    BuildJSObjectCheck(receiver, bit_field_mask);
+
+    HValue* map = Add<HLoadNamedField>(receiver, static_cast<HValue*>(NULL),
+                                       HObjectAccess::ForMap());
+
+    HValue* instance_type =
+      Add<HLoadNamedField>(map, static_cast<HValue*>(NULL),
+                           HObjectAccess::ForMapInstanceType());
+
+    HValue* bit_field2 = Add<HLoadNamedField>(map,
+                                              static_cast<HValue*>(NULL),
+                                              HObjectAccess::ForMapBitField2());
+
+    IfBuilder kind_if(this);
+    BuildFastElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                         FAST_HOLEY_ELEMENTS);
+
+    kind_if.Else();
+    {
+      BuildFastElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                           FAST_HOLEY_DOUBLE_ELEMENTS);
+    }
+    kind_if.Else();
+
+    // The DICTIONARY_ELEMENTS check generates a "kind_if.Then"
+    BuildElementsKindLimitCheck(&kind_if, bit_field2, DICTIONARY_ELEMENTS);
+    {
+      HValue* elements = AddLoadElements(receiver);
+
+      HValue* hash = BuildElementIndexHash(key);
+
+      Push(BuildUncheckedDictionaryElementLoad(receiver, elements, key, hash));
+    }
+    kind_if.Else();
+
+    // The SLOPPY_ARGUMENTS_ELEMENTS check generates a "kind_if.Then"
+    BuildElementsKindLimitCheck(&kind_if, bit_field2,
+                                SLOPPY_ARGUMENTS_ELEMENTS);
+    // Non-strict elements are not handled.
+    Add<HDeoptimize>("non-strict elements in KeyedLoadGenericElementStub",
+                     Deoptimizer::EAGER);
+    Push(graph()->GetConstant0());
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_INT8_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_UINT8_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_INT16_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_UINT16_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_INT32_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_UINT32_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_FLOAT32_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_FLOAT64_ELEMENTS);
+
+    kind_if.Else();
+    BuildExternalElementLoad(&kind_if, receiver, key, instance_type, bit_field2,
+                             EXTERNAL_UINT8_CLAMPED_ELEMENTS);
+
+    kind_if.ElseDeopt("ElementsKind unhandled in KeyedLoadGenericElementStub");
+
+    kind_if.End();
+  }
+  index_name_split.Else();
+  {
+    // Key is a unique string.
+    key = Pop();
+
+    int bit_field_mask = (1 << Map::kIsAccessCheckNeeded) |
+        (1 << Map::kHasNamedInterceptor);
+    BuildJSObjectCheck(receiver, bit_field_mask);
+
+    HIfContinuation continuation;
+    BuildTestForDictionaryProperties(receiver, &continuation);
+    IfBuilder if_dict_properties(this, &continuation);
+    if_dict_properties.Then();
+    {
+      //  Key is string, properties are dictionary mode
+      BuildNonGlobalObjectCheck(receiver);
+
+      HValue* properties = Add<HLoadNamedField>(
+          receiver, static_cast<HValue*>(NULL),
+          HObjectAccess::ForPropertiesPointer());
+
+      HValue* hash =
+          Add<HLoadNamedField>(key, static_cast<HValue*>(NULL),
+          HObjectAccess::ForNameHashField());
+
+      HValue* value = BuildUncheckedDictionaryElementLoad(receiver,
+                                                          properties,
+                                                          key,
+                                                          hash);
+      Push(value);
+    }
+    if_dict_properties.Else();
+    {
+      //  Key is string, properties are fast mode
+      HValue* hash = BuildKeyedLookupCacheHash(receiver, key);
+
+      ExternalReference cache_keys_ref =
+          ExternalReference::keyed_lookup_cache_keys(isolate());
+      HValue* cache_keys = Add<HConstant>(cache_keys_ref);
+
+      HValue* map = Add<HLoadNamedField>(receiver, static_cast<HValue*>(NULL),
+                                         HObjectAccess::ForMap());
+      HValue* base_index = AddUncasted<HMul>(hash, Add<HConstant>(2));
+      base_index->ClearFlag(HValue::kCanOverflow);
+
+      IfBuilder lookup_if(this);
+      for (int probe = 0; probe < KeyedLookupCache::kEntriesPerBucket;
+           ++probe) {
+        int probe_base = probe * KeyedLookupCache::kEntryLength;
+        HValue* map_index = AddUncasted<HAdd>(base_index,
+            Add<HConstant>(probe_base + KeyedLookupCache::kMapIndex));
+        map_index->ClearFlag(HValue::kCanOverflow);
+        HValue* key_index = AddUncasted<HAdd>(base_index,
+            Add<HConstant>(probe_base + KeyedLookupCache::kKeyIndex));
+        key_index->ClearFlag(HValue::kCanOverflow);
+        HValue* map_to_check = Add<HLoadKeyed>(cache_keys,
+                                               map_index,
+                                               static_cast<HValue*>(NULL),
+                                               FAST_ELEMENTS,
+                                               NEVER_RETURN_HOLE, 0);
+        lookup_if.If<HCompareObjectEqAndBranch>(map_to_check, map);
+        lookup_if.And();
+        HValue* key_to_check = Add<HLoadKeyed>(cache_keys,
+                                               key_index,
+                                               static_cast<HValue*>(NULL),
+                                               FAST_ELEMENTS,
+                                               NEVER_RETURN_HOLE, 0);
+        lookup_if.If<HCompareObjectEqAndBranch>(key_to_check, key);
+        lookup_if.Then();
+        {
+          ExternalReference cache_field_offsets_ref =
+              ExternalReference::keyed_lookup_cache_field_offsets(isolate());
+          HValue* cache_field_offsets = Add<HConstant>(cache_field_offsets_ref);
+          HValue* index = AddUncasted<HAdd>(hash,
+                                            Add<HConstant>(probe));
+          index->ClearFlag(HValue::kCanOverflow);
+          HValue* property_index = Add<HLoadKeyed>(cache_field_offsets,
+                                                   index,
+                                                   static_cast<HValue*>(NULL),
+                                                   EXTERNAL_INT32_ELEMENTS,
+                                                   NEVER_RETURN_HOLE, 0);
+          Push(property_index);
+        }
+        lookup_if.Else();
+      }
+      Add<HDeoptimize>("KeyedLoad fall-back", Deoptimizer::EAGER);
+      Push(graph()->GetConstant0());
+      lookup_if.End();
+      Push(Add<HLoadFieldByIndex>(receiver, Pop()));
+    }
+    if_dict_properties.End();
+  }
+  index_name_split.End();
+
+  return Pop();
+}
+
+
+Handle<Code> KeyedLoadGenericElementStub::GenerateCode() {
   return DoGenerateCode(this);
 }
 

@@ -6,36 +6,36 @@
 // parts, the implementation is in platform-posix.cc.
 
 #include <dlfcn.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include <mach/mach_init.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include <AvailabilityMacros.h>
 
-#include <pthread.h>
-#include <semaphore.h>
-#include <signal.h>
+#include <errno.h>
 #include <libkern/OSAtomic.h>
 #include <mach/mach.h>
 #include <mach/semaphore.h>
 #include <mach/task.h>
 #include <mach/vm_statistics.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/types.h>
-#include <sys/sysctl.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
 #undef MAP_TYPE
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "platform.h"
+#include "src/platform.h"
 
 
 namespace v8 {
@@ -61,10 +61,7 @@ void* OS::Allocate(const size_t requested,
                      MAP_PRIVATE | MAP_ANON,
                      kMmapFd,
                      kMmapFdOffset);
-  if (mbase == MAP_FAILED) {
-    LOG(Isolate::Current(), StringEvent("OS::Allocate", "mmap failed"));
-    return NULL;
-  }
+  if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
@@ -128,7 +125,8 @@ PosixMemoryMappedFile::~PosixMemoryMappedFile() {
 }
 
 
-void OS::LogSharedLibraryAddresses(Isolate* isolate) {
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  std::vector<SharedLibraryAddress> result;
   unsigned int images_count = _dyld_image_count();
   for (unsigned int i = 0; i < images_count; ++i) {
     const mach_header* header = _dyld_get_image_header(i);
@@ -147,9 +145,10 @@ void OS::LogSharedLibraryAddresses(Isolate* isolate) {
     if (code_ptr == NULL) continue;
     const uintptr_t slide = _dyld_get_image_vmaddr_slide(i);
     const uintptr_t start = reinterpret_cast<uintptr_t>(code_ptr) + slide;
-    LOG(isolate,
-        SharedLibraryEvent(_dyld_get_image_name(i), start, start + size));
+    result.push_back(
+        SharedLibraryAddress(_dyld_get_image_name(i), start, start + size));
   }
+  return result;
 }
 
 

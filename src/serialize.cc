@@ -2,22 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "accessors.h"
-#include "api.h"
-#include "bootstrapper.h"
-#include "deoptimizer.h"
-#include "execution.h"
-#include "global-handles.h"
-#include "ic-inl.h"
-#include "natives.h"
-#include "platform.h"
-#include "runtime.h"
-#include "serialize.h"
-#include "snapshot.h"
-#include "stub-cache.h"
-#include "v8threads.h"
+#include "src/accessors.h"
+#include "src/api.h"
+#include "src/bootstrapper.h"
+#include "src/deoptimizer.h"
+#include "src/execution.h"
+#include "src/global-handles.h"
+#include "src/ic-inl.h"
+#include "src/natives.h"
+#include "src/platform.h"
+#include "src/runtime.h"
+#include "src/serialize.h"
+#include "src/snapshot.h"
+#include "src/snapshot-source-sink.h"
+#include "src/stub-cache.h"
+#include "src/v8threads.h"
 
 namespace v8 {
 namespace internal {
@@ -150,6 +151,7 @@ void ExternalReferenceTable::PopulateTable(Isolate* isolate) {
     "Runtime::" #name },
 
   RUNTIME_FUNCTION_LIST(RUNTIME_ENTRY)
+  INLINE_OPTIMIZED_FUNCTION_LIST(RUNTIME_ENTRY)
 #undef RUNTIME_ENTRY
 
 #define RUNTIME_HIDDEN_ENTRY(name, nargs, ressize) \
@@ -487,54 +489,49 @@ void ExternalReferenceTable::PopulateTable(Isolate* isolate) {
       UNCLASSIFIED,
       58,
       "Heap::OldDataSpaceAllocationLimitAddress");
-  Add(ExternalReference::new_space_high_promotion_mode_active_address(isolate).
-      address(),
-      UNCLASSIFIED,
-      59,
-      "Heap::NewSpaceAllocationLimitAddress");
   Add(ExternalReference::allocation_sites_list_address(isolate).address(),
       UNCLASSIFIED,
-      60,
+      59,
       "Heap::allocation_sites_list_address()");
   Add(ExternalReference::address_of_uint32_bias().address(),
       UNCLASSIFIED,
-      61,
+      60,
       "uint32_bias");
   Add(ExternalReference::get_mark_code_as_executed_function(isolate).address(),
       UNCLASSIFIED,
-      62,
+      61,
       "Code::MarkCodeAsExecuted");
 
   Add(ExternalReference::is_profiling_address(isolate).address(),
       UNCLASSIFIED,
-      63,
+      62,
       "CpuProfiler::is_profiling");
 
   Add(ExternalReference::scheduled_exception_address(isolate).address(),
       UNCLASSIFIED,
-      64,
+      63,
       "Isolate::scheduled_exception");
 
   Add(ExternalReference::invoke_function_callback(isolate).address(),
       UNCLASSIFIED,
-      65,
+      64,
       "InvokeFunctionCallback");
 
   Add(ExternalReference::invoke_accessor_getter_callback(isolate).address(),
       UNCLASSIFIED,
-      66,
+      65,
       "InvokeAccessorGetterCallback");
 
   // Debug addresses
   Add(ExternalReference::debug_after_break_target_address(isolate).address(),
       UNCLASSIFIED,
-      67,
+      66,
       "Debug::after_break_target_address()");
 
   Add(ExternalReference::debug_restarter_frame_function_pointer_address(
           isolate).address(),
       UNCLASSIFIED,
-      68,
+      67,
       "Debug::restarter_frame_function_pointer_address()");
 
   // Add a small set of deopt entry addresses to encoder without generating the
@@ -853,6 +850,7 @@ void Deserializer::ReadObject(int space_number,
   int size = source_->GetInt() << kObjectAlignmentBits;
   Address address = Allocate(space_number, size);
   HeapObject* obj = HeapObject::FromAddress(address);
+  isolate_->heap()->OnAllocationEvent(obj, size);
   *write_back = obj;
   Object** current = reinterpret_cast<Object**>(address);
   Object** limit = current + (size >> kPointerSizeLog2);
@@ -1204,19 +1202,6 @@ void Deserializer::ReadChunk(Object** current,
     }
   }
   ASSERT_EQ(limit, current);
-}
-
-
-void SnapshotByteSink::PutInt(uintptr_t integer, const char* description) {
-  ASSERT(integer < 1 << 22);
-  integer <<= 2;
-  int bytes = 1;
-  if (integer > 0xff) bytes = 2;
-  if (integer > 0xffff) bytes = 3;
-  integer |= bytes;
-  Put(static_cast<int>(integer & 0xff), "IntPart1");
-  if (bytes > 1) Put(static_cast<int>((integer >> 8) & 0xff), "IntPart2");
-  if (bytes > 2) Put(static_cast<int>((integer >> 16) & 0xff), "IntPart3");
 }
 
 
@@ -1712,7 +1697,7 @@ void Serializer::ObjectSerializer::VisitExternalAsciiString(
 
 static Code* CloneCodeObject(HeapObject* code) {
   Address copy = new byte[code->Size()];
-  OS::MemCopy(copy, code->address(), code->Size());
+  MemCopy(copy, code->address(), code->Size());
   return Code::cast(HeapObject::FromAddress(copy));
 }
 
@@ -1834,13 +1819,5 @@ void Serializer::InitializeCodeAddressMap() {
   code_address_map_ = new CodeAddressMap(isolate_);
 }
 
-
-bool SnapshotByteSource::AtEOF() {
-  if (0u + length_ - position_ > 2 * sizeof(uint32_t)) return false;
-  for (int x = position_; x < length_; x++) {
-    if (data_[x] != SerializerDeserializer::nop()) return false;
-  }
-  return true;
-}
 
 } }  // namespace v8::internal

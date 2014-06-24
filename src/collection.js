@@ -12,14 +12,63 @@ var $Set = global.Set;
 var $Map = global.Map;
 
 
+// TODO(arv): Move these general functions to v8natives.js when Map and Set are
+// no longer experimental.
+
+
+// 7.4.1 CheckIterable ( obj )
+function ToIterable(obj) {
+  if (!IS_SPEC_OBJECT(obj)) {
+    return UNDEFINED;
+  }
+  return obj[symbolIterator];
+}
+
+
+// 7.4.2 GetIterator ( obj, method )
+function GetIterator(obj, method) {
+  if (IS_UNDEFINED(method)) {
+    method = ToIterable(obj);
+  }
+  if (!IS_SPEC_FUNCTION(method)) {
+    throw MakeTypeError('not_iterable', [obj]);
+  }
+  var iterator = %_CallFunction(obj, method);
+  if (!IS_SPEC_OBJECT(iterator)) {
+    throw MakeTypeError('not_an_iterator', [iterator]);
+  }
+  return iterator;
+}
+
+
 // -------------------------------------------------------------------
 // Harmony Set
 
-function SetConstructor() {
-  if (%_IsConstructCall()) {
-    %SetInitialize(this);
-  } else {
+function SetConstructor(iterable) {
+  if (!%_IsConstructCall()) {
     throw MakeTypeError('constructor_not_function', ['Set']);
+  }
+
+  var iter, adder;
+
+  if (!IS_NULL_OR_UNDEFINED(iterable)) {
+    iter = GetIterator(iterable);
+    adder = this.add;
+    if (!IS_SPEC_FUNCTION(adder)) {
+      throw MakeTypeError('property_not_function', ['add', this]);
+    }
+  }
+
+  %SetInitialize(this);
+
+  if (IS_UNDEFINED(iter)) return;
+
+  var next, done;
+  while (!(next = iter.next()).done) {
+    if (!IS_SPEC_OBJECT(next)) {
+      throw MakeTypeError('iterator_result_not_an_object', [next]);
+    }
+    %_CallFunction(this, next.value, adder);
   }
 }
 
@@ -79,9 +128,9 @@ function SetForEach(f, receiver) {
     throw MakeTypeError('called_non_callable', [f]);
   }
 
-  var iterator = %SetCreateIterator(this, ITERATOR_KIND_VALUES);
+  var iterator = new SetIterator(this, ITERATOR_KIND_VALUES);
   var entry;
-  var stepping = %_DebugCallbackSupportsStepping(f);
+  var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
   while (!(entry = %SetIteratorNext(iterator)).done) {
     if (stepping) %DebugPrepareStepInIfStepping(f);
     %_CallFunction(receiver, entry.value, entry.value, this, f);
@@ -117,11 +166,35 @@ SetUpSet();
 // -------------------------------------------------------------------
 // Harmony Map
 
-function MapConstructor() {
-  if (%_IsConstructCall()) {
-    %MapInitialize(this);
-  } else {
+function MapConstructor(iterable) {
+  if (!%_IsConstructCall()) {
     throw MakeTypeError('constructor_not_function', ['Map']);
+  }
+
+  var iter, adder;
+
+  if (!IS_NULL_OR_UNDEFINED(iterable)) {
+    iter = GetIterator(iterable);
+    adder = this.set;
+    if (!IS_SPEC_FUNCTION(adder)) {
+      throw MakeTypeError('property_not_function', ['set', this]);
+    }
+  }
+
+  %MapInitialize(this);
+
+  if (IS_UNDEFINED(iter)) return;
+
+  var next, done, nextItem;
+  while (!(next = iter.next()).done) {
+    if (!IS_SPEC_OBJECT(next)) {
+      throw MakeTypeError('iterator_result_not_an_object', [next]);
+    }
+    nextItem = next.value;
+    if (!IS_SPEC_OBJECT(nextItem)) {
+      throw MakeTypeError('iterator_value_not_an_object', [nextItem]);
+    }
+    %_CallFunction(this, nextItem[0], nextItem[1], adder);
   }
 }
 
@@ -190,9 +263,9 @@ function MapForEach(f, receiver) {
     throw MakeTypeError('called_non_callable', [f]);
   }
 
-  var iterator = %MapCreateIterator(this, ITERATOR_KIND_ENTRIES);
+  var iterator = new MapIterator(this, ITERATOR_KIND_ENTRIES);
   var entry;
-  var stepping = %_DebugCallbackSupportsStepping(f);
+  var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
   while (!(entry = %MapIteratorNext(iterator)).done) {
     if (stepping) %DebugPrepareStepInIfStepping(f);
     %_CallFunction(receiver, entry.value[1], entry.value[0], this, f);

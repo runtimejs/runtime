@@ -5,10 +5,10 @@
 #ifndef V8_ARM64_INSTRUCTIONS_ARM64_H_
 #define V8_ARM64_INSTRUCTIONS_ARM64_H_
 
-#include "globals.h"
-#include "utils.h"
-#include "arm64/constants-arm64.h"
-#include "arm64/utils-arm64.h"
+#include "src/arm64/constants-arm64.h"
+#include "src/arm64/utils-arm64.h"
+#include "src/globals.h"
+#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -353,7 +353,7 @@ class Instruction {
   void SetImmLLiteral(Instruction* source);
 
   uint8_t* LiteralAddress() {
-    int offset = ImmLLiteral() << kLiteralEntrySizeLog2;
+    int offset = ImmLLiteral() << kLoadLiteralScaleLog2;
     return reinterpret_cast<uint8_t*>(this) + offset;
   }
 

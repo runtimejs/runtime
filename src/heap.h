@@ -7,18 +7,17 @@
 
 #include <cmath>
 
-#include "allocation.h"
-#include "assert-scope.h"
-#include "counters.h"
-#include "globals.h"
-#include "incremental-marking.h"
-#include "list.h"
-#include "mark-compact.h"
-#include "objects-visiting.h"
-#include "spaces.h"
-#include "splay-tree-inl.h"
-#include "store-buffer.h"
-#include "v8globals.h"
+#include "src/allocation.h"
+#include "src/assert-scope.h"
+#include "src/counters.h"
+#include "src/globals.h"
+#include "src/incremental-marking.h"
+#include "src/list.h"
+#include "src/mark-compact.h"
+#include "src/objects-visiting.h"
+#include "src/spaces.h"
+#include "src/splay-tree-inl.h"
+#include "src/store-buffer.h"
 
 namespace v8 {
 namespace internal {
@@ -278,15 +277,11 @@ namespace internal {
   V(constructor_string, "constructor")                                   \
   V(dot_result_string, ".result")                                        \
   V(dot_for_string, ".for.")                                             \
-  V(dot_iterator_string, ".iterator")                                    \
-  V(dot_generator_object_string, ".generator_object")                    \
   V(eval_string, "eval")                                                 \
   V(empty_string, "")                                                    \
   V(function_string, "function")                                         \
   V(length_string, "length")                                             \
-  V(module_string, "module")                                             \
   V(name_string, "name")                                                 \
-  V(native_string, "native")                                             \
   V(null_string, "null")                                                 \
   V(number_string, "number")                                             \
   V(Number_string, "Number")                                             \
@@ -312,7 +307,6 @@ namespace internal {
   V(private_api_string, "private_api")                                   \
   V(private_intern_string, "private_intern")                             \
   V(Date_string, "Date")                                                 \
-  V(this_string, "this")                                                 \
   V(to_string_string, "toString")                                        \
   V(char_at_string, "CharAt")                                            \
   V(undefined_string, "undefined")                                       \
@@ -335,19 +329,13 @@ namespace internal {
   V(cell_value_string, "%cell_value")                                    \
   V(function_class_string, "Function")                                   \
   V(illegal_argument_string, "illegal argument")                         \
-  V(MakeReferenceError_string, "MakeReferenceError")                     \
-  V(MakeSyntaxError_string, "MakeSyntaxError")                           \
-  V(MakeTypeError_string, "MakeTypeError")                               \
-  V(unknown_label_string, "unknown_label")                               \
   V(space_string, " ")                                                   \
   V(exec_string, "exec")                                                 \
   V(zero_string, "0")                                                    \
   V(global_eval_string, "GlobalEval")                                    \
   V(identity_hash_string, "v8::IdentityHash")                            \
   V(closure_string, "(closure)")                                         \
-  V(use_strict_string, "use strict")                                     \
   V(dot_string, ".")                                                     \
-  V(anonymous_function_string, "(anonymous function)")                   \
   V(compare_ic_string, "==")                                             \
   V(strict_compare_ic_string, "===")                                     \
   V(infinity_string, "Infinity")                                         \
@@ -551,7 +539,7 @@ class Heap {
   bool ConfigureHeap(int max_semi_space_size,
                      int max_old_space_size,
                      int max_executable_size,
-                     int code_range_size);
+                     size_t code_range_size);
   bool ConfigureHeapDefault();
 
   // Prepares the heap, setting up memory areas that are needed in the isolate
@@ -656,9 +644,6 @@ class Heap {
   bool always_allocate() { return always_allocate_scope_depth_ != 0; }
   Address always_allocate_scope_depth_address() {
     return reinterpret_cast<Address>(&always_allocate_scope_depth_);
-  }
-  bool linear_allocation() {
-    return linear_allocation_scope_depth_ != 0;
   }
 
   Address* NewSpaceAllocationTopAddress() {
@@ -765,10 +750,6 @@ class Heap {
   // Check whether the heap is currently iterable.
   bool IsHeapIterable();
 
-  // Ensure that we have swept all spaces in such a way that we can iterate
-  // over all objects.  May cause a GC.
-  void MakeHeapIterable();
-
   // Notify the heap that a context has been disposed.
   int NotifyContextDisposed();
 
@@ -849,6 +830,13 @@ class Heap {
   Object** allocation_sites_list_address() { return &allocation_sites_list_; }
 
   Object* weak_object_to_code_table() { return weak_object_to_code_table_; }
+
+  void set_encountered_weak_collections(Object* weak_collection) {
+    encountered_weak_collections_ = weak_collection;
+  }
+  Object* encountered_weak_collections() const {
+    return encountered_weak_collections_;
+  }
 
   // Number of mark-sweeps.
   unsigned int ms_count() { return ms_count_; }
@@ -974,6 +962,13 @@ class Heap {
 #endif
   }
 
+  // Number of "runtime allocations" done so far.
+  uint32_t allocations_count() { return allocations_count_; }
+
+  // Returns deterministic "time" value in ms. Works only with
+  // FLAG_verify_predictable.
+  double synthetic_time() { return allocations_count_ / 100.0; }
+
   // Print short heap statistics.
   void PrintShortHeapStatistics();
 
@@ -1029,27 +1024,6 @@ class Heap {
   //
 
   void CreateApiObjects();
-
-  // Adjusts the amount of registered external memory.
-  // Returns the adjusted value.
-  inline int64_t AdjustAmountOfExternalAllocatedMemory(
-      int64_t change_in_bytes);
-
-  // This is only needed for testing high promotion mode.
-  void SetNewSpaceHighPromotionModeActive(bool mode) {
-    new_space_high_promotion_mode_active_ = mode;
-  }
-
-  // Returns the allocation mode (pre-tenuring) based on observed promotion
-  // rates of previous collections.
-  inline PretenureFlag GetPretenureMode() {
-    return FLAG_pretenuring && new_space_high_promotion_mode_active_
-        ? TENURED : NOT_TENURED;
-  }
-
-  inline Address* NewSpaceHighPromotionModeActiveAddress() {
-    return reinterpret_cast<Address*>(&new_space_high_promotion_mode_active_);
-  }
 
   inline intptr_t PromotedTotalSize() {
     int64_t total = PromotedSpaceSizeOfObjects() + PromotedExternalMemorySize();
@@ -1149,11 +1123,12 @@ class Heap {
     kSmiRootsStart = kStringTableRootIndex + 1
   };
 
-  STATIC_CHECK(kUndefinedValueRootIndex == Internals::kUndefinedValueRootIndex);
-  STATIC_CHECK(kNullValueRootIndex == Internals::kNullValueRootIndex);
-  STATIC_CHECK(kTrueValueRootIndex == Internals::kTrueValueRootIndex);
-  STATIC_CHECK(kFalseValueRootIndex == Internals::kFalseValueRootIndex);
-  STATIC_CHECK(kempty_stringRootIndex == Internals::kEmptyStringRootIndex);
+  STATIC_ASSERT(kUndefinedValueRootIndex ==
+                Internals::kUndefinedValueRootIndex);
+  STATIC_ASSERT(kNullValueRootIndex == Internals::kNullValueRootIndex);
+  STATIC_ASSERT(kTrueValueRootIndex == Internals::kTrueValueRootIndex);
+  STATIC_ASSERT(kFalseValueRootIndex == Internals::kFalseValueRootIndex);
+  STATIC_ASSERT(kempty_stringRootIndex == Internals::kEmptyStringRootIndex);
 
   // Generated code can embed direct references to non-writable roots if
   // they are in new space.
@@ -1375,6 +1350,14 @@ class Heap {
 
   void DeoptMarkedAllocationSites();
 
+  bool MaximumSizeScavenge() {
+    return maximum_size_scavenges_ > 0;
+  }
+
+  bool DeoptMaybeTenuredAllocationSites() {
+    return new_space_.IsAtMaximumCapacity() && maximum_size_scavenges_ == 0;
+  }
+
   // ObjectStats are kept in two arrays, counts and sizes. Related stats are
   // stored in a contiguous linear buffer. Stats groups are stored one after
   // another.
@@ -1446,6 +1429,17 @@ class Heap {
   static void FatalProcessOutOfMemory(const char* location,
                                       bool take_snapshot = false);
 
+  // This event is triggered after successful allocation of a new object made
+  // by runtime. Allocations of target space for object evacuation do not
+  // trigger the event. In order to track ALL allocations one must turn off
+  // FLAG_inline_new and FLAG_use_allocation_folding.
+  inline void OnAllocationEvent(HeapObject* object, int size_in_bytes);
+
+  // This event is triggered after object is moved to a new place.
+  inline void OnMoveEvent(HeapObject* target,
+                          HeapObject* source,
+                          int size_in_bytes);
+
  protected:
   // Methods made available to tests.
 
@@ -1501,13 +1495,20 @@ class Heap {
  private:
   Heap();
 
+  // The amount of external memory registered through the API kept alive
+  // by global handles
+  int64_t amount_of_external_allocated_memory_;
+
+  // Caches the amount of external memory registered at the last global gc.
+  int64_t amount_of_external_allocated_memory_at_last_global_gc_;
+
   // This can be calculated directly from a pointer to the heap; however, it is
   // more expedient to get at the isolate directly from within Heap methods.
   Isolate* isolate_;
 
   Object* roots_[kRootListLength];
 
-  intptr_t code_range_size_;
+  size_t code_range_size_;
   int reserved_semispace_size_;
   int max_semi_space_size_;
   int initial_semispace_size_;
@@ -1528,7 +1529,6 @@ class Heap {
   int sweep_generation_;
 
   int always_allocate_scope_depth_;
-  int linear_allocation_scope_depth_;
 
   // For keeping track of context disposals.
   int contexts_disposed_;
@@ -1554,8 +1554,20 @@ class Heap {
   // Returns the amount of external memory registered since last global gc.
   int64_t PromotedExternalMemorySize();
 
-  unsigned int ms_count_;  // how many mark-sweep collections happened
-  unsigned int gc_count_;  // how many gc happened
+  // How many "runtime allocations" happened.
+  uint32_t allocations_count_;
+
+  // Running hash over allocations performed.
+  uint32_t raw_allocations_hash_;
+
+  // Countdown counter, dumps allocation hash when 0.
+  uint32_t dump_allocations_hash_countdown_;
+
+  // How many mark-sweep collections happened.
+  unsigned int ms_count_;
+
+  // How many gc happened.
+  unsigned int gc_count_;
 
   // For post mortem debugging.
   static const int kRememberedUnmappedPages = 128;
@@ -1582,11 +1594,6 @@ class Heap {
   int allocation_timeout_;
 #endif  // DEBUG
 
-  // Indicates that the new space should be kept small due to high promotion
-  // rates caused by the mutator allocating a lot of long-lived objects.
-  // TODO(hpayer): change to bool if no longer accessed from generated code
-  intptr_t new_space_high_promotion_mode_active_;
-
   // Limit that triggers a global GC on the next (normally caused) GC.  This
   // is checked when we have already decided to do a GC to help determine
   // which collector to invoke, before expanding a paged space in the old
@@ -1595,17 +1602,6 @@ class Heap {
 
   // Used to adjust the limits that control the timing of the next GC.
   intptr_t size_of_old_gen_at_last_old_space_gc_;
-
-  // Limit on the amount of externally allocated memory allowed
-  // between global GCs. If reached a global GC is forced.
-  intptr_t external_allocation_limit_;
-
-  // The amount of external memory registered through the API kept alive
-  // by global handles
-  int64_t amount_of_external_allocated_memory_;
-
-  // Caches the amount of external memory registered at the last global gc.
-  int64_t amount_of_external_allocated_memory_at_last_global_gc_;
 
   // Indicates that an allocation has failed in the old generation since the
   // last GC.
@@ -1625,6 +1621,11 @@ class Heap {
   // code list. It is initilized lazily and contains the undefined_value at
   // start.
   Object* weak_object_to_code_table_;
+
+  // List of encountered weak collections (JSWeakMap and JSWeakSet) during
+  // marking. It is initialized during marking, destroyed after marking and
+  // contains Smi(0) while marking is not active.
+  Object* encountered_weak_collections_;
 
   StoreBufferRebuilder store_buffer_rebuilder_;
 
@@ -1717,6 +1718,10 @@ class Heap {
   // with the allocation memento of the object at the top
   void EnsureFillerObjectAtTop();
 
+  // Ensure that we have swept all spaces in such a way that we can iterate
+  // over all objects.  May cause a GC.
+  void MakeHeapIterable();
+
   // Performs garbage collection operation.
   // Returns whether there is a chance that another major GC could
   // collect more garbage.
@@ -1801,29 +1806,6 @@ class Heap {
   MUST_USE_RESULT AllocationResult AllocateRawTwoByteString(
       int length, PretenureFlag pretenure);
 
-  // Allocates and fully initializes a String.  There are two String
-  // encodings: ASCII and two byte. One should choose between the three string
-  // allocation functions based on the encoding of the string buffer used to
-  // initialized the string.
-  //   - ...FromAscii initializes the string from a buffer that is ASCII
-  //     encoded (it does not check that the buffer is ASCII encoded) and the
-  //     result will be ASCII encoded.
-  //   - ...FromUTF8 initializes the string from a buffer that is UTF-8
-  //     encoded.  If the characters are all single-byte characters, the
-  //     result will be ASCII encoded, otherwise it will converted to two
-  //     byte.
-  //   - ...FromTwoByte initializes the string from a buffer that is two-byte
-  //     encoded.  If the characters are all single-byte characters, the
-  //     result will be converted to ASCII, otherwise it will be left as
-  //     two-byte.
-  MUST_USE_RESULT AllocationResult AllocateStringFromUtf8Slow(
-      Vector<const char> str,
-      int non_ascii_start,
-      PretenureFlag pretenure = NOT_TENURED);
-  MUST_USE_RESULT AllocationResult AllocateStringFromTwoByte(
-      Vector<const uc16> str,
-      PretenureFlag pretenure = NOT_TENURED);
-
   bool CreateInitialMaps();
   void CreateInitialObjects();
 
@@ -1886,10 +1868,11 @@ class Heap {
       ConstantPoolArray* src, Map* map);
 
   MUST_USE_RESULT AllocationResult AllocateConstantPoolArray(
-      int number_of_int64_entries,
-      int number_of_code_ptr_entries,
-      int number_of_heap_ptr_entries,
-      int number_of_int32_entries);
+      const ConstantPoolArray::NumberOfEntries& small);
+
+  MUST_USE_RESULT AllocationResult AllocateExtendedConstantPoolArray(
+      const ConstantPoolArray::NumberOfEntries& small,
+      const ConstantPoolArray::NumberOfEntries& extended);
 
   // Allocates an external array of the specified length and type.
   MUST_USE_RESULT AllocationResult AllocateExternalArray(
@@ -2027,74 +2010,29 @@ class Heap {
   void AddAllocationSiteToScratchpad(AllocationSite* site,
                                      ScratchpadSlotMode mode);
 
-  void UpdateSurvivalRateTrend(int start_new_space_size);
-
-  enum SurvivalRateTrend { INCREASING, STABLE, DECREASING, FLUCTUATING };
+  void UpdateSurvivalStatistics(int start_new_space_size);
 
   static const int kYoungSurvivalRateHighThreshold = 90;
-  static const int kYoungSurvivalRateLowThreshold = 10;
   static const int kYoungSurvivalRateAllowedDeviation = 15;
 
   static const int kOldSurvivalRateLowThreshold = 10;
 
   int high_survival_rate_period_length_;
-  int low_survival_rate_period_length_;
-  double survival_rate_;
   intptr_t promoted_objects_size_;
   double promotion_rate_;
   intptr_t semi_space_copied_object_size_;
   double semi_space_copied_rate_;
-  SurvivalRateTrend previous_survival_rate_trend_;
-  SurvivalRateTrend survival_rate_trend_;
 
-  void set_survival_rate_trend(SurvivalRateTrend survival_rate_trend) {
-    ASSERT(survival_rate_trend != FLUCTUATING);
-    previous_survival_rate_trend_ = survival_rate_trend_;
-    survival_rate_trend_ = survival_rate_trend;
-  }
+  // This is the pretenuring trigger for allocation sites that are in maybe
+  // tenure state. When we switched to the maximum new space size we deoptimize
+  // the code that belongs to the allocation site and derive the lifetime
+  // of the allocation site.
+  unsigned int maximum_size_scavenges_;
 
-  SurvivalRateTrend survival_rate_trend() {
-    if (survival_rate_trend_ == STABLE) {
-      return STABLE;
-    } else if (previous_survival_rate_trend_ == STABLE) {
-      return survival_rate_trend_;
-    } else if (survival_rate_trend_ != previous_survival_rate_trend_) {
-      return FLUCTUATING;
-    } else {
-      return survival_rate_trend_;
-    }
-  }
-
-  bool IsStableOrIncreasingSurvivalTrend() {
-    switch (survival_rate_trend()) {
-      case STABLE:
-      case INCREASING:
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  bool IsStableOrDecreasingSurvivalTrend() {
-    switch (survival_rate_trend()) {
-      case STABLE:
-      case DECREASING:
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  bool IsIncreasingSurvivalTrend() {
-    return survival_rate_trend() == INCREASING;
-  }
-
+  // TODO(hpayer): Allocation site pretenuring may make this method obsolete.
+  // Re-visit incremental marking heuristics.
   bool IsHighSurvivalRate() {
     return high_survival_rate_period_length_ > 0;
-  }
-
-  bool IsLowSurvivalRate() {
-    return low_survival_rate_period_length_ > 0;
   }
 
   void SelectScavengingVisitorsTable();
@@ -2139,6 +2077,10 @@ class Heap {
   Object** weak_object_to_code_table_address() {
     return &weak_object_to_code_table_;
   }
+
+  inline void UpdateAllocationsHash(HeapObject* object);
+  inline void UpdateAllocationsHash(uint32_t value);
+  inline void PrintAlloctionsHash();
 
   static const int kInitialStringTableSize = 2048;
   static const int kInitialEvalCacheSize = 64;
@@ -2225,10 +2167,11 @@ class Heap {
 
   int gc_callbacks_depth_;
 
-  friend class Factory;
-  friend class GCTracer;
   friend class AlwaysAllocateScope;
-  friend class Page;
+  friend class Factory;
+  friend class GCCallbacksScope;
+  friend class GCTracer;
+  friend class HeapIterator;
   friend class Isolate;
   friend class MarkCompactCollector;
   friend class MarkCompactMarkingVisitor;
@@ -2236,7 +2179,7 @@ class Heap {
 #ifdef VERIFY_HEAP
   friend class NoWeakObjectVerificationScope;
 #endif
-  friend class GCCallbacksScope;
+  friend class Page;
 
   DISALLOW_COPY_AND_ASSIGN(Heap);
 };
@@ -2457,6 +2400,9 @@ class KeyedLookupCache {
   static const int kMapHashShift = 5;
   static const int kHashMask = -4;  // Zero the last two bits.
   static const int kEntriesPerBucket = 4;
+  static const int kEntryLength = 2;
+  static const int kMapIndex = 0;
+  static const int kKeyIndex = 1;
   static const int kNotFound = -1;
 
   // kEntriesPerBucket should be a power of 2.
@@ -2774,7 +2720,7 @@ class IntrusiveMarking {
 
  private:
   static const uintptr_t kNotMarkedBit = 0x1;
-  STATIC_ASSERT((kHeapObjectTag & kNotMarkedBit) != 0);
+  STATIC_ASSERT((kHeapObjectTag & kNotMarkedBit) != 0);  // NOLINT
 };
 
 
@@ -2788,6 +2734,9 @@ class PathTracer : public ObjectVisitor {
     FIND_ALL,   // Will find all matches.
     FIND_FIRST  // Will stop the search after first match.
   };
+
+  // Tags 0, 1, and 3 are used. Use 2 for marking visited HeapObject.
+  static const int kMarkTag = 2;
 
   // For the WhatToFind arg, if FIND_FIRST is specified, tracing will stop
   // after the first match.  If FIND_ALL is specified, then tracing will be
@@ -2819,9 +2768,6 @@ class PathTracer : public ObjectVisitor {
   void MarkRecursively(Object** p, MarkVisitor* mark_visitor);
   void UnmarkRecursively(Object** p, UnmarkVisitor* unmark_visitor);
   virtual void ProcessResults();
-
-  // Tags 0, 1, and 3 are used. Use 2 for marking visited HeapObject.
-  static const int kMarkTag = 2;
 
   Object* search_target_;
   bool found_target_;

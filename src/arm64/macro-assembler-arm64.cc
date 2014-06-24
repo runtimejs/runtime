@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_ARM64
 
-#include "bootstrapper.h"
-#include "codegen.h"
-#include "cpu-profiler.h"
-#include "debug.h"
-#include "isolate-inl.h"
-#include "runtime.h"
+#include "src/bootstrapper.h"
+#include "src/codegen.h"
+#include "src/cpu-profiler.h"
+#include "src/debug.h"
+#include "src/isolate-inl.h"
+#include "src/runtime.h"
 
 namespace v8 {
 namespace internal {
@@ -58,11 +58,11 @@ void MacroAssembler::LogicalMacro(const Register& rd,
 
   if (operand.NeedsRelocation(this)) {
     Register temp = temps.AcquireX();
-    LoadRelocated(temp, operand);
+    Ldr(temp, operand.immediate());
     Logical(rd, rn, temp, op);
 
   } else if (operand.IsImmediate()) {
-    int64_t immediate = operand.immediate();
+    int64_t immediate = operand.ImmediateValue();
     unsigned reg_size = rd.SizeInBits();
     ASSERT(rd.Is64Bits() || is_uint32(immediate));
 
@@ -250,11 +250,11 @@ void MacroAssembler::Mov(const Register& rd,
   Register dst = (rd.IsSP()) ? temps.AcquireSameSizeAs(rd) : rd;
 
   if (operand.NeedsRelocation(this)) {
-    LoadRelocated(dst, operand);
+    Ldr(dst, operand.immediate());
 
   } else if (operand.IsImmediate()) {
     // Call the macro assembler for generic immediates.
-    Mov(dst, operand.immediate());
+    Mov(dst, operand.ImmediateValue());
 
   } else if (operand.IsShiftedRegister() && (operand.shift_amount() != 0)) {
     // Emit a shift instruction if moving a shifted register. This operation
@@ -298,12 +298,12 @@ void MacroAssembler::Mvn(const Register& rd, const Operand& operand) {
   ASSERT(allow_macro_instructions_);
 
   if (operand.NeedsRelocation(this)) {
-    LoadRelocated(rd, operand);
+    Ldr(rd, operand.immediate());
     mvn(rd, rd);
 
   } else if (operand.IsImmediate()) {
     // Call the macro assembler for generic immediates.
-    Mov(rd, ~operand.immediate());
+    Mov(rd, ~operand.ImmediateValue());
 
   } else if (operand.IsExtendedRegister()) {
     // Emit two instructions for the extend case. This differs from Mov, as
@@ -355,11 +355,12 @@ void MacroAssembler::ConditionalCompareMacro(const Register& rn,
   if (operand.NeedsRelocation(this)) {
     UseScratchRegisterScope temps(this);
     Register temp = temps.AcquireX();
-    LoadRelocated(temp, operand);
+    Ldr(temp, operand.immediate());
     ConditionalCompareMacro(rn, temp, nzcv, cond, op);
 
   } else if ((operand.IsShiftedRegister() && (operand.shift_amount() == 0)) ||
-      (operand.IsImmediate() && IsImmConditionalCompare(operand.immediate()))) {
+             (operand.IsImmediate() &&
+              IsImmConditionalCompare(operand.ImmediateValue()))) {
     // The immediate can be encoded in the instruction, or the operand is an
     // unshifted register: call the assembler.
     ConditionalCompare(rn, operand, nzcv, cond, op);
@@ -385,7 +386,7 @@ void MacroAssembler::Csel(const Register& rd,
   if (operand.IsImmediate()) {
     // Immediate argument. Handle special cases of 0, 1 and -1 using zero
     // register.
-    int64_t imm = operand.immediate();
+    int64_t imm = operand.ImmediateValue();
     Register zr = AppropriateZeroRegFor(rn);
     if (imm == 0) {
       csel(rd, rn, zr, cond);
@@ -396,7 +397,7 @@ void MacroAssembler::Csel(const Register& rd,
     } else {
       UseScratchRegisterScope temps(this);
       Register temp = temps.AcquireSameSizeAs(rn);
-      Mov(temp, operand.immediate());
+      Mov(temp, imm);
       csel(rd, rn, temp, cond);
     }
   } else if (operand.IsShiftedRegister() && (operand.shift_amount() == 0)) {
@@ -426,10 +427,11 @@ void MacroAssembler::AddSubMacro(const Register& rd,
   if (operand.NeedsRelocation(this)) {
     UseScratchRegisterScope temps(this);
     Register temp = temps.AcquireX();
-    LoadRelocated(temp, operand);
+    Ldr(temp, operand.immediate());
     AddSubMacro(rd, rn, temp, S, op);
-  } else if ((operand.IsImmediate() && !IsImmAddSub(operand.immediate())) ||
-             (rn.IsZero() && !operand.IsShiftedRegister())                ||
+  } else if ((operand.IsImmediate() &&
+              !IsImmAddSub(operand.ImmediateValue()))      ||
+             (rn.IsZero() && !operand.IsShiftedRegister()) ||
              (operand.IsShiftedRegister() && (operand.shift() == ROR))) {
     UseScratchRegisterScope temps(this);
     Register temp = temps.AcquireSameSizeAs(rn);
@@ -451,7 +453,7 @@ void MacroAssembler::AddSubWithCarryMacro(const Register& rd,
 
   if (operand.NeedsRelocation(this)) {
     Register temp = temps.AcquireX();
-    LoadRelocated(temp, operand);
+    Ldr(temp, operand.immediate());
     AddSubWithCarryMacro(rd, rn, temp, S, op);
 
   } else if (operand.IsImmediate() ||
@@ -559,6 +561,11 @@ void MacroAssembler::Store(const Register& rt,
     Str(rt.W(), addr);
   } else {
     ASSERT(rt.Is64Bits());
+    if (r.IsHeapObject()) {
+      AssertNotSmi(rt);
+    } else if (r.IsSmi()) {
+      AssertSmi(rt);
+    }
     Str(rt, addr);
   }
 }
@@ -656,7 +663,7 @@ void MacroAssembler::B(Label* label, Condition cond) {
     NeedExtraInstructionsOrRegisterBranch(label, CondBranchType);
 
   if (need_extra_instructions) {
-    b(&done, InvertCondition(cond));
+    b(&done, NegateCondition(cond));
     B(label);
   } else {
     b(label, cond);
@@ -1066,7 +1073,7 @@ void MacroAssembler::PushPreamble(Operand total_size) {
     // on entry and the total size of the specified registers must also be a
     // multiple of 16 bytes.
     if (total_size.IsImmediate()) {
-      ASSERT((total_size.immediate() % 16) == 0);
+      ASSERT((total_size.ImmediateValue() % 16) == 0);
     }
 
     // Don't check access size for non-immediate sizes. It's difficult to do
@@ -1086,7 +1093,7 @@ void MacroAssembler::PopPostamble(Operand total_size) {
     // on entry and the total size of the specified registers must also be a
     // multiple of 16 bytes.
     if (total_size.IsImmediate()) {
-      ASSERT((total_size.immediate() % 16) == 0);
+      ASSERT((total_size.ImmediateValue() % 16) == 0);
     }
 
     // Don't check access size for non-immediate sizes. It's difficult to do
@@ -1102,7 +1109,7 @@ void MacroAssembler::PopPostamble(Operand total_size) {
 
 void MacroAssembler::Poke(const CPURegister& src, const Operand& offset) {
   if (offset.IsImmediate()) {
-    ASSERT(offset.immediate() >= 0);
+    ASSERT(offset.ImmediateValue() >= 0);
   } else if (emit_debug_code()) {
     Cmp(xzr, offset);
     Check(le, kStackAccessBelowStackPointer);
@@ -1114,7 +1121,7 @@ void MacroAssembler::Poke(const CPURegister& src, const Operand& offset) {
 
 void MacroAssembler::Peek(const CPURegister& dst, const Operand& offset) {
   if (offset.IsImmediate()) {
-    ASSERT(offset.immediate() >= 0);
+    ASSERT(offset.ImmediateValue() >= 0);
   } else if (emit_debug_code()) {
     Cmp(xzr, offset);
     Check(le, kStackAccessBelowStackPointer);
@@ -1541,48 +1548,6 @@ void MacroAssembler::ThrowUncatchable(Register value,
   Pop(object, state, cp, fp);
 
   JumpToHandlerEntry(value, object, state, scratch3, scratch4);
-}
-
-
-void MacroAssembler::Throw(BailoutReason reason) {
-  Label throw_start;
-  Bind(&throw_start);
-#ifdef DEBUG
-  const char* msg = GetBailoutReason(reason);
-  RecordComment("Throw message: ");
-  RecordComment((msg != NULL) ? msg : "UNKNOWN");
-#endif
-
-  Mov(x0, Smi::FromInt(reason));
-  Push(x0);
-
-  // Disable stub call restrictions to always allow calls to throw.
-  if (!has_frame_) {
-    // We don't actually want to generate a pile of code for this, so just
-    // claim there is a stack frame, without generating one.
-    FrameScope scope(this, StackFrame::NONE);
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  } else {
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  }
-  // ThrowMessage should not return here.
-  Unreachable();
-}
-
-
-void MacroAssembler::ThrowIf(Condition cond, BailoutReason reason) {
-  Label ok;
-  B(InvertCondition(cond), &ok);
-  Throw(reason);
-  Bind(&ok);
-}
-
-
-void MacroAssembler::ThrowIfSmi(const Register& value, BailoutReason reason) {
-  Label ok;
-  JumpIfNotSmi(value, &ok);
-  Throw(reason);
-  Bind(&ok);
 }
 
 
@@ -2106,7 +2071,7 @@ void MacroAssembler::Call(Address target, RelocInfo::Mode rmode) {
     movk(temp, (imm >> 16) & 0xffff, 16);
     movk(temp, (imm >> 32) & 0xffff, 32);
   } else {
-    LoadRelocated(temp, Operand(reinterpret_cast<intptr_t>(target), rmode));
+    Ldr(temp, Immediate(reinterpret_cast<intptr_t>(target), rmode));
   }
   Blr(temp);
 #ifdef DEBUG
@@ -3539,33 +3504,12 @@ void MacroAssembler::AllocateAsciiConsString(Register result,
                                              Register scratch1,
                                              Register scratch2,
                                              Label* gc_required) {
-  Label allocate_new_space, install_map;
-  AllocationFlags flags = TAG_OBJECT;
-
-  ExternalReference high_promotion_mode = ExternalReference::
-      new_space_high_promotion_mode_active_address(isolate());
-  Mov(scratch1, high_promotion_mode);
-  Ldr(scratch1, MemOperand(scratch1));
-  Cbz(scratch1, &allocate_new_space);
-
   Allocate(ConsString::kSize,
            result,
            scratch1,
            scratch2,
            gc_required,
-           static_cast<AllocationFlags>(flags | PRETENURE_OLD_POINTER_SPACE));
-
-  B(&install_map);
-
-  Bind(&allocate_new_space);
-  Allocate(ConsString::kSize,
-           result,
-           scratch1,
-           scratch2,
-           gc_required,
-           flags);
-
-  Bind(&install_map);
+           TAG_OBJECT);
 
   InitializeNewString(result,
                       length,
@@ -3785,7 +3729,7 @@ void MacroAssembler::LoadElementsKindFromMap(Register result, Register map) {
   // Load the map's "bit field 2".
   __ Ldrb(result, FieldMemOperand(map, Map::kBitField2Offset));
   // Retrieve elements_kind from bit field 2.
-  __ Ubfx(result, result, Map::kElementsKindShift, Map::kElementsKindBitCount);
+  DecodeField<Map::ElementsKindBits>(result);
 }
 
 
@@ -3884,7 +3828,7 @@ void MacroAssembler::CompareAndSplit(const Register& lhs,
   } else if (if_false == fall_through) {
     CompareAndBranch(lhs, rhs, cond, if_true);
   } else if (if_true == fall_through) {
-    CompareAndBranch(lhs, rhs, InvertCondition(cond), if_false);
+    CompareAndBranch(lhs, rhs, NegateCondition(cond), if_false);
   } else {
     CompareAndBranch(lhs, rhs, cond, if_true);
     B(if_false);
@@ -3991,11 +3935,8 @@ void MacroAssembler::IndexFromHash(Register hash, Register index) {
   // conflict.
   ASSERT(TenToThe(String::kMaxCachedArrayIndexLength) <
          (1 << String::kArrayIndexValueBits));
-  // We want the smi-tagged index in key.  kArrayIndexValueMask has zeros in
-  // the low kHashShift bits.
-  STATIC_ASSERT(kSmiTag == 0);
-  Ubfx(hash, hash, String::kHashShift, String::kArrayIndexValueBits);
-  SmiTag(index, hash);
+  DecodeField<String::ArrayIndexValueBits>(index, hash);
+  SmiTag(index, index);
 }
 
 
@@ -4333,7 +4274,8 @@ void MacroAssembler::RecordWriteField(
     LinkRegisterStatus lr_status,
     SaveFPRegsMode save_fp,
     RememberedSetAction remembered_set_action,
-    SmiCheck smi_check) {
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   // First, check if a write barrier is even needed. The tests below
   // catch stores of Smis.
   Label done;
@@ -4362,7 +4304,8 @@ void MacroAssembler::RecordWriteField(
               lr_status,
               save_fp,
               remembered_set_action,
-              OMIT_SMI_CHECK);
+              OMIT_SMI_CHECK,
+              pointers_to_here_check_for_value);
 
   Bind(&done);
 
@@ -4375,18 +4318,91 @@ void MacroAssembler::RecordWriteField(
 }
 
 
+// Will clobber: object, map, dst.
+// If lr_status is kLRHasBeenSaved, lr will also be clobbered.
+void MacroAssembler::RecordWriteForMap(Register object,
+                                       Register map,
+                                       Register dst,
+                                       LinkRegisterStatus lr_status,
+                                       SaveFPRegsMode fp_mode) {
+  ASM_LOCATION("MacroAssembler::RecordWrite");
+  ASSERT(!AreAliased(object, map));
+
+  if (emit_debug_code()) {
+    UseScratchRegisterScope temps(this);
+    Register temp = temps.AcquireX();
+
+    CompareMap(map, temp, isolate()->factory()->meta_map());
+    Check(eq, kWrongAddressOrValuePassedToRecordWrite);
+  }
+
+  if (!FLAG_incremental_marking) {
+    return;
+  }
+
+  if (emit_debug_code()) {
+    UseScratchRegisterScope temps(this);
+    Register temp = temps.AcquireX();
+
+    Ldr(temp, FieldMemOperand(object, HeapObject::kMapOffset));
+    Cmp(temp, map);
+    Check(eq, kWrongAddressOrValuePassedToRecordWrite);
+  }
+
+  // Count number of write barriers in generated code.
+  isolate()->counters()->write_barriers_static()->Increment();
+  // TODO(mstarzinger): Dynamic counter missing.
+
+  // First, check if a write barrier is even needed. The tests below
+  // catch stores of smis and stores into the young generation.
+  Label done;
+
+  // A single check of the map's pages interesting flag suffices, since it is
+  // only set during incremental collection, and then it's also guaranteed that
+  // the from object's page's interesting flag is also set.  This optimization
+  // relies on the fact that maps can never be in new space.
+  CheckPageFlagClear(map,
+                     map,  // Used as scratch.
+                     MemoryChunk::kPointersToHereAreInterestingMask,
+                     &done);
+
+  // Record the actual write.
+  if (lr_status == kLRHasNotBeenSaved) {
+    Push(lr);
+  }
+  Add(dst, object, HeapObject::kMapOffset - kHeapObjectTag);
+  RecordWriteStub stub(isolate(), object, map, dst, OMIT_REMEMBERED_SET,
+                       fp_mode);
+  CallStub(&stub);
+  if (lr_status == kLRHasNotBeenSaved) {
+    Pop(lr);
+  }
+
+  Bind(&done);
+
+  // Clobber clobbered registers when running with the debug-code flag
+  // turned on to provoke errors.
+  if (emit_debug_code()) {
+    Mov(dst, Operand(BitCast<int64_t>(kZapValue + 12)));
+    Mov(map, Operand(BitCast<int64_t>(kZapValue + 16)));
+  }
+}
+
+
 // Will clobber: object, address, value.
 // If lr_status is kLRHasBeenSaved, lr will also be clobbered.
 //
 // The register 'object' contains a heap object pointer. The heap object tag is
 // shifted away.
-void MacroAssembler::RecordWrite(Register object,
-                                 Register address,
-                                 Register value,
-                                 LinkRegisterStatus lr_status,
-                                 SaveFPRegsMode fp_mode,
-                                 RememberedSetAction remembered_set_action,
-                                 SmiCheck smi_check) {
+void MacroAssembler::RecordWrite(
+    Register object,
+    Register address,
+    Register value,
+    LinkRegisterStatus lr_status,
+    SaveFPRegsMode fp_mode,
+    RememberedSetAction remembered_set_action,
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   ASM_LOCATION("MacroAssembler::RecordWrite");
   ASSERT(!AreAliased(object, value));
 
@@ -4412,10 +4428,12 @@ void MacroAssembler::RecordWrite(Register object,
     JumpIfSmi(value, &done);
   }
 
-  CheckPageFlagClear(value,
-                     value,  // Used as scratch.
-                     MemoryChunk::kPointersToHereAreInterestingMask,
-                     &done);
+  if (pointers_to_here_check_for_value != kPointersToHereAreAlwaysInteresting) {
+    CheckPageFlagClear(value,
+                       value,  // Used as scratch.
+                       MemoryChunk::kPointersToHereAreInterestingMask,
+                       &done);
+  }
   CheckPageFlagClear(object,
                      value,  // Used as scratch.
                      MemoryChunk::kPointersFromHereAreInterestingMask,
@@ -4560,7 +4578,7 @@ void MacroAssembler::JumpIfDictionaryInPrototypeChain(
   Bind(&loop_again);
   Ldr(current, FieldMemOperand(current, HeapObject::kMapOffset));
   Ldrb(scratch1, FieldMemOperand(current, Map::kBitField2Offset));
-  Ubfx(scratch1, scratch1, Map::kElementsKindShift, Map::kElementsKindBitCount);
+  DecodeField<Map::ElementsKindBits>(scratch1);
   CompareAndBranch(scratch1, DICTIONARY_ELEMENTS, eq, found);
   Ldr(current, FieldMemOperand(current, Map::kPrototypeOffset));
   CompareAndBranch(current, Operand(factory->null_value()), ne, &loop_again);
@@ -5157,7 +5175,7 @@ void MacroAssembler::EmitCodeAgeSequence(Assembler * assm,
   //
   // A branch (br) is used rather than a call (blr) because this code replaces
   // the frame setup code that would normally preserve lr.
-  __ LoadLiteral(ip0, kCodeAgeStubEntryOffset);
+  __ ldr_pcrel(ip0, kCodeAgeStubEntryOffset >> kLoadLiteralScaleLog2);
   __ adr(x0, &start);
   __ br(ip0);
   // IsCodeAgeSequence in codegen-arm64.cc assumes that the code generated up

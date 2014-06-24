@@ -7,10 +7,9 @@
 
 #include <vector>
 
-#include "v8globals.h"
-#include "globals.h"
+#include "src/globals.h"
 
-#include "arm64/assembler-arm64-inl.h"
+#include "src/arm64/assembler-arm64-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -82,7 +81,7 @@ enum BranchType {
 inline BranchType InvertBranchType(BranchType type) {
   if (kBranchTypeFirstCondition <= type && type <= kBranchTypeLastCondition) {
     return static_cast<BranchType>(
-        InvertCondition(static_cast<Condition>(type)));
+        NegateCondition(static_cast<Condition>(type)));
   } else {
     return static_cast<BranchType>(type ^ 1);
   }
@@ -90,6 +89,10 @@ inline BranchType InvertBranchType(BranchType type) {
 
 enum RememberedSetAction { EMIT_REMEMBERED_SET, OMIT_REMEMBERED_SET };
 enum SmiCheck { INLINE_SMI_CHECK, OMIT_SMI_CHECK };
+enum PointersToHereCheck {
+  kPointersToHereMaybeInteresting,
+  kPointersToHereAreAlwaysInteresting
+};
 enum LinkRegisterStatus { kLRHasNotBeenSaved, kLRHasBeenSaved };
 enum TargetAddressStorageMode {
   CAN_INLINE_TARGET_ADDRESS,
@@ -391,13 +394,10 @@ class MacroAssembler : public Assembler {
   inline void Ldpsw(const Register& rt,
                     const Register& rt2,
                     const MemOperand& src);
-  // Provide both double and float interfaces for FP immediate loads, rather
-  // than relying on implicit C++ casts. This allows signalling NaNs to be
-  // preserved when the immediate matches the format of fd. Most systems convert
-  // signalling NaNs to quiet NaNs when converting between float and double.
-  inline void Ldr(const FPRegister& ft, double imm);
-  inline void Ldr(const FPRegister& ft, float imm);
-  inline void Ldr(const Register& rt, uint64_t imm);
+  // Load a literal from the inline constant pool.
+  inline void Ldr(const CPURegister& rt, const Immediate& imm);
+  // Helper function for double immediate.
+  inline void Ldr(const CPURegister& rt, double imm);
   inline void Lsl(const Register& rd, const Register& rn, unsigned shift);
   inline void Lsl(const Register& rd, const Register& rn, const Register& rm);
   inline void Lsr(const Register& rd, const Register& rn, unsigned shift);
@@ -870,6 +870,10 @@ class MacroAssembler : public Assembler {
                               Register src,
                               UntagMode mode = kNotSpeculativeUntag);
 
+  // Tag and push in one step.
+  inline void SmiTagAndPush(Register src);
+  inline void SmiTagAndPush(Register src1, Register src2);
+
   // Compute the absolute value of 'smi' and leave the result in 'smi'
   // register. If 'smi' is the most negative SMI, the absolute value cannot
   // be represented as a SMI and a jump to 'slow' is done.
@@ -1072,15 +1076,6 @@ class MacroAssembler : public Assembler {
                         Register scratch2,
                         Register scratch3,
                         Register scratch4);
-
-  // Throw a message string as an exception.
-  void Throw(BailoutReason reason);
-
-  // Throw a message string as an exception if a condition is not true.
-  void ThrowIf(Condition cond, BailoutReason reason);
-
-  // Throw a message string as an exception if the value is a smi.
-  void ThrowIfSmi(const Register& value, BailoutReason reason);
 
   void CallStub(CodeStub* stub, TypeFeedbackId ast_id = TypeFeedbackId::None());
   void TailCallStub(CodeStub* stub);
@@ -1797,7 +1792,9 @@ class MacroAssembler : public Assembler {
       LinkRegisterStatus lr_status,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK);
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting);
 
   // As above, but the offset has the tag presubtracted. For use with
   // MemOperand(reg, off).
@@ -1809,7 +1806,9 @@ class MacroAssembler : public Assembler {
       LinkRegisterStatus lr_status,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK) {
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting) {
     RecordWriteField(context,
                      offset + kHeapObjectTag,
                      value,
@@ -1817,8 +1816,16 @@ class MacroAssembler : public Assembler {
                      lr_status,
                      save_fp,
                      remembered_set_action,
-                     smi_check);
+                     smi_check,
+                     pointers_to_here_check_for_value);
   }
+
+  void RecordWriteForMap(
+      Register object,
+      Register map,
+      Register dst,
+      LinkRegisterStatus lr_status,
+      SaveFPRegsMode save_fp);
 
   // For a given |object| notify the garbage collector that the slot |address|
   // has been written.  |value| is the object being stored. The value and
@@ -1830,7 +1837,9 @@ class MacroAssembler : public Assembler {
       LinkRegisterStatus lr_status,
       SaveFPRegsMode save_fp,
       RememberedSetAction remembered_set_action = EMIT_REMEMBERED_SET,
-      SmiCheck smi_check = INLINE_SMI_CHECK);
+      SmiCheck smi_check = INLINE_SMI_CHECK,
+      PointersToHereCheck pointers_to_here_check_for_value =
+          kPointersToHereMaybeInteresting);
 
   // Checks the color of an object. If the object is already grey or black
   // then we just fall through, since it is already live. If it is white and

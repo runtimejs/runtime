@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_X87
 
-#include "bootstrapper.h"
-#include "codegen.h"
-#include "cpu-profiler.h"
-#include "debug.h"
-#include "isolate-inl.h"
-#include "runtime.h"
-#include "serialize.h"
+#include "src/bootstrapper.h"
+#include "src/codegen.h"
+#include "src/cpu-profiler.h"
+#include "src/debug.h"
+#include "src/isolate-inl.h"
+#include "src/runtime.h"
+#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -55,6 +55,11 @@ void MacroAssembler::Store(Register src, const Operand& dst, Representation r) {
   } else if (r.IsInteger16() || r.IsUInteger16()) {
     mov_w(dst, src);
   } else {
+    if (r.IsHeapObject()) {
+      AssertNotSmi(src);
+    } else if (r.IsSmi()) {
+      AssertSmi(src);
+    }
     mov(dst, src);
   }
 }
@@ -310,11 +315,13 @@ void MacroAssembler::LoadUint32NoSSE2(Register src) {
 }
 
 
-void MacroAssembler::RecordWriteArray(Register object,
-                                      Register value,
-                                      Register index,
-                                      RememberedSetAction remembered_set_action,
-                                      SmiCheck smi_check) {
+void MacroAssembler::RecordWriteArray(
+    Register object,
+    Register value,
+    Register index,
+    RememberedSetAction remembered_set_action,
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   // First, check if a write barrier is even needed. The tests below
   // catch stores of Smis.
   Label done;
@@ -333,8 +340,8 @@ void MacroAssembler::RecordWriteArray(Register object,
   lea(dst, Operand(object, index, times_half_pointer_size,
                    FixedArray::kHeaderSize - kHeapObjectTag));
 
-  RecordWrite(
-      object, dst, value, remembered_set_action, OMIT_SMI_CHECK);
+  RecordWrite(object, dst, value, remembered_set_action, OMIT_SMI_CHECK,
+              pointers_to_here_check_for_value);
 
   bind(&done);
 
@@ -353,7 +360,8 @@ void MacroAssembler::RecordWriteField(
     Register value,
     Register dst,
     RememberedSetAction remembered_set_action,
-    SmiCheck smi_check) {
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   // First, check if a write barrier is even needed. The tests below
   // catch stores of Smis.
   Label done;
@@ -376,8 +384,8 @@ void MacroAssembler::RecordWriteField(
     bind(&ok);
   }
 
-  RecordWrite(
-      object, dst, value, remembered_set_action, OMIT_SMI_CHECK);
+  RecordWrite(object, dst, value, remembered_set_action, OMIT_SMI_CHECK,
+              pointers_to_here_check_for_value);
 
   bind(&done);
 
@@ -417,6 +425,9 @@ void MacroAssembler::RecordWriteForMap(
     return;
   }
 
+  // Compute the address.
+  lea(address, FieldOperand(object, HeapObject::kMapOffset));
+
   // Count number of write barriers in generated code.
   isolate()->counters()->write_barriers_static()->Increment();
   IncrementCounter(isolate()->counters()->write_barriers_dynamic(), 1);
@@ -432,12 +443,6 @@ void MacroAssembler::RecordWriteForMap(
                       &done,
                       Label::kNear);
 
-  // Delay the initialization of |address| and |value| for the stub until it's
-  // known that the will be needed. Up until this point their values are not
-  // needed since they are embedded in the operands of instructions that need
-  // them.
-  lea(address, FieldOperand(object, HeapObject::kMapOffset));
-  mov(value, Immediate(map));
   RecordWriteStub stub(isolate(), object, value, address, OMIT_REMEMBERED_SET);
   CallStub(&stub);
 
@@ -453,11 +458,13 @@ void MacroAssembler::RecordWriteForMap(
 }
 
 
-void MacroAssembler::RecordWrite(Register object,
-                                 Register address,
-                                 Register value,
-                                 RememberedSetAction remembered_set_action,
-                                 SmiCheck smi_check) {
+void MacroAssembler::RecordWrite(
+    Register object,
+    Register address,
+    Register value,
+    RememberedSetAction remembered_set_action,
+    SmiCheck smi_check,
+    PointersToHereCheck pointers_to_here_check_for_value) {
   ASSERT(!object.is(value));
   ASSERT(!object.is(address));
   ASSERT(!value.is(address));
@@ -489,12 +496,14 @@ void MacroAssembler::RecordWrite(Register object,
     JumpIfSmi(value, &done, Label::kNear);
   }
 
-  CheckPageFlag(value,
-                value,  // Used as scratch.
-                MemoryChunk::kPointersToHereAreInterestingMask,
-                zero,
-                &done,
-                Label::kNear);
+  if (pointers_to_here_check_for_value != kPointersToHereAreAlwaysInteresting) {
+    CheckPageFlag(value,
+                  value,  // Used as scratch.
+                  MemoryChunk::kPointersToHereAreInterestingMask,
+                  zero,
+                  &done,
+                  Label::kNear);
+  }
   CheckPageFlag(object,
                 value,  // Used as scratch.
                 MemoryChunk::kPointersFromHereAreInterestingMask,
@@ -1689,32 +1698,13 @@ void MacroAssembler::AllocateAsciiConsString(Register result,
                                              Register scratch1,
                                              Register scratch2,
                                              Label* gc_required) {
-  Label allocate_new_space, install_map;
-  AllocationFlags flags = TAG_OBJECT;
-
-  ExternalReference high_promotion_mode = ExternalReference::
-      new_space_high_promotion_mode_active_address(isolate());
-
-  test(Operand::StaticVariable(high_promotion_mode), Immediate(1));
-  j(zero, &allocate_new_space);
-
   Allocate(ConsString::kSize,
            result,
            scratch1,
            scratch2,
            gc_required,
-           static_cast<AllocationFlags>(flags | PRETENURE_OLD_POINTER_SPACE));
-  jmp(&install_map);
+           TAG_OBJECT);
 
-  bind(&allocate_new_space);
-  Allocate(ConsString::kSize,
-           result,
-           scratch1,
-           scratch2,
-           gc_required,
-           flags);
-
-  bind(&install_map);
   // Set the map. The other fields are left uninitialized.
   mov(FieldOperand(result, HeapObject::kMapOffset),
       Immediate(isolate()->factory()->cons_ascii_string_map()));
@@ -1954,16 +1944,10 @@ void MacroAssembler::IndexFromHash(Register hash, Register index) {
   // reserved for it does not conflict.
   ASSERT(TenToThe(String::kMaxCachedArrayIndexLength) <
          (1 << String::kArrayIndexValueBits));
-  // We want the smi-tagged index in key.  kArrayIndexValueMask has zeros in
-  // the low kHashShift bits.
-  and_(hash, String::kArrayIndexValueMask);
-  STATIC_ASSERT(String::kHashShift >= kSmiTagSize && kSmiTag == 0);
-  if (String::kHashShift > kSmiTagSize) {
-    shr(hash, String::kHashShift - kSmiTagSize);
-  }
   if (!index.is(hash)) {
     mov(index, hash);
   }
+  DecodeFieldToSmi<String::ArrayIndexValueBits>(index);
 }
 
 
@@ -2703,7 +2687,6 @@ void MacroAssembler::Abort(BailoutReason reason) {
   }
 #endif
 
-  push(eax);
   push(Immediate(reinterpret_cast<intptr_t>(Smi::FromInt(reason))));
   // Disable stub call restrictions to always allow calls to abort.
   if (!has_frame_) {
@@ -2716,40 +2699,6 @@ void MacroAssembler::Abort(BailoutReason reason) {
   }
   // will not return here
   int3();
-}
-
-
-void MacroAssembler::Throw(BailoutReason reason) {
-#ifdef DEBUG
-  const char* msg = GetBailoutReason(reason);
-  if (msg != NULL) {
-    RecordComment("Throw message: ");
-    RecordComment(msg);
-  }
-#endif
-
-  push(eax);
-  push(Immediate(Smi::FromInt(reason)));
-  // Disable stub call restrictions to always allow calls to throw.
-  if (!has_frame_) {
-    // We don't actually want to generate a pile of code for this, so just
-    // claim there is a stack frame, without generating one.
-    FrameScope scope(this, StackFrame::NONE);
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  } else {
-    CallRuntime(Runtime::kHiddenThrowMessage, 1);
-  }
-  // will not return here
-  int3();
-}
-
-
-void MacroAssembler::ThrowIf(Condition cc, BailoutReason reason) {
-  Label L;
-  j(NegateCondition(cc), &L);
-  Throw(reason);
-  // will not return here
-  bind(&L);
 }
 
 
@@ -3323,8 +3272,7 @@ void MacroAssembler::JumpIfDictionaryInPrototypeChain(
   bind(&loop_again);
   mov(current, FieldOperand(current, HeapObject::kMapOffset));
   mov(scratch1, FieldOperand(current, Map::kBitField2Offset));
-  and_(scratch1, Map::kElementsKindMask);
-  shr(scratch1, Map::kElementsKindShift);
+  DecodeField<Map::ElementsKindBits>(scratch1);
   cmp(scratch1, Immediate(DICTIONARY_ELEMENTS));
   j(equal, found);
   mov(current, FieldOperand(current, Map::kPrototypeOffset));

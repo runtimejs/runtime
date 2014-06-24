@@ -2,18 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "ast.h"
-#include "deoptimizer.h"
-#include "frames-inl.h"
-#include "full-codegen.h"
-#include "lazy-instance.h"
-#include "mark-compact.h"
-#include "safepoint-table.h"
-#include "scopeinfo.h"
-#include "string-stream.h"
-#include "vm-state-inl.h"
+#include "src/ast.h"
+#include "src/deoptimizer.h"
+#include "src/frames-inl.h"
+#include "src/full-codegen.h"
+#include "src/mark-compact.h"
+#include "src/safepoint-table.h"
+#include "src/scopeinfo.h"
+#include "src/string-stream.h"
+#include "src/vm-state-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -1235,6 +1234,10 @@ void JavaScriptFrame::Print(StringStream* accumulator,
   if (this->context() != NULL && this->context()->IsContext()) {
     context = Context::cast(this->context());
   }
+  while (context->IsWithContext()) {
+    context = context->previous();
+    ASSERT(context != NULL);
+  }
 
   // Print heap-allocated local variables.
   if (heap_locals_count > 0) {
@@ -1245,8 +1248,9 @@ void JavaScriptFrame::Print(StringStream* accumulator,
     accumulator->PrintName(scope_info->ContextLocalName(i));
     accumulator->Add(" = ");
     if (context != NULL) {
-      if (i < context->length()) {
-        accumulator->Add("%o", context->get(Context::MIN_CONTEXT_SLOTS + i));
+      int index = Context::MIN_CONTEXT_SLOTS + i;
+      if (index < context->length()) {
+        accumulator->Add("%o", context->get(index));
       } else {
         accumulator->Add(
             "// warning: missing context slot - inconsistent frame?");

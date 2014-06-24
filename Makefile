@@ -70,6 +70,10 @@ ifeq ($(backtrace), off)
 else
   GYPFLAGS += -Dv8_enable_backtrace=1
 endif
+# verifypredictable=on
+ifeq ($(verifypredictable), on)
+  GYPFLAGS += -Dv8_enable_verify_predictable=1
+endif
 # snapshot=off
 ifeq ($(snapshot), off)
   GYPFLAGS += -Dv8_use_snapshot='false'
@@ -187,15 +191,14 @@ ifeq ($(armthumb), on)
   GYPFLAGS += -Darm_thumb=1
 endif
 endif
-# armtest=on
+# arm_test_noprobe=on
 # With this flag set, by default v8 will only use features implied
 # by the compiler (no probe). This is done by modifying the default
 # values of enable_armv7, enable_vfp3, enable_32dregs and enable_neon.
 # Modifying these flags when launching v8 will enable the probing for
 # the specified values.
-# When using the simulator, this flag is implied.
-ifeq ($(armtest), on)
-  GYPFLAGS += -Darm_test=on
+ifeq ($(arm_test_noprobe), on)
+  GYPFLAGS += -Darm_test_noprobe=on
 endif
 
 # ----------------- available targets: --------------------
@@ -217,7 +220,7 @@ endif
 
 # Architectures and modes to be compiled. Consider these to be internal
 # variables, don't override them (use the targets instead).
-ARCHES = ia32 x64 arm arm64 mips mipsel x87
+ARCHES = ia32 x64 x32 arm arm64 mips mipsel x87
 DEFAULT_ARCHES = ia32 x64 arm
 MODES = release debug optdebug
 DEFAULT_MODES = release debug
@@ -395,8 +398,7 @@ clean: $(addsuffix .clean, $(ARCHES) $(ANDROID_ARCHES) $(NACL_ARCHES)) native.cl
 # GYP file generation targets.
 OUT_MAKEFILES = $(addprefix $(OUTDIR)/Makefile.,$(BUILDS))
 $(OUT_MAKEFILES): $(GYPFILES) $(ENVFILE)
-	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(PYTHONPATH)" \
-	PYTHONPATH="$(shell pwd)/build/gyp/pylib:$(PYTHONPATH)" \
+	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(shell pwd)/build:$(PYTHONPATH):$(shell pwd)/build/gyp/pylib:$(PYTHONPATH)" \
 	GYP_GENERATORS=make \
 	build/gyp/gyp --generator-output="$(OUTDIR)" build/all.gyp \
 	              -Ibuild/standalone.gypi --depth=. \
@@ -405,8 +407,7 @@ $(OUT_MAKEFILES): $(GYPFILES) $(ENVFILE)
 	              -S$(suffix $(basename $@))$(suffix $@) $(GYPFLAGS)
 
 $(OUTDIR)/Makefile.native: $(GYPFILES) $(ENVFILE)
-	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(PYTHONPATH)" \
-	PYTHONPATH="$(shell pwd)/build/gyp/pylib:$(PYTHONPATH)" \
+	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(shell pwd)/build:$(PYTHONPATH):$(shell pwd)/build/gyp/pylib:$(PYTHONPATH)" \
 	GYP_GENERATORS=make \
 	build/gyp/gyp --generator-output="$(OUTDIR)" build/all.gyp \
 	              -Ibuild/standalone.gypi --depth=. -S.native $(GYPFLAGS)
@@ -468,3 +469,8 @@ dependencies:
 	svn checkout --force \
 	    https://src.chromium.org/chrome/trunk/deps/third_party/icu46 \
 	    third_party/icu --revision 258359
+	( test -d buildtools || \
+	  git clone https://chromium.googlesource.com/chromium/buildtools.git; \
+	  cd buildtools; \
+	  git fetch origin; \
+	  git checkout 5d89977ce55240995d1596fe420b818468f5ec37 )

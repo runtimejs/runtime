@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
-#include "ast.h"
-#include "bytecodes-irregexp.h"
-#include "regexp-macro-assembler.h"
-#include "regexp-macro-assembler-irregexp.h"
-#include "regexp-macro-assembler-irregexp-inl.h"
+#include "src/v8.h"
+
+#include "src/ast.h"
+#include "src/bytecodes-irregexp.h"
+#include "src/regexp-macro-assembler.h"
+#include "src/regexp-macro-assembler-irregexp.h"
+#include "src/regexp-macro-assembler-irregexp-inl.h"
 
 
 namespace v8 {
@@ -434,7 +435,7 @@ int RegExpMacroAssemblerIrregexp::length() {
 
 
 void RegExpMacroAssemblerIrregexp::Copy(Address a) {
-  OS::MemCopy(a, buffer_.start(), length());
+  MemCopy(a, buffer_.start(), length());
 }
 
 
@@ -443,7 +444,7 @@ void RegExpMacroAssemblerIrregexp::Expand() {
   Vector<byte> old_buffer = buffer_;
   buffer_ = Vector<byte>::New(old_buffer.length() * 2);
   own_buffer_ = true;
-  OS::MemCopy(buffer_.start(), old_buffer.start(), old_buffer.length());
+  MemCopy(buffer_.start(), old_buffer.start(), old_buffer.length());
   if (old_buffer_was_our_own) {
     old_buffer.Dispose();
   }

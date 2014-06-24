@@ -25,8 +25,7 @@ namespace internal {
 
 const unsigned kInstructionSize = 4;
 const unsigned kInstructionSizeLog2 = 2;
-const unsigned kLiteralEntrySize = 4;
-const unsigned kLiteralEntrySizeLog2 = 2;
+const unsigned kLoadLiteralScaleLog2 = 2;
 const unsigned kMaxLoadLiteralRange = 1 * MB;
 
 const unsigned kNumberOfRegisters = 32;
@@ -258,15 +257,15 @@ enum Condition {
   nv = 15  // Behaves as always/al.
 };
 
-inline Condition InvertCondition(Condition cond) {
+inline Condition NegateCondition(Condition cond) {
   // Conditions al and nv behave identically, as "always true". They can't be
   // inverted, because there is no never condition.
   ASSERT((cond != al) && (cond != nv));
   return static_cast<Condition>(cond ^ 1);
 }
 
-// Corresponds to transposing the operands of a comparison.
-inline Condition ReverseConditionForCmp(Condition cond) {
+// Commute a condition such that {a cond b == b cond' a}.
+inline Condition CommuteCondition(Condition cond) {
   switch (cond) {
     case lo:
       return hi;

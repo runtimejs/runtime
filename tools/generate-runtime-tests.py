@@ -48,10 +48,10 @@ EXPAND_MACROS = [
 # remove or change runtime functions, but make sure we don't lose our ability
 # to parse them!
 EXPECTED_FUNCTION_COUNT = 358
-EXPECTED_FUZZABLE_COUNT = 325
+EXPECTED_FUZZABLE_COUNT = 326
 EXPECTED_CCTEST_COUNT = 6
-EXPECTED_UNKNOWN_COUNT = 5
-EXPECTED_BUILTINS_COUNT = 781
+EXPECTED_UNKNOWN_COUNT = 4
+EXPECTED_BUILTINS_COUNT = 800
 
 
 # Don't call these at all.
@@ -143,6 +143,7 @@ CUSTOM_KNOWN_GOOD_INPUT = {
   "DateParseString": [None, "new Array(8)", None],
   "DefineOrRedefineAccessorProperty": [None, None, "function() {}",
                                        "function() {}", 2, None],
+  "FunctionBindArguments": [None, None, "undefined", None, None],
   "GetBreakLocations": [None, 0, None],
   "GetDefaultReceiver": ["function() {}", None],
   "GetImplFromInitializedIntlObject": ["new Intl.NumberFormat('en-US')", None],
@@ -157,9 +158,8 @@ CUSTOM_KNOWN_GOOD_INPUT = {
   "NumberToRadixString": [None, "2", None],
   "ParseJson": ["\"{}\"", 1],
   "RegExpExecMultiple": [None, None, "['a']", "['a']", None],
-  "SetAccessorProperty": [None, None, "undefined", "undefined", None, None,
-                          None],
-  "SetCreateIterator": [None, "2", None],
+  "SetAccessorProperty": [None, None, "undefined", "undefined", None, None],
+  "SetIteratorInitialize": [None, None, "2", None],
   "SetDebugEventListener": ["undefined", None, None],
   "SetFunctionBreakPoint": [None, 200, None, None],
   "StringBuilderConcat": ["[1, 2, 3]", 3, None, None],
@@ -287,6 +287,12 @@ class Generator(object):
     s2 = self._RawRandomString(1, 5)
     # 'foo' + 'bar'
     return self._Variable(name, "\"%s\" + \"%s\"" % (s1, s2))
+
+  def _SeqTwoByteString(self, name):
+    s1 = self._RawRandomString(1, 5)
+    s2 = self._RawRandomString(1, 5)
+    # 'foo' + unicode + 'bar'
+    return self._Variable(name, "\"%s\" + \"\\2082\" + \"%s\"" % (s1, s2))
 
   def _SlicedString(self, name):
     s = self._RawRandomString(20, 30)
@@ -517,8 +523,8 @@ class Generator(object):
   def _JSMapIterator(self, name, recursion_budget):
     map_name = name + "_map"
     result = self._JSMap(map_name, recursion_budget)
-    iterator_type = random.randint(1, 3)
-    return (result + self._Variable(name, "%%MapCreateIterator(%s, %d)" %
+    iterator_type = random.choice(['keys', 'values', 'entries'])
+    return (result + self._Variable(name, "%s.%s()" %
                                           (map_name, iterator_type)))
 
   def _JSProxy(self, name, recursion_budget):
@@ -546,8 +552,8 @@ class Generator(object):
   def _JSSetIterator(self, name, recursion_budget):
     set_name = name + "_set"
     result = self._JSSet(set_name, recursion_budget)
-    iterator_type = random.randint(2, 3)
-    return (result + self._Variable(name, "%%SetCreateIterator(%s, %d)" %
+    iterator_type = random.choice(['values', 'entries'])
+    return (result + self._Variable(name, "%s.%s()" %
                                           (set_name, iterator_type)))
 
   def _JSTypedArray(self, name, recursion_budget):
@@ -660,13 +666,13 @@ class Generator(object):
                         _JSFunctionProxy],
     "JSGeneratorObject": ["(function*(){ yield 1; })()", _JSGeneratorObject],
     "JSMap": ["new Map()", _JSMap],
-    "JSMapIterator": ["%MapCreateIterator(new Map(), 3)", _JSMapIterator],
+    "JSMapIterator": ["new Map().entries()", _JSMapIterator],
     "JSObject": ["new Object()", _JSObject],
     "JSProxy": ["Proxy.create({})", _JSProxy],
     "JSReceiver": ["new Object()", _JSReceiver],
     "JSRegExp": ["/ab/g", _JSRegExp],
     "JSSet": ["new Set()", _JSSet],
-    "JSSetIterator": ["%SetCreateIterator(new Set(), 2)", _JSSetIterator],
+    "JSSetIterator": ["new Set().values()", _JSSetIterator],
     "JSTypedArray": ["new Int32Array(2)", _JSTypedArray],
     "JSValue": ["new String('foo')", _JSValue],
     "JSWeakCollection": ["new WeakMap()", _JSWeakCollection],
@@ -674,7 +680,9 @@ class Generator(object):
     "Number": ["1.5", _Number],
     "Object": ["new Object()", _Object],
     "PropertyDetails": ["513", _PropertyDetails],
+    "SeqOneByteString": ["\"seq 1-byte\"", _SeqString],
     "SeqString": ["\"seqstring\"", _SeqString],
+    "SeqTwoByteString": ["\"seq \\u2082-byte\"", _SeqTwoByteString],
     "Smi": ["1", _Smi],
     "StrictMode": ["1", _StrictMode],
     "String": ["\"foo\"", _String],
@@ -820,7 +828,6 @@ def FindInlineRuntimeFunctions():
   inline_functions = []
   with open(HEADERFILENAME, "r") as f:
     inline_list = "#define INLINE_FUNCTION_LIST(F) \\\n"
-    inline_opt_list = "#define INLINE_OPTIMIZED_FUNCTION_LIST(F) \\\n"
     inline_function = re.compile(r"^\s*F\((\w+), \d+, \d+\)\s*\\?")
     mode = "SEARCHING"
     for line in f:
@@ -831,7 +838,7 @@ def FindInlineRuntimeFunctions():
         if not line.endswith("\\\n"):
           mode = "SEARCHING"
       elif mode == "SEARCHING":
-        if line == inline_list or line == inline_opt_list:
+        if line == inline_list:
           mode = "ACTIVE"
   return inline_functions
 

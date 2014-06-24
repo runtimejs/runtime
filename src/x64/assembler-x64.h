@@ -37,7 +37,7 @@
 #ifndef V8_X64_ASSEMBLER_X64_H_
 #define V8_X64_ASSEMBLER_X64_H_
 
-#include "serialize.h"
+#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -326,8 +326,8 @@ inline Condition NegateCondition(Condition cc) {
 }
 
 
-// Corresponds to transposing the operands of a comparison.
-inline Condition ReverseCondition(Condition cc) {
+// Commute a condition such that {a cond b == b cond' a}.
+inline Condition CommuteCondition(Condition cc) {
   switch (cc) {
     case below:
       return above;
@@ -1069,6 +1069,7 @@ class Assembler : public AssemblerBase {
   void orpd(XMMRegister dst, XMMRegister src);
   void xorpd(XMMRegister dst, XMMRegister src);
   void sqrtsd(XMMRegister dst, XMMRegister src);
+  void sqrtsd(XMMRegister dst, const Operand& src);
 
   void ucomisd(XMMRegister dst, XMMRegister src);
   void ucomisd(XMMRegister dst, const Operand& src);

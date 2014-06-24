@@ -105,22 +105,22 @@ struct MaybeBoolFlag {
 };
 #endif
 
-#if (defined CAN_USE_VFP3_INSTRUCTIONS) || !(defined ARM_TEST)
+#if (defined CAN_USE_VFP3_INSTRUCTIONS) || !(defined ARM_TEST_NO_FEATURE_PROBE)
 # define ENABLE_VFP3_DEFAULT true
 #else
 # define ENABLE_VFP3_DEFAULT false
 #endif
-#if (defined CAN_USE_ARMV7_INSTRUCTIONS) || !(defined ARM_TEST)
+#if (defined CAN_USE_ARMV7_INSTRUCTIONS) || !(defined ARM_TEST_NO_FEATURE_PROBE)
 # define ENABLE_ARMV7_DEFAULT true
 #else
 # define ENABLE_ARMV7_DEFAULT false
 #endif
-#if (defined CAN_USE_VFP32DREGS) || !(defined ARM_TEST)
+#if (defined CAN_USE_VFP32DREGS) || !(defined ARM_TEST_NO_FEATURE_PROBE)
 # define ENABLE_32DREGS_DEFAULT true
 #else
 # define ENABLE_32DREGS_DEFAULT false
 #endif
-#if (defined CAN_USE_NEON) || !(defined ARM_TEST)
+#if (defined CAN_USE_NEON) || !(defined ARM_TEST_NO_FEATURE_PROBE)
 # define ENABLE_NEON_DEFAULT true
 #else
 # define ENABLE_NEON_DEFAULT false
@@ -178,19 +178,24 @@ DEFINE_implication(harmony, harmony_numeric_literals)
 DEFINE_implication(harmony, harmony_strings)
 DEFINE_implication(harmony, harmony_arrays)
 DEFINE_implication(harmony_modules, harmony_scoping)
+DEFINE_implication(harmony_collections, harmony_symbols)
+DEFINE_implication(harmony_generators, harmony_symbols)
+DEFINE_implication(harmony_iteration, harmony_symbols)
 
 DEFINE_implication(harmony, es_staging)
 DEFINE_implication(es_staging, harmony_maths)
 DEFINE_implication(es_staging, harmony_symbols)
+DEFINE_implication(es_staging, harmony_collections)
 
 // Flags for experimental implementation features.
 DEFINE_bool(packed_arrays, true, "optimizes arrays that have no holes")
 DEFINE_bool(smi_only_arrays, true, "tracks arrays with only smi values")
 DEFINE_bool(compiled_keyed_dictionary_loads, true,
             "use optimizing compiler to generate keyed dictionary load stubs")
+DEFINE_bool(compiled_keyed_generic_loads, false,
+            "use optimizing compiler to generate keyed generic load stubs")
 DEFINE_bool(clever_optimizations, true,
             "Optimize object size, Array shift, DOM strings and string +")
-DEFINE_bool(pretenuring, true, "allocate objects in old space")
 // TODO(hpayer): We will remove this flag as soon as we have pretenuring
 // support for specific allocation sites.
 DEFINE_bool(pretenuring_call_new, false, "pretenure call new")
@@ -327,7 +332,7 @@ DEFINE_int(concurrent_recompilation_delay, 0,
            "artificial compilation delay in ms")
 DEFINE_bool(block_concurrent_recompilation, false,
             "block queued jobs until released")
-DEFINE_bool(concurrent_osr, false,
+DEFINE_bool(concurrent_osr, true,
             "concurrent on-stack replacement")
 DEFINE_implication(concurrent_osr, concurrent_recompilation)
 
@@ -368,6 +373,8 @@ DEFINE_bool(enable_neon, ENABLE_NEON_DEFAULT,
             "enable use of NEON instructions if available (ARM only)")
 DEFINE_bool(enable_sudiv, true,
             "enable use of SDIV and UDIV instructions if available (ARM only)")
+DEFINE_bool(enable_mls, true,
+            "enable use of MLS instructions if available (ARM only)")
 DEFINE_bool(enable_movw_movt, false,
             "enable loading 32-bit constant by means of movw/movt "
             "instruction pairs (ARM only)")
@@ -494,9 +501,6 @@ DEFINE_bool(trace_gc_verbose, false,
             "print more details following each garbage collection")
 DEFINE_bool(trace_fragmentation, false,
             "report fragmentation for old pointer and data pages")
-DEFINE_bool(trace_external_memory, false,
-            "print amount of external allocated memory after each time "
-            "it is adjusted.")
 DEFINE_bool(collect_maps, true,
             "garbage collect maps from which no objects can be reached")
 DEFINE_bool(weak_embedded_maps_in_ic, true,
@@ -637,8 +641,8 @@ DEFINE_string(raw_file, NULL, "A file to write the raw snapshot bytes to. "
                               "(mksnapshot only)")
 DEFINE_string(raw_context_file, NULL, "A file to write the raw context "
                                       "snapshot bytes to. (mksnapshot only)")
-DEFINE_bool(omit, false, "Omit raw snapshot bytes in generated code. "
-                         "(mksnapshot only)")
+DEFINE_string(startup_blob, NULL, "Write V8 startup blob file. "
+                                  "(mksnapshot only)")
 
 // code-stubs-hydrogen.cc
 DEFINE_bool(profile_hydrogen_code_stub_compilation, false,
@@ -861,6 +865,24 @@ DEFINE_implication(print_all_code, code_comments)
 DEFINE_implication(print_all_code, trace_codegen)
 #endif
 #endif
+
+
+//
+// VERIFY_PREDICTABLE related flags
+//
+#undef FLAG
+
+#ifdef VERIFY_PREDICTABLE
+#define FLAG FLAG_FULL
+#else
+#define FLAG FLAG_READONLY
+#endif
+
+DEFINE_bool(verify_predictable, false,
+            "this mode is used for checking that V8 behaves predictably")
+DEFINE_int(dump_allocations_digest_at_alloc, 0,
+          "dump allocations digest each n-th allocation")
+
 
 //
 // Read-only flags

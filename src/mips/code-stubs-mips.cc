@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_MIPS
 
-#include "bootstrapper.h"
-#include "code-stubs.h"
-#include "codegen.h"
-#include "regexp-macro-assembler.h"
-#include "stub-cache.h"
+#include "src/bootstrapper.h"
+#include "src/code-stubs.h"
+#include "src/codegen.h"
+#include "src/regexp-macro-assembler.h"
+#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -116,6 +116,16 @@ void RegExpConstructResultStub::InitializeInterfaceDescriptor(
   descriptor->register_params_ = registers;
   descriptor->deoptimization_handler_ =
       Runtime::FunctionForId(Runtime::kHiddenRegExpConstructResult)->entry;
+}
+
+
+void KeyedLoadGenericElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  static Register registers[] = { a1, a0 };
+  descriptor->register_param_count_ = 2;
+  descriptor->register_params_ = registers;
+  descriptor->deoptimization_handler_ =
+      Runtime::FunctionForId(Runtime::kKeyedGetProperty)->entry;
 }
 
 
@@ -317,16 +327,6 @@ void ElementsTransitionAndStoreStub::InitializeInterfaceDescriptor(
   descriptor->register_params_ = registers;
   descriptor->deoptimization_handler_ =
       FUNCTION_ADDR(ElementsTransitionAndStoreIC_Miss);
-}
-
-
-void ArrayShiftStub::InitializeInterfaceDescriptor(
-    CodeStubInterfaceDescriptor* descriptor) {
-  static Register registers[] = { a0 };
-  descriptor->register_param_count_ = 1;
-  descriptor->register_params_ = registers;
-  descriptor->deoptimization_handler_ =
-      Builtins::c_function_address(Builtins::c_ArrayShift);
 }
 
 
@@ -2178,7 +2178,7 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   __ sw(a3, MemOperand(sp, 1 * kPointerSize));
 
   __ bind(&runtime);
-  __ TailCallRuntime(Runtime::kHiddenNewArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewSloppyArguments, 3, 1);
 }
 
 
@@ -2397,7 +2397,7 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   // a2 = argument count (tagged)
   __ bind(&runtime);
   __ sw(a2, MemOperand(sp, 0 * kPointerSize));  // Patch argument count.
-  __ TailCallRuntime(Runtime::kHiddenNewArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewSloppyArguments, 3, 1);
 }
 
 
@@ -2495,7 +2495,7 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
 
   // Do the runtime call to allocate the arguments object.
   __ bind(&runtime);
-  __ TailCallRuntime(Runtime::kHiddenNewStrictArgumentsFast, 3, 1);
+  __ TailCallRuntime(Runtime::kHiddenNewStrictArguments, 3, 1);
 }
 
 
@@ -2642,8 +2642,8 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
   STATIC_ASSERT(kSeqStringTag == 0);
   __ And(at, a0, Operand(kStringRepresentationMask));
   // The underlying external string is never a short external string.
-  STATIC_CHECK(ExternalString::kMaxShortLength < ConsString::kMinLength);
-  STATIC_CHECK(ExternalString::kMaxShortLength < SlicedString::kMinLength);
+  STATIC_ASSERT(ExternalString::kMaxShortLength < ConsString::kMinLength);
+  STATIC_ASSERT(ExternalString::kMaxShortLength < SlicedString::kMinLength);
   __ Branch(&external_string, ne, at, Operand(zero_reg));  // Go to (7).
 
   // (5) Sequential string.  Load regexp code according to encoding.
@@ -3227,12 +3227,15 @@ static void EmitLoadTypeFeedbackVector(MacroAssembler* masm, Register vector) {
 }
 
 
-void CallICStub::Generate_MonomorphicArray(MacroAssembler* masm, Label* miss) {
+void CallIC_ArrayStub::Generate(MacroAssembler* masm) {
   // a1 - function
-  // a2 - feedback vector
   // a3 - slot id
+  Label miss;
+
+  EmitLoadTypeFeedbackVector(masm, a2);
+
   __ LoadGlobalFunction(Context::ARRAY_FUNCTION_INDEX, at);
-  __ Branch(miss, ne, a1, Operand(at));
+  __ Branch(&miss, ne, a1, Operand(at));
 
   __ li(a0, Operand(arg_count()));
   __ sll(at, a3, kPointerSizeLog2 - kSmiTagSize);
@@ -3242,24 +3245,9 @@ void CallICStub::Generate_MonomorphicArray(MacroAssembler* masm, Label* miss) {
   __ AssertUndefinedOrAllocationSite(a2, at);
   ArrayConstructorStub stub(masm->isolate(), arg_count());
   __ TailCallStub(&stub);
-}
-
-
-void CallICStub::Generate_CustomFeedbackCall(MacroAssembler* masm) {
-  // a1 - function
-  // a2 - feedback vector
-  // a3 - slot id
-  Label miss;
-
-  if (state_.stub_type() == CallIC::MONOMORPHIC_ARRAY) {
-    Generate_MonomorphicArray(masm, &miss);
-  } else {
-    // So far there is only one customer for our custom feedback scheme.
-    UNREACHABLE();
-  }
 
   __ bind(&miss);
-  GenerateMiss(masm);
+  GenerateMiss(masm, IC::kCallIC_Customization_Miss);
 
   // The slow case, we need this no matter what to complete a call after a miss.
   CallFunctionNoFeedback(masm,
@@ -3282,11 +3270,6 @@ void CallICStub::Generate(MacroAssembler* masm) {
   ParameterCount actual(argc);
 
   EmitLoadTypeFeedbackVector(masm, a2);
-
-  if (state_.stub_type() != CallIC::DEFAULT) {
-    Generate_CustomFeedbackCall(masm);
-    return;
-  }
 
   // The checks. First, does r1 match the recorded monomorphic target?
   __ sll(t0, a3, kPointerSizeLog2 - kSmiTagSize);
@@ -3336,7 +3319,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
 
   // We are here because tracing is on or we are going monomorphic.
   __ bind(&miss);
-  GenerateMiss(masm);
+  GenerateMiss(masm, IC::kCallIC_Miss);
 
   // the slow case
   __ bind(&slow_start);
@@ -3351,7 +3334,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
 }
 
 
-void CallICStub::GenerateMiss(MacroAssembler* masm) {
+void CallICStub::GenerateMiss(MacroAssembler* masm, IC::UtilityId id) {
   // Get the receiver of the function from the stack; 1 ~ return address.
   __ lw(t0, MemOperand(sp, (state_.arg_count() + 1) * kPointerSize));
 
@@ -3362,7 +3345,7 @@ void CallICStub::GenerateMiss(MacroAssembler* masm) {
     __ Push(t0, a1, a2, a3);
 
     // Call the entry.
-    ExternalReference miss = ExternalReference(IC_Utility(IC::kCallIC_Miss),
+    ExternalReference miss = ExternalReference(IC_Utility(id),
                                                masm->isolate());
     __ CallExternalReference(miss, 4);
 
@@ -3525,119 +3508,42 @@ enum CopyCharactersFlags {
 };
 
 
-void StringHelper::GenerateCopyCharactersLong(MacroAssembler* masm,
-                                              Register dest,
-                                              Register src,
-                                              Register count,
-                                              Register scratch1,
-                                              Register scratch2,
-                                              Register scratch3,
-                                              Register scratch4,
-                                              Register scratch5,
-                                              int flags) {
-  bool ascii = (flags & COPY_ASCII) != 0;
-  bool dest_always_aligned = (flags & DEST_ALWAYS_ALIGNED) != 0;
-
-  if (dest_always_aligned && FLAG_debug_code) {
-    // Check that destination is actually word aligned if the flag says
-    // that it is.
-    __ And(scratch4, dest, Operand(kPointerAlignmentMask));
+void StringHelper::GenerateCopyCharacters(MacroAssembler* masm,
+                                          Register dest,
+                                          Register src,
+                                          Register count,
+                                          Register scratch,
+                                          String::Encoding encoding) {
+  if (FLAG_debug_code) {
+    // Check that destination is word aligned.
+    __ And(scratch, dest, Operand(kPointerAlignmentMask));
     __ Check(eq,
              kDestinationOfCopyNotAligned,
-             scratch4,
+             scratch,
              Operand(zero_reg));
   }
 
-  const int kReadAlignment = 4;
-  const int kReadAlignmentMask = kReadAlignment - 1;
-  // Ensure that reading an entire aligned word containing the last character
-  // of a string will not read outside the allocated area (because we pad up
-  // to kObjectAlignment).
-  STATIC_ASSERT(kObjectAlignment >= kReadAlignment);
   // Assumes word reads and writes are little endian.
   // Nothing to do for zero characters.
   Label done;
 
-  if (!ascii) {
-    __ addu(count, count, count);
-  }
-  __ Branch(&done, eq, count, Operand(zero_reg));
-
-  Label byte_loop;
-  // Must copy at least eight bytes, otherwise just do it one byte at a time.
-  __ Subu(scratch1, count, Operand(8));
-  __ Addu(count, dest, Operand(count));
-  Register limit = count;  // Read until src equals this.
-  __ Branch(&byte_loop, lt, scratch1, Operand(zero_reg));
-
-  if (!dest_always_aligned) {
-    // Align dest by byte copying. Copies between zero and three bytes.
-    __ And(scratch4, dest, Operand(kReadAlignmentMask));
-    Label dest_aligned;
-    __ Branch(&dest_aligned, eq, scratch4, Operand(zero_reg));
-    Label aligned_loop;
-    __ bind(&aligned_loop);
-    __ lbu(scratch1, MemOperand(src));
-    __ addiu(src, src, 1);
-    __ sb(scratch1, MemOperand(dest));
-    __ addiu(dest, dest, 1);
-    __ addiu(scratch4, scratch4, 1);
-    __ Branch(&aligned_loop, le, scratch4, Operand(kReadAlignmentMask));
-    __ bind(&dest_aligned);
+  if (encoding == String::TWO_BYTE_ENCODING) {
+    __ Addu(count, count, count);
   }
 
-  Label simple_loop;
+  Register limit = count;  // Read until dest equals this.
+  __ Addu(limit, dest, Operand(count));
 
-  __ And(scratch4, src, Operand(kReadAlignmentMask));
-  __ Branch(&simple_loop, eq, scratch4, Operand(zero_reg));
-
-  // Loop for src/dst that are not aligned the same way.
-  // This loop uses lwl and lwr instructions. These instructions
-  // depend on the endianness, and the implementation assumes little-endian.
-  {
-    Label loop;
-    __ bind(&loop);
-    if (kArchEndian == kBig) {
-      __ lwl(scratch1, MemOperand(src));
-      __ Addu(src, src, Operand(kReadAlignment));
-      __ lwr(scratch1, MemOperand(src, -1));
-    } else {
-      __ lwr(scratch1, MemOperand(src));
-      __ Addu(src, src, Operand(kReadAlignment));
-      __ lwl(scratch1, MemOperand(src, -1));
-    }
-    __ sw(scratch1, MemOperand(dest));
-    __ Addu(dest, dest, Operand(kReadAlignment));
-    __ Subu(scratch2, limit, dest);
-    __ Branch(&loop, ge, scratch2, Operand(kReadAlignment));
-  }
-
-  __ Branch(&byte_loop);
-
-  // Simple loop.
-  // Copy words from src to dest, until less than four bytes left.
-  // Both src and dest are word aligned.
-  __ bind(&simple_loop);
-  {
-    Label loop;
-    __ bind(&loop);
-    __ lw(scratch1, MemOperand(src));
-    __ Addu(src, src, Operand(kReadAlignment));
-    __ sw(scratch1, MemOperand(dest));
-    __ Addu(dest, dest, Operand(kReadAlignment));
-    __ Subu(scratch2, limit, dest);
-    __ Branch(&loop, ge, scratch2, Operand(kReadAlignment));
-  }
-
+  Label loop_entry, loop;
   // Copy bytes from src to dest until dest hits limit.
-  __ bind(&byte_loop);
-  // Test if dest has already reached the limit.
-  __ Branch(&done, ge, dest, Operand(limit));
-  __ lbu(scratch1, MemOperand(src));
-  __ addiu(src, src, 1);
-  __ sb(scratch1, MemOperand(dest));
-  __ addiu(dest, dest, 1);
-  __ Branch(&byte_loop);
+  __ Branch(&loop_entry);
+  __ bind(&loop);
+  __ lbu(scratch, MemOperand(src));
+  __ Addu(src, src, Operand(1));
+  __ sb(scratch, MemOperand(dest));
+  __ Addu(dest, dest, Operand(1));
+  __ bind(&loop_entry);
+  __ Branch(&loop, lt, dest, Operand(limit));
 
   __ bind(&done);
 }
@@ -3839,7 +3745,7 @@ void SubStringStub::Generate(MacroAssembler* masm) {
 
   // Handle external string.
   // Rule out short external strings.
-  STATIC_CHECK(kShortExternalStringTag != 0);
+  STATIC_ASSERT(kShortExternalStringTag != 0);
   __ And(t0, a1, Operand(kShortExternalStringTag));
   __ Branch(&runtime, ne, t0, Operand(zero_reg));
   __ lw(t1, FieldMemOperand(t1, ExternalString::kResourceDataOffset));
@@ -3871,8 +3777,8 @@ void SubStringStub::Generate(MacroAssembler* masm) {
   // a2: result string length
   // t1: first character of substring to copy
   STATIC_ASSERT((SeqOneByteString::kHeaderSize & kObjectAlignmentMask) == 0);
-  StringHelper::GenerateCopyCharactersLong(
-      masm, a1, t1, a2, a3, t0, t2, t3, t4, COPY_ASCII | DEST_ALWAYS_ALIGNED);
+  StringHelper::GenerateCopyCharacters(
+      masm, a1, t1, a2, a3, String::ONE_BYTE_ENCODING);
   __ jmp(&return_v0);
 
   // Allocate and copy the resulting two-byte string.
@@ -3891,8 +3797,8 @@ void SubStringStub::Generate(MacroAssembler* masm) {
   // a2: result length.
   // t1: first character of substring to copy.
   STATIC_ASSERT((SeqTwoByteString::kHeaderSize & kObjectAlignmentMask) == 0);
-  StringHelper::GenerateCopyCharactersLong(
-      masm, a1, t1, a2, a3, t0, t2, t3, t4, DEST_ALWAYS_ALIGNED);
+  StringHelper::GenerateCopyCharacters(
+      masm, a1, t1, a2, a3, String::TWO_BYTE_ENCODING);
 
   __ bind(&return_v0);
   Counters* counters = isolate()->counters();
@@ -5349,7 +5255,7 @@ void InternalArrayConstructorStub::Generate(MacroAssembler* masm) {
   // but the following bit field extraction takes care of that anyway.
   __ lbu(a3, FieldMemOperand(a3, Map::kBitField2Offset));
   // Retrieve elements_kind from bit field 2.
-  __ Ext(a3, a3, Map::kElementsKindShift, Map::kElementsKindBitCount);
+  __ DecodeField<Map::ElementsKindBits>(a3);
 
   if (FLAG_debug_code) {
     Label done;

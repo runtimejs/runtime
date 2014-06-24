@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "incremental-marking.h"
+#include "src/incremental-marking.h"
 
-#include "code-stubs.h"
-#include "compilation-cache.h"
-#include "conversions.h"
-#include "objects-visiting.h"
-#include "objects-visiting-inl.h"
+#include "src/code-stubs.h"
+#include "src/compilation-cache.h"
+#include "src/conversions.h"
+#include "src/objects-visiting.h"
+#include "src/objects-visiting-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -230,14 +230,6 @@ class IncrementalMarkingMarkingVisitor
       MarkObjectGreyDoNotEnqueue(cache);
     }
     VisitNativeContext(map, context);
-  }
-
-  static void VisitWeakCollection(Map* map, HeapObject* object) {
-    Heap* heap = map->GetHeap();
-    VisitPointers(heap,
-                  HeapObject::RawField(object,
-                                       JSWeakCollection::kPropertiesOffset),
-                  HeapObject::RawField(object, JSWeakCollection::kSize));
   }
 
   INLINE(static void VisitPointer(Heap* heap, Object** p)) {

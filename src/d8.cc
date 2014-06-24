@@ -26,24 +26,24 @@
 #endif  // !V8_SHARED
 
 #ifdef V8_SHARED
-#include "../include/v8-testing.h"
+#include "include/v8-testing.h"
 #endif  // V8_SHARED
 
 #ifdef ENABLE_VTUNE_JIT_INTERFACE
-#include "third_party/vtune/v8-vtune.h"
+#include "src/third_party/vtune/v8-vtune.h"
 #endif
 
-#include "d8.h"
+#include "src/d8.h"
 
 #ifndef V8_SHARED
-#include "api.h"
-#include "checks.h"
-#include "cpu.h"
-#include "d8-debug.h"
-#include "debug.h"
-#include "natives.h"
-#include "platform.h"
-#include "v8.h"
+#include "src/api.h"
+#include "src/checks.h"
+#include "src/cpu.h"
+#include "src/d8-debug.h"
+#include "src/debug.h"
+#include "src/natives.h"
+#include "src/platform.h"
+#include "src/v8.h"
 #endif  // !V8_SHARED
 
 #if !defined(_WIN32) && !defined(_WIN64)
@@ -290,9 +290,18 @@ int PerIsolateData::RealmIndexOrThrow(
 
 #ifndef V8_SHARED
 // performance.now() returns a time stamp as double, measured in milliseconds.
+// When FLAG_verify_predictable mode is enabled it returns current value
+// of Heap::allocations_count().
 void Shell::PerformanceNow(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  i::TimeDelta delta = i::TimeTicks::HighResolutionNow() - kInitialTicks;
-  args.GetReturnValue().Set(delta.InMillisecondsF());
+  if (i::FLAG_verify_predictable) {
+    Isolate* v8_isolate = args.GetIsolate();
+    i::Heap* heap = reinterpret_cast<i::Isolate*>(v8_isolate)->heap();
+    args.GetReturnValue().Set(heap->synthetic_time());
+
+  } else {
+    i::TimeDelta delta = i::TimeTicks::HighResolutionNow() - kInitialTicks;
+    args.GetReturnValue().Set(delta.InMillisecondsF());
+  }
 }
 #endif  // !V8_SHARED
 
@@ -552,7 +561,7 @@ void Shell::ReportException(Isolate* isolate, v8::TryCatch* try_catch) {
     printf("%s\n", exception_string);
   } else {
     // Print (filename):(line number): (message).
-    v8::String::Utf8Value filename(message->GetScriptResourceName());
+    v8::String::Utf8Value filename(message->GetScriptOrigin().ResourceName());
     const char* filename_string = ToCString(filename);
     int linenum = message->GetLineNumber();
     printf("%s:%i: %s\n", filename_string, linenum, exception_string);
@@ -1211,9 +1220,16 @@ void SourceGroup::ExecuteInThread() {
         V8::ContextDisposedNotification();
         V8::IdleNotification(kLongIdlePauseInMs);
       }
+      if (Shell::options.invoke_weak_callbacks) {
+        // By sending a low memory notifications, we will try hard to collect
+        // all garbage and will therefore also invoke all weak callbacks of
+        // actually unreachable persistent handles.
+        V8::LowMemoryNotification();
+      }
     }
     done_semaphore_.Signal();
   } while (!Shell::options.last_run);
+
   isolate->Dispose();
 }
 
@@ -1274,6 +1290,11 @@ bool Shell::SetOptions(int argc, char* argv[]) {
     } else if (strcmp(argv[i], "--send-idle-notification") == 0) {
       options.send_idle_notification = true;
       argv[i] = NULL;
+    } else if (strcmp(argv[i], "--invoke-weak-callbacks") == 0) {
+      options.invoke_weak_callbacks = true;
+      // TODO(jochen) See issue 3351
+      options.send_idle_notification = true;
+      argv[i] = NULL;
     } else if (strcmp(argv[i], "-f") == 0) {
       // Ignore any -f flags for compatibility with other stand-alone
       // JavaScript engines.
@@ -1298,16 +1319,23 @@ bool Shell::SetOptions(int argc, char* argv[]) {
     } else if (strncmp(argv[i], "--icu-data-file=", 16) == 0) {
       options.icu_data_file = argv[i] + 16;
       argv[i] = NULL;
-    }
 #ifdef V8_SHARED
-    else if (strcmp(argv[i], "--dump-counters") == 0) {
+    } else if (strcmp(argv[i], "--dump-counters") == 0) {
       printf("D8 with shared library does not include counters\n");
       return false;
     } else if (strcmp(argv[i], "--debugger") == 0) {
       printf("Javascript debugger not included\n");
       return false;
-    }
 #endif  // V8_SHARED
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+    } else if (strncmp(argv[i], "--natives_blob=", 15) == 0) {
+      options.natives_blob = argv[i] + 15;
+      argv[i] = NULL;
+    } else if (strncmp(argv[i], "--snapshot_blob=", 16) == 0) {
+      options.snapshot_blob = argv[i] + 16;
+      argv[i] = NULL;
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
+    }
   }
 
   v8::V8::SetFlagsFromCommandLine(&argc, argv, true);
@@ -1345,7 +1373,7 @@ int Shell::RunMain(Isolate* isolate, int argc, char* argv[]) {
   {
     HandleScope scope(isolate);
     Local<Context> context = CreateEvaluationContext(isolate);
-    if (options.last_run) {
+    if (options.last_run && options.use_interactive_shell()) {
       // Keep using the same context in the interactive shell.
       evaluation_context_.Reset(isolate, context);
 #ifndef V8_SHARED
@@ -1362,12 +1390,16 @@ int Shell::RunMain(Isolate* isolate, int argc, char* argv[]) {
       options.isolate_sources[0].Execute(isolate);
     }
   }
-  if (!options.last_run) {
-    if (options.send_idle_notification) {
-      const int kLongIdlePauseInMs = 1000;
-      V8::ContextDisposedNotification();
-      V8::IdleNotification(kLongIdlePauseInMs);
-    }
+  if (options.send_idle_notification) {
+    const int kLongIdlePauseInMs = 1000;
+    V8::ContextDisposedNotification();
+    V8::IdleNotification(kLongIdlePauseInMs);
+  }
+  if (options.invoke_weak_callbacks) {
+    // By sending a low memory notifications, we will try hard to collect all
+    // garbage and will therefore also invoke all weak callbacks of actually
+    // unreachable persistent handles.
+    V8::LowMemoryNotification();
   }
 
 #ifndef V8_SHARED
@@ -1455,14 +1487,71 @@ class MockArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
   virtual void* AllocateUninitialized(size_t length) V8_OVERRIDE {
     return malloc(0);
   }
-  virtual void Free(void*, size_t) V8_OVERRIDE {
+  virtual void Free(void* p, size_t) V8_OVERRIDE {
+    free(p);
   }
 };
+
+
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+class StartupDataHandler {
+ public:
+  StartupDataHandler(const char* natives_blob,
+                     const char* snapshot_blob) {
+    Load(natives_blob, &natives_, v8::V8::SetNativesDataBlob);
+    Load(snapshot_blob, &snapshot_, v8::V8::SetSnapshotDataBlob);
+  }
+
+  ~StartupDataHandler() {
+    delete[] natives_.data;
+    delete[] snapshot_.data;
+  }
+
+ private:
+  void Load(const char* blob_file,
+            v8::StartupData* startup_data,
+            void (*setter_fn)(v8::StartupData*)) {
+    startup_data->data = NULL;
+    startup_data->compressed_size = 0;
+    startup_data->raw_size = 0;
+
+    if (!blob_file)
+      return;
+
+    FILE* file = fopen(blob_file, "rb");
+    if (!file)
+      return;
+
+    fseek(file, 0, SEEK_END);
+    startup_data->raw_size = ftell(file);
+    rewind(file);
+
+    startup_data->data = new char[startup_data->raw_size];
+    startup_data->compressed_size = fread(
+        const_cast<char*>(startup_data->data), 1, startup_data->raw_size,
+        file);
+    fclose(file);
+
+    if (startup_data->raw_size == startup_data->compressed_size)
+      (*setter_fn)(startup_data);
+  }
+
+  v8::StartupData natives_;
+  v8::StartupData snapshot_;
+
+  // Disallow copy & assign.
+  StartupDataHandler(const StartupDataHandler& other);
+  void operator=(const StartupDataHandler& other);
+};
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
 
 
 int Shell::Main(int argc, char* argv[]) {
   if (!SetOptions(argc, argv)) return 1;
   v8::V8::InitializeICU(options.icu_data_file);
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+  StartupDataHandler startup_data(options.natives_blob, options.snapshot_blob);
+#endif
   SetFlagsFromString("--trace-hydrogen-file=hydrogen.cfg");
   SetFlagsFromString("--redirect-code-traces-to=code.asm");
   ShellArrayBufferAllocator array_buffer_allocator;
@@ -1478,7 +1567,7 @@ int Shell::Main(int argc, char* argv[]) {
   v8::ResourceConstraints constraints;
   constraints.ConfigureDefaults(i::OS::TotalPhysicalMemory(),
                                 i::OS::MaxVirtualMemory(),
-                                i::CPU::NumberOfProcessorsOnline());
+                                i::OS::NumberOfProcessorsOnline());
   v8::SetResourceConstraints(isolate, &constraints);
 #endif
   DumbLineEditor dumb_line_editor(isolate);
@@ -1526,8 +1615,7 @@ int Shell::Main(int argc, char* argv[]) {
 
     // Run interactive shell if explicitly requested or if no script has been
     // executed, but never on --test
-    if (( options.interactive_shell || !options.script_executed )
-        && !options.test_shell ) {
+    if (options.use_interactive_shell()) {
 #ifndef V8_SHARED
       if (!i::FLAG_debugger) {
         InstallUtilityScript(isolate);

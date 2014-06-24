@@ -27,8 +27,8 @@
 
 #include <stdlib.h>
 
-#include "v8.h"
-#include "cctest.h"
+#include "src/v8.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 
@@ -169,7 +169,7 @@ static void VerifyMemoryChunk(Isolate* isolate,
                                                               commit_area_size,
                                                               executable,
                                                               NULL);
-  size_t alignment = code_range->exists() ?
+  size_t alignment = code_range != NULL && code_range->valid() ?
                      MemoryChunk::kAlignment : OS::CommitPageSize();
   size_t reserved_size = ((executable == EXECUTABLE))
       ? RoundUp(header_size + guard_size + reserve_area_size + guard_size,
@@ -221,7 +221,7 @@ TEST(MemoryChunk) {
 
     // With CodeRange.
     CodeRange* code_range = new CodeRange(isolate);
-    const int code_range_size = 32 * MB;
+    const size_t code_range_size = 32 * MB;
     if (!code_range->SetUp(code_range_size)) return;
 
     VerifyMemoryChunk(isolate,
