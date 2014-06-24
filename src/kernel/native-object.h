@@ -42,6 +42,11 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
 
+    /**
+     * Get array of all initrd file names
+     */
+    DECLARE_NATIVE(InitrdList);
+
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("timeout", Timeout);
         obj.SetCallback("kernelLog", KernelLog);
@@ -52,6 +57,7 @@ public:
         obj.SetCallback("initrdText", InitrdText);
         obj.SetCallback("debug", Debug);
         obj.SetCallback("stopVideoLog", StopVideoLog);
+        obj.SetCallback("initrdList", InitrdList);
     }
 };
 

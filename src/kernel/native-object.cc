@@ -177,6 +177,20 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
     args.GetReturnValue().Set(text);
 }
 
+NATIVE_FUNCTION(NativesObject, InitrdList) {
+    PROLOGUE_NOTHIS;
+    size_t files_count { GLOBAL_initrd()->files_count() };
+    v8::Local<v8::Array> arr { v8::Array::New(iv8, files_count) };
+
+    for (size_t i = 0; i < files_count; ++i) {
+        InitrdFile file = GLOBAL_initrd()->GetByIndex(i);
+        RT_ASSERT(!file.IsEmpty());
+        arr->Set(i, v8::String::NewFromUtf8(iv8, file.Name()));
+    }
+
+    args.GetReturnValue().Set(arr);
+}
+
 NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
     PROLOGUE_NOTHIS;
     USEARG(0);

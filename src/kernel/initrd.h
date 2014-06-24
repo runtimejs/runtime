@@ -22,6 +22,9 @@
 
 namespace rt {
 
+/**
+ * Represents initrd file
+ */
 class InitrdFile {
 public:
     InitrdFile()
@@ -55,16 +58,36 @@ private:
     bool _is_empty;
 };
 
+/**
+ * Manages initrd files storage
+ */
 class Initrd {
 public:
     Initrd() {
-        _files.reserve(20);
+        files_.reserve(20);
     }
 
+    /**
+     * Initialize using preloaded initrd data buffer
+     */
     void Init(const void* buf, size_t len);
+
+    /**
+     * Use filename to get initrd file
+     */
     const InitrdFile Get(const char* filename);
+
+    /**
+     * Use index to get initrd file
+     */
+    const InitrdFile GetByIndex(size_t index);
+
+    /**
+     * Initrd files count
+     */
+    size_t files_count() const { return files_.size(); }
 private:
-    std::vector<InitrdFile> _files;
+    std::vector<InitrdFile> files_;
 };
 
 } // namespace rt
