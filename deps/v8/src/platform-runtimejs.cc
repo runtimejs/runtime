@@ -35,6 +35,9 @@ extern "C" int sched_yield(void);
 namespace v8 {
 namespace internal {
 
+int OS::NumberOfProcessorsOnline() {
+  return 1;
+}
 
 double ceiling(double x) {
   return ceil(x);
@@ -161,23 +164,24 @@ void OS::VPrintError(const char* format, va_list args) {
 }
 
 
-int OS::SNPrintF(Vector<char> str, const char* format, ...) {
+int OS::SNPrintF(char* str, int length, const char* format, ...) {
   va_list args;
   va_start(args, format);
-  int result = VSNPrintF(str, format, args);
+  int result = VSNPrintF(str, length, format, args);
   va_end(args);
   return result;
 }
 
 
-int OS::VSNPrintF(Vector<char> str,
+int OS::VSNPrintF(char* str,
+                  int length,
                   const char* format,
                   va_list args) {
-  int n = vsnprintf(str.start(), str.length(), format, args);
-  if (n < 0 || n >= str.length()) {
+  int n = vsnprintf(str, length, format, args);
+  if (n < 0 || n >= length) {
     // If the length is zero, the assignment fails.
-    if (str.length() > 0)
-      str[str.length() - 1] = '\0';
+    if (length > 0)
+      str[length - 1] = '\0';
     return -1;
   } else {
     return n;
@@ -190,8 +194,8 @@ char* OS::StrChr(char* str, int c) {
 }
 
 
-void OS::StrNCpy(Vector<char> dest, const char* src, size_t n) {
-  strncpy(dest.start(), src, n);
+void OS::StrNCpy(char* dest, int length, const char* src, size_t n) {
+  strncpy(dest, src, n);
 }
 
 
@@ -199,26 +203,11 @@ void Thread::YieldCPU() {
   sched_yield();
 }
 
-void OS::PostSetUp() {
-#if V8_TARGET_ARCH_IA32
-  OS::MemMoveFunction generated_memmove = CreateMemMoveFunction();
-  if (generated_memmove != NULL) {
-    memmove_function = generated_memmove;
-  }
-#elif defined(V8_HOST_ARCH_ARM)
-  OS::memcopy_uint8_function =
-      CreateMemCopyUint8Function(&OS::MemCopyUint8Wrapper);
-  OS::memcopy_uint16_uint8_function =
-      CreateMemCopyUint16Uint8Function(&OS::MemCopyUint16Uint8Wrapper);
-#endif
-  // fast_exp is initialized lazily.
-  init_fast_sqrt_function();
+
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  return std::vector<OS::SharedLibraryAddress>();
 }
 
-
-unsigned OS::CpuFeaturesImpliedByPlatform() {
-  return 0;
-}
 
 int OS::ActivationFrameAlignment() {
   return 16;
@@ -331,10 +320,6 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name, int size,
 
 
 RuntimeJSMemoryMappedFile::~RuntimeJSMemoryMappedFile() {}
-
-
-void OS::LogSharedLibraryAddresses(Isolate* isolate) {
-}
 
 
 void OS::SignalCodeMovingGC() {

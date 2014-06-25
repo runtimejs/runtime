@@ -333,6 +333,9 @@ struct timeval Time::ToTimeval() const {
 #elif V8_OS_RUNTIMEJS
 
 Time Time::Now() {
+  // Uncomment for snapshot generation
+  // return Time(1);
+
   RT_ASSERT(::GLOBAL_engines()->cpu_engine());
   RT_ASSERT(::GLOBAL_engines()->cpu_engine()->isolate());
   int64_t ticks = ::GLOBAL_engines()->cpu_engine()->isolate()->ticks_count();
