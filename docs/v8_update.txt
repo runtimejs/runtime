@@ -1,0 +1,26 @@
+# 1. pull new v8 version
+    git subtree pull --prefix=deps/v8 git@github.com:v8/v8.git master --squash
+
+# 2. build to update generated files
+    cd deps/v8
+    make x64.release i18nsupport=off
+
+# 3. copy generated source files into src
+    cp -r out/x64.release/obj/gen src
+
+# 4. build kernel without v8 snapshot
+modify deps/SConscript,
+uncomment
+    'v8/src/snapshot-empty.cc',
+comment
+    # '../gen/snapshot.cc',
+
+# 5. generate v8 snapshot
+    ./qemu-snapshot.sh
+
+# 6. build kernel with snapshot
+modify deps/SConscript,
+comment
+    #'v8/src/snapshot-empty.cc',
+uncomment
+     '../gen/snapshot.cc',
