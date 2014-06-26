@@ -92,10 +92,16 @@ void LocalApicX64::InitCpu() {
 
     RT_ASSERT(bus_freq_);
     uint32_t quantum = 100;
-    uint32_t val = bus_freq_ / quantum / 16;
+    uint32_t init_count = bus_freq_ / quantum / 16;
+
+    // Set minimum initial count value to avoid QEMU
+    // "I/O thread has spun for 1000 iterations" warning
+    if (init_count < 0x1000) {
+        init_count = 0x1000;
+    }
 
     // Set periodic mode for APIC timer
-    registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, val < 16 ? 16 : val);
+    registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, init_count);
     registers_.Write(LocalApicRegister::TIMER, 32 | 0x20000);
     registers_.Write(LocalApicRegister::TIMER_DIVIDE_CONFIG, 0x03);
 }
