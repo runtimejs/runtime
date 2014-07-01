@@ -9,6 +9,8 @@ It's currently under development and does not include many essential features. I
 
 You can use mailing list to ask any questions or share your ideas https://groups.google.com/group/runtimejs
 
+Join IRC chatroom #runtimejs on freenode
+
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
 
 
