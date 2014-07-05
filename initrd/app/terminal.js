@@ -14,19 +14,21 @@
 
 // TODO: move eval scope into other context (thread)
 // to provide isolation
-
+var console;
 var evalScope = function(print) {
     "use strict";
 
-    var console = {
-        log: function() {
-            print(Array.prototype.join.call(arguments, ' '));
-        },
-    };
+    var scope = {};
 
     return {
         evaluate: function(text) {
-            return eval(text);
+            console = {
+                log: function() {
+                    print(Array.prototype.join.call(arguments, ' '));
+                },
+            };
+
+            return (1, eval)(text);
         },
     };
 };
@@ -279,6 +281,7 @@ var evalScope = function(print) {
 
         this.getState = function() { return state; }
         this.getName = function() { return name; }
+        this.evalScope = null;
     }
 
     /**
@@ -462,8 +465,12 @@ var evalScope = function(print) {
 
             cons.write('> ' + text + '\n', textColorDefault);
 
+            if (null === cons.evalScope) {
+                cons.evalScope = evalScope(print);
+            }
+
             try {
-                var result = evalScope(print).evaluate(text);
+                var result = cons.evalScope.evaluate(text);
                 cons.write(result + '\n\n', textColorLight);
             } catch(e) {
                 cons.write(e.toString() + '\n\n', textColorError);
