@@ -13,8 +13,7 @@
 // limitations under the License.
 
 // Use this file for testing, by default it prints arguments
-
 (function(args) {
     "use strict";
-    rt.log('Test args', JSON.stringify(args));
-})(rt.args());
+    runtime.log('Test args', JSON.stringify(args));
+})(runtime.args());

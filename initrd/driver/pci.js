@@ -769,12 +769,12 @@ define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
             allocator: allocator,
         }
 
-        procManager.create(rt.initrdText("/driver/" + driverData.driver),
-            driverArgs);
+        // procManager.create(rt.initrdText("/driver/" + driverData.driver),
+        //     driverArgs);
 
         // Temporary for debugging
-        return; 
-        rt.log(JSON.stringify(driverData), JSON.stringify(argsBars));
+        return;
+        runtime.log(JSON.stringify(driverData), JSON.stringify(argsBars));
     });
 
     // Print devices info, use for debugging
@@ -793,7 +793,7 @@ define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
         var info = address.bus.toString(16) + ':' + address.slot.toString(16) + '.' + address.func + ' ' +
             pciDevice.vendorId().toString(16) + ':' + pciDevice.deviceId().toString(16) + ' ' +
             classData.className + ' IRQ: ' + vector + ' PIN: ' + pins[devicePin];
-        rt.log(info);
+        runtime.log(info);
     });
 
     return {};

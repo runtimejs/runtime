@@ -24,8 +24,6 @@ var evalScope = function(print) {
         },
     };
 
-    var setTimeout = rt.timeout;
-
     return {
         evaluate: function(text) {
             return eval(text);
@@ -40,7 +38,7 @@ var evalScope = function(print) {
      * Input services client
      */
     var input = (function() {
-        var keybd = args.keyboard;
+        var keybd = args.env.keyboard;
         return {addKeyboardListener: keybd.addListener};
     })();
 
@@ -52,7 +50,7 @@ var evalScope = function(print) {
          * Text video display service client
          */
         var video = (function() {
-            var textVideo = args.textVideo;
+            var textVideo = args.env.textVideo;
             var canvasReady = false;
 
             var width = textVideo.info.width;
@@ -110,7 +108,7 @@ var evalScope = function(print) {
                         drawBuf = buf;
                         drawView = new Uint8Array(drawBuf);
                     }, function(err) {
-                        rt.log(err.stack);
+                        runtime.log(err.stack);
                     });
                 }
 
@@ -123,7 +121,7 @@ var evalScope = function(print) {
                     add: function(val) {
                         data.push(val);
                         if (!timeoutEnabled) {
-                            rt.timeout(onTimeout, 10);
+                            setTimeout(onTimeout, 10);
                         }
                     },
                 };
@@ -135,7 +133,7 @@ var evalScope = function(print) {
                 drawView = new Uint8Array(drawBuf);
             })
             .catch(function(err) {
-                rt.log(err.stack);
+                runtime.log(err.stack);
             });
 
             return {
@@ -481,4 +479,4 @@ var evalScope = function(print) {
     terminal.setActiveConsoleIndex(0);
     gui.draw(terminal.getActiveConsole());
 
-})(rt.args());
+})(runtime.args());

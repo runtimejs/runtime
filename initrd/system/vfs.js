@@ -15,15 +15,54 @@
 var vfs = (function() {
     "use strict";
 
-    function createFsInitrd(initrdFiles) {
+    function createFsInitrd(initrdFiles, initrdLoad) {
         var rootInode = 1;
+        var fileInodeFirst = 2;
 
         var allocInodes = {};
-        var allocInodeNext = rootInode + 1;
+        var initrdFilesCount = initrdFiles.length;
+        var allocInodeNext = rootInode + fileInodeFirst + initrdFilesCount + 1;
         var inodesGraphAdj = new Map();
 
-        for (var i = 0; i < initrdFiles.length; ++i) {
-            var pathComponents = parsePathString(initrdFiles[i]);
+        function inodeToFile(inode) {
+            var fileIndex = inode - fileInodeFirst;
+            if (fileIndex >= 0 && fileIndex < initrdFilesCount) {
+                return initrdFiles[fileIndex];
+            } else {
+                return null;
+            }
+        }
+
+        function statInode(inode) {
+            var file = inodeToFile(inode);
+            if (!file) {
+                return {
+                    type: 'directory',
+                    size: 0,
+                };
+            }
+
+            return {
+                type: 'file',
+                size: file.size,
+                // initrdName: file.name,
+            };
+        }
+
+        /**
+         * Read the entire contents of file
+         */
+        function readFile(inode, opts) {
+            var file = inodeToFile(inode);
+            if (!file) {
+                return;
+            }
+
+            return initrdLoad(file.name)
+        }
+
+        for (var i = 0; i < initrdFilesCount; ++i) {
+            var pathComponents = parsePathString(initrdFiles[i].name);
             var dirInode = rootInode;
 
             for (var j = 0; j < pathComponents.length; ++j) {
@@ -33,8 +72,12 @@ var vfs = (function() {
                 var key = '$' + component + '_' + j;
 
                 if ('undefined' === typeof allocInodes[key]) {
-                    dirInode = allocInodeNext++;
-                    allocInodes[key] = dirInode;
+                    if (j === pathComponents.length - 1) {
+                        dirInode = i + fileInodeFirst;
+                    } else {
+                        dirInode = allocInodeNext++;
+                        allocInodes[key] = dirInode;
+                    }
                 } else {
                     dirInode = allocInodes[key];
                 }
@@ -74,6 +117,12 @@ var vfs = (function() {
 
                 resolve(inodeMap);
             },
+            stat: function(inode, resolve) {
+                resolve(statInode(inode));
+            },
+            readFile: function(inode, opts, resolve) {
+                resolve(readFile(inode, opts));
+            },
             getRootInode: function() {
                 return rootInode;
             },
@@ -105,6 +154,15 @@ var vfs = (function() {
                 resolve(rootEntries);
                 return;
             },
+            stat: function(inode, resolve) {
+                resolve({
+                    type: 'directory',
+                    size: 0,
+                });
+            },
+            readFile: function(inode, opts, resolve) {
+                resolve();
+            },
             getRootInode: function() {
                 return rootInode;
             },
@@ -117,13 +175,14 @@ var vfs = (function() {
         });
     }
 
-    function VFSNode(fs, inode, name) {
+    function VFSNode(fs, parent, inode, name) {
         this.fs = fs;
         this.inode = inode;
         this.name = name;
         this.lookupCache = null;
         this.listCached = false;
         this.mountedNode = null;
+        this.parent = parent;
     }
 
     VFSNode.prototype.lookup = function(name, resolve) {
@@ -148,7 +207,7 @@ var vfs = (function() {
                 return
             }
 
-            var vfsnode = new VFSNode(self.fs, inode, name);
+            var vfsnode = new VFSNode(self.fs, self, inode, name);
 
             if (null === self.lookupCache) {
                 self.lookupCache = new Map();
@@ -187,7 +246,7 @@ var vfs = (function() {
                 var vfsnode = self.lookupCache.get(name);
 
                 if (!(vfsnode instanceof VFSNode)) {
-                    vfsnode = new VFSNode(self.fs, inode, name);
+                    vfsnode = new VFSNode(self.fs, self, inode, name);
                     self.lookupCache.set(name, vfsnode);
                 }
 
@@ -196,6 +255,30 @@ var vfs = (function() {
 
             self.listCached = true;
             resolve(result);
+        });
+    };
+
+    VFSNode.prototype.readFile = function(opts, resolve) {
+        var self = this;
+
+        if (null !== self.mountedNode) {
+            self = self.mountedNode;
+        }
+
+        self.fs.readFile(self.inode, opts, function(data) {
+            resolve(data);
+        });
+    };
+
+    VFSNode.prototype.stat = function(resolve) {
+        var self = this;
+
+        if (null !== self.mountedNode) {
+            self = self.mountedNode;
+        }
+
+        self.fs.stat(self.inode, function(stat) {
+            resolve(stat);
         });
     };
 
@@ -211,6 +294,7 @@ var vfs = (function() {
         }
 
         self.mountedNode = vfsnode;
+        vfsnode.parent = self;
     };
 
     function pathLookupNext(vfsnode, pathComponents, componentIndex, resolve) {
@@ -230,23 +314,29 @@ var vfs = (function() {
         });
     }
 
+    /**
+     * Do a path lookup relative to provided root node
+     */
     function pathLookup(vfsnodeRoot, pathComponents, resolve) {
+        if (!(vfsnodeRoot instanceof VFSNode)) {
+            resolve(null);
+            return;
+        }
+
         pathLookupNext(vfsnodeRoot, pathComponents, 0, function(vfsnode) {
             resolve(vfsnode);
         });
     }
 
     function init(fsRoot, fsInitrd) {
-        var root = new VFSNode(fsRoot, fsRoot.getRootInode(), 'root');
+        var root = new VFSNode(fsRoot, null, fsRoot.getRootInode(), 'root');
+        var initrdRoot = new VFSNode(fsInitrd, null, fsInitrd.getRootInode(), 'initrd');
 
-        return new Promise(function(resolve, reject) {
-            root.lookup('initrd', function(vfsnode) {
-                var initrdRoot = new VFSNode(fsInitrd, fsInitrd.getRootInode(), 'initrd');
-                vfsnode.mount(initrdRoot);
-
-                resolve(root);
-            });
+        root.lookup('initrd', function(vfsnode) {
+            vfsnode.mount(initrdRoot);
         });
+
+        return {root: root, initrd: initrdRoot};
     }
 
     return {
@@ -266,25 +356,134 @@ function(resources) {
     "use strict";
 
     var fsRoot = vfs.createFsRoot();
-    var fsInitrd = vfs.createFsInitrd(resources.natives.initrdList());
+    var fsInitrd = vfs.createFsInitrd(resources.natives.initrdList(),
+                                      resources.natives.initrdText);
 
-    vfs.init(fsRoot, fsInitrd).then(function(root) {
+    var ret = vfs.init(fsRoot, fsInitrd);
+    var root = ret.root;
+    var initrdRoot = ret.initrd;
 
-        root.list(function(list) {
-            rt.log('ls $', list.map(function(x) { return x.name; }));
-        });
+    function createNodeAccessor(vfsnodeRoot) {
+        var actions = {
+            stat: function(vfsnode, opts, resolve) {
+                vfsnode.stat(resolve);
+            },
+            readFile: function(vfsnode, opts, resolve) {
+                vfsnode.readFile(opts, resolve);
+            },
+        };
 
-        var pathComponents = vfs.parsePathString('/initrd/lib/runtime/0.1.0/platform.js');
+        return function(opts) {
+            return new Promise(function(resolve, reject) {
+                function error(message) {
+                    reject(new Error(message));
+                }
 
-        vfs.pathLookup(root, pathComponents, function(vfsnode) {
-            if (vfsnode) {
-                rt.log('pathLookup $', vfsnode.name);
-            } else {
-                rt.log('pathLookup $ not found');
+                if ('string' !== typeof opts.path) {
+                    return error('path required');
+                }
+
+                if ('string' !== typeof opts.action) {
+                    return error('action required');
+                }
+
+                var action = opts.action;
+
+                if ('undefined' === typeof actions[action]) {
+                    return error('unknown action');
+                }
+
+                var pathComponents = vfs.parsePathString(opts.path);
+                vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
+                    if (null === vfsnode) {
+                        return error('file does not exist');
+                    }
+
+                    actions[action](vfsnode, opts, function(result) {
+                        resolve(result);
+                    });
+                });
+            });
+        };
+    };
+
+    /**
+     * Spawn new process.
+     * @param {vfsnode} vfsnodeRoot - root node to use for path lookup
+     * @param {string} path - path relative to root node
+     * @param {object} opts - spawn options
+     * @param {object} data - process extra data (objects, interfaces, command line etc)
+     * @param {object} env - inherited process user environment (objects, interfaces etc)
+     * @param {object} systemOverwrite [optional] - process system namespace overwrite
+     */
+    function spawn(vfsnodeRoot, path, opts, data, env, systemOverwrite) {
+        if (Object(systemOverwrite) !== systemOverwrite) {
+            systemOverwrite = {};
+        }
+
+        var pathComponents = vfs.parsePathString(path);
+
+        vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
+            if (null === vfsnode) {
+                return;
             }
-        });
 
-    }).catch(function(err) {
-        rt.log(err.stack);
-    });
+            vfsnode.stat(function(stats) {
+                if ('file' !== stats.type) {
+                    return;
+                }
+
+                var workDir = vfsnode.parent;
+                if (null === workDir) {
+                    return;
+                }
+
+                vfsnode.readFile(null, function(data) {
+                    // FS accessors
+                    systemOverwrite.fs = systemOverwrite.fs || {
+                        default: createNodeAccessor(workDir),
+                    };
+
+                    // Process management functions
+                    systemOverwrite.process = systemOverwrite.process || {
+                        spawn: function(path, opts, data, env) {
+                            spawn(workDir, path, opts, data, env);
+                        },
+                    };
+
+                    // Console support
+                    // TODO: log should write into stdout, not kernel log
+                    systemOverwrite.console = systemOverwrite.console || {
+                        log: runtime.log
+                    };
+
+                    resources.processManager.create(data, {
+                        system: systemOverwrite,
+                        data: data,
+                        env: env,
+                    });
+                });
+            });
+        });
+    }
+
+    return {
+        getRoot: function() { return root; },
+        getInitrdRoot: function() { return initrdRoot; },
+        find: function(vfsnode, path) {
+            return new Promise(function(resolve, reject) {
+                var pathComponents = vfs.parsePathString(path);
+
+                vfs.pathLookup(vfsnode, pathComponents, function(vfsnode) {
+                    if (null === vfsnode) {
+                        reject();
+                        return;
+                    }
+
+                    resolve(createNodeAccessor(vfsnode));
+                });
+            });
+        },
+        spawn: spawn,
+    };
 });

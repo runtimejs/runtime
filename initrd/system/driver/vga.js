@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('vga', ['driverUtils'],
-function(driverUtils) {
+define('vga', ['driverUtils', 'resources'],
+function(driverUtils, resources) {
     "use strict";
 
     // Take ownership of the display
-    rt.stopVideoLog();
+    resources.natives.stopVideoLog();
 
     var w = 80, h = 25, len = w * h;
     var buf = driverUtils.physicalMemory(0xb8000, len * 2).buffer();

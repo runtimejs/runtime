@@ -13,11 +13,5 @@
 // limitations under the License.
 
 (function(args) {
-    rt.log('net service welcomes you');
-
-    args.fn(1,2,3,[10,20,30]).then(function(val) {
-        rt.log('fn returns resolve', val);
-    }, function(val) {
-        rt.log('fn returns reject', val);
-    });
-})(rt.args());
+    runtime.log('net.js');
+})(runtime.args());

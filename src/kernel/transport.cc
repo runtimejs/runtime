@@ -17,6 +17,7 @@
 #include <kernel/template-cache.h>
 #include <kernel/object-wrapper.h>
 #include <kernel/thread.h>
+#include <kernel/native-object.h>
 
 namespace rt {
 
@@ -129,21 +130,7 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     }
 
     if (value->IsString()) {
-        if (allow_ref_) {
-            // Strings are immutable, its safe to pass by reference
-            // for same-isolate calls
-            AppendType(Type::STRING_REF);
-            stream_.AppendValue<uint32_t>(AddRef(value));
-        } else {
-            AppendType(Type::STRING_16);
-            v8::Local<v8::String> s { value->ToString() };
-            int len = s->Length();
-            RT_ASSERT(len >= 0);
-            stream_.AppendValue<uint32_t>(len);
-            void* place { stream_.AppendBuffer((len + 1) * sizeof(uint16_t)) };
-            s->Write(reinterpret_cast<uint16_t*>(place), 0, len);
-        }
-
+        AppendString(value);
         return SerializeError::NONE;
     }
 
@@ -185,6 +172,23 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         ExternalFunction* efn { exporter->AddExport(value) };
         AppendType(Type::FUNCTION);
         stream_.AppendValue<ExternalFunction*>(efn);
+        return SerializeError::NONE;
+    }
+
+    if (value->IsNativeError()) {
+        RT_ASSERT(isolate_);
+        RT_ASSERT(isolate_->IsolateV8());
+        AppendType(Type::ERROR_OBJ);
+        v8::Isolate* iv8 { isolate_->IsolateV8() };
+        LOCAL_V8STRING(s_message, "message");
+        v8::Local<v8::Object> obj { value->ToObject() };
+        v8::Local<v8::Value> msg { obj->Get(s_message) };
+        if (!msg->IsString()) {
+            LOCAL_V8STRING(s_no_message, "<no error message>");
+            AppendString(s_no_message);
+        } else {
+            AppendString(msg);
+        }
         return SerializeError::NONE;
     }
 
@@ -324,6 +328,13 @@ v8::Local<v8::Value> TransportData::UnpackValue(Isolate* isolate, ByteStreamRead
         RT_ASSERT(isolate->template_cache());
         v8::Local<v8::Value> fnobj { isolate->template_cache()->NewWrappedFunction(efn) };
         return scope.Escape(fnobj);
+    }
+    case Type::ERROR_OBJ: {
+        v8::Local<v8::Value> v { UnpackValue(isolate, reader) };
+        return scope.Escape(v8::Exception::Error(v->ToString()));
+    }
+    case Type::RESOURCES_FN: {
+        return scope.Escape(v8::Function::New(iv8, NativesObject::Resources));
     }
     default:
         RT_ASSERT(!"unknown data type");

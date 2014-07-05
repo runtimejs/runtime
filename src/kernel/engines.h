@@ -83,18 +83,27 @@ public:
         ResourceHandle<EngineThread> st = first_engine->threads().Create();
         p.get()->SetThread(st, 0);
 
-        rt::InitrdFile startup_file = GLOBAL_initrd()->Get("/system/startup.js");
+        rt::InitrdFile startup_file = GLOBAL_initrd()->Get("/system/kernel.js");
         if (startup_file.IsEmpty()) {
-            printf("Unable to load /system/startup.js from initrd.\n");
+            printf("Unable to load /system/kernel.js from initrd.\n");
             abort();
         }
 
-        TransportData data;
-        data.SetString(startup_file.Data(), startup_file.Size());
+        {	TransportData data;
+            data.SetResourceFunction();
 
-        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
-            ResourceHandle<EngineThread>(), std::move(data)));
-        st.get()->PushMessage(std::move(msg));
+            std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS,
+                ResourceHandle<EngineThread>(), std::move(data)));
+            st.get()->PushMessage(std::move(msg));
+        }
+
+        {	TransportData data;
+            data.SetString(startup_file.Data(), startup_file.Size());
+
+            std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
+                ResourceHandle<EngineThread>(), std::move(data)));
+            st.get()->PushMessage(std::move(msg));
+        }
     }
 
     uint32_t engines_count() const {

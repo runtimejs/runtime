@@ -62,10 +62,23 @@ v8::Local<v8::UnboundScript> TemplateCache::GetInitScript() {
 v8::Local<v8::Context> TemplateCache::NewContext() {
     v8::Isolate* iv8 = isolate_->IsolateV8();
     RT_ASSERT(iv8);
+
     v8::EscapableHandleScope scope(iv8);
     if (global_object_template_.IsEmpty()) {
-        global_object_template_.Set(iv8, v8::ObjectTemplate::New());
+        v8::Local<v8::ObjectTemplate> global { v8::ObjectTemplate::New() };
+
+        global->Set(iv8, "setTimeout",
+                    v8::FunctionTemplate::New(iv8, NativesObject::SetTimeout));
+
+        v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
+        runtime->Set(iv8, "args", v8::FunctionTemplate::New(iv8, NativesObject::Args));
+        runtime->Set(iv8, "log", v8::FunctionTemplate::New(iv8, NativesObject::KernelLog));
+
+        global->Set(iv8, "runtime", runtime);
+
+        global_object_template_.Set(iv8, global);
     }
+
     v8::Local<v8::Context> context = v8::Context::New(iv8, nullptr,
         global_object_template_.Get(iv8));
 

@@ -142,6 +142,27 @@ public:
     }
 
     /**
+     * Append v8 string value
+     */
+    void AppendString(v8::Local<v8::Value> value) {
+        RT_ASSERT(value->IsString());
+        if (allow_ref_) {
+            // Strings are immutable, its safe to pass by reference
+            // for same-isolate calls
+            AppendType(Type::STRING_REF);
+            stream_.AppendValue<uint32_t>(AddRef(value));
+        } else {
+            AppendType(Type::STRING_16);
+            v8::Local<v8::String> s { value->ToString() };
+            int len = s->Length();
+            RT_ASSERT(len >= 0);
+            stream_.AppendValue<uint32_t>(len);
+            void* place { stream_.AppendBuffer((len + 1) * sizeof(uint16_t)) };
+            s->Write(reinterpret_cast<uint16_t*>(place), 0, len);
+        }
+    }
+
+    /**
      * Construct data from string buffer. Deserialize returns
      * string
      */
@@ -155,6 +176,15 @@ public:
         memcpy(place, buf, len);
         uint8_t* p = reinterpret_cast<uint8_t*>(place);
         p[len] = '\0';
+    }
+
+    /**
+     * Set data to kernel resources function. This is required
+     * to start first process
+     */
+    void SetResourceFunction() {
+        Clear();
+        AppendType(Type::RESOURCES_FN);
     }
 
     /**
@@ -240,6 +270,8 @@ private:
         ARRAY,
         HASHMAP,
         FUNCTION,
+        ERROR_OBJ,
+        RESOURCES_FN,
     };
 
     void Clear() {

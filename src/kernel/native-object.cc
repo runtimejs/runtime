@@ -114,13 +114,12 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
     }
 }
 
-NATIVE_FUNCTION(NativesObject, Timeout) {
+NATIVE_FUNCTION(NativesObject, SetTimeout) {
     PROLOGUE_NOTHIS;
-    RT_ASSERT(2 == args.Length());
     USEARG(0);
     USEARG(1);
+    VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 should be a function");
     RT_ASSERT(arg0->IsFunction());
-    RT_ASSERT(arg1->IsUint32());
 
     Thread* th = isolate->current_thread();
     RT_ASSERT(th);
@@ -182,10 +181,22 @@ NATIVE_FUNCTION(NativesObject, InitrdList) {
     size_t files_count { GLOBAL_initrd()->files_count() };
     v8::Local<v8::Array> arr { v8::Array::New(iv8, files_count) };
 
+    LOCAL_V8STRING(s_name, "name");
+    LOCAL_V8STRING(s_size, "size");
+
+    v8::Local<v8::Object> tmp { v8::Object::New(iv8) };
+    tmp->Set(s_name, v8::String::Empty(iv8));
+    tmp->Set(s_size, v8::Uint32::NewFromUnsigned(iv8, 0));
+
     for (size_t i = 0; i < files_count; ++i) {
         InitrdFile file = GLOBAL_initrd()->GetByIndex(i);
         RT_ASSERT(!file.IsEmpty());
-        arr->Set(i, v8::String::NewFromUtf8(iv8, file.Name()));
+
+        RT_ASSERT(file.Size() < 0xffffffff && "Initrd file is too big");
+        v8::Local<v8::Object> file_object { tmp->Clone() };
+        file_object->Set(s_name, v8::String::NewFromUtf8(iv8, file.Name()));
+        file_object->Set(s_size, v8::Uint32::NewFromUnsigned(iv8, file.Size() & 0xffffffff));
+        arr->Set(i, file_object);
     }
 
     args.GetReturnValue().Set(arr);

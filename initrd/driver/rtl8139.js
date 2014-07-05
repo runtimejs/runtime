@@ -15,9 +15,6 @@
 (function RTL8139Driver(args) {
     "use strict";
 
-    //TODO: remove this
-    return;
-
     var utils = rt.initrdRequire("/utils.js");
     var mmio = args.pci.bars[1];
     var iobuf = mmio.resource.buffer();
@@ -245,7 +242,7 @@
 
         var obj = {
             read: function(reg) {
-                // rt.log('read from', '0x'+reg.offset.toString(16));
+                // runtime.log('read from', '0x'+reg.offset.toString(16));
                 switch (reg.size) {
                     case 1: return readB(reg.offset);
                     case 2: return readW(reg.offset);
@@ -254,7 +251,7 @@
                 }
             },
             write: function(reg, value) {
-                // rt.log('written invalid value to 0x' + reg.offset.toString(16) + ' = ' + value);
+                // runtime.log('written invalid value to 0x' + reg.offset.toString(16) + ' = ' + value);
                 if ('number' !== typeof value || value < 0) {
                     throw new Error('written invalid value to 0x' + reg.offset.toString(16) + ' = ' + value);
                 }
@@ -301,7 +298,7 @@
                 return x.toString(16);
             }).join(':');
 
-            rt.log('mac addr', macString);
+            runtime.log('mac addr', macString);
         }
 
         return new Promise(function(resolve, reject) {
@@ -377,14 +374,14 @@
     function enableTxRx() {
         // Enable Rx (receiver) and Tx (transmitter)
         r.write(r.CR, r.CR.flag.RX_ENABLE | r.CR.flag.TX_ENABLE);
-        rt.log('EN: rxtx');
+        runtime.log('EN: rxtx');
 
         return utils.waitFor(function() {
             var b = r.read(r.CR);
 
             var flag = r.CR.flag.RX_ENABLE | r.CR.flag.TX_ENABLE;
             var ret = (b & flag) === flag;
-            rt.log('check ret', ret);
+            runtime.log('check ret', ret);
 
             if (!ret) {
                 r.write(r.CR, flag);
@@ -413,7 +410,7 @@
         r.write(r.TX_CONF, (TX_DMA_BURST << 8) | 0x03000000);
 
         // Set Rx buffer
-        rt.log('DMA(js)', '0x' + (buffers.rx().address >>> 0).toString(16));
+        runtime.log('DMA(js)', '0x' + (buffers.rx().address >>> 0).toString(16));
         r.write(r.RX_START, buffers.rx().address >>> 0);
 
         // Reset Rx missed counter
@@ -472,12 +469,12 @@
             var packetSize = frameSize - 4;
 
             if (packetSize > maxEthernetPacketSize || packetSize < 8) {
-                rt.log('invalid packet size');
+                runtime.log('invalid packet size');
             }
 
             var packet = rx.copy(offset + 4, packetSize);
-            // rt.log('recv packet size', packetSize, 'data', ab2str(packet));
-            rt.log('recv packet size', packetSize);
+            // runtime.log('recv packet size', packetSize, 'data', ab2str(packet));
+            runtime.log('recv packet size', packetSize);
 
             curRx = (curRx + frameSize + 4 + 3) & 0xfffffffc;
             r.write(r.CAPR, curRx - 16);
@@ -502,25 +499,25 @@
         // Check if packet received
         if (status & r.ISR.flag.RECV_OK) {
             recv();
-            // rt.log('recv');
+            // runtime.log('recv');
         }
 
         if (status & r.ISR.flag.SEND_OK) {
-            rt.log('sent');
+            runtime.log('sent');
         }
     }
 
     function poll() {
-        rt.timeout(function sf() {
+        setTimeout(function sf() {
             Handler();
-            rt.timeout(sf, 100);
+            setTimeout(sf, 100);
         }, 100);
     }
 
     function transmit(buffer) {
-        rt.log('transmit');
+        runtime.log('transmit');
         var len = buffer.byteLength;
-        
+
         var tx = buffers.takeTx();
 
         // Copy packet buffer into Tx buffer
@@ -546,9 +543,9 @@
             transmit(b);
         })
         .then(function() {
-            rt.log('chip ready.');
+            runtime.log('chip ready.');
         }, function(error) {
-            rt.log('chip failed.', error.stack);
+            runtime.log('chip failed.', error.stack);
         });
 
-})(rt.args());
+})(runtime.args());

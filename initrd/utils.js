@@ -46,10 +46,10 @@ function() {
                     return;
                 }
 
-                rt.timeout(timeoutFunc, delay);
+                setTimeout(timeoutFunc, delay);
             };
 
-            rt.timeout(timeoutFunc, delay);
+            setTimeout(timeoutFunc, delay);
         });
     };
 

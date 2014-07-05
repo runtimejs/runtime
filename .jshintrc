@@ -1,0 +1,9 @@
+{
+  "esnext": true,
+  "curly": true,
+  "unused": true,
+  "devel": true,
+  "globals": {
+      "rt": true
+  }
+}
