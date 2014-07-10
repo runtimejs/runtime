@@ -26,17 +26,17 @@
     static void NAME(const v8::FunctionCallbackInfo<v8::Value>& args)
 
 #define PROLOGUE		 														\
-    Isolate* isolate = V8Utils::GetIsolate(args);								\
-    auto that = GetThis(isolate, args);											\
+    auto th = V8Utils::GetThread(args);		 							\
+    auto that = GetThis(th, args);			  								\
     if (nullptr == that) return;												\
-    RT_ASSERT(isolate);															\
-    v8::Isolate* iv8 = isolate->IsolateV8();									\
+    RT_ASSERT(th);															\
+    v8::Isolate* iv8 = th->IsolateV8();										\
     RT_ASSERT(iv8)
 
 #define PROLOGUE_NOTHIS		 													\
-    Isolate* isolate = V8Utils::GetIsolate(args);								\
-    RT_ASSERT(isolate);															\
-    v8::Isolate* iv8 = isolate->IsolateV8();									\
+    auto th = V8Utils::GetThread(args);								\
+    RT_ASSERT(th);															\
+    v8::Isolate* iv8 = th->IsolateV8();										\
     RT_ASSERT(iv8)
 
 #define USEARG(number)															\
@@ -104,8 +104,8 @@ public:
                 v8::String::kNormalString, str.Length()));
     }
 
-    inline static Isolate* GetIsolate(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        return reinterpret_cast<Isolate*>(args.GetIsolate()->GetData(0));
+    inline static Thread* GetThread(const v8::FunctionCallbackInfo<v8::Value>& args) {
+        return reinterpret_cast<Thread*>(args.GetIsolate()->GetData(0));
     }
     inline static bool ValidateArg(const v8::FunctionCallbackInfo<v8::Value>& args,
             int argnum, ArgType type) {
@@ -211,21 +211,6 @@ public:
 
 private:
     SharedSTLVector<v8::UniquePersistent<T>> data_;
-};
-
-/**
- * RAII wrapper for v8 context Enter() and Exit() functions
- */
-class ContextScope {
-public:
-    explicit inline ContextScope(v8::Local<v8::Context> context)
-        :	context_(context) {
-        context_->Enter();
-    }
-    inline ~ContextScope() { context_->Exit(); }
-
-private:
-    v8::Local<v8::Context> context_;
 };
 
 } // namespace rt

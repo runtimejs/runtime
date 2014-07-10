@@ -29,6 +29,7 @@ namespace rt {
 
 class Isolate;
 class EngineThread;
+class Thread;
 
 using ::common::Nullable;
 
@@ -93,7 +94,7 @@ class Resource {
     template<typename R> friend class ResourceHandle;
 public:
     Resource() { }
-    virtual v8::Local<v8::Object> NewInstance(Isolate* isolate) = 0;
+    virtual v8::Local<v8::Object> NewInstance(Thread* thread) = 0;
 private:
     Locker locker_;
     DELETE_COPY_AND_ASSIGN(Resource);
@@ -106,7 +107,7 @@ public:
             size_(size) { }
     size_t base() const { return base_; }
     size_t size() const { return size_; }
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
 private:
     size_t base_;
     size_t size_;
@@ -156,7 +157,7 @@ public:
 
     size_t start() const { return range_.start(); }
     size_t end() const { return range_.end(); }
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
 private:
     SharedVector<Range> ranges_;
     Range range_;
@@ -169,7 +170,7 @@ public:
             last_(last) { }
     uint16_t first() const { return first_; }
     uint16_t last() const { return last_; }
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* isolate);
 
     ResourceHandle<ResourceIORange> Subrange(size_t first, size_t last) {
         return ResourceHandle<ResourceIORange>(new ResourceIORange(first, last));
@@ -184,7 +185,7 @@ public:
     ResourceIRQ(uint8_t number)
         :	number_(number) { }
     size_t number() const { return number_; }
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
 private:
     uint8_t number_;
 };
@@ -196,7 +197,7 @@ public:
             last_(last) { }
     size_t first() const { return first_; }
     size_t last() const { return last_; }
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
 
     ResourceHandle<ResourceIRQ> Irq(uint8_t number) {
         return ResourceHandle<ResourceIRQ>(new ResourceIRQ(number));

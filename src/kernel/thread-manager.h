@@ -24,17 +24,18 @@
 #include <kernel/template-cache.h>
 #include <kernel/atomic.h>
 #include <kernel/resource.h>
-#include <kernel/engine.h>
 
 namespace rt {
 
 void ThreadEntryPoint(Thread *t);
-extern void Preempt(Isolate *isolate);
+extern void Preempt(ThreadManager* thread_mgr);
 extern "C" void enterFirstThread(void* new_state);
 
-class ThreadBlock {
+class Engine;
+
+class ThreadData {
 public:
-    explicit ThreadBlock(Thread* thread)
+    explicit ThreadData(Thread* thread)
         :	thread_(thread),
             priority_(1) {
         RT_ASSERT(thread);
@@ -60,23 +61,16 @@ private:
     size_t priority_;
 };
 
-class ThreadBlockPriorityComparer {
-public:
-    bool operator() (const ThreadBlock& lhs, const ThreadBlock& rhs) const {
-        return (lhs.priority() < rhs.priority());
-    }
-};
-
 class ThreadManager {
     friend class Thread;
 public:
-    ThreadManager(Isolate* isolate);
+    ThreadManager(Engine* engine);
 
-    Thread* CreateThread(String name, ResourceHandle<EngineThread> ethread) {
+    Thread* CreateThread(ResourceHandle<EngineThread> ethread) {
         RT_ASSERT(!ethread.empty());
-        Thread* t = new Thread(isolate_, next_thread_id_++, name, ethread);
+        Thread* t = new Thread(this, ethread);
         ThreadInit(t);
-        threads_.push_back(ThreadBlock(t));
+        threads_.push_back(ThreadData(t));
         return t;
     }
 
@@ -89,12 +83,17 @@ public:
     }
 
     void Run() {
+        ProcessNewThreads();
+        RT_ASSERT(has_threads()); // at least idle thread
+
         if (0 == threads_.size()) {
             return;
         }
+
         RT_ASSERT(threads_.size() > 0);
 
-        asm volatile("cli");
+        Cpu::DisableInterrupts();
+
         current_thread_index_ = 0;
         current_thread_ = threads_[current_thread_index_].thread();
         enterFirstThread(current_thread_->_fxstate);
@@ -114,7 +113,7 @@ public:
 
             uint32_t p = threads_[i].thread()->priority();
 
-            // Copy priority from Atomic32 to thread block
+            // Copy priority from Atomic32 to thread data
             threads_[i].SetPriority(p);
 
             if (p > max) {
@@ -155,13 +154,21 @@ public:
         is_preempt_enabled_.Set(0);
     }
 
+    uint64_t ticks_count() const {
+        return ticks_counter_.Get();
+    }
+
+    void ProcessNewThreads();
+    void TimerInterruptNotify();
+    void Preempt();
 private:
     Thread* current_thread_;
-    Isolate* isolate_;
+    Engine* engine_;
     uint64_t next_thread_id_;
     volatile uint64_t current_thread_index_;
-    std::vector<ThreadBlock> threads_;
+    std::vector<ThreadData> threads_;
     Atomic<uint32_t> is_preempt_enabled_;
+    Atomic<uint64_t> ticks_counter_;
     DELETE_COPY_AND_ASSIGN(ThreadManager);
 };
 

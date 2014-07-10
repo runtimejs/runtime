@@ -4,6 +4,6 @@
   "unused": true,
   "devel": true,
   "globals": {
-      "rt": true
+      "runtime": true
   }
 }

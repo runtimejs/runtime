@@ -127,7 +127,7 @@ public:
      * undefined
      */
     TransportData()
-        :	isolate_(nullptr),
+        :	thread_(nullptr),
             allow_ref_(false),
             err_(SerializeError::NONE) {
         SetUndefined();
@@ -191,18 +191,18 @@ public:
      * Serialize value to transport it
      */
     SerializeError MoveValue(Thread* exporter,
-                             Isolate* isolate_recv,
+                             Thread* recv,
                              v8::Local<v8::Value> value);
 
     /**
      * Serialize v8 arguments array to transport it
      */
     SerializeError MoveArgs(Thread* exporter,
-                            Isolate* isolate_recv,
+                            Thread* recv,
                             const v8::FunctionCallbackInfo<v8::Value>& args);
 
     TransportData(TransportData&& other)
-        :	isolate_(other.isolate_),
+        :	thread_(other.thread_),
             allow_ref_(other.allow_ref_),
             err_(other.err_),
             stream_(std::move(other.stream_)),
@@ -211,7 +211,7 @@ public:
     /**
      * Deserialize data to V8 value
      */
-    v8::Local<v8::Value> Unpack(Isolate* isolate) const;
+    v8::Local<v8::Value> Unpack(Thread* thread) const;
 
     /**
      * Helper function throws provided error. Returns true if
@@ -275,14 +275,14 @@ private:
     };
 
     void Clear() {
-        isolate_ = nullptr;
+        thread_ = nullptr;
         err_ = SerializeError::NONE;
         allow_ref_ = false;
         stream_.Clear();
     }
 
     SerializeError SerializeValue(Thread* exporter, v8::Local<v8::Value> value, uint32_t stack_level);
-    v8::Local<v8::Value> UnpackValue(Isolate* isolate, ByteStreamReader& reader) const;
+    v8::Local<v8::Value> UnpackValue(Thread* thread, ByteStreamReader& reader) const;
 
     Type ReadType(ByteStreamReader& reader) const {
         return static_cast<Type>(reader.ReadValue<uint8_t>());
@@ -297,7 +297,7 @@ private:
 
     static const uint32_t kMaxStackSize = 128;
 
-    Isolate* isolate_;
+    Thread* thread_;
     bool allow_ref_;
     SerializeError err_;
     ByteStream stream_;

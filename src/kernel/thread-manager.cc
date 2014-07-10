@@ -14,7 +14,6 @@
 
 #include "thread-manager.h"
 #include <kernel/kernel.h>
-#include <kernel/isolate.h>
 #include <kernel/engines.h>
 
 namespace rt {
@@ -27,16 +26,17 @@ void ThreadEntryPoint(Thread* t) {
     for (;;) {
         Cpu::EnableInterrupts();
         t->Run();
-        Preempt(t->isolate());
+        t->thread_manager()->Preempt();
     }
 }
 
-ThreadManager::ThreadManager(Isolate* isolate)
+ThreadManager::ThreadManager(Engine* engine)
     :	current_thread_(nullptr),
-        isolate_(isolate),
-        next_thread_id_(2),
+        engine_(engine),
         current_thread_index_(0) {
-    threads_.reserve(100);
+    RT_ASSERT(engine);
+    threads_.reserve(128);
+    ticks_counter_.Set(1);
 }
 
 extern "C" void preemptStart(void* current_state, void* new_state);
@@ -49,13 +49,24 @@ void ThreadManager::ThreadInit(Thread* t) {
     threadStructInit(t->_fxstate, ThreadEntryPoint, t->GetStackBottom(), t);
 }
 
+void ThreadManager::ProcessNewThreads() {
+    auto threads = engine_->threads().TakeNewThreads();
+    if (0 == threads.size()) return;
 
-void Preempt(Isolate* isolate) {
-    RT_ASSERT(isolate);
-    Thread* curr_thread = isolate->current_thread();
-    Thread* new_thread = isolate->thread_manager()->SwitchToNextThread();
+    for (auto thread : threads) {
+        thread.get()->thread_ = CreateThread(thread);
+    }
+}
 
-    isolate->ProcessNewThreads();
+void ThreadManager::TimerInterruptNotify() {
+    ticks_counter_.AddFetch(1);
+}
+
+void ThreadManager::Preempt() {
+    Thread* curr_thread = current_thread();
+    Thread* new_thread = SwitchToNextThread();
+
+    ProcessNewThreads();
 
     if (curr_thread == new_thread) {
         return;

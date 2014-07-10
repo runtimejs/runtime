@@ -14,10 +14,10 @@
 
 #pragma once
 
+#include <kernel/kernel.h>
 #include <vector>
 #include <array>
 #include <v8.h>
-#include <kernel/isolate.h>
 
 namespace rt {
 
@@ -70,7 +70,7 @@ private:
  */
 class TemplateCache {
 public:
-    TemplateCache(Isolate* isolate);
+    TemplateCache(v8::Isolate* iv8);
 
     /**
      * Creates v8 callable object which represents exported external
@@ -95,7 +95,7 @@ public:
      */
     void Put(NativeTypeId key, v8::Local<v8::Object> obj) {
         RT_ASSERT(object_cache_[(uint32_t)key].IsEmpty());
-        object_cache_[(uint32_t)key].Set(isolate_->IsolateV8(), obj);
+        object_cache_[(uint32_t)key].Set(iv8_, obj);
     }
 
     /**
@@ -103,15 +103,15 @@ public:
      */
     v8::Local<v8::Object> Get(NativeTypeId key) {
         RT_ASSERT(!object_cache_[(uint32_t)key].IsEmpty());
-        v8::EscapableHandleScope scope(isolate_->IsolateV8());
-        return scope.Escape(object_cache_[(uint32_t)key].Get(isolate_->IsolateV8()));
+        v8::EscapableHandleScope scope(iv8_);
+        return scope.Escape(object_cache_[(uint32_t)key].Get(iv8_));
     }
 
     /**
      * Check if provided value is wrapper for native object
      * Returns instance pointer or nullptr
      */
-    NativeObjectWrapper* GetWrapped(v8::Local<v8::Value> value) {
+    static NativeObjectWrapper* GetWrapped(v8::Local<v8::Value> value) {
         if (value.IsEmpty()) return nullptr;
         if (!value->IsObject()) return nullptr;
 
@@ -128,9 +128,14 @@ public:
      * for context automatically
      */
     v8::Local<v8::Context> NewContext();
+
+    /**
+     * Get V8 isolate
+     */
+    v8::Isolate* IsolateV8() const { return iv8_; }
 private:
+    v8::Isolate* iv8_;
     v8::Local<v8::UnboundScript> GetInitScript();
-    Isolate* isolate_;
     v8::Eternal<v8::ObjectTemplate> global_object_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_callable_template_;

@@ -18,23 +18,23 @@
 
 namespace rt {
 
-v8::Local<v8::Object> Process::NewInstance(Isolate* isolate) {
-    RT_ASSERT(isolate);
-    v8::Isolate* iv8 = isolate->IsolateV8();
+v8::Local<v8::Object> Process::NewInstance(Thread* thread) {
+    RT_ASSERT(thread);
+    v8::Isolate* iv8 = thread->IsolateV8();
     RT_ASSERT(iv8);
     v8::EscapableHandleScope scope(iv8);
-    return scope.Escape((new ProcessHandleObject(isolate,
+    return scope.Escape((new ProcessHandleObject(thread->template_cache(),
         ResourceHandle<Process>(this)))->GetInstance());
 }
 
 Process::Process() {}
 
-v8::Local<v8::Object> ProcessManager::NewInstance(Isolate* isolate) {
-    RT_ASSERT(isolate);
-    v8::Isolate* iv8 = isolate->IsolateV8();
+v8::Local<v8::Object> ProcessManager::NewInstance(Thread* thread) {
+    RT_ASSERT(thread);
+    v8::Isolate* iv8 = thread->IsolateV8();
     RT_ASSERT(iv8);
     v8::EscapableHandleScope scope(iv8);
-    return scope.Escape((new ProcessManagerHandleObject(isolate,
+    return scope.Escape((new ProcessManagerHandleObject(thread->template_cache(),
         ResourceHandle<ProcessManager>(this)))->GetInstance());
 }
 

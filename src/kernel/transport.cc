@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include "transport.h"
-#include <kernel/isolate.h>
 #include <kernel/template-cache.h>
 #include <kernel/object-wrapper.h>
 #include <kernel/thread.h>
@@ -22,15 +21,12 @@
 namespace rt {
 
 TransportData::SerializeError TransportData::MoveValue(Thread* exporter,
-                                                       Isolate* isolate_recv,
+                                                       Thread* recv,
                                                        v8::Local<v8::Value> value) {
     RT_ASSERT(exporter);
-    Isolate* isolate { exporter->isolate() };
-    RT_ASSERT(isolate);
-    RT_ASSERT(isolate_recv);
     Clear();
-    isolate_ = isolate;
-    allow_ref_ = isolate_recv == isolate;
+    thread_ = exporter;
+    allow_ref_ = recv == exporter;
 
     SerializeError err { SerializeValue(exporter, value, 1) };
     if (SerializeError::NONE != err) {
@@ -41,15 +37,12 @@ TransportData::SerializeError TransportData::MoveValue(Thread* exporter,
 }
 
 TransportData::SerializeError TransportData::MoveArgs(Thread* exporter,
-                                                      Isolate* isolate_recv,
+                                                      Thread* recv,
                                                       const v8::FunctionCallbackInfo<v8::Value>& args) {
     RT_ASSERT(exporter);
-    Isolate* isolate { exporter->isolate() };
-    RT_ASSERT(isolate);
-    RT_ASSERT(isolate_recv);
     Clear();
-    isolate_ = isolate;
-    allow_ref_ = isolate_recv == isolate;
+    thread_ = exporter;
+    allow_ref_ = recv == exporter;
 
     AppendType(Type::ARRAY);
     uint32_t len = args.Length();
@@ -69,9 +62,9 @@ TransportData::SerializeError TransportData::MoveArgs(Thread* exporter,
 v8::Local<v8::Value> TransportData::GetRef(v8::Isolate* iv8, uint32_t index) const {
     RT_ASSERT(allow_ref_);
     RT_ASSERT(iv8);
-    RT_ASSERT(isolate_);
-    RT_ASSERT(isolate_->IsolateV8());
-    RT_ASSERT(isolate_->IsolateV8() == iv8);
+    RT_ASSERT(thread_);
+    RT_ASSERT(thread_->IsolateV8());
+    RT_ASSERT(thread_->IsolateV8() == iv8);
     RT_ASSERT(index < refs_.size());
     v8::EscapableHandleScope scope(iv8);
     return scope.Escape(v8::Local<v8::Value>::New(iv8, refs_[index]));
@@ -79,10 +72,10 @@ v8::Local<v8::Value> TransportData::GetRef(v8::Isolate* iv8, uint32_t index) con
 
 uint32_t TransportData::AddRef(v8::Local<v8::Value> value) {
     RT_ASSERT(allow_ref_);
-    RT_ASSERT(isolate_);
-    RT_ASSERT(isolate_->IsolateV8());
+    RT_ASSERT(thread_);
+    RT_ASSERT(thread_->IsolateV8());
     size_t index = refs_.size();
-    refs_.push_back(std::move(v8::UniquePersistent<v8::Value>(isolate_->IsolateV8(), value)));
+    refs_.push_back(std::move(v8::UniquePersistent<v8::Value>(thread_->IsolateV8(), value)));
     return static_cast<uint32_t>(index);
 }
 
@@ -176,10 +169,10 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     }
 
     if (value->IsNativeError()) {
-        RT_ASSERT(isolate_);
-        RT_ASSERT(isolate_->IsolateV8());
+        RT_ASSERT(thread_);
+        RT_ASSERT(thread_->IsolateV8());
         AppendType(Type::ERROR_OBJ);
-        v8::Isolate* iv8 { isolate_->IsolateV8() };
+        v8::Isolate* iv8 { thread_->IsolateV8() };
         LOCAL_V8STRING(s_message, "message");
         v8::Local<v8::Object> obj { value->ToObject() };
         v8::Local<v8::Value> msg { obj->Get(s_message) };
@@ -194,11 +187,11 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
 
     // This condition check should be the last one
     if (value->IsObject()) {
-        RT_ASSERT(isolate_);
-        RT_ASSERT(isolate_->template_cache());
+        RT_ASSERT(thread_);
+        RT_ASSERT(thread_->template_cache());
 
         v8::Local<v8::Object> obj { value->ToObject() };
-        NativeObjectWrapper* ptr { isolate_->template_cache()->GetWrapped(value) };
+        NativeObjectWrapper* ptr { thread_->template_cache()->GetWrapped(value) };
 
         // If current object is wrapped native
         if (nullptr != ptr) {
@@ -246,22 +239,22 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     return SerializeError::INVALID_TYPE;
 }
 
-v8::Local<v8::Value> TransportData::Unpack(Isolate* isolate) const {
-    RT_ASSERT(isolate);
-    v8::Isolate* iv8 { isolate->IsolateV8() };
+v8::Local<v8::Value> TransportData::Unpack(Thread* thread) const {
+    RT_ASSERT(thread);
+    v8::Isolate* iv8 { thread->IsolateV8() };
     RT_ASSERT(iv8);
 
     ByteStreamReader reader(stream_);
     if (allow_ref_) {
-        RT_ASSERT(nullptr != isolate_);
+        RT_ASSERT(nullptr != thread_);
     }
     v8::EscapableHandleScope scope(iv8);
-    return scope.Escape(UnpackValue(isolate, reader));
+    return scope.Escape(UnpackValue(thread, reader));
 }
 
-v8::Local<v8::Value> TransportData::UnpackValue(Isolate* isolate, ByteStreamReader& reader) const {
-    RT_ASSERT(isolate);
-    v8::Isolate* iv8 { isolate->IsolateV8() };
+v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader& reader) const {
+    RT_ASSERT(thread);
+    v8::Isolate* iv8 { thread->IsolateV8() };
     RT_ASSERT(iv8);
 
     v8::EscapableHandleScope scope(iv8);
@@ -309,7 +302,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Isolate* isolate, ByteStreamRead
         uint32_t len = reader.ReadValue<uint32_t>();
         v8::Local<v8::Array> arr { v8::Array::New(iv8, len) };
         for (uint32_t i = 0; i < len; ++i) {
-            arr->Set(i, UnpackValue(isolate, reader));
+            arr->Set(i, UnpackValue(thread, reader));
         }
         return scope.Escape(arr);
     }
@@ -317,20 +310,20 @@ v8::Local<v8::Value> TransportData::UnpackValue(Isolate* isolate, ByteStreamRead
         uint32_t len = reader.ReadValue<uint32_t>();
         v8::Local<v8::Object> obj { v8::Object::New(iv8) };
         for (uint32_t i = 0; i < len; ++i) {
-            v8::Local<v8::Value> k { UnpackValue(isolate, reader) };
-            v8::Local<v8::Value> v { UnpackValue(isolate, reader) };
+            v8::Local<v8::Value> k { UnpackValue(thread, reader) };
+            v8::Local<v8::Value> v { UnpackValue(thread, reader) };
             obj->Set(k, v);
         }
         return scope.Escape(obj);
     }
     case Type::FUNCTION: {
         ExternalFunction* efn = reader.ReadValue<ExternalFunction*>();
-        RT_ASSERT(isolate->template_cache());
-        v8::Local<v8::Value> fnobj { isolate->template_cache()->NewWrappedFunction(efn) };
+        RT_ASSERT(thread->template_cache());
+        v8::Local<v8::Value> fnobj { thread->template_cache()->NewWrappedFunction(efn) };
         return scope.Escape(fnobj);
     }
     case Type::ERROR_OBJ: {
-        v8::Local<v8::Value> v { UnpackValue(isolate, reader) };
+        v8::Local<v8::Value> v { UnpackValue(thread, reader) };
         return scope.Escape(v8::Exception::Error(v->ToString()));
     }
     case Type::RESOURCES_FN: {

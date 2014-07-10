@@ -13,6 +13,7 @@
 #if V8_OS_RUNTIMEJS
 #include <kernel/kernel.h>
 #include <kernel/engines.h>
+#include <kernel/thread-manager.h>
 #endif
 
 #include <string.h>
@@ -337,8 +338,8 @@ Time Time::Now() {
   // return Time(1);
 
   RT_ASSERT(::GLOBAL_engines()->cpu_engine());
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->isolate());
-  int64_t ticks = ::GLOBAL_engines()->cpu_engine()->isolate()->ticks_count();
+  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->thread_manager());
+  int64_t ticks = ::GLOBAL_engines()->cpu_engine()->thread_manager()->ticks_count();
   int64_t per_tick = ::GLOBAL_engines()->MsPerTick();
 
   // Supported 10ms precision at the moment, need to return
@@ -574,8 +575,8 @@ TimeTicks TimeTicks::HighResolutionNow() {
   ticks = (tv.tv_sec * Time::kMicrosecondsPerSecond + tv.tv_usec);
 #elif V8_OS_RUNTIMEJS
   RT_ASSERT(::GLOBAL_engines()->cpu_engine());
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->isolate());
-  int64_t platform_ticks = ::GLOBAL_engines()->cpu_engine()->isolate()->ticks_count();
+  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->thread_manager());
+  int64_t platform_ticks = ::GLOBAL_engines()->cpu_engine()->thread_manager()->ticks_count();
   int64_t per_tick = ::GLOBAL_engines()->MsPerTick();
 
   // Supported 10ms precision at the moment, need to return

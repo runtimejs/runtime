@@ -16,13 +16,13 @@
 
 #include <vector>
 #include <kernel/kernel.h>
-#include <kernel/isolate.h>
 #include <kernel/cpu.h>
 #include <kernel/allocator.h>
 #include <kernel/resource.h>
 #include <kernel/process.h>
 #include <kernel/engine.h>
 #include <kernel/system-context.h>
+#include <kernel/initrd.h>
 #include <EASTL/vector.h>
 
 namespace rt {

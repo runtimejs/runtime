@@ -26,12 +26,12 @@ namespace rt {
  */
 class ExternalFunction : public NativeObjectWrapper {
 public:
-    ExternalFunction(uint32_t index, size_t export_id, Isolate* isolate,
+    ExternalFunction(uint32_t index, size_t export_id, Thread* thread,
                      ResourceHandle<EngineThread> recv)
         :	NativeObjectWrapper(NativeTypeId::TYPEID_FUNCTION),
             index_(index), export_id_(export_id),
-            isolate_(isolate), recv_(recv) {
-        RT_ASSERT(isolate_);
+            thread_(thread), recv_(recv) {
+        RT_ASSERT(thread_);
     }
 
     /**
@@ -42,7 +42,7 @@ public:
     /**
      * Isolate which implements function
      */
-    Isolate* isolate() const { return isolate_; }
+    Thread* thread() const { return thread_; }
 
     /**
      * Unique exported function ID
@@ -56,7 +56,7 @@ public:
 private:
     uint32_t index_;
     size_t export_id_;
-    Isolate* isolate_;
+    Thread* thread_;
     ResourceHandle<EngineThread> recv_;
 };
 

@@ -16,12 +16,11 @@
 
 #include <kernel/kernel.h>
 #include <kernel/allocator.h>
-#include <kernel/isolate.h>
+#include <kernel/thread-manager.h>
 #include <kernel/local-storage.h>
 #include <kernel/thread.h>
 #include <kernel/system-context.h>
 #include <kernel/resource.h>
-#include <EASTL/fixed_vector.h>
 
 namespace rt {
 
@@ -81,7 +80,7 @@ private:
 };
 
 class EngineThread : public Resource {
-    friend class Isolate;
+    friend class ThreadManager;
 public:
     typedef SharedVector<ThreadMessage*> ThreadMessagesVector;
     enum class Status {
@@ -91,7 +90,7 @@ public:
         PAUSED
     };
 
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
 
     EngineThread(Engine* engine)
         :	engine_(engine),
@@ -137,7 +136,7 @@ public:
         }
     }
 
-    Isolate* isolate() const;
+    Thread* thread() const;
 
 private:
     Engine* engine_;
@@ -194,74 +193,43 @@ public:
 
     Engine(EngineType type)
         :	type_(type),
-            isolate_(nullptr),
+            thread_mgr_(nullptr),
             init_(false),
             threads_(this) {}
     ~Engine() {}
 
-    Isolate* isolate() const { RT_ASSERT(isolate_); return isolate_; }
+    ThreadManager* thread_manager() const {
+        RT_ASSERT(thread_mgr_);
+        return thread_mgr_;
+    }
+
     bool is_init() const { return init_; }
     Threads& threads() { return threads_; }
     EngineType type() const { return type_; }
 
 
-    void Enter() {
-        RT_ASSERT(!init_);
-        RT_ASSERT(!isolate_);
-
-        switch (type_) {
-        case EngineType::DISABLED: {
-            Cpu::HangSystem();
-        }
-            break;
-        case EngineType::SERVICE: {
-            for (;;) Cpu::WaitPause();
-            Cpu::HangSystem();
-        }
-            break;
-        case EngineType::EXECUTION: {
-            uint32_t cpu_id = Cpu::id();
-            isolate_ = new Isolate(this, cpu_id, 1 == cpu_id);
-            RT_ASSERT(isolate_);
-        }
-            break;
-        default:
-            RT_ASSERT(!"Invalid engine type.");
-            break;
-        }
-
-        init_ = true;
-
-        if (isolate_) {
-            isolate_->Enter();
-        }
-    }
-
-    void TimerTick(SystemContextIRQ& irq_context) const {
-        if (isolate_) {
-            isolate_->TimerInterruptNotify();
-        }
-    }
+    void Enter();
+    void TimerTick(SystemContextIRQ& irq_context) const;
 
     inline void ThreadLocalSet(uint64_t index, void* value) {
-        if (nullptr == isolate_) {
+        if (nullptr == thread_mgr_) {
             local_storage_.Set(index, value);
         } else {
-            isolate_->current_thread()->GetLocalStorage().Set(index, value);
+            thread_mgr_->current_thread()->GetLocalStorage().Set(index, value);
         }
     }
 
     inline void* ThreadLocalGet(uint64_t index) {
-        if (nullptr == isolate_) {
+        if (nullptr == thread_mgr_) {
             return local_storage_.Get(index);
         } else {
-            return isolate_->current_thread()->GetLocalStorage().Get(index);
+            return thread_mgr_->current_thread()->GetLocalStorage().Get(index);
         }
     }
 
 private:
     EngineType type_;
-    Isolate* isolate_;
+    ThreadManager* thread_mgr_;
     bool init_;
     LocalStorage local_storage_;
     Threads threads_;

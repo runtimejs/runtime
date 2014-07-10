@@ -38,9 +38,6 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
         THROW_ERROR("Constructor call is not allowed");
     }
 
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
-
     v8::Local<v8::Value> thisvalue { args.This() };
     RT_ASSERT(!thisvalue.IsEmpty());
     if (!thisvalue->IsObject()) return;
@@ -53,11 +50,11 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
     ExternalFunction* efn { static_cast<ExternalFunction*>(ptr) };
     RT_ASSERT(efn);
 
-    Isolate* isolate_recv { efn->isolate() };
-    RT_ASSERT(isolate_recv);
+    Thread* recv { efn->recv().get()->thread() };
+    RT_ASSERT(recv);
 
     TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, isolate_recv, args) };
+    {	TransportData::SerializeError err { data.MoveArgs(th, recv, args) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -87,20 +84,17 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
     RT_ASSERT(arg1->IsExternal());
     RT_ASSERT(arg2->IsUint32());
 
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
-
     v8::Local<v8::External> ext { v8::Local<v8::External>::Cast(arg1) };
     void* val { ext->Value() };
     RT_ASSERT(val);
     ResourceHandle<EngineThread> thread(static_cast<EngineThread*>(val));
 
     LockingPtr<EngineThread> lptr { thread.get() };
-    Isolate* isolate_recv { lptr->isolate() };
-    RT_ASSERT(isolate_recv);
+    Thread* recv { lptr->thread() };
+    RT_ASSERT(recv);
 
     TransportData data;
-    {	TransportData::SerializeError err { data.MoveValue(th, isolate_recv, arg3) };
+    {	TransportData::SerializeError err { data.MoveValue(th, recv, arg3) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -120,9 +114,6 @@ NATIVE_FUNCTION(NativesObject, SetTimeout) {
     USEARG(1);
     VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 should be a function");
     RT_ASSERT(arg0->IsFunction());
-
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
 
     ResourceHandle<EngineThread> thread { th->handle() };
     RT_ASSERT(!thread.empty());
@@ -225,8 +216,6 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
 
 NATIVE_FUNCTION(NativesObject, Resources) {
     PROLOGUE_NOTHIS;
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
 
     LOCAL_V8STRING(s_memory_range, "memoryRange");
     LOCAL_V8STRING(s_io_range, "ioRange");
@@ -240,37 +229,35 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
     ResourceHandle<ResourceMemoryRange> memory_range(new ResourceMemoryRange(0, 0xffffffff));
-    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(isolate, memory_range))
+    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(th->template_cache(), memory_range))
         ->GetInstance());
 
     ResourceHandle<ResourceIORange> io_range(new ResourceIORange(1, 0xffff));
-    obj->Set(s_io_range, (new ResourceIORangeObject(isolate, io_range))
+    obj->Set(s_io_range, (new ResourceIORangeObject(th->template_cache(), io_range))
         ->GetInstance());
 
     ResourceHandle<ResourceIRQRange> irq_range(new ResourceIRQRange(1, 225));
-    obj->Set(s_irq_range, (new ResourceIRQRangeObject(isolate, irq_range))
+    obj->Set(s_irq_range, (new ResourceIRQRangeObject(th->template_cache(), irq_range))
         ->GetInstance());
 
     ResourceHandle<ProcessManager> proc_manager(&GLOBAL_engines()->process_manager());
-    obj->Set(s_process_manager, (new ProcessManagerHandleObject(isolate, proc_manager))
+    obj->Set(s_process_manager, (new ProcessManagerHandleObject(th->template_cache(), proc_manager))
         ->GetInstance());
 
-    obj->Set(s_acpi, (new AcpiManagerObject(isolate, GLOBAL_engines()->acpi_manager()))
+    obj->Set(s_acpi, (new AcpiManagerObject(th->template_cache(), GLOBAL_engines()->acpi_manager()))
         ->GetInstance());
 
-    obj->Set(s_allocator, (new AllocatorObject(isolate))->GetInstance());
+    obj->Set(s_allocator, (new AllocatorObject(th->template_cache()))->GetInstance());
 
     obj->Set(s_loader, v8::Function::New(iv8, KernelLoaderCallback));
 
-    obj->Set(s_natives, (new NativesObject(isolate))->GetInstance());
+    obj->Set(s_natives, (new NativesObject(th->template_cache()))->GetInstance());
 
     args.GetReturnValue().Set(obj);
 }
 
 NATIVE_FUNCTION(NativesObject, Args) {
     PROLOGUE_NOTHIS;
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
     v8::Local<v8::Value> threadargs = th->args();
     RT_ASSERT(!threadargs.IsEmpty());
     args.GetReturnValue().Set(threadargs);
@@ -279,9 +266,6 @@ NATIVE_FUNCTION(NativesObject, Args) {
 NATIVE_FUNCTION(NativesObject, InstallInternals) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
 
     RT_ASSERT(arg0->IsObject());
     v8::Local<v8::Object> obj { arg0->ToObject() };
@@ -393,7 +377,7 @@ NATIVE_FUNCTION(AcpiHandleObject, Parent) {
         args.GetReturnValue().Set(v8::Null(iv8));
     }
 
-    args.GetReturnValue().Set((new AcpiHandleObject(isolate, parent_handle))->GetInstance());
+    args.GetReturnValue().Set((new AcpiHandleObject(th->template_cache(), parent_handle))->GetInstance());
 }
 
 NATIVE_FUNCTION(AcpiHandleObject, HardwareId) {
@@ -645,7 +629,7 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
     v8::Local<v8::Array> arr = v8::Array::New(iv8, list.size());
 
     for (size_t i = 0; i < list.size(); ++i) {
-        arr->Set(i, (new AcpiHandleObject(isolate, list.Get(i)))->GetInstance());
+        arr->Set(i, (new AcpiHandleObject(th->template_cache(), list.Get(i)))->GetInstance());
     }
 
     args.GetReturnValue().Set(arr);
@@ -678,7 +662,7 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Subrange) {
         THROW_RANGE_ERROR("subrange: Invalid range (start > end).");
     }
 
-    args.GetReturnValue().Set((new ResourceMemoryRangeObject(isolate,
+    args.GetReturnValue().Set((new ResourceMemoryRangeObject(th->template_cache(),
         that->obj_.get()->Subrange(start, end)))->GetInstance());
 }
 
@@ -694,7 +678,7 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Block) {
 
     // TODO: add range checks
 
-    args.GetReturnValue().Set((new ResourceMemoryBlockObject(isolate,
+    args.GetReturnValue().Set((new ResourceMemoryBlockObject(th->template_cache(),
         that->obj_.get()->Block(base, size)))->GetInstance());
 }
 
@@ -723,7 +707,7 @@ NATIVE_FUNCTION(ResourceIORangeObject, Subrange) {
         THROW_RANGE_ERROR("subrange: Invalid range (first >= last).");
     }
 
-    args.GetReturnValue().Set((new ResourceIORangeObject(isolate,
+    args.GetReturnValue().Set((new ResourceIORangeObject(th->template_cache(),
         that->obj_.get()->Subrange(first, last)))->GetInstance());
 }
 
@@ -738,7 +722,7 @@ NATIVE_FUNCTION(ResourceIORangeObject, Port) {
         THROW_RANGE_ERROR("port: invalid port number (should be <= 0xffff).");
     }
 
-    args.GetReturnValue().Set((new IoPortX64Object(isolate, number))->GetInstance());
+    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), number))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
@@ -760,7 +744,7 @@ NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
 
     printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n", io->first(), number, p);
 
-    args.GetReturnValue().Set((new IoPortX64Object(isolate, p))->GetInstance());
+    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), p))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
@@ -774,7 +758,7 @@ NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
         THROW_RANGE_ERROR("irq: invalid irq number (should be <= 255).");
     }
 
-    args.GetReturnValue().Set((new ResourceIRQObject(isolate,
+    args.GetReturnValue().Set((new ResourceIRQObject(th->template_cache(),
         that->obj_.get()->Irq(number & 0xff)))->GetInstance());
 }
 
@@ -783,8 +767,6 @@ NATIVE_FUNCTION(ResourceIRQObject, On) {
     USEARG(0);
     VALIDATEARG(0, FUNCTION, "on: argument 0 should be a function");
 
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
     ResourceHandle<EngineThread> thread { th->handle() };
     RT_ASSERT(!thread.empty());
 
@@ -850,18 +832,14 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
     RT_ASSERT(GLOBAL_engines()->execution_engines_count() > 0);
     Engine* first_engine = GLOBAL_engines()->execution_engine(0);
     RT_ASSERT(first_engine);
-    RT_ASSERT(first_engine->isolate());
-
-    Thread* th = isolate->current_thread();
-    RT_ASSERT(th);
 
     TransportData td_code;
-    {	TransportData::SerializeError err { td_code.MoveValue(th, first_engine->isolate(), arg0) };
+    {	TransportData::SerializeError err { td_code.MoveValue(th, nullptr, arg0) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
     TransportData td_args;
-    {	TransportData::SerializeError err { td_args.MoveValue(th, first_engine->isolate(), arg1) };
+    {	TransportData::SerializeError err { td_args.MoveValue(th, nullptr, arg1) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -887,7 +865,7 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
 
     LockingPtr<Process> proc = p.get();
     proc->SetThread(st, 0);
-    args.GetReturnValue().Set(proc->NewInstance(isolate));
+    args.GetReturnValue().Set(proc->NewInstance(th));
 }
 
 NATIVE_FUNCTION(AllocatorObject, AllocDMA) {

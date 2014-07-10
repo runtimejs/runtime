@@ -25,11 +25,12 @@
 namespace rt {
 
 class Engines;
+class Thread;
 
 class Process : public Resource {
     friend class ProcessManager;
 public:
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
     void SetThread(ResourceHandle<EngineThread> thread, uint32_t engine_index) {
         RT_ASSERT(engine_index < threads_.size());
         RT_ASSERT(threads_[engine_index].empty());
@@ -45,7 +46,7 @@ private:
 
 class ProcessManager : public Resource {
 public:
-    v8::Local<v8::Object> NewInstance(Isolate* isolate);
+    v8::Local<v8::Object> NewInstance(Thread* thread);
     ResourceHandle<Process> CreateProcess();
 
     ProcessManager(Engines* platform)

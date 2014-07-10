@@ -14,20 +14,58 @@
 
 #include "engine.h"
 #include <v8.h>
+#include <kernel/thread-manager.h>
 
 namespace rt {
 
-Isolate* EngineThread::isolate() const {
-    RT_ASSERT(engine_);
-    return engine_->isolate();
+Thread* EngineThread::thread() const {
+    RT_ASSERT(thread_);
+    return thread_;
 }
 
-v8::Local<v8::Object> EngineThread::NewInstance(Isolate* isolate) {
-    RT_ASSERT(isolate);
-    v8::Isolate* iv8 = isolate->IsolateV8();
+v8::Local<v8::Object> EngineThread::NewInstance(Thread* thread) {
+    RT_ASSERT(thread);
+    v8::Isolate* iv8 = thread->IsolateV8();
     RT_ASSERT(iv8);
     v8::EscapableHandleScope scope(iv8);
     return scope.Escape(v8::Object::New(iv8));
+}
+
+void Engine::TimerTick(SystemContextIRQ& irq_context) const {
+    if (thread_mgr_) {
+        thread_mgr_->TimerInterruptNotify();
+    }
+}
+
+void Engine::Enter() {
+    RT_ASSERT(!init_);
+    RT_ASSERT(!thread_mgr_);
+
+    switch (type_) {
+    case EngineType::DISABLED: {
+        Cpu::HangSystem();
+    }
+        break;
+    case EngineType::SERVICE: {
+        for (;;) Cpu::WaitPause();
+        Cpu::HangSystem();
+    }
+        break;
+    case EngineType::EXECUTION: {
+        thread_mgr_ = new ThreadManager(this);
+        RT_ASSERT(thread_mgr_);
+    }
+        break;
+    default:
+        RT_ASSERT(!"Invalid engine type.");
+        break;
+    }
+
+    init_ = true;
+
+    if (thread_mgr_) {
+        thread_mgr_->Run();
+    }
 }
 
 } // namespace rt

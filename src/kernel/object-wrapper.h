@@ -19,25 +19,27 @@
 #include <v8.h>
 #include <functional>
 #include <kernel/template-cache.h>
-#include <kernel/isolate.h>
+#include <kernel/thread.h>
 
 namespace rt {
 
 class ExportBuilder
 {
 public:
-    ExportBuilder(Isolate* isolate, v8::Local<v8::Object>& obj)
-        :	isolate_(isolate),
-            obj_(obj) { }
+    ExportBuilder(v8::Isolate* iv8, v8::Local<v8::Object>& obj)
+        :	iv8_(iv8),
+            obj_(obj) {
+        RT_ASSERT(iv8);
+    }
 
     void SetCallback(std::string key, v8::FunctionCallback callback) {
-        v8::HandleScope scope(isolate_->IsolateV8());
+        v8::HandleScope scope(iv8_);
         v8::Local<v8::FunctionTemplate> foo =
-            v8::FunctionTemplate::New(isolate_->IsolateV8(), callback);
+            v8::FunctionTemplate::New(iv8_, callback);
 
         v8::Local<v8::Function> fn = foo->GetFunction();
         v8::Local<v8::String> fname =
-            v8::String::NewFromOneByte(isolate_->IsolateV8(),
+            v8::String::NewFromOneByte(iv8_,
                 reinterpret_cast<const uint8_t*>(key.c_str()));
 
         fn->SetName(fname);
@@ -47,14 +49,14 @@ public:
     void SetAccessors(std::string key, v8::AccessorGetterCallback getter,
                       v8::AccessorSetterCallback setter = nullptr) {
         v8::Local<v8::String> fname =
-            v8::String::NewFromOneByte(isolate_->IsolateV8(),
+            v8::String::NewFromOneByte(iv8_,
                 reinterpret_cast<const uint8_t*>(key.c_str()));
 
         obj_->SetAccessor(fname, getter, setter);
     }
 
 private:
-    Isolate* isolate_;
+    v8::Isolate* iv8_;
     v8::Local<v8::Object>& obj_;
 };
 
@@ -63,17 +65,19 @@ private:
  */
 class JsObjectWrapperBase : public NativeObjectWrapper {
 public:
-    JsObjectWrapperBase(Isolate* isolate, NativeTypeId type_id)
+    JsObjectWrapperBase(TemplateCache* tpl_cache, NativeTypeId type_id)
         :	NativeObjectWrapper(type_id),
-            isolate_(isolate),
+            tpl_cache_(tpl_cache),
             reference_count_(0) {
-        RT_ASSERT(isolate_);
+        RT_ASSERT(tpl_cache);
     }
 
     inline v8::Local<v8::Object> GetInstance() {
-        v8::EscapableHandleScope scope(isolate_->IsolateV8());
+        v8::Isolate* iv8 = tpl_cache_->IsolateV8();
+        RT_ASSERT(iv8);
+        v8::EscapableHandleScope scope(iv8);
         EnsureInstance();
-        return scope.Escape(v8::Local<v8::Object>::New(isolate_->IsolateV8(), object_));
+        return scope.Escape(v8::Local<v8::Object>::New(iv8, object_));
     }
 
     inline void AddReference() {
@@ -118,31 +122,30 @@ protected:
             return;
         }
 
-        RT_ASSERT(isolate_);
-        RT_ASSERT(isolate_->IsolateV8());
+        v8::Isolate* iv8 = tpl_cache_->IsolateV8();
+        RT_ASSERT(iv8);
 
-        v8::HandleScope scope(isolate_->IsolateV8());
-        TemplateCache* tc { isolate_->template_cache() };
-        RT_ASSERT(tc);
+        v8::HandleScope scope(iv8);
+        RT_ASSERT(tpl_cache_);
 
         v8::Local<v8::Object> cached;
-        if (tc->Exists(type_id())) {
-            cached = tc->Get(type_id());
+        if (tpl_cache_->Exists(type_id())) {
+            cached = tpl_cache_->Get(type_id());
         } else {
-            v8::Local<v8::Object> local_obj = tc->NewWrappedObject(this);
-            ObjectInit(ExportBuilder(isolate_, local_obj));
+            v8::Local<v8::Object> local_obj = tpl_cache_->NewWrappedObject(this);
+            ObjectInit(ExportBuilder(iv8, local_obj));
             cached = local_obj;
-            tc->Put(type_id(), cached);
+            tpl_cache_->Put(type_id(), cached);
         }
 
         v8::Local<v8::Object> loc = cached->Clone();
         loc->SetAlignedPointerInInternalField(0, static_cast<NativeObjectWrapper*>(this));
-        object_ = std::move(v8::UniquePersistent<v8::Object>(isolate_->IsolateV8(), loc));
+        object_ = std::move(v8::UniquePersistent<v8::Object>(iv8, loc));
         object_.MarkIndependent();
         Weak();
     }
 
-    Isolate* const isolate_;
+    TemplateCache* const tpl_cache_;
     v8::UniquePersistent<v8::Object> object_;
     uint32_t reference_count_;
     DELETE_COPY_AND_ASSIGN(JsObjectWrapperBase);
@@ -151,13 +154,11 @@ protected:
 template<typename T, NativeTypeId TypeId>
 class JsObjectWrapper : public JsObjectWrapperBase {
 public:
-    inline JsObjectWrapper(Isolate* isolate)
-        :	JsObjectWrapperBase(isolate, TypeId) { }
+    inline JsObjectWrapper(TemplateCache* tpl_cache)
+        :	JsObjectWrapperBase(tpl_cache, TypeId) { }
 
-    inline static T* FromHandle(Isolate* isolate, v8::Local<v8::Value> val) {
-        RT_ASSERT(isolate);
-        RT_ASSERT(isolate->template_cache());
-        NativeObjectWrapper* ptr = isolate->template_cache()->GetWrapped(val);
+    inline static T* FromHandle(Thread* thread, v8::Local<v8::Value> val) {
+        NativeObjectWrapper* ptr = TemplateCache::GetWrapped(val);
         if (nullptr == ptr) return nullptr;
         RT_ASSERT(ptr);
 
@@ -170,10 +171,8 @@ public:
     }
 
 protected:
-    inline static T* GetThis(Isolate* isolate, v8::Local<v8::Object> that) {
-        RT_ASSERT(isolate);
-        RT_ASSERT(isolate->template_cache());
-        NativeObjectWrapper* ptr = isolate->template_cache()->GetWrapped(that);
+    static T* GetThis(Thread* thread, v8::Local<v8::Object> that) {
+        NativeObjectWrapper* ptr = TemplateCache::GetWrapped(that);
         if (nullptr == ptr) return nullptr;
 
         // Wrong type check
@@ -184,18 +183,18 @@ protected:
         return static_cast<T*>(ptr);
     }
 
-    inline static T* GetThis(Isolate* isolate,
+    static T* GetThis(Thread* thread,
                              const v8::FunctionCallbackInfo<v8::Value>& args) {
-        RT_ASSERT(isolate);
+        RT_ASSERT(thread);
         v8::Local<v8::Object> that = args.This();
-        return GetThis(isolate, that);
+        return GetThis(thread, that);
     }
 
-    inline static T* GetThis(Isolate* isolate,
+    inline static T* GetThis(Thread* thread,
                              const v8::PropertyCallbackInfo<v8::Value>& args) {
-        RT_ASSERT(isolate);
+        RT_ASSERT(thread);
         v8::Local<v8::Object> that = args.This();
-        return GetThis(isolate, that);
+        return GetThis(thread, that);
     }
 };
 

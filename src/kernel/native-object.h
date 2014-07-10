@@ -27,8 +27,8 @@ class AcpiManager;
 class NativesObject : public JsObjectWrapper<NativesObject,
         NativeTypeId::TYPEID_NATIVES> {
 public:
-    NativesObject(Isolate* isolate)
-        :	JsObjectWrapper(isolate) {}
+    NativesObject(TemplateCache* tpl_cache)
+        :	JsObjectWrapper(tpl_cache) {}
 
     DECLARE_NATIVE(CallHandler);
     DECLARE_NATIVE(SetTimeout);
@@ -64,8 +64,8 @@ public:
 class IoPortX64Object : public JsObjectWrapper<IoPortX64Object,
         NativeTypeId::TYPEID_RESOURCE_IO_PORT> {
 public:
-    IoPortX64Object(Isolate* isolate, uint16_t port_number)
-        :	JsObjectWrapper(isolate),
+    IoPortX64Object(TemplateCache* tpl_cache, uint16_t port_number)
+        :	JsObjectWrapper(tpl_cache),
             port_number_(port_number) { }
 
     DECLARE_NATIVE(Write8);
@@ -90,8 +90,8 @@ private:
 class AcpiHandleObject : public JsObjectWrapper<AcpiHandleObject,
         NativeTypeId::TYPEID_ACPI_HANDLE> {
 public:
-    AcpiHandleObject(Isolate* isolate, ACPI_HANDLE handle)
-        :	JsObjectWrapper(isolate),
+    AcpiHandleObject(TemplateCache* tpl_cache, ACPI_HANDLE handle)
+        :	JsObjectWrapper(tpl_cache),
             handle_(handle),
             devinfo_(nullptr) {
         RT_ASSERT(handle);
@@ -140,8 +140,8 @@ private:
 class AcpiManagerObject : public JsObjectWrapper<AcpiManagerObject,
         NativeTypeId::TYPEID_ACPI_MANAGER> {
 public:
-    AcpiManagerObject(Isolate* isolate, AcpiManager* mgr)
-        :	JsObjectWrapper(isolate),
+    AcpiManagerObject(TemplateCache* tpl_cache, AcpiManager* mgr)
+        :	JsObjectWrapper(tpl_cache),
             mgr_(mgr) {
         RT_ASSERT(mgr_);
     }
@@ -160,8 +160,8 @@ private:
 class ResourceMemoryRangeObject : public JsObjectWrapper<ResourceMemoryRangeObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_RANGE> {
 public:
-    ResourceMemoryRangeObject(Isolate* isolate, ResourceHandle<ResourceMemoryRange> obj)
-        :	JsObjectWrapper(isolate),
+    ResourceMemoryRangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceMemoryRange> obj)
+        :	JsObjectWrapper(tpl_cache),
             obj_(obj) { }
 
     DECLARE_NATIVE(Start);
@@ -182,8 +182,8 @@ private:
 class ResourceIORangeObject : public JsObjectWrapper<ResourceIORangeObject,
         NativeTypeId::TYPEID_RESOURCE_IO_RANGE> {
 public:
-    ResourceIORangeObject(Isolate* isolate, ResourceHandle<ResourceIORange> obj)
-        :	JsObjectWrapper(isolate),
+    ResourceIORangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIORange> obj)
+        :	JsObjectWrapper(tpl_cache),
             obj_(obj) { }
 
     DECLARE_NATIVE(First);
@@ -206,8 +206,8 @@ private:
 class ResourceIRQRangeObject : public JsObjectWrapper<ResourceIRQRangeObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ_RANGE> {
 public:
-    ResourceIRQRangeObject(Isolate* isolate, ResourceHandle<ResourceIRQRange> obj)
-        :	JsObjectWrapper(isolate),
+    ResourceIRQRangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIRQRange> obj)
+        :	JsObjectWrapper(tpl_cache),
             obj_(obj) { }
 
     DECLARE_NATIVE(Irq);
@@ -222,8 +222,8 @@ private:
 class ResourceIRQObject : public JsObjectWrapper<ResourceIRQObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ> {
 public:
-    ResourceIRQObject(Isolate* isolate, ResourceHandle<ResourceIRQ> obj)
-        :	JsObjectWrapper(isolate),
+    ResourceIRQObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIRQ> obj)
+        :	JsObjectWrapper(tpl_cache),
             obj_(obj) { }
 
     DECLARE_NATIVE(On);
@@ -238,8 +238,8 @@ private:
 class ResourceMemoryBlockObject : public JsObjectWrapper<ResourceMemoryBlockObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_BLOCK> {
 public:
-    ResourceMemoryBlockObject(Isolate* isolate, ResourceHandle<ResourceMemoryBlock> obj)
-        :	JsObjectWrapper(isolate),
+    ResourceMemoryBlockObject(TemplateCache* tpl_cache, ResourceHandle<ResourceMemoryBlock> obj)
+        :	JsObjectWrapper(tpl_cache),
             obj_(obj) { }
 
     DECLARE_NATIVE(Length);
@@ -260,10 +260,9 @@ class Process;
 class ProcessHandleObject : public JsObjectWrapper<ProcessHandleObject,
     NativeTypeId::TYPEID_PROCESS_HANDLE> {
 public:
-    ProcessHandleObject(Isolate* isolate, ResourceHandle<Process> proc)
-        :	JsObjectWrapper(isolate),
+    ProcessHandleObject(TemplateCache* tpl_cache, ResourceHandle<Process> proc)
+        :	JsObjectWrapper(tpl_cache),
             proc_(proc) {
-        RT_ASSERT(isolate);
     }
 
     void ObjectInit(ExportBuilder obj) {
@@ -277,10 +276,9 @@ class ProcessManager;
 class ProcessManagerHandleObject : public JsObjectWrapper<ProcessManagerHandleObject,
     NativeTypeId::TYPEID_PROCESS_MANAGER_HANDLE> {
 public:
-    ProcessManagerHandleObject(Isolate* isolate, ResourceHandle<ProcessManager> proc_mgr)
-        :	JsObjectWrapper(isolate),
+    ProcessManagerHandleObject(TemplateCache* tpl_cache, ResourceHandle<ProcessManager> proc_mgr)
+        :	JsObjectWrapper(tpl_cache),
             proc_mgr_(proc_mgr) {
-        RT_ASSERT(isolate);
     }
 
     DECLARE_NATIVE(Create);
@@ -295,9 +293,8 @@ private:
 class AllocatorObject : public JsObjectWrapper<AllocatorObject,
     NativeTypeId::TYPEID_ALLOCATOR> {
 public:
-    AllocatorObject(Isolate* isolate)
-        :	JsObjectWrapper(isolate) {
-        RT_ASSERT(isolate);
+    AllocatorObject(TemplateCache* tpl_cache)
+        :	JsObjectWrapper(tpl_cache) {
     }
 
     DECLARE_NATIVE(AllocDMA);
