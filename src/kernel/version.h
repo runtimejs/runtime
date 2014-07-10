@@ -25,7 +25,7 @@ public:
     }
 
     static uint32_t getMinor() {
-        return 0;
+        return 1;
     }
 
     static uint32_t getRev() {

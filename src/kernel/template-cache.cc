@@ -70,6 +70,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
         runtime->Set(iv8_, "args", v8::FunctionTemplate::New(iv8_, NativesObject::Args));
         runtime->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
+        runtime->Set(iv8_, "version", v8::FunctionTemplate::New(iv8_, NativesObject::Version));
 
         global->Set(iv8_, "runtime", runtime);
 

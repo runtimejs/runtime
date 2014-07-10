@@ -23,6 +23,7 @@
 #include <kernel/engines.h>
 #include <common/utils.h>
 #include <kernel/platform.h>
+#include <kernel/version.h>
 
 namespace rt {
 
@@ -261,6 +262,15 @@ NATIVE_FUNCTION(NativesObject, Args) {
     v8::Local<v8::Value> threadargs = th->args();
     RT_ASSERT(!threadargs.IsEmpty());
     args.GetReturnValue().Set(threadargs);
+}
+
+NATIVE_FUNCTION(NativesObject, Version) {
+    PROLOGUE_NOTHIS;
+    v8::Local<v8::Object> arr { v8::Array::New(iv8, 3) };
+    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
+    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
+    arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
+    args.GetReturnValue().Set(arr);
 }
 
 NATIVE_FUNCTION(NativesObject, InstallInternals) {

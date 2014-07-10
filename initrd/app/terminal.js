@@ -403,7 +403,7 @@ var evalScope = function(print) {
             var name = '#' + i;
             var cons = new Console(name);
             cons.write('Welcome to ', messageColor);
-            cons.write('runtime.js', messageColorLight);
+            cons.write('runtime.js v' + runtime.version().join('.'), messageColorLight);
             cons.write(' (console ' + name + ')\n\n', messageColor);
             items.push(cons);
         }
