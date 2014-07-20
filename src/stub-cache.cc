@@ -579,12 +579,10 @@ RUNTIME_FUNCTION(StoreInterceptorProperty) {
   Handle<Name> name = args.at<Name>(1);
   Handle<Object> value = args.at<Object>(2);
   ASSERT(receiver->HasNamedInterceptor());
-  PropertyAttributes attr = NONE;
   Handle<Object> result;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result,
-      JSObject::SetPropertyWithInterceptor(
-          receiver, name, value, attr, ic.strict_mode()));
+      isolate, result, JSObject::SetPropertyWithInterceptor(
+                           receiver, name, value, ic.strict_mode()));
   return *result;
 }
 
@@ -607,7 +605,6 @@ Handle<Code> StubCompiler::CompileLoadInitialize(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileLoadInitialize");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::LOAD_INITIALIZE_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::LOAD_IC, *code));
   return code;
 }
 
@@ -617,7 +614,6 @@ Handle<Code> StubCompiler::CompileLoadPreMonomorphic(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileLoadPreMonomorphic");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::LOAD_PREMONOMORPHIC_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::LOAD_IC, *code));
   return code;
 }
 
@@ -627,7 +623,6 @@ Handle<Code> StubCompiler::CompileLoadMegamorphic(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileLoadMegamorphic");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::LOAD_MEGAMORPHIC_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::LOAD_IC, *code));
   return code;
 }
 
@@ -637,7 +632,6 @@ Handle<Code> StubCompiler::CompileStoreInitialize(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStoreInitialize");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::STORE_INITIALIZE_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::STORE_IC, *code));
   return code;
 }
 
@@ -647,7 +641,6 @@ Handle<Code> StubCompiler::CompileStorePreMonomorphic(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStorePreMonomorphic");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::STORE_PREMONOMORPHIC_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::STORE_IC, *code));
   return code;
 }
 
@@ -659,7 +652,6 @@ Handle<Code> StubCompiler::CompileStoreGeneric(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStoreGeneric");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::STORE_GENERIC_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::STORE_IC, *code));
   return code;
 }
 
@@ -669,7 +661,6 @@ Handle<Code> StubCompiler::CompileStoreMegamorphic(Code::Flags flags) {
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStoreMegamorphic");
   PROFILE(isolate(),
           CodeCreateEvent(Logger::STORE_MEGAMORPHIC_TAG, *code, 0));
-  GDBJIT(AddCode(GDBJITInterface::STORE_IC, *code));
   return code;
 }
 
@@ -687,7 +678,10 @@ Handle<Code> StubCompiler::GetCodeWithFlags(Code::Flags flags,
     code->set_major_key(CodeStub::NoCache);
   }
 #ifdef ENABLE_DISASSEMBLER
-  if (FLAG_print_code_stubs) code->Disassemble(name);
+  if (FLAG_print_code_stubs) {
+    OFStream os(stdout);
+    code->Disassemble(name, os);
+  }
 #endif
   return code;
 }
@@ -706,8 +700,9 @@ void StubCompiler::LookupPostInterceptor(Handle<JSObject> holder,
                                          LookupResult* lookup) {
   holder->LookupOwnRealNamedProperty(name, lookup);
   if (lookup->IsFound()) return;
-  if (holder->GetPrototype()->IsNull()) return;
-  holder->GetPrototype()->Lookup(name, lookup);
+  PrototypeIterator iter(holder->GetIsolate(), holder);
+  if (iter.IsAtEnd()) return;
+  PrototypeIterator::GetCurrent(iter)->Lookup(name, lookup);
 }
 
 
@@ -977,17 +972,18 @@ Handle<Code> StoreStubCompiler::CompileStoreTransition(
   __ CheckMapDeprecated(transition, scratch1(), &miss);
 
   // Check that we are allowed to write this.
-  if (object->GetPrototype()->IsJSObject()) {
+  PrototypeIterator iter(object->GetIsolate(), object);
+  if (!iter.IsAtEnd()) {
     Handle<JSObject> holder;
     // holder == object indicates that no property was found.
     if (lookup->holder() != *object) {
       holder = Handle<JSObject>(lookup->holder());
     } else {
       // Find the top object.
-      holder = object;
       do {
-        holder = Handle<JSObject>(JSObject::cast(holder->GetPrototype()));
-      } while (holder->GetPrototype()->IsJSObject());
+        holder = Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter));
+        iter.Advance();
+      } while (!iter.IsAtEnd());
     }
 
     Register holder_reg = HandlerFrontendHeader(
@@ -1163,23 +1159,6 @@ void StubCompiler::TailCallBuiltin(MacroAssembler* masm, Builtins::Name name) {
 }
 
 
-void BaseLoadStoreStubCompiler::JitEvent(Handle<Name> name, Handle<Code> code) {
-#ifdef ENABLE_GDB_JIT_INTERFACE
-  GDBJITInterface::CodeTag tag;
-  if (kind_ == Code::LOAD_IC) {
-    tag = GDBJITInterface::LOAD_IC;
-  } else if (kind_ == Code::KEYED_LOAD_IC) {
-    tag = GDBJITInterface::KEYED_LOAD_IC;
-  } else if (kind_ == Code::STORE_IC) {
-    tag = GDBJITInterface::STORE_IC;
-  } else {
-    tag = GDBJITInterface::KEYED_STORE_IC;
-  }
-  GDBJIT(AddCode(tag, *name, *code));
-#endif
-}
-
-
 void BaseLoadStoreStubCompiler::InitializeRegisters() {
   if (kind_ == Code::LOAD_IC) {
     registers_ = LoadStubCompiler::registers();
@@ -1201,7 +1180,6 @@ Handle<Code> BaseLoadStoreStubCompiler::GetICCode(Code::Kind kind,
   Handle<Code> code = GetCodeWithFlags(flags, name);
   IC::RegisterWeakMapDependency(code);
   PROFILE(isolate(), CodeCreateEvent(log_kind(code), *code, *name));
-  JitEvent(name, code);
   return code;
 }
 
@@ -1213,7 +1191,6 @@ Handle<Code> BaseLoadStoreStubCompiler::GetCode(Code::Kind kind,
   Code::Flags flags = Code::ComputeHandlerFlags(kind, type, cache_holder_);
   Handle<Code> code = GetCodeWithFlags(flags, name);
   PROFILE(isolate(), CodeCreateEvent(log_kind(code), *code, *name));
-  JitEvent(name, code);
   return code;
 }
 

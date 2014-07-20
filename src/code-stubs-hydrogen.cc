@@ -39,14 +39,15 @@ class CodeStubGraphBuilderBase : public HGraphBuilder {
         info_(stub, isolate),
         context_(NULL) {
     descriptor_ = stub->GetInterfaceDescriptor();
-    parameters_.Reset(new HParameter*[descriptor_->register_param_count_]);
+    int parameter_count = descriptor_->GetEnvironmentParameterCount();
+    parameters_.Reset(new HParameter*[parameter_count]);
   }
   virtual bool BuildGraph();
 
  protected:
   virtual HValue* BuildCodeStub() = 0;
   HParameter* GetParameter(int parameter) {
-    ASSERT(parameter < descriptor_->register_param_count_);
+    ASSERT(parameter < descriptor_->GetEnvironmentParameterCount());
     return parameters_[parameter];
   }
   HValue* GetArgumentsLength() {
@@ -116,23 +117,22 @@ bool CodeStubGraphBuilderBase::BuildGraph() {
     isolate()->GetHTracer()->TraceCompilation(&info_);
   }
 
-  int param_count = descriptor_->register_param_count_;
+  int param_count = descriptor_->GetEnvironmentParameterCount();
   HEnvironment* start_environment = graph()->start_environment();
   HBasicBlock* next_block = CreateBasicBlock(start_environment);
   Goto(next_block);
   next_block->SetJoinId(BailoutId::StubEntry());
   set_current_block(next_block);
 
-  bool runtime_stack_params = descriptor_->stack_parameter_count_.is_valid();
+  bool runtime_stack_params = descriptor_->stack_parameter_count().is_valid();
   HInstruction* stack_parameter_count = NULL;
   for (int i = 0; i < param_count; ++i) {
-    Representation r = descriptor_->register_param_representations_ == NULL
-        ? Representation::Tagged()
-        : descriptor_->register_param_representations_[i];
-    HParameter* param = Add<HParameter>(i, HParameter::REGISTER_PARAMETER, r);
+    Representation r = descriptor_->GetEnvironmentParameterRepresentation(i);
+    HParameter* param = Add<HParameter>(i,
+                                        HParameter::REGISTER_PARAMETER, r);
     start_environment->Bind(i, param);
     parameters_[i] = param;
-    if (descriptor_->IsParameterCountRegister(i)) {
+    if (descriptor_->IsEnvironmentParameterCountRegister(i)) {
       param->set_type(HType::Smi());
       stack_parameter_count = param;
       arguments_length_ = stack_parameter_count;
@@ -157,16 +157,16 @@ bool CodeStubGraphBuilderBase::BuildGraph() {
   // We might have extra expressions to pop from the stack in addition to the
   // arguments above.
   HInstruction* stack_pop_count = stack_parameter_count;
-  if (descriptor_->function_mode_ == JS_FUNCTION_STUB_MODE) {
+  if (descriptor_->function_mode() == JS_FUNCTION_STUB_MODE) {
     if (!stack_parameter_count->IsConstant() &&
-        descriptor_->hint_stack_parameter_count_ < 0) {
+        descriptor_->hint_stack_parameter_count() < 0) {
       HInstruction* constant_one = graph()->GetConstant1();
       stack_pop_count = AddUncasted<HAdd>(stack_parameter_count, constant_one);
       stack_pop_count->ClearFlag(HValue::kCanOverflow);
       // TODO(mvstanton): verify that stack_parameter_count+1 really fits in a
       // smi.
     } else {
-      int count = descriptor_->hint_stack_parameter_count_;
+      int count = descriptor_->hint_stack_parameter_count();
       stack_pop_count = Add<HConstant>(count);
     }
   }
@@ -253,7 +253,7 @@ static Handle<Code> DoGenerateCode(Stub* stub) {
       static_cast<HydrogenCodeStub*>(stub)->MajorKey();
   CodeStubInterfaceDescriptor* descriptor =
       isolate->code_stub_interface_descriptor(major_key);
-  if (descriptor->register_param_count_ < 0) {
+  if (!descriptor->IsInitialized()) {
     stub->InitializeInterfaceDescriptor(descriptor);
   }
 
@@ -261,10 +261,10 @@ static Handle<Code> DoGenerateCode(Stub* stub) {
   // the runtime that is significantly faster than using the standard
   // stub-failure deopt mechanism.
   if (stub->IsUninitialized() && descriptor->has_miss_handler()) {
-    ASSERT(!descriptor->stack_parameter_count_.is_valid());
+    ASSERT(!descriptor->stack_parameter_count().is_valid());
     return stub->GenerateLightweightMissCode();
   }
-  ElapsedTimer timer;
+  base::ElapsedTimer timer;
   if (FLAG_profile_hydrogen_code_stub_compilation) {
     timer.Start();
   }
@@ -272,9 +272,9 @@ static Handle<Code> DoGenerateCode(Stub* stub) {
   LChunk* chunk = OptimizeGraph(builder.CreateGraph());
   Handle<Code> code = chunk->Codegen();
   if (FLAG_profile_hydrogen_code_stub_compilation) {
-    double ms = timer.Elapsed().InMillisecondsF();
-    PrintF("[Lazy compilation of %s took %0.3f ms]\n",
-           stub->GetName().get(), ms);
+    OFStream os(stdout);
+    os << "[Lazy compilation of " << stub << " took "
+       << timer.Elapsed().InMillisecondsF() << " ms]" << endl;
   }
   return code;
 }
@@ -539,9 +539,14 @@ Handle<Code> CreateAllocationSiteStub::GenerateCode() {
 template <>
 HValue* CodeStubGraphBuilder<KeyedLoadFastElementStub>::BuildCodeStub() {
   HInstruction* load = BuildUncheckedMonomorphicElementAccess(
-      GetParameter(0), GetParameter(1), NULL,
-      casted_stub()->is_js_array(), casted_stub()->elements_kind(),
-      LOAD, NEVER_RETURN_HOLE, STANDARD_STORE);
+      GetParameter(KeyedLoadIC::kReceiverIndex),
+      GetParameter(KeyedLoadIC::kNameIndex),
+      NULL,
+      casted_stub()->is_js_array(),
+      casted_stub()->elements_kind(),
+      LOAD,
+      NEVER_RETURN_HOLE,
+      STANDARD_STORE);
   return load;
 }
 
@@ -600,7 +605,9 @@ Handle<Code> StringLengthStub::GenerateCode() {
 template <>
 HValue* CodeStubGraphBuilder<KeyedStoreFastElementStub>::BuildCodeStub() {
   BuildUncheckedMonomorphicElementAccess(
-      GetParameter(0), GetParameter(1), GetParameter(2),
+      GetParameter(StoreIC::kReceiverIndex),
+      GetParameter(StoreIC::kNameIndex),
+      GetParameter(StoreIC::kValueIndex),
       casted_stub()->is_js_array(), casted_stub()->elements_kind(),
       STORE, NEVER_RETURN_HOLE, casted_stub()->store_mode());
 
@@ -1025,7 +1032,7 @@ HValue* CodeStubGraphBuilder<StoreGlobalStub>::BuildCodeInitializedStub() {
   Handle<PropertyCell> placeholder_cell =
       isolate()->factory()->NewPropertyCell(placeholer_value);
 
-  HParameter* value = GetParameter(2);
+  HParameter* value = GetParameter(StoreIC::kValueIndex);
 
   if (stub->check_global()) {
     // Check that the map of the global has not changed: use a placeholder map
@@ -1072,10 +1079,10 @@ Handle<Code> StoreGlobalStub::GenerateCode() {
 
 template<>
 HValue* CodeStubGraphBuilder<ElementsTransitionAndStoreStub>::BuildCodeStub() {
-  HValue* value = GetParameter(0);
-  HValue* map = GetParameter(1);
-  HValue* key = GetParameter(2);
-  HValue* object = GetParameter(3);
+  HValue* value = GetParameter(ElementsTransitionAndStoreStub::kValueIndex);
+  HValue* map = GetParameter(ElementsTransitionAndStoreStub::kMapIndex);
+  HValue* key = GetParameter(ElementsTransitionAndStoreStub::kKeyIndex);
+  HValue* object = GetParameter(ElementsTransitionAndStoreStub::kObjectIndex);
 
   if (FLAG_trace_elements_transitions) {
     // Tracing elements transitions is the job of the runtime.
@@ -1371,8 +1378,8 @@ Handle<Code> FastNewContextStub::GenerateCode() {
 
 template<>
 HValue* CodeStubGraphBuilder<KeyedLoadDictionaryElementStub>::BuildCodeStub() {
-  HValue* receiver = GetParameter(0);
-  HValue* key = GetParameter(1);
+  HValue* receiver = GetParameter(KeyedLoadIC::kReceiverIndex);
+  HValue* key = GetParameter(KeyedLoadIC::kNameIndex);
 
   Add<HCheckSmi>(key);
 
@@ -1504,8 +1511,8 @@ void CodeStubGraphBuilder<
 
 
 HValue* CodeStubGraphBuilder<KeyedLoadGenericElementStub>::BuildCodeStub() {
-  HValue* receiver = GetParameter(0);
-  HValue* key = GetParameter(1);
+  HValue* receiver = GetParameter(KeyedLoadIC::kReceiverIndex);
+  HValue* key = GetParameter(KeyedLoadIC::kNameIndex);
 
   // Split into a smi/integer case and unique string case.
   HIfContinuation index_name_split_continuation(graph()->CreateBasicBlock(),
@@ -1629,6 +1636,8 @@ HValue* CodeStubGraphBuilder<KeyedLoadGenericElementStub>::BuildCodeStub() {
           Add<HLoadNamedField>(key, static_cast<HValue*>(NULL),
           HObjectAccess::ForNameHashField());
 
+      hash = AddUncasted<HShr>(hash, Add<HConstant>(Name::kHashShift));
+
       HValue* value = BuildUncheckedDictionaryElementLoad(receiver,
                                                           properties,
                                                           key,
@@ -1649,50 +1658,67 @@ HValue* CodeStubGraphBuilder<KeyedLoadGenericElementStub>::BuildCodeStub() {
       HValue* base_index = AddUncasted<HMul>(hash, Add<HConstant>(2));
       base_index->ClearFlag(HValue::kCanOverflow);
 
-      IfBuilder lookup_if(this);
-      for (int probe = 0; probe < KeyedLookupCache::kEntriesPerBucket;
-           ++probe) {
-        int probe_base = probe * KeyedLookupCache::kEntryLength;
-        HValue* map_index = AddUncasted<HAdd>(base_index,
-            Add<HConstant>(probe_base + KeyedLookupCache::kMapIndex));
-        map_index->ClearFlag(HValue::kCanOverflow);
-        HValue* key_index = AddUncasted<HAdd>(base_index,
-            Add<HConstant>(probe_base + KeyedLookupCache::kKeyIndex));
-        key_index->ClearFlag(HValue::kCanOverflow);
-        HValue* map_to_check = Add<HLoadKeyed>(cache_keys,
-                                               map_index,
-                                               static_cast<HValue*>(NULL),
-                                               FAST_ELEMENTS,
-                                               NEVER_RETURN_HOLE, 0);
-        lookup_if.If<HCompareObjectEqAndBranch>(map_to_check, map);
-        lookup_if.And();
-        HValue* key_to_check = Add<HLoadKeyed>(cache_keys,
-                                               key_index,
-                                               static_cast<HValue*>(NULL),
-                                               FAST_ELEMENTS,
-                                               NEVER_RETURN_HOLE, 0);
-        lookup_if.If<HCompareObjectEqAndBranch>(key_to_check, key);
-        lookup_if.Then();
-        {
-          ExternalReference cache_field_offsets_ref =
-              ExternalReference::keyed_lookup_cache_field_offsets(isolate());
-          HValue* cache_field_offsets = Add<HConstant>(cache_field_offsets_ref);
-          HValue* index = AddUncasted<HAdd>(hash,
-                                            Add<HConstant>(probe));
-          index->ClearFlag(HValue::kCanOverflow);
-          HValue* property_index = Add<HLoadKeyed>(cache_field_offsets,
-                                                   index,
-                                                   static_cast<HValue*>(NULL),
-                                                   EXTERNAL_INT32_ELEMENTS,
-                                                   NEVER_RETURN_HOLE, 0);
-          Push(property_index);
+      HIfContinuation inline_or_runtime_continuation(
+          graph()->CreateBasicBlock(), graph()->CreateBasicBlock());
+      {
+        IfBuilder lookup_ifs[KeyedLookupCache::kEntriesPerBucket];
+        for (int probe = 0; probe < KeyedLookupCache::kEntriesPerBucket;
+             ++probe) {
+          IfBuilder* lookup_if = &lookup_ifs[probe];
+          lookup_if->Initialize(this);
+          int probe_base = probe * KeyedLookupCache::kEntryLength;
+          HValue* map_index = AddUncasted<HAdd>(
+              base_index,
+              Add<HConstant>(probe_base + KeyedLookupCache::kMapIndex));
+          map_index->ClearFlag(HValue::kCanOverflow);
+          HValue* key_index = AddUncasted<HAdd>(
+              base_index,
+              Add<HConstant>(probe_base + KeyedLookupCache::kKeyIndex));
+          key_index->ClearFlag(HValue::kCanOverflow);
+          HValue* map_to_check =
+              Add<HLoadKeyed>(cache_keys, map_index, static_cast<HValue*>(NULL),
+                              FAST_ELEMENTS, NEVER_RETURN_HOLE, 0);
+          lookup_if->If<HCompareObjectEqAndBranch>(map_to_check, map);
+          lookup_if->And();
+          HValue* key_to_check =
+              Add<HLoadKeyed>(cache_keys, key_index, static_cast<HValue*>(NULL),
+                              FAST_ELEMENTS, NEVER_RETURN_HOLE, 0);
+          lookup_if->If<HCompareObjectEqAndBranch>(key_to_check, key);
+          lookup_if->Then();
+          {
+            ExternalReference cache_field_offsets_ref =
+                ExternalReference::keyed_lookup_cache_field_offsets(isolate());
+            HValue* cache_field_offsets =
+                Add<HConstant>(cache_field_offsets_ref);
+            HValue* index = AddUncasted<HAdd>(hash, Add<HConstant>(probe));
+            index->ClearFlag(HValue::kCanOverflow);
+            HValue* property_index = Add<HLoadKeyed>(
+                cache_field_offsets, index, static_cast<HValue*>(NULL),
+                EXTERNAL_INT32_ELEMENTS, NEVER_RETURN_HOLE, 0);
+            Push(property_index);
+          }
+          lookup_if->Else();
         }
-        lookup_if.Else();
+        for (int i = 0; i < KeyedLookupCache::kEntriesPerBucket; ++i) {
+          lookup_ifs[i].JoinContinuation(&inline_or_runtime_continuation);
+        }
       }
-      Add<HDeoptimize>("KeyedLoad fall-back", Deoptimizer::EAGER);
-      Push(graph()->GetConstant0());
-      lookup_if.End();
-      Push(Add<HLoadFieldByIndex>(receiver, Pop()));
+
+      IfBuilder inline_or_runtime(this, &inline_or_runtime_continuation);
+      inline_or_runtime.Then();
+      {
+        // Found a cached index, load property inline.
+        Push(Add<HLoadFieldByIndex>(receiver, Pop()));
+      }
+      inline_or_runtime.Else();
+      {
+        // KeyedLookupCache miss; call runtime.
+        Add<HPushArguments>(receiver, key);
+        Push(Add<HCallRuntime>(
+            isolate()->factory()->empty_string(),
+            Runtime::FunctionForId(Runtime::kKeyedGetProperty), 2));
+      }
+      inline_or_runtime.End();
     }
     if_dict_properties.End();
   }

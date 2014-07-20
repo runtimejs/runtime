@@ -426,8 +426,9 @@ void StoreStubCompiler::GenerateStoreTransition(MacroAssembler* masm,
     }
   } else if (representation.IsDouble()) {
     Label do_store, heap_number;
-    __ LoadRoot(scratch3, Heap::kHeapNumberMapRootIndex);
-    __ AllocateHeapNumber(storage_reg, scratch1, scratch2, scratch3, slow);
+    __ LoadRoot(scratch3, Heap::kMutableHeapNumberMapRootIndex);
+    __ AllocateHeapNumber(storage_reg, scratch1, scratch2, scratch3, slow,
+                          TAG_RESULT, MUTABLE);
 
     __ JumpIfNotSmi(value_reg, &heap_number);
     __ SmiUntag(scratch1, value_reg);
@@ -1203,8 +1204,7 @@ void StoreStubCompiler::GenerateStoreViaSetter(
       if (IC::TypeToMap(*type, masm->isolate())->IsJSGlobalObjectMap()) {
         // Swap in the global receiver.
         __ ldr(receiver,
-               FieldMemOperand(
-                   receiver, JSGlobalObject::kGlobalReceiverOffset));
+               FieldMemOperand(receiver, JSGlobalObject::kGlobalProxyOffset));
       }
       __ Push(receiver, value());
       ParameterCount actual(1);
@@ -1263,33 +1263,42 @@ Handle<Code> LoadStubCompiler::CompileLoadNonexistent(Handle<HeapType> type,
 
 Register* LoadStubCompiler::registers() {
   // receiver, name, scratch1, scratch2, scratch3, scratch4.
-  static Register registers[] = { r0, r2, r3, r1, r4, r5 };
+  Register receiver = LoadIC::ReceiverRegister();
+  Register name = LoadIC::NameRegister();
+  static Register registers[] = { receiver, name, r3, r0, r4, r5 };
   return registers;
 }
 
 
 Register* KeyedLoadStubCompiler::registers() {
   // receiver, name, scratch1, scratch2, scratch3, scratch4.
-  static Register registers[] = { r1, r0, r2, r3, r4, r5 };
+  Register receiver = LoadIC::ReceiverRegister();
+  Register name = LoadIC::NameRegister();
+  static Register registers[] = { receiver, name, r3, r0, r4, r5 };
   return registers;
 }
 
 
 Register StoreStubCompiler::value() {
-  return r0;
+  return StoreIC::ValueRegister();
 }
 
 
 Register* StoreStubCompiler::registers() {
   // receiver, name, scratch1, scratch2, scratch3.
-  static Register registers[] = { r1, r2, r3, r4, r5 };
+  Register receiver = StoreIC::ReceiverRegister();
+  Register name = StoreIC::NameRegister();
+  static Register registers[] = { receiver, name, r3, r4, r5 };
   return registers;
 }
 
 
 Register* KeyedStoreStubCompiler::registers() {
-  // receiver, name, scratch1, scratch2, scratch3.
-  static Register registers[] = { r2, r1, r3, r4, r5 };
+  // receiver, name, scratch1/map, scratch2, scratch3.
+  Register receiver = KeyedStoreIC::ReceiverRegister();
+  Register name = KeyedStoreIC::NameRegister();
+  Register map = KeyedStoreIC::MapRegister();
+  static Register registers[] = { receiver, name, map, r4, r5 };
   return registers;
 }
 
@@ -1315,8 +1324,7 @@ void LoadStubCompiler::GenerateLoadViaGetter(MacroAssembler* masm,
       if (IC::TypeToMap(*type, masm->isolate())->IsJSGlobalObjectMap()) {
         // Swap in the global receiver.
         __ ldr(receiver,
-                FieldMemOperand(
-                    receiver, JSGlobalObject::kGlobalReceiverOffset));
+               FieldMemOperand(receiver, JSGlobalObject::kGlobalProxyOffset));
       }
       __ push(receiver);
       ParameterCount actual(0);
@@ -1390,7 +1398,10 @@ Handle<Code> BaseLoadStoreStubCompiler::CompilePolymorphicIC(
   Label* smi_target = IncludesNumberType(types) ? &number_case : &miss;
   __ JumpIfSmi(receiver(), smi_target);
 
+  // Polymorphic keyed stores may use the map register
   Register map_reg = scratch1();
+  ASSERT(kind() != Code::KEYED_STORE_IC ||
+         map_reg.is(KeyedStoreIC::MapRegister()));
 
   int receiver_count = types->length();
   int number_of_handled_maps = 0;
@@ -1470,19 +1481,17 @@ Handle<Code> KeyedStoreStubCompiler::CompileStorePolymorphic(
 
 void KeyedLoadStubCompiler::GenerateLoadDictionaryElement(
     MacroAssembler* masm) {
-  // ---------- S t a t e --------------
-  //  -- lr     : return address
-  //  -- r0     : key
-  //  -- r1     : receiver
-  // -----------------------------------
+  // The return address is in lr.
   Label slow, miss;
 
-  Register key = r0;
-  Register receiver = r1;
+  Register key = LoadIC::NameRegister();
+  Register receiver = LoadIC::ReceiverRegister();
+  ASSERT(receiver.is(r1));
+  ASSERT(key.is(r2));
 
-  __ UntagAndJumpIfNotSmi(r2, key, &miss);
+  __ UntagAndJumpIfNotSmi(r6, key, &miss);
   __ ldr(r4, FieldMemOperand(receiver, JSObject::kElementsOffset));
-  __ LoadFromNumberDictionary(&slow, r4, key, r0, r2, r3, r5);
+  __ LoadFromNumberDictionary(&slow, r4, key, r0, r6, r3, r5);
   __ Ret();
 
   __ bind(&slow);
@@ -1490,21 +1499,11 @@ void KeyedLoadStubCompiler::GenerateLoadDictionaryElement(
       masm->isolate()->counters()->keyed_load_external_array_slow(),
       1, r2, r3);
 
-  // ---------- S t a t e --------------
-  //  -- lr     : return address
-  //  -- r0     : key
-  //  -- r1     : receiver
-  // -----------------------------------
   TailCallBuiltin(masm, Builtins::kKeyedLoadIC_Slow);
 
   // Miss case, call the runtime.
   __ bind(&miss);
 
-  // ---------- S t a t e --------------
-  //  -- lr     : return address
-  //  -- r0     : key
-  //  -- r1     : receiver
-  // -----------------------------------
   TailCallBuiltin(masm, Builtins::kKeyedLoadIC_Miss);
 }
 

@@ -14,6 +14,7 @@
 #include "src/heap-profiler.h"
 #include "src/ic-inl.h"
 #include "src/mark-compact.h"
+#include "src/prototype.h"
 #include "src/stub-cache.h"
 #include "src/vm-state-inl.h"
 
@@ -253,12 +254,15 @@ static bool ArrayPrototypeHasNoElements(Heap* heap,
   // fields.
   if (array_proto->elements() != heap->empty_fixed_array()) return false;
   // Object.prototype
-  Object* proto = array_proto->GetPrototype();
-  if (proto == heap->null_value()) return false;
-  array_proto = JSObject::cast(proto);
+  PrototypeIterator iter(heap->isolate(), array_proto);
+  if (iter.IsAtEnd()) {
+    return false;
+  }
+  array_proto = JSObject::cast(iter.GetCurrent());
   if (array_proto != native_context->initial_object_prototype()) return false;
   if (array_proto->elements() != heap->empty_fixed_array()) return false;
-  return array_proto->GetPrototype()->IsNull();
+  iter.Advance();
+  return iter.IsAtEnd();
 }
 
 
@@ -331,7 +335,8 @@ static inline bool IsJSArrayFastElementMovingAllowed(Heap* heap,
   Context* native_context = heap->isolate()->context()->native_context();
   JSObject* array_proto =
       JSObject::cast(native_context->array_function()->prototype());
-  return receiver->GetPrototype() == array_proto &&
+  PrototypeIterator iter(heap->isolate(), receiver);
+  return iter.GetCurrent() == array_proto &&
          ArrayPrototypeHasNoElements(heap, native_context, array_proto);
 }
 
@@ -643,8 +648,8 @@ BUILTIN(ArraySlice) {
     } else {
       // Array.slice(arguments, ...) is quite a common idiom (notably more
       // than 50% of invocations in Web apps).  Treat it in C++ as well.
-      Map* arguments_map = isolate->context()->native_context()->
-          sloppy_arguments_boilerplate()->map();
+      Map* arguments_map =
+          isolate->context()->native_context()->sloppy_arguments_map();
 
       bool is_arguments_object_with_fast_elements =
           receiver->IsJSObject() &&
@@ -999,9 +1004,9 @@ BUILTIN(ArrayConcat) {
     bool is_holey = false;
     for (int i = 0; i < n_arguments; i++) {
       Object* arg = args[i];
-      if (!arg->IsJSArray() ||
-          !JSArray::cast(arg)->HasFastElements() ||
-          JSArray::cast(arg)->GetPrototype() != array_proto) {
+      PrototypeIterator iter(isolate, arg);
+      if (!arg->IsJSArray() || !JSArray::cast(arg)->HasFastElements() ||
+          iter.GetCurrent() != array_proto) {
         AllowHeapAllocation allow_allocation;
         return CallJsBuiltin(isolate, "ArrayConcatJS", args);
       }
@@ -1091,11 +1096,12 @@ BUILTIN(GeneratorPoisonPill) {
 static inline Object* FindHidden(Heap* heap,
                                  Object* object,
                                  FunctionTemplateInfo* type) {
-  if (type->IsTemplateFor(object)) return object;
-  Object* proto = object->GetPrototype(heap->isolate());
-  if (proto->IsJSObject() &&
-      JSObject::cast(proto)->map()->is_hidden_prototype()) {
-    return FindHidden(heap, proto, type);
+  for (PrototypeIterator iter(heap->isolate(), object,
+                              PrototypeIterator::START_AT_RECEIVER);
+       !iter.IsAtEnd(PrototypeIterator::END_AT_NON_HIDDEN); iter.Advance()) {
+    if (type->IsTemplateFor(iter.GetCurrent())) {
+      return iter.GetCurrent();
+    }
   }
   return heap->null_value();
 }
@@ -1166,9 +1172,7 @@ MUST_USE_RESULT static Object* HandleApiCallHelper(
   if (shared->strict_mode() == SLOPPY && !shared->native()) {
     Object* recv = args[0];
     ASSERT(!recv->IsNull());
-    if (recv->IsUndefined()) {
-      args[0] = function->context()->global_object()->global_receiver();
-    }
+    if (recv->IsUndefined()) args[0] = function->global_proxy();
   }
 
   Object* raw_holder = TypeCheck(heap, args.length(), &args[0], *fun_data);
@@ -1637,14 +1641,15 @@ void Builtins::SetUp(Isolate* isolate, bool create_heap_objects) {
       // Log the event and add the code to the builtins array.
       PROFILE(isolate,
               CodeCreateEvent(Logger::BUILTIN_TAG, *code, functions[i].s_name));
-      GDBJIT(AddCode(GDBJITInterface::BUILTIN, functions[i].s_name, *code));
       builtins_[i] = *code;
+      if (code->kind() == Code::BUILTIN) code->set_builtin_index(i);
 #ifdef ENABLE_DISASSEMBLER
       if (FLAG_print_builtin_code) {
         CodeTracer::Scope trace_scope(isolate->GetCodeTracer());
-        PrintF(trace_scope.file(), "Builtin: %s\n", functions[i].s_name);
-        code->Disassemble(functions[i].s_name, trace_scope.file());
-        PrintF(trace_scope.file(), "\n");
+        OFStream os(trace_scope.file());
+        os << "Builtin: " << functions[i].s_name << "\n";
+        code->Disassemble(functions[i].s_name, os);
+        os << "\n";
       }
 #endif
     } else {
@@ -1684,12 +1689,12 @@ const char* Builtins::Lookup(byte* pc) {
 
 
 void Builtins::Generate_InterruptCheck(MacroAssembler* masm) {
-  masm->TailCallRuntime(Runtime::kHiddenInterrupt, 0, 1);
+  masm->TailCallRuntime(Runtime::kInterrupt, 0, 1);
 }
 
 
 void Builtins::Generate_StackCheck(MacroAssembler* masm) {
-  masm->TailCallRuntime(Runtime::kHiddenStackGuard, 0, 1);
+  masm->TailCallRuntime(Runtime::kStackGuard, 0, 1);
 }
 
 

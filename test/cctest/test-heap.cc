@@ -44,8 +44,8 @@ using namespace v8::internal;
 static void SimulateIncrementalMarking() {
   MarkCompactCollector* collector = CcTest::heap()->mark_compact_collector();
   IncrementalMarking* marking = CcTest::heap()->incremental_marking();
-  if (collector->IsConcurrentSweepingInProgress()) {
-    collector->WaitUntilSweepingCompleted();
+  if (collector->sweeping_in_progress()) {
+    collector->EnsureSweepingCompleted();
   }
   CHECK(marking->IsMarking() || marking->IsStopped());
   if (marking->IsStopped()) {
@@ -179,7 +179,8 @@ TEST(HeapObjects) {
   CHECK(value->IsNumber());
   CHECK_EQ(Smi::kMaxValue, Handle<Smi>::cast(value)->value());
 
-#if !defined(V8_TARGET_ARCH_X64) && !defined(V8_TARGET_ARCH_ARM64)
+#if !defined(V8_TARGET_ARCH_X64) && !defined(V8_TARGET_ARCH_ARM64) && \
+    !defined(V8_TARGET_ARCH_MIPS64)
   // TODO(lrn): We need a NumberFromIntptr function in order to test this.
   value = factory->NewNumberFromInt(Smi::kMinValue - 1);
   CHECK(value->IsHeapNumber());
@@ -261,13 +262,11 @@ TEST(GarbageCollection) {
     HandleScope inner_scope(isolate);
     // Allocate a function and keep it in global object's property.
     Handle<JSFunction> function = factory->NewFunction(name);
-    JSReceiver::SetProperty(global, name, function, NONE, SLOPPY).Check();
+    JSReceiver::SetProperty(global, name, function, SLOPPY).Check();
     // Allocate an object.  Unrooted after leaving the scope.
     Handle<JSObject> obj = factory->NewJSObject(function);
-    JSReceiver::SetProperty(
-        obj, prop_name, twenty_three, NONE, SLOPPY).Check();
-    JSReceiver::SetProperty(
-        obj, prop_namex, twenty_four, NONE, SLOPPY).Check();
+    JSReceiver::SetProperty(obj, prop_name, twenty_three, SLOPPY).Check();
+    JSReceiver::SetProperty(obj, prop_namex, twenty_four, SLOPPY).Check();
 
     CHECK_EQ(Smi::FromInt(23),
              *Object::GetProperty(obj, prop_name).ToHandleChecked());
@@ -289,9 +288,8 @@ TEST(GarbageCollection) {
     HandleScope inner_scope(isolate);
     // Allocate another object, make it reachable from global.
     Handle<JSObject> obj = factory->NewJSObject(function);
-    JSReceiver::SetProperty(global, obj_name, obj, NONE, SLOPPY).Check();
-    JSReceiver::SetProperty(
-        obj, prop_name, twenty_three, NONE, SLOPPY).Check();
+    JSReceiver::SetProperty(global, obj_name, obj, SLOPPY).Check();
+    JSReceiver::SetProperty(obj, prop_name, twenty_three, SLOPPY).Check();
   }
 
   // After gc, it should survive.
@@ -626,12 +624,11 @@ TEST(FunctionAllocation) {
 
   Handle<String> prop_name = factory->InternalizeUtf8String("theSlot");
   Handle<JSObject> obj = factory->NewJSObject(function);
-  JSReceiver::SetProperty(obj, prop_name, twenty_three, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, prop_name, twenty_three, SLOPPY).Check();
   CHECK_EQ(Smi::FromInt(23),
            *Object::GetProperty(obj, prop_name).ToHandleChecked());
   // Check that we can add properties to function objects.
-  JSReceiver::SetProperty(
-      function, prop_name, twenty_four, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(function, prop_name, twenty_four, SLOPPY).Check();
   CHECK_EQ(Smi::FromInt(24),
            *Object::GetProperty(function, prop_name).ToHandleChecked());
 }
@@ -658,7 +655,7 @@ TEST(ObjectProperties) {
   CHECK(!JSReceiver::HasOwnProperty(obj, first));
 
   // add first
-  JSReceiver::SetProperty(obj, first, one, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, first, one, SLOPPY).Check();
   CHECK(JSReceiver::HasOwnProperty(obj, first));
 
   // delete first
@@ -666,8 +663,8 @@ TEST(ObjectProperties) {
   CHECK(!JSReceiver::HasOwnProperty(obj, first));
 
   // add first and then second
-  JSReceiver::SetProperty(obj, first, one, NONE, SLOPPY).Check();
-  JSReceiver::SetProperty(obj, second, two, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, first, one, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, second, two, SLOPPY).Check();
   CHECK(JSReceiver::HasOwnProperty(obj, first));
   CHECK(JSReceiver::HasOwnProperty(obj, second));
 
@@ -679,8 +676,8 @@ TEST(ObjectProperties) {
   CHECK(!JSReceiver::HasOwnProperty(obj, second));
 
   // add first and then second
-  JSReceiver::SetProperty(obj, first, one, NONE, SLOPPY).Check();
-  JSReceiver::SetProperty(obj, second, two, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, first, one, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, second, two, SLOPPY).Check();
   CHECK(JSReceiver::HasOwnProperty(obj, first));
   CHECK(JSReceiver::HasOwnProperty(obj, second));
 
@@ -694,14 +691,14 @@ TEST(ObjectProperties) {
   // check string and internalized string match
   const char* string1 = "fisk";
   Handle<String> s1 = factory->NewStringFromAsciiChecked(string1);
-  JSReceiver::SetProperty(obj, s1, one, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, s1, one, SLOPPY).Check();
   Handle<String> s1_string = factory->InternalizeUtf8String(string1);
   CHECK(JSReceiver::HasOwnProperty(obj, s1_string));
 
   // check internalized string and string match
   const char* string2 = "fugl";
   Handle<String> s2_string = factory->InternalizeUtf8String(string2);
-  JSReceiver::SetProperty(obj, s2_string, one, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, s2_string, one, SLOPPY).Check();
   Handle<String> s2 = factory->NewStringFromAsciiChecked(string2);
   CHECK(JSReceiver::HasOwnProperty(obj, s2));
 }
@@ -722,7 +719,7 @@ TEST(JSObjectMaps) {
 
   // Set a propery
   Handle<Smi> twenty_three(Smi::FromInt(23), isolate);
-  JSReceiver::SetProperty(obj, prop_name, twenty_three, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, prop_name, twenty_three, SLOPPY).Check();
   CHECK_EQ(Smi::FromInt(23),
            *Object::GetProperty(obj, prop_name).ToHandleChecked());
 
@@ -800,8 +797,8 @@ TEST(JSObjectCopy) {
   Handle<Smi> one(Smi::FromInt(1), isolate);
   Handle<Smi> two(Smi::FromInt(2), isolate);
 
-  JSReceiver::SetProperty(obj, first, one, NONE, SLOPPY).Check();
-  JSReceiver::SetProperty(obj, second, two, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, first, one, SLOPPY).Check();
+  JSReceiver::SetProperty(obj, second, two, SLOPPY).Check();
 
   JSReceiver::SetElement(obj, 0, first, NONE, SLOPPY).Check();
   JSReceiver::SetElement(obj, 1, second, NONE, SLOPPY).Check();
@@ -826,8 +823,8 @@ TEST(JSObjectCopy) {
   CHECK_EQ(*value1, *value2);
 
   // Flip the values.
-  JSReceiver::SetProperty(clone, first, two, NONE, SLOPPY).Check();
-  JSReceiver::SetProperty(clone, second, one, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(clone, first, two, SLOPPY).Check();
+  JSReceiver::SetProperty(clone, second, one, SLOPPY).Check();
 
   JSReceiver::SetElement(clone, 0, second, NONE, SLOPPY).Check();
   JSReceiver::SetElement(clone, 1, first, NONE, SLOPPY).Check();
@@ -1594,8 +1591,8 @@ TEST(TestSizeOfObjects) {
   CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
   CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
   MarkCompactCollector* collector = CcTest::heap()->mark_compact_collector();
-  if (collector->IsConcurrentSweepingInProgress()) {
-    collector->WaitUntilSweepingCompleted();
+  if (collector->sweeping_in_progress()) {
+    collector->EnsureSweepingCompleted();
   }
   int initial_size = static_cast<int>(CcTest::heap()->SizeOfObjects());
 
@@ -1621,8 +1618,8 @@ TEST(TestSizeOfObjects) {
   CHECK_EQ(initial_size, static_cast<int>(CcTest::heap()->SizeOfObjects()));
 
   // Waiting for sweeper threads should not change heap size.
-  if (collector->IsConcurrentSweepingInProgress()) {
-    collector->WaitUntilSweepingCompleted();
+  if (collector->sweeping_in_progress()) {
+    collector->EnsureSweepingCompleted();
   }
   CHECK_EQ(initial_size, static_cast<int>(CcTest::heap()->SizeOfObjects()));
 }
@@ -2763,8 +2760,7 @@ static void AddPropertyTo(
   i::FLAG_gc_interval = gc_count;
   i::FLAG_gc_global = true;
   CcTest::heap()->set_allocation_timeout(gc_count);
-  JSReceiver::SetProperty(
-      object, prop_name, twenty_three, NONE, SLOPPY).Check();
+  JSReceiver::SetProperty(object, prop_name, twenty_three, SLOPPY).Check();
 }
 
 
@@ -3054,8 +3050,9 @@ TEST(PrintSharedFunctionInfo) {
           *v8::Handle<v8::Function>::Cast(
               CcTest::global()->Get(v8_str("g"))));
 
-  DisallowHeapAllocation no_allocation;
-  g->shared()->PrintLn();
+  OFStream os(stdout);
+  g->shared()->Print(os);
+  os << endl;
 }
 #endif  // OBJECT_PRINT
 
@@ -4324,8 +4321,83 @@ TEST(ArrayShiftSweeping) {
   CHECK(heap->InOldPointerSpace(o->elements()));
   CHECK(heap->InOldPointerSpace(*o));
   Page* page = Page::FromAddress(o->elements()->address());
-  CHECK(page->WasSwept() ||
+  CHECK(page->parallel_sweeping() <= MemoryChunk::PARALLEL_SWEEPING_FINALIZE ||
         Marking::IsBlack(Marking::MarkBitFrom(o->elements())));
+}
+
+
+TEST(PromotionQueue) {
+  i::FLAG_expose_gc = true;
+  i::FLAG_max_semi_space_size = 2;
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
+  Isolate* isolate = CcTest::i_isolate();
+  Heap* heap = isolate->heap();
+  NewSpace* new_space = heap->new_space();
+
+  // In this test we will try to overwrite the promotion queue which is at the
+  // end of to-space. To actually make that possible, we need at least two
+  // semi-space pages and take advantage of fragementation.
+  // (1) Grow semi-space to two pages.
+  // (2) Create a few small long living objects and call the scavenger to
+  // move them to the other semi-space.
+  // (3) Create a huge object, i.e., remainder of first semi-space page and
+  // create another huge object which should be of maximum allocatable memory
+  // size of the second semi-space page.
+  // (4) Call the scavenger again.
+  // What will happen is: the scavenger will promote the objects created in (2)
+  // and will create promotion queue entries at the end of the second
+  // semi-space page during the next scavenge when it promotes the objects to
+  // the old generation. The first allocation of (3) will fill up the first
+  // semi-space page. The second allocation in (3) will not fit into the first
+  // semi-space page, but it will overwrite the promotion queue which are in
+  // the second semi-space page. If the right guards are in place, the promotion
+  // queue will be evacuated in that case.
+
+  // Grow the semi-space to two pages to make semi-space copy overwrite the
+  // promotion queue, which will be at the end of the second page.
+  intptr_t old_capacity = new_space->Capacity();
+  new_space->Grow();
+  CHECK(new_space->IsAtMaximumCapacity());
+  CHECK(2 * old_capacity == new_space->Capacity());
+
+  // Call the scavenger two times to get an empty new space
+  heap->CollectGarbage(NEW_SPACE);
+  heap->CollectGarbage(NEW_SPACE);
+
+  // First create a few objects which will survive a scavenge, and will get
+  // promoted to the old generation later on. These objects will create
+  // promotion queue entries at the end of the second semi-space page.
+  const int number_handles = 12;
+  Handle<FixedArray> handles[number_handles];
+  for (int i = 0; i < number_handles; i++) {
+    handles[i] = isolate->factory()->NewFixedArray(1, NOT_TENURED);
+  }
+  heap->CollectGarbage(NEW_SPACE);
+
+  // Create the first huge object which will exactly fit the first semi-space
+  // page.
+  int new_linear_size = static_cast<int>(
+      *heap->new_space()->allocation_limit_address() -
+          *heap->new_space()->allocation_top_address());
+  int length = new_linear_size / kPointerSize - FixedArray::kHeaderSize;
+  Handle<FixedArray> first =
+    isolate->factory()->NewFixedArray(length, NOT_TENURED);
+  CHECK(heap->InNewSpace(*first));
+
+  // Create the second huge object of maximum allocatable second semi-space
+  // page size.
+  new_linear_size = static_cast<int>(
+      *heap->new_space()->allocation_limit_address() -
+          *heap->new_space()->allocation_top_address());
+  length = Page::kMaxRegularHeapObjectSize / kPointerSize -
+      FixedArray::kHeaderSize;
+  Handle<FixedArray> second =
+      isolate->factory()->NewFixedArray(length, NOT_TENURED);
+  CHECK(heap->InNewSpace(*second));
+
+  // This scavenge will corrupt memory if the promotion queue is not evacuated.
+  heap->CollectGarbage(NEW_SPACE);
 }
 
 

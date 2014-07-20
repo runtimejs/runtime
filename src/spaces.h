@@ -7,10 +7,10 @@
 
 #include "src/allocation.h"
 #include "src/base/atomicops.h"
+#include "src/base/platform/mutex.h"
 #include "src/hashmap.h"
 #include "src/list.h"
 #include "src/log.h"
-#include "src/platform/mutex.h"
 #include "src/utils.h"
 
 namespace v8 {
@@ -328,7 +328,7 @@ class MemoryChunk {
            kFailureTag);
   }
 
-  VirtualMemory* reserved_memory() {
+  base::VirtualMemory* reserved_memory() {
     return &reservation_;
   }
 
@@ -336,7 +336,7 @@ class MemoryChunk {
     reservation_.Reset();
   }
 
-  void set_reserved_memory(VirtualMemory* reservation) {
+  void set_reserved_memory(base::VirtualMemory* reservation) {
     ASSERT_NOT_NULL(reservation);
     reservation_.TakeControl(reservation);
   }
@@ -690,7 +690,7 @@ class MemoryChunk {
   Address area_end_;
 
   // If the chunk needs to remember its memory reservation, it is stored here.
-  VirtualMemory reservation_;
+  base::VirtualMemory reservation_;
   // The identity of the owning space.  This is tagged as a failure pointer, but
   // no failure can be in an object, so this can be distinguished from any entry
   // in a fixed array.
@@ -958,7 +958,7 @@ class CodeRange {
   Isolate* isolate_;
 
   // The reserved range of virtual memory that all code objects are put in.
-  VirtualMemory* code_range_;
+  base::VirtualMemory* code_range_;
   // Plain old data class, just a struct plus a constructor.
   class FreeBlock {
    public:
@@ -1116,16 +1116,16 @@ class MemoryAllocator {
 
   Address ReserveAlignedMemory(size_t requested,
                                size_t alignment,
-                               VirtualMemory* controller);
+                               base::VirtualMemory* controller);
   Address AllocateAlignedMemory(size_t reserve_size,
                                 size_t commit_size,
                                 size_t alignment,
                                 Executability executable,
-                                VirtualMemory* controller);
+                                base::VirtualMemory* controller);
 
   bool CommitMemory(Address addr, size_t size, Executability executable);
 
-  void FreeMemory(VirtualMemory* reservation, Executability executable);
+  void FreeMemory(base::VirtualMemory* reservation, Executability executable);
   void FreeMemory(Address addr, size_t size, Executability executable);
 
   // Commit a contiguous block of memory from the initial chunk.  Assumes that
@@ -1170,7 +1170,7 @@ class MemoryAllocator {
     return CodePageAreaEndOffset() - CodePageAreaStartOffset();
   }
 
-  MUST_USE_RESULT bool CommitExecutableMemory(VirtualMemory* vm,
+  MUST_USE_RESULT bool CommitExecutableMemory(base::VirtualMemory* vm,
                                               Address start,
                                               size_t commit_size,
                                               size_t reserved_size);
@@ -1457,9 +1457,8 @@ class AllocationStats BASE_EMBEDDED {
 
   // Waste free bytes (available -> waste).
   void WasteBytes(int size_in_bytes) {
-    size_ -= size_in_bytes;
+    ASSERT(size_in_bytes >= 0);
     waste_ += size_in_bytes;
-    ASSERT(size_ >= 0);
   }
 
  private:
@@ -1551,7 +1550,7 @@ class FreeListCategory {
   int available() const { return available_; }
   void set_available(int available) { available_ = available; }
 
-  Mutex* mutex() { return &mutex_; }
+  base::Mutex* mutex() { return &mutex_; }
 
   bool IsEmpty() {
     return top() == 0;
@@ -1566,7 +1565,7 @@ class FreeListCategory {
   // top_ points to the top FreeListNode* in the free list category.
   base::AtomicWord top_;
   FreeListNode* end_;
-  Mutex mutex_;
+  base::Mutex mutex_;
 
   // Total available bytes in all blocks of this free list category.
   int available_;
@@ -1618,6 +1617,21 @@ class FreeList {
   // i.e., its contents will be destroyed.  The start address should be word
   // aligned, and the size should be a non-zero multiple of the word size.
   int Free(Address start, int size_in_bytes);
+
+  // This method returns how much memory can be allocated after freeing
+  // maximum_freed memory.
+  static inline int GuaranteedAllocatable(int maximum_freed) {
+    if (maximum_freed < kSmallListMin) {
+      return 0;
+    } else if (maximum_freed <= kSmallListMax) {
+      return kSmallAllocationMax;
+    } else if (maximum_freed <= kMediumListMax) {
+      return kMediumAllocationMax;
+    } else if (maximum_freed <= kLargeListMax) {
+      return kLargeAllocationMax;
+    }
+    return maximum_freed;
+  }
 
   // Allocate a block of size 'size_in_bytes' from the free list.  The block
   // is unitialized.  A failure is returned if no block is available.  The
@@ -1842,7 +1856,8 @@ class PagedSpace : public Space {
   // no attempt to add area to free list is made.
   int Free(Address start, int size_in_bytes) {
     int wasted = free_list_.Free(start, size_in_bytes);
-    accounting_stats_.DeallocateBytes(size_in_bytes - wasted);
+    accounting_stats_.DeallocateBytes(size_in_bytes);
+    accounting_stats_.WasteBytes(wasted);
     return size_in_bytes - wasted;
   }
 
@@ -1902,8 +1917,8 @@ class PagedSpace : public Space {
   static void ResetCodeStatistics(Isolate* isolate);
 #endif
 
-  bool was_swept_conservatively() { return was_swept_conservatively_; }
-  void set_was_swept_conservatively(bool b) { was_swept_conservatively_ = b; }
+  bool is_iterable() { return is_iterable_; }
+  void set_is_iterable(bool b) { is_iterable_ = b; }
 
   // Evacuation candidates are swept by evacuator.  Needs to return a valid
   // result before _and_ after evacuation has finished.
@@ -1986,7 +2001,8 @@ class PagedSpace : public Space {
   // Normal allocation information.
   AllocationInfo allocation_info_;
 
-  bool was_swept_conservatively_;
+  // This space was swept precisely, hence it is iterable.
+  bool is_iterable_;
 
   // The number of free bytes which could be reclaimed by advancing the
   // concurrent sweeper threads.  This is only an estimation because concurrent
@@ -2007,8 +2023,14 @@ class PagedSpace : public Space {
   // address denoted by top in allocation_info_.
   inline HeapObject* AllocateLinearly(int size_in_bytes);
 
+  // If sweeping is still in progress try to sweep unswept pages. If that is
+  // not successful, wait for the sweeper threads and re-try free-list
+  // allocation.
+  MUST_USE_RESULT HeapObject* WaitForSweeperThreadsAndRetryAllocation(
+      int size_in_bytes);
+
   // Slow path of AllocateRaw.  This function is space-dependent.
-  MUST_USE_RESULT virtual HeapObject* SlowAllocateRaw(int size_in_bytes);
+  MUST_USE_RESULT HeapObject* SlowAllocateRaw(int size_in_bytes);
 
   friend class PageIterator;
   friend class MarkCompactCollector;
@@ -2657,7 +2679,7 @@ class NewSpace : public Space {
   // The semispaces.
   SemiSpace to_space_;
   SemiSpace from_space_;
-  VirtualMemory reservation_;
+  base::VirtualMemory reservation_;
   int pages_used_;
 
   // Start address and bit mask for containment testing.

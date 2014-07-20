@@ -83,7 +83,6 @@ typedef v8::internal::EnumSet<CcTestExtensionIds> CcTestExtensionFlags;
 // Use this to expose protected methods in i::Heap.
 class TestHeap : public i::Heap {
  public:
-  using i::Heap::AllocateArgumentsObject;
   using i::Heap::AllocateByteArray;
   using i::Heap::AllocateFixedArray;
   using i::Heap::AllocateHeapNumber;
@@ -177,7 +176,7 @@ class CcTest {
 // thread fuzzing test.  In the thread fuzzing test it will
 // pseudorandomly select a successor thread and switch execution
 // to that thread, suspending the current test.
-class ApiTestFuzzer: public v8::internal::Thread {
+class ApiTestFuzzer: public v8::base::Thread {
  public:
   void CallTest();
 
@@ -212,11 +211,11 @@ class ApiTestFuzzer: public v8::internal::Thread {
   static int active_tests_;
   static bool NextThread();
   int test_number_;
-  v8::internal::Semaphore gate_;
+  v8::base::Semaphore gate_;
   bool active_;
   void ContextSwitch();
   static int GetNextTestNumber();
-  static v8::internal::Semaphore all_tests_done_;
+  static v8::base::Semaphore all_tests_done_;
 };
 
 
@@ -372,14 +371,20 @@ static inline v8::Local<v8::Value> CompileRun(v8::Local<v8::String> source) {
 }
 
 
-static inline v8::Local<v8::Value> PreCompileCompileRun(const char* source) {
+static inline v8::Local<v8::Value> ParserCacheCompileRun(const char* source) {
   // Compile once just to get the preparse data, then compile the second time
   // using the data.
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
   v8::ScriptCompiler::Source script_source(v8_str(source));
   v8::ScriptCompiler::Compile(isolate, &script_source,
-                              v8::ScriptCompiler::kProduceDataToCache);
-  return v8::ScriptCompiler::Compile(isolate, &script_source)->Run();
+                              v8::ScriptCompiler::kProduceParserCache);
+
+  // Check whether we received cached data, and if so use it.
+  v8::ScriptCompiler::CompileOptions options =
+      script_source.GetCachedData() ? v8::ScriptCompiler::kConsumeParserCache
+                                    : v8::ScriptCompiler::kNoCompileOptions;
+
+  return v8::ScriptCompiler::Compile(isolate, &script_source, options)->Run();
 }
 
 

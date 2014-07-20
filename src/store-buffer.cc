@@ -37,7 +37,7 @@ StoreBuffer::StoreBuffer(Heap* heap)
 
 
 void StoreBuffer::SetUp() {
-  virtual_memory_ = new VirtualMemory(kStoreBufferSize * 3);
+  virtual_memory_ = new base::VirtualMemory(kStoreBufferSize * 3);
   uintptr_t start_as_int =
       reinterpret_cast<uintptr_t>(virtual_memory_->address());
   start_ =
@@ -45,13 +45,14 @@ void StoreBuffer::SetUp() {
   limit_ = start_ + (kStoreBufferSize / kPointerSize);
 
   old_virtual_memory_ =
-      new VirtualMemory(kOldStoreBufferLength * kPointerSize);
+      new base::VirtualMemory(kOldStoreBufferLength * kPointerSize);
   old_top_ = old_start_ =
       reinterpret_cast<Address*>(old_virtual_memory_->address());
   // Don't know the alignment requirements of the OS, but it is certainly not
   // less than 0xfff.
   ASSERT((reinterpret_cast<uintptr_t>(old_start_) & 0xfff) == 0);
-  int initial_length = static_cast<int>(OS::CommitPageSize() / kPointerSize);
+  int initial_length =
+      static_cast<int>(base::OS::CommitPageSize() / kPointerSize);
   ASSERT(initial_length > 0);
   ASSERT(initial_length <= kOldStoreBufferLength);
   old_limit_ = old_start_ + initial_length;
@@ -402,63 +403,6 @@ void StoreBuffer::FindPointersToNewSpaceInRegion(
 }
 
 
-// Compute start address of the first map following given addr.
-static inline Address MapStartAlign(Address addr) {
-  Address page = Page::FromAddress(addr)->area_start();
-  return page + (((addr - page) + (Map::kSize - 1)) / Map::kSize * Map::kSize);
-}
-
-
-// Compute end address of the first map preceding given addr.
-static inline Address MapEndAlign(Address addr) {
-  Address page = Page::FromAllocationTop(addr)->area_start();
-  return page + ((addr - page) / Map::kSize * Map::kSize);
-}
-
-
-void StoreBuffer::FindPointersToNewSpaceInMaps(
-    Address start,
-    Address end,
-    ObjectSlotCallback slot_callback,
-    bool clear_maps) {
-  ASSERT(MapStartAlign(start) == start);
-  ASSERT(MapEndAlign(end) == end);
-
-  Address map_address = start;
-  while (map_address < end) {
-    ASSERT(!heap_->InNewSpace(Memory::Object_at(map_address)));
-    ASSERT(Memory::Object_at(map_address)->IsMap());
-
-    Address pointer_fields_start = map_address + Map::kPointerFieldsBeginOffset;
-    Address pointer_fields_end = map_address + Map::kPointerFieldsEndOffset;
-
-    FindPointersToNewSpaceInRegion(pointer_fields_start,
-                                   pointer_fields_end,
-                                   slot_callback,
-                                   clear_maps);
-    map_address += Map::kSize;
-  }
-}
-
-
-void StoreBuffer::FindPointersToNewSpaceInMapsRegion(
-    Address start,
-    Address end,
-    ObjectSlotCallback slot_callback,
-    bool clear_maps) {
-  Address map_aligned_start = MapStartAlign(start);
-  Address map_aligned_end   = MapEndAlign(end);
-
-  ASSERT(map_aligned_start == start);
-  ASSERT(map_aligned_start <= map_aligned_end && map_aligned_end <= end);
-
-  FindPointersToNewSpaceInMaps(map_aligned_start,
-                               map_aligned_end,
-                               slot_callback,
-                               clear_maps);
-}
-
-
 void StoreBuffer::IteratePointersInStoreBuffer(
     ObjectSlotCallback slot_callback,
     bool clear_maps) {
@@ -548,8 +492,18 @@ void StoreBuffer::IteratePointersToNewSpace(ObjectSlotCallback slot_callback,
           Address start = page->area_start();
           Address end = page->area_end();
           if (owner == heap_->map_space()) {
-            FindPointersToNewSpaceInMapsRegion(
-                start, end, slot_callback, clear_maps);
+            ASSERT(page->WasSweptPrecisely());
+            HeapObjectIterator iterator(page, NULL);
+            for (HeapObject* heap_object = iterator.Next(); heap_object != NULL;
+                 heap_object = iterator.Next()) {
+              // We skip free space objects.
+              if (!heap_object->IsFiller()) {
+                FindPointersToNewSpaceInRegion(
+                    heap_object->address() + HeapObject::kHeaderSize,
+                    heap_object->address() + heap_object->Size(), slot_callback,
+                    clear_maps);
+              }
+            }
           } else {
             FindPointersToNewSpaceInRegion(
                 start, end, slot_callback, clear_maps);

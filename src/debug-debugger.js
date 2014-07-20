@@ -19,7 +19,9 @@ Debug.DebugEvent = { Break: 1,
                      NewFunction: 3,
                      BeforeCompile: 4,
                      AfterCompile: 5,
-                     ScriptCollected: 6 };
+                     CompileError: 6,
+                     PromiseEvent: 7,
+                     AsyncTaskEvent: 8 };
 
 // Types of exceptions that can be broken upon.
 Debug.ExceptionBreak = { Caught : 0,
@@ -986,20 +988,15 @@ ExecutionState.prototype.debugCommandProcessor = function(opt_is_running) {
 };
 
 
-function MakeBreakEvent(exec_state, break_points_hit) {
-  return new BreakEvent(exec_state, break_points_hit);
+function MakeBreakEvent(break_id, break_points_hit) {
+  return new BreakEvent(break_id, break_points_hit);
 }
 
 
-function BreakEvent(exec_state, break_points_hit) {
-  this.exec_state_ = exec_state;
+function BreakEvent(break_id, break_points_hit) {
+  this.frame_ = new FrameMirror(break_id, 0);
   this.break_points_hit_ = break_points_hit;
 }
-
-
-BreakEvent.prototype.executionState = function() {
-  return this.exec_state_;
-};
 
 
 BreakEvent.prototype.eventType = function() {
@@ -1008,22 +1005,22 @@ BreakEvent.prototype.eventType = function() {
 
 
 BreakEvent.prototype.func = function() {
-  return this.exec_state_.frame(0).func();
+  return this.frame_.func();
 };
 
 
 BreakEvent.prototype.sourceLine = function() {
-  return this.exec_state_.frame(0).sourceLine();
+  return this.frame_.sourceLine();
 };
 
 
 BreakEvent.prototype.sourceColumn = function() {
-  return this.exec_state_.frame(0).sourceColumn();
+  return this.frame_.sourceColumn();
 };
 
 
 BreakEvent.prototype.sourceLineText = function() {
-  return this.exec_state_.frame(0).sourceLineText();
+  return this.frame_.sourceLineText();
 };
 
 
@@ -1036,8 +1033,7 @@ BreakEvent.prototype.toJSONProtocol = function() {
   var o = { seq: next_response_seq++,
             type: "event",
             event: "break",
-            body: { invocationText: this.exec_state_.frame(0).invocationText(),
-                  }
+            body: { invocationText: this.frame_.invocationText() }
           };
 
   // Add script related information to the event if available.
@@ -1070,22 +1066,17 @@ BreakEvent.prototype.toJSONProtocol = function() {
 };
 
 
-function MakeExceptionEvent(exec_state, exception, uncaught, promise) {
-  return new ExceptionEvent(exec_state, exception, uncaught, promise);
+function MakeExceptionEvent(break_id, exception, uncaught, promise) {
+  return new ExceptionEvent(break_id, exception, uncaught, promise);
 }
 
 
-function ExceptionEvent(exec_state, exception, uncaught, promise) {
-  this.exec_state_ = exec_state;
+function ExceptionEvent(break_id, exception, uncaught, promise) {
+  this.exec_state_ = new ExecutionState(break_id);
   this.exception_ = exception;
   this.uncaught_ = uncaught;
   this.promise_ = promise;
 }
-
-
-ExceptionEvent.prototype.executionState = function() {
-  return this.exec_state_;
-};
 
 
 ExceptionEvent.prototype.eventType = function() {
@@ -1154,29 +1145,19 @@ ExceptionEvent.prototype.toJSONProtocol = function() {
 };
 
 
-function MakeCompileEvent(exec_state, script, before) {
-  return new CompileEvent(exec_state, script, before);
+function MakeCompileEvent(script, type) {
+  return new CompileEvent(script, type);
 }
 
 
-function CompileEvent(exec_state, script, before) {
-  this.exec_state_ = exec_state;
+function CompileEvent(script, type) {
   this.script_ = MakeMirror(script);
-  this.before_ = before;
+  this.type_ = type;
 }
-
-
-CompileEvent.prototype.executionState = function() {
-  return this.exec_state_;
-};
 
 
 CompileEvent.prototype.eventType = function() {
-  if (this.before_) {
-    return Debug.DebugEvent.BeforeCompile;
-  } else {
-    return Debug.DebugEvent.AfterCompile;
-  }
+  return this.type_;
 };
 
 
@@ -1188,45 +1169,17 @@ CompileEvent.prototype.script = function() {
 CompileEvent.prototype.toJSONProtocol = function() {
   var o = new ProtocolMessage();
   o.running = true;
-  if (this.before_) {
-    o.event = "beforeCompile";
-  } else {
-    o.event = "afterCompile";
+  switch (this.type_) {
+    case Debug.DebugEvent.BeforeCompile:
+      o.event = "beforeCompile";
+    case Debug.DebugEvent.AfterCompile:
+      o.event = "afterCompile";
+    case Debug.DebugEvent.CompileError:
+      o.event = "compileError";
   }
   o.body = {};
   o.body.script = this.script_;
 
-  return o.toJSONProtocol();
-};
-
-
-function MakeScriptCollectedEvent(exec_state, id) {
-  return new ScriptCollectedEvent(exec_state, id);
-}
-
-
-function ScriptCollectedEvent(exec_state, id) {
-  this.exec_state_ = exec_state;
-  this.id_ = id;
-}
-
-
-ScriptCollectedEvent.prototype.id = function() {
-  return this.id_;
-};
-
-
-ScriptCollectedEvent.prototype.executionState = function() {
-  return this.exec_state_;
-};
-
-
-ScriptCollectedEvent.prototype.toJSONProtocol = function() {
-  var o = new ProtocolMessage();
-  o.running = true;
-  o.event = "scriptCollected";
-  o.body = {};
-  o.body.script = { id: this.id() };
   return o.toJSONProtocol();
 };
 
@@ -1245,6 +1198,59 @@ function MakeScriptObject_(script, include_source) {
     o.source = script.source();
   }
   return o;
+}
+
+
+function MakePromiseEvent(event_data) {
+  if (event_data.type = "new Promise") {
+    return new NewPromiseEvent(event_data);
+  }
+}
+
+
+function PromiseGetter() {
+  return MakeMirror(this.promise_);
+}
+
+
+function NewPromiseEvent(event_data) {
+  this.resolver_ = event_data.resolver;
+  this.promise_ = event_data.promise;
+}
+
+
+NewPromiseEvent.prototype.promise = PromiseGetter;
+
+
+NewPromiseEvent.prototype.resolver = function() {
+  return MakeMirror(this.resolver_);
+}
+
+
+function MakeAsyncTaskEvent(event_data) {
+  return new AsyncTaskEvent(event_data);
+}
+
+
+function AsyncTaskEvent(event_data) {
+  this.type_ = event_data.type;
+  this.name_ = event_data.name;
+  this.id_ = event_data.id;
+}
+
+
+AsyncTaskEvent.prototype.type = function() {
+  return this.type_;
+}
+
+
+AsyncTaskEvent.prototype.name = function() {
+  return this.name_;
+}
+
+
+AsyncTaskEvent.prototype.id = function() {
+  return this.id_;
 }
 
 

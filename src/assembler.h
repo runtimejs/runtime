@@ -66,6 +66,7 @@ class AssemblerBase: public Malloced {
   void set_emit_debug_code(bool value) { emit_debug_code_ = value; }
 
   bool serializer_enabled() const { return serializer_enabled_; }
+  void enable_serializer() { serializer_enabled_ = true; }
 
   bool predictable_code_size() const { return predictable_code_size_; }
   void set_predictable_code_size(bool value) { predictable_code_size_ = value; }
@@ -188,6 +189,9 @@ class CpuFeatures : public AllStatic {
 
   static void PrintTarget();
   static void PrintFeatures();
+
+  // Flush instruction cache.
+  static void FlushICache(void* start, size_t size);
 
  private:
   // Platform-dependent implementation.
@@ -571,7 +575,7 @@ class RelocInfo {
 #ifdef ENABLE_DISASSEMBLER
   // Printing
   static const char* RelocModeName(Mode rmode);
-  void Print(Isolate* isolate, FILE* out);
+  void Print(Isolate* isolate, OStream& os);  // NOLINT
 #endif  // ENABLE_DISASSEMBLER
 #ifdef VERIFY_HEAP
   void Verify(Isolate* isolate);
@@ -970,17 +974,6 @@ class ExternalReference BASE_EMBEDDED {
       : address_(address) {}
 
   static void* Redirect(Isolate* isolate,
-                        void* address,
-                        Type type = ExternalReference::BUILTIN_CALL) {
-    ExternalReferenceRedirector* redirector =
-        reinterpret_cast<ExternalReferenceRedirector*>(
-            isolate->external_reference_redirector());
-    if (redirector == NULL) return address;
-    void* answer = (*redirector)(address, type);
-    return answer;
-  }
-
-  static void* Redirect(Isolate* isolate,
                         Address address_arg,
                         Type type = ExternalReference::BUILTIN_CALL) {
     ExternalReferenceRedirector* redirector =
@@ -1018,29 +1011,9 @@ class PositionsRecorder BASE_EMBEDDED {
  public:
   explicit PositionsRecorder(Assembler* assembler)
       : assembler_(assembler) {
-#ifdef ENABLE_GDB_JIT_INTERFACE
-    gdbjit_lineinfo_ = NULL;
-#endif
     jit_handler_data_ = NULL;
   }
 
-#ifdef ENABLE_GDB_JIT_INTERFACE
-  ~PositionsRecorder() {
-    delete gdbjit_lineinfo_;
-  }
-
-  void StartGDBJITLineInfoRecording() {
-    if (FLAG_gdbjit) {
-      gdbjit_lineinfo_ = new GDBJITLineInfo();
-    }
-  }
-
-  GDBJITLineInfo* DetachGDBJITLineInfo() {
-    GDBJITLineInfo* lineinfo = gdbjit_lineinfo_;
-    gdbjit_lineinfo_ = NULL;  // To prevent deallocation in destructor.
-    return lineinfo;
-  }
-#endif
   void AttachJITHandlerData(void* user_data) {
     jit_handler_data_ = user_data;
   }
@@ -1068,9 +1041,6 @@ class PositionsRecorder BASE_EMBEDDED {
  private:
   Assembler* assembler_;
   PositionState state_;
-#ifdef ENABLE_GDB_JIT_INTERFACE
-  GDBJITLineInfo* gdbjit_lineinfo_;
-#endif
 
   // Currently jit_handler_data_ is used to store JITHandler-specific data
   // over the lifetime of a PositionsRecorder

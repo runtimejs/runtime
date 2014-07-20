@@ -44,12 +44,12 @@ function GeneratorFunctionPrototypeConstructor(x) {
 
 function GeneratorFunctionConstructor(arg1) {  // length == 1
   var source = NewFunctionString(arguments, 'function*');
-  var global_receiver = %GlobalReceiver(global);
+  var global_proxy = %GlobalProxy(global);
   // Compile the string in the constructor and not a helper so that errors
   // appear to come from here.
   var f = %CompileString(source, true);
   if (!IS_FUNCTION(f)) return f;
-  f = %_CallFunction(global_receiver, f);
+  f = %_CallFunction(global_proxy, f);
   %FunctionMarkNameShouldPrintAsAnonymous(f);
   return f;
 }
@@ -63,14 +63,14 @@ function SetUpGenerators() {
                    ["next", GeneratorObjectNext,
                     "throw", GeneratorObjectThrow]);
   %FunctionSetName(GeneratorObjectIterator, '[Symbol.iterator]');
-  %SetProperty(GeneratorObjectPrototype, symbolIterator, GeneratorObjectIterator,
-      DONT_ENUM | DONT_DELETE | READ_ONLY);
-  %SetProperty(GeneratorObjectPrototype, "constructor",
-               GeneratorFunctionPrototype, DONT_ENUM | DONT_DELETE | READ_ONLY);
+  %AddNamedProperty(GeneratorObjectPrototype, symbolIterator,
+      GeneratorObjectIterator, DONT_ENUM | DONT_DELETE | READ_ONLY);
+  %AddNamedProperty(GeneratorObjectPrototype, "constructor",
+      GeneratorFunctionPrototype, DONT_ENUM | DONT_DELETE | READ_ONLY);
   %SetPrototype(GeneratorFunctionPrototype, $Function.prototype);
   %SetCode(GeneratorFunctionPrototype, GeneratorFunctionPrototypeConstructor);
-  %SetProperty(GeneratorFunctionPrototype, "constructor",
-               GeneratorFunction, DONT_ENUM | DONT_DELETE | READ_ONLY);
+  %AddNamedProperty(GeneratorFunctionPrototype, "constructor",
+      GeneratorFunction, DONT_ENUM | DONT_DELETE | READ_ONLY);
   %SetPrototype(GeneratorFunction, $Function);
   %SetCode(GeneratorFunction, GeneratorFunctionConstructor);
 }

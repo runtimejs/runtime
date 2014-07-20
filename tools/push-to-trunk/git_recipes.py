@@ -68,6 +68,9 @@ class GitRecipesMixin(object):
     assert name
     self.Git(MakeArgs(["reset --hard", name]))
 
+  def GitStash(self):
+    self.Git(MakeArgs(["stash"]))
+
   def GitRemotes(self):
     return map(str.strip, self.Git(MakeArgs(["branch -r"])).splitlines())
 
@@ -144,7 +147,7 @@ class GitRecipesMixin(object):
     args.append(Quoted(patch_file))
     self.Git(MakeArgs(args))
 
-  def GitUpload(self, reviewer="", author="", force=False):
+  def GitUpload(self, reviewer="", author="", force=False, cq=False):
     args = ["cl upload --send-mail"]
     if author:
       args += ["--email", Quoted(author)]
@@ -152,6 +155,8 @@ class GitRecipesMixin(object):
       args += ["-r", Quoted(reviewer)]
     if force:
       args.append("-f")
+    if cq:
+      args.append("--use-commit-queue")
     # TODO(machenbach): Check output in forced mode. Verify that all required
     # base files were uploaded, if not retry.
     self.Git(MakeArgs(args), pipe=False)

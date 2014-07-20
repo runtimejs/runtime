@@ -28,7 +28,7 @@ function InstallFunctions(object, attributes, functions) {
     var f = functions[i + 1];
     %FunctionSetName(f, key);
     %FunctionRemovePrototype(f);
-    %SetProperty(object, key, f, attributes);
+    %AddNamedProperty(object, key, f, attributes);
     %SetNativeFlag(f);
   }
   %ToFastProperties(object);
@@ -39,7 +39,7 @@ function InstallFunctions(object, attributes, functions) {
 function InstallGetter(object, name, getter) {
   %FunctionSetName(getter, name);
   %FunctionRemovePrototype(getter);
-  %DefineOrRedefineAccessorProperty(object, name, getter, null, DONT_ENUM);
+  %DefineAccessorPropertyUnchecked(object, name, getter, null, DONT_ENUM);
   %SetNativeFlag(getter);
 }
 
@@ -50,7 +50,7 @@ function InstallGetterSetter(object, name, getter, setter) {
   %FunctionSetName(setter, name);
   %FunctionRemovePrototype(getter);
   %FunctionRemovePrototype(setter);
-  %DefineOrRedefineAccessorProperty(object, name, getter, setter, DONT_ENUM);
+  %DefineAccessorPropertyUnchecked(object, name, getter, setter, DONT_ENUM);
   %SetNativeFlag(getter);
   %SetNativeFlag(setter);
 }
@@ -65,7 +65,7 @@ function InstallConstants(object, constants) {
   for (var i = 0; i < constants.length; i += 2) {
     var name = constants[i];
     var k = constants[i + 1];
-    %SetProperty(object, name, k, attributes);
+    %AddNamedProperty(object, name, k, attributes);
   }
   %ToFastProperties(object);
 }
@@ -86,13 +86,14 @@ function SetUpLockedPrototype(constructor, fields, methods) {
   }
   if (fields) {
     for (var i = 0; i < fields.length; i++) {
-      %SetProperty(prototype, fields[i], UNDEFINED, DONT_ENUM | DONT_DELETE);
+      %AddNamedProperty(prototype, fields[i],
+                        UNDEFINED, DONT_ENUM | DONT_DELETE);
     }
   }
   for (var i = 0; i < methods.length; i += 2) {
     var key = methods[i];
     var f = methods[i + 1];
-    %SetProperty(prototype, key, f, DONT_ENUM | DONT_DELETE | READ_ONLY);
+    %AddNamedProperty(prototype, key, f, DONT_ENUM | DONT_DELETE | READ_ONLY);
     %SetNativeFlag(f);
   }
   %SetPrototype(prototype, null);
@@ -172,12 +173,12 @@ function GlobalEval(x) {
                          'be the global object from which eval originated');
   }
 
-  var global_receiver = %GlobalReceiver(global);
+  var global_proxy = %GlobalProxy(global);
 
   var f = %CompileString(x, false);
   if (!IS_FUNCTION(f)) return f;
 
-  return %_CallFunction(global_receiver, f);
+  return %_CallFunction(global_proxy, f);
 }
 
 
@@ -190,13 +191,13 @@ function SetUpGlobal() {
   var attributes = DONT_ENUM | DONT_DELETE | READ_ONLY;
 
   // ECMA 262 - 15.1.1.1.
-  %SetProperty(global, "NaN", NAN, attributes);
+  %AddNamedProperty(global, "NaN", NAN, attributes);
 
   // ECMA-262 - 15.1.1.2.
-  %SetProperty(global, "Infinity", INFINITY, attributes);
+  %AddNamedProperty(global, "Infinity", INFINITY, attributes);
 
   // ECMA-262 - 15.1.1.3.
-  %SetProperty(global, "undefined", UNDEFINED, attributes);
+  %AddNamedProperty(global, "undefined", UNDEFINED, attributes);
 
   // Set up non-enumerable function on the global object.
   InstallFunctions(global, DONT_ENUM, $Array(
@@ -274,7 +275,7 @@ function ObjectPropertyIsEnumerable(V) {
 function ObjectDefineGetter(name, fun) {
   var receiver = this;
   if (receiver == null && !IS_UNDETECTABLE(receiver)) {
-    receiver = %GlobalReceiver(global);
+    receiver = %GlobalProxy(global);
   }
   if (!IS_SPEC_FUNCTION(fun)) {
     throw new $TypeError(
@@ -291,7 +292,7 @@ function ObjectDefineGetter(name, fun) {
 function ObjectLookupGetter(name) {
   var receiver = this;
   if (receiver == null && !IS_UNDETECTABLE(receiver)) {
-    receiver = %GlobalReceiver(global);
+    receiver = %GlobalProxy(global);
   }
   return %LookupAccessor(ToObject(receiver), ToName(name), GETTER);
 }
@@ -300,7 +301,7 @@ function ObjectLookupGetter(name) {
 function ObjectDefineSetter(name, fun) {
   var receiver = this;
   if (receiver == null && !IS_UNDETECTABLE(receiver)) {
-    receiver = %GlobalReceiver(global);
+    receiver = %GlobalProxy(global);
   }
   if (!IS_SPEC_FUNCTION(fun)) {
     throw new $TypeError(
@@ -317,7 +318,7 @@ function ObjectDefineSetter(name, fun) {
 function ObjectLookupSetter(name) {
   var receiver = this;
   if (receiver == null && !IS_UNDETECTABLE(receiver)) {
-    receiver = %GlobalReceiver(global);
+    receiver = %GlobalProxy(global);
   }
   return %LookupAccessor(ToObject(receiver), ToName(name), SETTER);
 }
@@ -386,24 +387,22 @@ function FromGenericPropertyDescriptor(desc) {
   var obj = new $Object();
 
   if (desc.hasValue()) {
-    %IgnoreAttributesAndSetProperty(obj, "value", desc.getValue(), NONE);
+    %AddNamedProperty(obj, "value", desc.getValue(), NONE);
   }
   if (desc.hasWritable()) {
-    %IgnoreAttributesAndSetProperty(obj, "writable", desc.isWritable(), NONE);
+    %AddNamedProperty(obj, "writable", desc.isWritable(), NONE);
   }
   if (desc.hasGetter()) {
-    %IgnoreAttributesAndSetProperty(obj, "get", desc.getGet(), NONE);
+    %AddNamedProperty(obj, "get", desc.getGet(), NONE);
   }
   if (desc.hasSetter()) {
-    %IgnoreAttributesAndSetProperty(obj, "set", desc.getSet(), NONE);
+    %AddNamedProperty(obj, "set", desc.getSet(), NONE);
   }
   if (desc.hasEnumerable()) {
-    %IgnoreAttributesAndSetProperty(obj, "enumerable",
-                                    desc.isEnumerable(), NONE);
+    %AddNamedProperty(obj, "enumerable", desc.isEnumerable(), NONE);
   }
   if (desc.hasConfigurable()) {
-    %IgnoreAttributesAndSetProperty(obj, "configurable",
-                                    desc.isConfigurable(), NONE);
+    %AddNamedProperty(obj, "configurable", desc.isConfigurable(), NONE);
   }
   return obj;
 }
@@ -833,7 +832,7 @@ function DefineObjectProperty(obj, p, desc, should_throw) {
       value = current.getValue();
     }
 
-    %DefineOrRedefineDataProperty(obj, p, value, flag);
+    %DefineDataPropertyUnchecked(obj, p, value, flag);
   } else {
     // There are 3 cases that lead here:
     // Step 4b - defining a new accessor property.
@@ -843,7 +842,7 @@ function DefineObjectProperty(obj, p, desc, should_throw) {
     //           descriptor.
     var getter = desc.hasGetter() ? desc.getGet() : null;
     var setter = desc.hasSetter() ? desc.getSet() : null;
-    %DefineOrRedefineAccessorProperty(obj, p, getter, setter, flag);
+    %DefineAccessorPropertyUnchecked(obj, p, getter, setter, flag);
   }
   return true;
 }
@@ -901,7 +900,7 @@ function DefineArrayProperty(obj, p, desc, should_throw) {
     // Make sure the below call to DefineObjectProperty() doesn't overwrite
     // any magic "length" property by removing the value.
     // TODO(mstarzinger): This hack should be removed once we have addressed the
-    // respective TODO in Runtime_DefineOrRedefineDataProperty.
+    // respective TODO in Runtime_DefineDataPropertyUnchecked.
     // For the time being, we need a hack to prevent Object.observe from
     // generating two change records.
     obj.length = new_length;
@@ -1173,13 +1172,25 @@ function ObjectDefineProperty(obj, p, attributes) {
 }
 
 
-function GetOwnEnumerablePropertyNames(properties) {
+function GetOwnEnumerablePropertyNames(object) {
   var names = new InternalArray();
-  for (var key in properties) {
-    if (%HasOwnProperty(properties, key)) {
+  for (var key in object) {
+    if (%HasOwnProperty(object, key)) {
       names.push(key);
     }
   }
+
+  // FLAG_harmony_symbols may be on, but symbols aren't included by for-in.
+  var filter = PROPERTY_ATTRIBUTES_STRING | PROPERTY_ATTRIBUTES_PRIVATE_SYMBOL;
+  var symbols = %GetOwnPropertyNames(object, filter);
+  for (var i = 0; i < symbols.length; ++i) {
+    var symbol = symbols[i];
+    if (IS_SYMBOL(symbol)) {
+      var desc = ObjectGetOwnPropertyDescriptor(object, symbol);
+      if (desc.enumerable) names.push(symbol);
+    }
+  }
+
   return names;
 }
 
@@ -1397,7 +1408,7 @@ function SetUpObject() {
   %SetNativeFlag($Object);
   %SetCode($Object, ObjectConstructor);
 
-  %SetProperty($Object.prototype, "constructor", $Object, DONT_ENUM);
+  %AddNamedProperty($Object.prototype, "constructor", $Object, DONT_ENUM);
 
   // Set up non-enumerable functions on the Object.prototype object.
   InstallFunctions($Object.prototype, DONT_ENUM, $Array(
@@ -1484,7 +1495,7 @@ function SetUpBoolean () {
 
   %SetCode($Boolean, BooleanConstructor);
   %FunctionSetPrototype($Boolean, new $Boolean(false));
-  %SetProperty($Boolean.prototype, "constructor", $Boolean, DONT_ENUM);
+  %AddNamedProperty($Boolean.prototype, "constructor", $Boolean, DONT_ENUM);
 
   InstallFunctions($Boolean.prototype, DONT_ENUM, $Array(
     "toString", BooleanToString,
@@ -1667,7 +1678,7 @@ function SetUpNumber() {
 
   %OptimizeObjectForAddingMultipleProperties($Number.prototype, 8);
   // Set up the constructor property on the Number prototype object.
-  %SetProperty($Number.prototype, "constructor", $Number, DONT_ENUM);
+  %AddNamedProperty($Number.prototype, "constructor", $Number, DONT_ENUM);
 
   InstallConstants($Number, $Array(
       // ECMA-262 section 15.7.3.1.
@@ -1833,12 +1844,12 @@ function NewFunctionString(arguments, function_token) {
 
 function FunctionConstructor(arg1) {  // length == 1
   var source = NewFunctionString(arguments, 'function');
-  var global_receiver = %GlobalReceiver(global);
+  var global_proxy = %GlobalProxy(global);
   // Compile the string in the constructor and not a helper so that errors
   // appear to come from here.
   var f = %CompileString(source, true);
   if (!IS_FUNCTION(f)) return f;
-  f = %_CallFunction(global_receiver, f);
+  f = %_CallFunction(global_proxy, f);
   %FunctionMarkNameShouldPrintAsAnonymous(f);
   return f;
 }
@@ -1850,7 +1861,7 @@ function SetUpFunction() {
   %CheckIsBootstrapping();
 
   %SetCode($Function, FunctionConstructor);
-  %SetProperty($Function.prototype, "constructor", $Function, DONT_ENUM);
+  %AddNamedProperty($Function.prototype, "constructor", $Function, DONT_ENUM);
 
   InstallFunctions($Function.prototype, DONT_ENUM, $Array(
     "bind", FunctionBind,

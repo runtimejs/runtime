@@ -47,11 +47,11 @@ EXPAND_MACROS = [
 # that the parser doesn't bit-rot. Change the values as needed when you add,
 # remove or change runtime functions, but make sure we don't lose our ability
 # to parse them!
-EXPECTED_FUNCTION_COUNT = 358
-EXPECTED_FUZZABLE_COUNT = 326
-EXPECTED_CCTEST_COUNT = 6
+EXPECTED_FUNCTION_COUNT = 417
+EXPECTED_FUZZABLE_COUNT = 332
+EXPECTED_CCTEST_COUNT = 8
 EXPECTED_UNKNOWN_COUNT = 4
-EXPECTED_BUILTINS_COUNT = 800
+EXPECTED_BUILTINS_COUNT = 809
 
 
 # Don't call these at all.
@@ -86,6 +86,90 @@ BLACKLISTED = [
   # TODO(jkummerow): Fix these and un-blacklist them!
   "CreateDateTimeFormat",
   "CreateNumberFormat",
+
+  # TODO(danno): Fix these internal function that are only callable form stubs
+  # and un-blacklist them!
+  "NumberToString",
+  "RxegExpConstructResult",
+  "RegExpExec",
+  "StringAdd",
+  "SubString",
+  "StringCompare",
+  "StringCharCodeAt",
+  "GetFromCache",
+
+  # Compilation
+  "CompileUnoptimized",
+  "CompileOptimized",
+  "TryInstallOptimizedCode",
+  "NotifyDeoptimized",
+  "NotifyStubFailure",
+
+  # Utilities
+  "AllocateInNewSpace",
+  "AllocateInTargetSpace",
+  "AllocateHeapNumber",
+  "NumberToSmi",
+  "NumberToStringSkipCache",
+
+  "NewSloppyArguments",
+  "NewStrictArguments",
+
+  # Harmony
+  "CreateJSGeneratorObject",
+  "SuspendJSGeneratorObject",
+  "ResumeJSGeneratorObject",
+  "ThrowGeneratorStateError",
+
+  # Arrays
+  "ArrayConstructor",
+  "InternalArrayConstructor",
+
+  # Literals
+  "MaterializeRegExpLiteral",
+  "CreateObjectLiteral",
+  "CreateArrayLiteral",
+  "CreateArrayLiteralStubBailout",
+
+  # Statements
+  "NewClosure",
+  "NewClosureFromStubFailure",
+  "NewObject",
+  "NewObjectWithAllocationSite",
+  "FinalizeInstanceSize",
+  "Throw",
+  "ReThrow",
+  "ThrowReferenceError",
+  "ThrowNotDateError",
+  "StackGuard",
+  "Interrupt",
+  "PromoteScheduledException",
+
+  # Contexts
+  "NewGlobalContext",
+  "NewFunctionContext",
+  "PushWithContext",
+  "PushCatchContext",
+  "PushBlockContext",
+  "PushModuleContext",
+  "DeleteLookupSlot",
+  "LoadLookupSlot",
+  "LoadLookupSlotNoReferenceError",
+  "StoreLookupSlot",
+
+  # Declarations
+  "DeclareGlobals",
+  "DeclareModules",
+  "DeclareContextSlot",
+  "InitializeConstGlobal",
+  "InitializeConstContextSlot",
+
+  # Eval
+  "ResolvePossiblyDirectEval",
+
+  # Maths
+  "MathPowSlow",
+  "MathPowRT"
 ]
 
 
@@ -127,6 +211,8 @@ _NUMBER_FORMAT = (
 # Format: "FunctionName": ["arg0", "arg1", ..., argslength].
 # None means "fall back to autodetected value".
 CUSTOM_KNOWN_GOOD_INPUT = {
+  "AddNamedProperty": [None, "\"bla\"", None, None, None],
+  "AddPropertyForTemplate": [None, 10, None, None, None],
   "Apply": ["function() {}", None, None, None, None, None],
   "ArrayBufferSliceImpl": [None, None, 0, None],
   "ArrayConcat": ["[1, 'a']", None],
@@ -141,8 +227,8 @@ CUSTOM_KNOWN_GOOD_INPUT = {
   "CreatePrivateSymbol": ["\"foo\"", None],
   "CreateSymbol": ["\"foo\"", None],
   "DateParseString": [None, "new Array(8)", None],
-  "DefineOrRedefineAccessorProperty": [None, None, "function() {}",
-                                       "function() {}", 2, None],
+  "DefineAccessorPropertyUnchecked": [None, None, "function() {}",
+                                      "function() {}", 2, None],
   "FunctionBindArguments": [None, None, "undefined", None, None],
   "GetBreakLocations": [None, 0, None],
   "GetDefaultReceiver": ["function() {}", None],
@@ -158,7 +244,7 @@ CUSTOM_KNOWN_GOOD_INPUT = {
   "NumberToRadixString": [None, "2", None],
   "ParseJson": ["\"{}\"", 1],
   "RegExpExecMultiple": [None, None, "['a']", "['a']", None],
-  "SetAccessorProperty": [None, None, "undefined", "undefined", None, None],
+  "DefineAccessorProperty": [None, None, "undefined", "undefined", None, None],
   "SetIteratorInitialize": [None, None, "2", None],
   "SetDebugEventListener": ["undefined", None, None],
   "SetFunctionBreakPoint": [None, 200, None, None],

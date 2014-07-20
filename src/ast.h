@@ -15,6 +15,7 @@
 #include "src/isolate.h"
 #include "src/jsregexp.h"
 #include "src/list-inl.h"
+#include "src/ostreams.h"
 #include "src/runtime.h"
 #include "src/small-pointer-list.h"
 #include "src/smart-pointers.h"
@@ -149,7 +150,6 @@ typedef ZoneList<Handle<Object> > ZoneObjectList;
 
 
 enum AstPropertiesFlag {
-  kDontInline,
   kDontSelfOptimize,
   kDontSoftInline,
   kDontCache
@@ -344,6 +344,11 @@ class Expression : public AstNode {
   Bounds bounds() const { return bounds_; }
   void set_bounds(Bounds bounds) { bounds_ = bounds; }
 
+  // Whether the expression is parenthesized
+  unsigned parenthesization_level() const { return parenthesization_level_; }
+  bool is_parenthesized() const { return parenthesization_level_ > 0; }
+  void increase_parenthesization_level() { ++parenthesization_level_; }
+
   // Type feedback information for assignments and properties.
   virtual bool IsMonomorphic() {
     UNREACHABLE();
@@ -370,6 +375,7 @@ class Expression : public AstNode {
       : AstNode(pos),
         zone_(zone),
         bounds_(Bounds::Unbounded(zone)),
+        parenthesization_level_(0),
         id_(GetNextId(zone)),
         test_id_(GetNextId(zone)) {}
   void set_to_boolean_types(byte types) { to_boolean_types_ = types; }
@@ -379,6 +385,7 @@ class Expression : public AstNode {
  private:
   Bounds bounds_;
   byte to_boolean_types_;
+  unsigned parenthesization_level_;
 
   const BailoutId id_;
   const TypeFeedbackId test_id_;
@@ -1628,17 +1635,14 @@ class VariableProxy V8_FINAL : public Expression {
 
   bool IsArguments() const { return var_ != NULL && var_->is_arguments(); }
 
-  bool IsLValue() const { return is_lvalue_; }
-
   Handle<String> name() const { return name_->string(); }
   const AstRawString* raw_name() const { return name_; }
   Variable* var() const { return var_; }
   bool is_this() const { return is_this_; }
   Interface* interface() const { return interface_; }
 
-
-  void MarkAsTrivial() { is_trivial_ = true; }
-  void MarkAsLValue() { is_lvalue_ = true; }
+  bool is_assigned() const { return is_assigned_; }
+  void set_is_assigned() { is_assigned_ = true; }
 
   // Bind this proxy to the variable var. Interfaces must match.
   void BindTo(Variable* var);
@@ -1655,10 +1659,7 @@ class VariableProxy V8_FINAL : public Expression {
   const AstRawString* name_;
   Variable* var_;  // resolved variable, or NULL
   bool is_this_;
-  bool is_trivial_;
-  // True if this variable proxy is being used in an assignment
-  // or with a increment/decrement operator.
-  bool is_lvalue_;
+  bool is_assigned_;
   Interface* interface_;
 };
 
@@ -2535,7 +2536,7 @@ class RegExpTree : public ZoneObject {
   // expression.
   virtual Interval CaptureRegisters() { return Interval::Empty(); }
   virtual void AppendToText(RegExpText* text, Zone* zone);
-  SmartArrayPointer<const char> ToString(Zone* zone);
+  OStream& Print(OStream& os, Zone* zone);  // NOLINT
 #define MAKE_ASTYPE(Name)                                                  \
   virtual RegExp##Name* As##Name();                                        \
   virtual bool Is##Name();
@@ -3375,6 +3376,7 @@ class AstNodeFactory V8_FINAL BASE_EMBEDDED {
                   Expression* expression,
                   Yield::Kind yield_kind,
                   int pos) {
+    if (!expression) expression = NewUndefinedLiteral(pos);
     Yield* yield = new(zone_) Yield(
         zone_, generator_object, expression, yield_kind, pos);
     VISIT_AND_RETURN(Yield, yield)

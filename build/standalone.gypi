@@ -98,6 +98,7 @@
       ['(v8_target_arch=="arm" and host_arch!="arm") or \
         (v8_target_arch=="arm64" and host_arch!="arm64") or \
         (v8_target_arch=="mipsel" and host_arch!="mipsel") or \
+        (v8_target_arch=="mips64el" and host_arch!="mips64el") or \
         (v8_target_arch=="x64" and host_arch!="x64") or \
         (OS=="android" or OS=="qnx")', {
         'want_separate_host_toolset': 1,
@@ -189,7 +190,8 @@
        or OS=="netbsd"', {
       'target_defaults': {
         'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
-                    '-pthread', '-fno-exceptions', '-pedantic' ],
+                    '-Wno-long-long', '-pthread', '-fno-exceptions',
+                    '-pedantic' ],
         'cflags_cc': [ '-Wnon-virtual-dtor', '-fno-rtti' ],
         'ldflags': [ '-pthread', ],
         'conditions': [

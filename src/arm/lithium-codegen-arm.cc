@@ -130,7 +130,7 @@ bool LCodeGen::GeneratePrologue() {
       __ b(ne, &ok);
 
       __ ldr(r2, GlobalObjectOperand());
-      __ ldr(r2, FieldMemOperand(r2, GlobalObject::kGlobalReceiverOffset));
+      __ ldr(r2, FieldMemOperand(r2, GlobalObject::kGlobalProxyOffset));
 
       __ str(r2, MemOperand(sp, receiver_offset));
 
@@ -188,7 +188,7 @@ bool LCodeGen::GeneratePrologue() {
       need_write_barrier = false;
     } else {
       __ push(r1);
-      __ CallRuntime(Runtime::kHiddenNewFunctionContext, 1);
+      __ CallRuntime(Runtime::kNewFunctionContext, 1);
     }
     RecordSafepoint(Safepoint::kNoLazyDeopt);
     // Context is returned in both r0 and cp.  It replaces the context
@@ -324,48 +324,79 @@ bool LCodeGen::GenerateDeoptJumpTable() {
   }
 
   if (deopt_jump_table_.length() > 0) {
+    Label needs_frame, call_deopt_entry;
+
     Comment(";;; -------------------- Jump table --------------------");
-  }
-  Label table_start;
-  __ bind(&table_start);
-  Label needs_frame;
-  for (int i = 0; i < deopt_jump_table_.length(); i++) {
-    __ bind(&deopt_jump_table_[i].label);
-    Address entry = deopt_jump_table_[i].address;
-    Deoptimizer::BailoutType type = deopt_jump_table_[i].bailout_type;
-    int id = Deoptimizer::GetDeoptimizationId(isolate(), entry, type);
-    if (id == Deoptimizer::kNotDeoptimizationEntry) {
-      Comment(";;; jump table entry %d.", i);
-    } else {
+    Address base = deopt_jump_table_[0].address;
+
+    Register entry_offset = scratch0();
+
+    int length = deopt_jump_table_.length();
+    for (int i = 0; i < length; i++) {
+      __ bind(&deopt_jump_table_[i].label);
+
+      Deoptimizer::BailoutType type = deopt_jump_table_[i].bailout_type;
+      ASSERT(type == deopt_jump_table_[0].bailout_type);
+      Address entry = deopt_jump_table_[i].address;
+      int id = Deoptimizer::GetDeoptimizationId(isolate(), entry, type);
+      ASSERT(id != Deoptimizer::kNotDeoptimizationEntry);
       Comment(";;; jump table entry %d: deoptimization bailout %d.", i, id);
-    }
-    if (deopt_jump_table_[i].needs_frame) {
-      ASSERT(!info()->saves_caller_doubles());
-      __ mov(ip, Operand(ExternalReference::ForDeoptEntry(entry)));
-      if (needs_frame.is_bound()) {
-        __ b(&needs_frame);
+
+      // Second-level deopt table entries are contiguous and small, so instead
+      // of loading the full, absolute address of each one, load an immediate
+      // offset which will be added to the base address later.
+      __ mov(entry_offset, Operand(entry - base));
+
+      if (deopt_jump_table_[i].needs_frame) {
+        ASSERT(!info()->saves_caller_doubles());
+        if (needs_frame.is_bound()) {
+          __ b(&needs_frame);
+        } else {
+          __ bind(&needs_frame);
+          Comment(";;; call deopt with frame");
+          __ PushFixedFrame();
+          // This variant of deopt can only be used with stubs. Since we don't
+          // have a function pointer to install in the stack frame that we're
+          // building, install a special marker there instead.
+          ASSERT(info()->IsStub());
+          __ mov(ip, Operand(Smi::FromInt(StackFrame::STUB)));
+          __ push(ip);
+          __ add(fp, sp,
+                 Operand(StandardFrameConstants::kFixedFrameSizeFromFp));
+          __ bind(&call_deopt_entry);
+          // Add the base address to the offset previously loaded in
+          // entry_offset.
+          __ add(entry_offset, entry_offset,
+                 Operand(ExternalReference::ForDeoptEntry(base)));
+          __ blx(entry_offset);
+        }
+
+        masm()->CheckConstPool(false, false);
       } else {
-        __ bind(&needs_frame);
-        __ PushFixedFrame();
-        // This variant of deopt can only be used with stubs. Since we don't
-        // have a function pointer to install in the stack frame that we're
-        // building, install a special marker there instead.
-        ASSERT(info()->IsStub());
-        __ mov(scratch0(), Operand(Smi::FromInt(StackFrame::STUB)));
-        __ push(scratch0());
-        __ add(fp, sp, Operand(StandardFrameConstants::kFixedFrameSizeFromFp));
-        __ mov(lr, Operand(pc), LeaveCC, al);
-        __ mov(pc, ip);
+        // The last entry can fall through into `call_deopt_entry`, avoiding a
+        // branch.
+        bool need_branch = ((i + 1) != length) || call_deopt_entry.is_bound();
+
+        if (need_branch) __ b(&call_deopt_entry);
+
+        masm()->CheckConstPool(false, !need_branch);
       }
-    } else {
+    }
+
+    if (!call_deopt_entry.is_bound()) {
+      Comment(";;; call deopt");
+      __ bind(&call_deopt_entry);
+
       if (info()->saves_caller_doubles()) {
         ASSERT(info()->IsStub());
         RestoreCallerDoubles();
       }
-      __ mov(lr, Operand(pc), LeaveCC, al);
-      __ mov(pc, Operand(ExternalReference::ForDeoptEntry(entry)));
+
+      // Add the base address to the offset previously loaded in entry_offset.
+      __ add(entry_offset, entry_offset,
+             Operand(ExternalReference::ForDeoptEntry(base)));
+      __ blx(entry_offset);
     }
-    masm()->CheckConstPool(false, false);
   }
 
   // Force constant pool emission at the end of the deopt jump table to make
@@ -841,7 +872,7 @@ void LCodeGen::DeoptimizeIf(Condition condition,
     __ mov(scratch, Operand(count));
     __ ldr(r1, MemOperand(scratch));
     __ sub(r1, r1, Operand(1), SetCC);
-    __ movw(r1, FLAG_deopt_every_n_times, eq);
+    __ mov(r1, Operand(FLAG_deopt_every_n_times), LeaveCC, eq);
     __ str(r1, MemOperand(scratch));
     __ pop(r1);
 
@@ -2764,13 +2795,17 @@ void LCodeGen::DoInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr) {
                                   LInstanceOfKnownGlobal* instr)
         : LDeferredCode(codegen), instr_(instr) { }
     virtual void Generate() V8_OVERRIDE {
-      codegen()->DoDeferredInstanceOfKnownGlobal(instr_, &map_check_);
+      codegen()->DoDeferredInstanceOfKnownGlobal(instr_, &map_check_,
+                                                 &load_bool_);
     }
     virtual LInstruction* instr() V8_OVERRIDE { return instr_; }
     Label* map_check() { return &map_check_; }
+    Label* load_bool() { return &load_bool_; }
+
    private:
     LInstanceOfKnownGlobal* instr_;
     Label map_check_;
+    Label load_bool_;
   };
 
   DeferredInstanceOfKnownGlobal* deferred;
@@ -2798,12 +2833,12 @@ void LCodeGen::DoInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr) {
     // We use Factory::the_hole_value() on purpose instead of loading from the
     // root array to force relocation to be able to later patch with
     // the cached map.
-    PredictableCodeSizeScope predictable(masm_, 5 * Assembler::kInstrSize);
     Handle<Cell> cell = factory()->NewCell(factory()->the_hole_value());
     __ mov(ip, Operand(Handle<Object>(cell)));
     __ ldr(ip, FieldMemOperand(ip, PropertyCell::kValueOffset));
     __ cmp(map, Operand(ip));
     __ b(ne, &cache_miss);
+    __ bind(deferred->load_bool());  // Label for calculating code patching.
     // We use Factory::the_hole_value() on purpose instead of loading from the
     // root array to force relocation to be able to later patch
     // with true or false.
@@ -2837,7 +2872,8 @@ void LCodeGen::DoInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr) {
 
 
 void LCodeGen::DoDeferredInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr,
-                                               Label* map_check) {
+                                               Label* map_check,
+                                               Label* bool_load) {
   InstanceofStub::Flags flags = InstanceofStub::kNoFlags;
   flags = static_cast<InstanceofStub::Flags>(
       flags | InstanceofStub::kArgsInRegisters);
@@ -2851,21 +2887,35 @@ void LCodeGen::DoDeferredInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr,
   LoadContextFromDeferred(instr->context());
 
   __ Move(InstanceofStub::right(), instr->function());
-  static const int kAdditionalDelta = 4;
+
+  int call_size = CallCodeSize(stub.GetCode(), RelocInfo::CODE_TARGET);
+  int additional_delta = (call_size / Assembler::kInstrSize) + 4;
   // Make sure that code size is predicable, since we use specific constants
   // offsets in the code to find embedded values..
-  PredictableCodeSizeScope predictable(masm_, 5 * Assembler::kInstrSize);
-  int delta = masm_->InstructionsGeneratedSince(map_check) + kAdditionalDelta;
-  Label before_push_delta;
-  __ bind(&before_push_delta);
-  __ BlockConstPoolFor(kAdditionalDelta);
-  // r5 is used to communicate the offset to the location of the map check.
-  __ mov(r5, Operand(delta * kPointerSize));
-  // The mov above can generate one or two instructions. The delta was computed
-  // for two instructions, so we need to pad here in case of one instruction.
-  if (masm_->InstructionsGeneratedSince(&before_push_delta) != 2) {
-    ASSERT_EQ(1, masm_->InstructionsGeneratedSince(&before_push_delta));
-    __ nop();
+  PredictableCodeSizeScope predictable(
+      masm_, (additional_delta + 1) * Assembler::kInstrSize);
+  // Make sure we don't emit any additional entries in the constant pool before
+  // the call to ensure that the CallCodeSize() calculated the correct number of
+  // instructions for the constant pool load.
+  {
+    ConstantPoolUnavailableScope constant_pool_unavailable(masm_);
+    int map_check_delta =
+        masm_->InstructionsGeneratedSince(map_check) + additional_delta;
+    int bool_load_delta =
+        masm_->InstructionsGeneratedSince(bool_load) + additional_delta;
+    Label before_push_delta;
+    __ bind(&before_push_delta);
+    __ BlockConstPoolFor(additional_delta);
+    // r5 is used to communicate the offset to the location of the map check.
+    __ mov(r5, Operand(map_check_delta * kPointerSize));
+    // r6 is used to communicate the offset to the location of the bool load.
+    __ mov(r6, Operand(bool_load_delta * kPointerSize));
+    // The mov above can generate one or two instructions. The delta was
+    // computed for two instructions, so we need to pad here in case of one
+    // instruction.
+    while (masm_->InstructionsGeneratedSince(&before_push_delta) != 4) {
+      __ nop();
+    }
   }
   CallCodeGeneric(stub.GetCode(),
                   RelocInfo::CODE_TARGET,
@@ -2950,10 +3000,10 @@ void LCodeGen::DoLoadGlobalCell(LLoadGlobalCell* instr) {
 
 void LCodeGen::DoLoadGlobalGeneric(LLoadGlobalGeneric* instr) {
   ASSERT(ToRegister(instr->context()).is(cp));
-  ASSERT(ToRegister(instr->global_object()).is(r0));
+  ASSERT(ToRegister(instr->global_object()).is(LoadIC::ReceiverRegister()));
   ASSERT(ToRegister(instr->result()).is(r0));
 
-  __ mov(r2, Operand(instr->name()));
+  __ mov(LoadIC::NameRegister(), Operand(instr->name()));
   ContextualMode mode = instr->for_typeof() ? NOT_CONTEXTUAL : CONTEXTUAL;
   Handle<Code> ic = LoadIC::initialize_stub(isolate(), mode);
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
@@ -3069,11 +3119,11 @@ void LCodeGen::DoLoadNamedField(LLoadNamedField* instr) {
 
 void LCodeGen::DoLoadNamedGeneric(LLoadNamedGeneric* instr) {
   ASSERT(ToRegister(instr->context()).is(cp));
-  ASSERT(ToRegister(instr->object()).is(r0));
+  ASSERT(ToRegister(instr->object()).is(LoadIC::ReceiverRegister()));
   ASSERT(ToRegister(instr->result()).is(r0));
 
   // Name is always in r2.
-  __ mov(r2, Operand(instr->name()));
+  __ mov(LoadIC::NameRegister(), Operand(instr->name()));
   Handle<Code> ic = LoadIC::initialize_stub(isolate(), NOT_CONTEXTUAL);
   CallCode(ic, RelocInfo::CODE_TARGET, instr, NEVER_INLINE_TARGET_ADDRESS);
 }
@@ -3375,8 +3425,8 @@ MemOperand LCodeGen::PrepareKeyedOperand(Register key,
 
 void LCodeGen::DoLoadKeyedGeneric(LLoadKeyedGeneric* instr) {
   ASSERT(ToRegister(instr->context()).is(cp));
-  ASSERT(ToRegister(instr->object()).is(r1));
-  ASSERT(ToRegister(instr->key()).is(r0));
+  ASSERT(ToRegister(instr->object()).is(LoadIC::ReceiverRegister()));
+  ASSERT(ToRegister(instr->key()).is(LoadIC::NameRegister()));
 
   Handle<Code> ic = isolate()->builtins()->KeyedLoadIC_Initialize();
   CallCode(ic, RelocInfo::CODE_TARGET, instr, NEVER_INLINE_TARGET_ADDRESS);
@@ -3472,8 +3522,7 @@ void LCodeGen::DoWrapReceiver(LWrapReceiver* instr) {
   __ ldr(result, FieldMemOperand(function, JSFunction::kContextOffset));
   __ ldr(result,
          ContextOperand(result, Context::GLOBAL_OBJECT_INDEX));
-  __ ldr(result,
-         FieldMemOperand(result, GlobalObject::kGlobalReceiverOffset));
+  __ ldr(result, FieldMemOperand(result, GlobalObject::kGlobalProxyOffset));
 
   if (result.is(receiver)) {
     __ bind(&result_in_receiver);
@@ -3575,7 +3624,7 @@ void LCodeGen::DoDeclareGlobals(LDeclareGlobals* instr) {
   __ push(scratch0());
   __ mov(scratch0(), Operand(Smi::FromInt(instr->hydrogen()->flags())));
   __ push(scratch0());
-  CallRuntime(Runtime::kHiddenDeclareGlobals, 3, instr);
+  CallRuntime(Runtime::kDeclareGlobals, 3, instr);
 }
 
 
@@ -3666,7 +3715,7 @@ void LCodeGen::DoDeferredMathAbsTaggedHeapNumber(LMathAbs* instr) {
     // Slow case: Call the runtime system to do the number allocation.
     __ bind(&slow);
 
-    CallRuntimeFromDeferred(Runtime::kHiddenAllocateHeapNumber, 0, instr,
+    CallRuntimeFromDeferred(Runtime::kAllocateHeapNumber, 0, instr,
                             instr->context());
     // Set the pointer to the new heap number in tmp.
     if (!tmp1.is(r0)) __ mov(tmp1, Operand(r0));
@@ -3921,7 +3970,7 @@ void LCodeGen::DoCallWithDescriptor(LCallWithDescriptor* instr) {
     LConstantOperand* target = LConstantOperand::cast(instr->target());
     Handle<Code> code = Handle<Code>::cast(ToHandle(target));
     generator.BeforeCall(__ CallSize(code, RelocInfo::CODE_TARGET));
-    PlatformCallInterfaceDescriptor* call_descriptor =
+    PlatformInterfaceDescriptor* call_descriptor =
         instr->descriptor()->platform_specific_descriptor();
     __ Call(code, RelocInfo::CODE_TARGET, TypeFeedbackId::None(), al,
             call_descriptor->storage_mode());
@@ -3929,7 +3978,13 @@ void LCodeGen::DoCallWithDescriptor(LCallWithDescriptor* instr) {
     ASSERT(instr->target()->IsRegister());
     Register target = ToRegister(instr->target());
     generator.BeforeCall(__ CallSize(target));
-    __ add(target, target, Operand(Code::kHeaderSize - kHeapObjectTag));
+    // Make sure we don't emit any additional entries in the constant pool
+    // before the call to ensure that the CallCodeSize() calculated the correct
+    // number of instructions for the constant pool load.
+    {
+      ConstantPoolUnavailableScope constant_pool_unavailable(masm_);
+      __ add(target, target, Operand(Code::kHeaderSize - kHeapObjectTag));
+    }
     __ Call(target);
   }
   generator.AfterCall();
@@ -4136,11 +4191,10 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
 
 void LCodeGen::DoStoreNamedGeneric(LStoreNamedGeneric* instr) {
   ASSERT(ToRegister(instr->context()).is(cp));
-  ASSERT(ToRegister(instr->object()).is(r1));
-  ASSERT(ToRegister(instr->value()).is(r0));
+  ASSERT(ToRegister(instr->object()).is(StoreIC::ReceiverRegister()));
+  ASSERT(ToRegister(instr->value()).is(StoreIC::ValueRegister()));
 
-  // Name is always in r2.
-  __ mov(r2, Operand(instr->name()));
+  __ mov(StoreIC::NameRegister(), Operand(instr->name()));
   Handle<Code> ic = StoreIC::initialize_stub(isolate(), instr->strict_mode());
   CallCode(ic, RelocInfo::CODE_TARGET, instr, NEVER_INLINE_TARGET_ADDRESS);
 }
@@ -4358,9 +4412,9 @@ void LCodeGen::DoStoreKeyed(LStoreKeyed* instr) {
 
 void LCodeGen::DoStoreKeyedGeneric(LStoreKeyedGeneric* instr) {
   ASSERT(ToRegister(instr->context()).is(cp));
-  ASSERT(ToRegister(instr->object()).is(r2));
-  ASSERT(ToRegister(instr->key()).is(r1));
-  ASSERT(ToRegister(instr->value()).is(r0));
+  ASSERT(ToRegister(instr->object()).is(KeyedStoreIC::ReceiverRegister()));
+  ASSERT(ToRegister(instr->key()).is(KeyedStoreIC::NameRegister()));
+  ASSERT(ToRegister(instr->value()).is(KeyedStoreIC::ValueRegister()));
 
   Handle<Code> ic = instr->strict_mode() == STRICT
       ? isolate()->builtins()->KeyedStoreIC_Initialize_Strict()
@@ -4478,7 +4532,7 @@ void LCodeGen::DoDeferredStringCharCodeAt(LStringCharCodeAt* instr) {
     __ SmiTag(index);
     __ push(index);
   }
-  CallRuntimeFromDeferred(Runtime::kHiddenStringCharCodeAt, 2, instr,
+  CallRuntimeFromDeferred(Runtime::kStringCharCodeAtRT, 2, instr,
                           instr->context());
   __ AssertSmi(r0);
   __ SmiUntag(r0);
@@ -4665,11 +4719,11 @@ void LCodeGen::DoDeferredNumberTagIU(LInstruction* instr,
 
     // NumberTagI and NumberTagD use the context from the frame, rather than
     // the environment's HContext or HInlinedContext value.
-    // They only call Runtime::kHiddenAllocateHeapNumber.
+    // They only call Runtime::kAllocateHeapNumber.
     // The corresponding HChange instructions are added in a phase that does
     // not have easy access to the local context.
     __ ldr(cp, MemOperand(fp, StandardFrameConstants::kContextOffset));
-    __ CallRuntimeSaveDoubles(Runtime::kHiddenAllocateHeapNumber);
+    __ CallRuntimeSaveDoubles(Runtime::kAllocateHeapNumber);
     RecordSafepointWithRegisters(
         instr->pointer_map(), 0, Safepoint::kNoLazyDeopt);
     __ sub(r0, r0, Operand(kHeapObjectTag));
@@ -4729,11 +4783,11 @@ void LCodeGen::DoDeferredNumberTagD(LNumberTagD* instr) {
   PushSafepointRegistersScope scope(this, Safepoint::kWithRegisters);
   // NumberTagI and NumberTagD use the context from the frame, rather than
   // the environment's HContext or HInlinedContext value.
-  // They only call Runtime::kHiddenAllocateHeapNumber.
+  // They only call Runtime::kAllocateHeapNumber.
   // The corresponding HChange instructions are added in a phase that does
   // not have easy access to the local context.
   __ ldr(cp, MemOperand(fp, StandardFrameConstants::kContextOffset));
-  __ CallRuntimeSaveDoubles(Runtime::kHiddenAllocateHeapNumber);
+  __ CallRuntimeSaveDoubles(Runtime::kAllocateHeapNumber);
   RecordSafepointWithRegisters(
       instr->pointer_map(), 0, Safepoint::kNoLazyDeopt);
   __ sub(r0, r0, Operand(kHeapObjectTag));
@@ -5339,7 +5393,7 @@ void LCodeGen::DoDeferredAllocate(LAllocate* instr) {
   __ Push(Smi::FromInt(flags));
 
   CallRuntimeFromDeferred(
-      Runtime::kHiddenAllocateInTargetSpace, 2, instr, instr->context());
+      Runtime::kAllocateInTargetSpace, 2, instr, instr->context());
   __ StoreToSafepointRegisterSlot(r0, result);
 }
 
@@ -5373,7 +5427,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   __ mov(r4, Operand(instr->hydrogen()->pattern()));
   __ mov(r3, Operand(instr->hydrogen()->flags()));
   __ Push(r6, r5, r4, r3);
-  CallRuntime(Runtime::kHiddenMaterializeRegExpLiteral, 4, instr);
+  CallRuntime(Runtime::kMaterializeRegExpLiteral, 4, instr);
   __ mov(r1, r0);
 
   __ bind(&materialized);
@@ -5386,7 +5440,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   __ bind(&runtime_allocate);
   __ mov(r0, Operand(Smi::FromInt(size)));
   __ Push(r1, r0);
-  CallRuntime(Runtime::kHiddenAllocateInNewSpace, 1, instr);
+  CallRuntime(Runtime::kAllocateInNewSpace, 1, instr);
   __ pop(r1);
 
   __ bind(&allocated);
@@ -5411,7 +5465,7 @@ void LCodeGen::DoFunctionLiteral(LFunctionLiteral* instr) {
     __ mov(r1, Operand(pretenure ? factory()->true_value()
                                  : factory()->false_value()));
     __ Push(cp, r2, r1);
-    CallRuntime(Runtime::kHiddenNewClosure, 3, instr);
+    CallRuntime(Runtime::kNewClosure, 3, instr);
   }
 }
 
@@ -5598,7 +5652,7 @@ void LCodeGen::DoDummyUse(LDummyUse* instr) {
 void LCodeGen::DoDeferredStackCheck(LStackCheck* instr) {
   PushSafepointRegistersScope scope(this, Safepoint::kWithRegisters);
   LoadContextFromDeferred(instr->context());
-  __ CallRuntimeSaveDoubles(Runtime::kHiddenStackGuard);
+  __ CallRuntimeSaveDoubles(Runtime::kStackGuard);
   RecordSafepointWithLazyDeopt(
       instr, RECORD_SAFEPOINT_WITH_REGISTERS_AND_NO_ARGUMENTS);
   ASSERT(instr->HasEnvironment());
@@ -5824,7 +5878,7 @@ void LCodeGen::DoAllocateBlockContext(LAllocateBlockContext* instr) {
   Handle<ScopeInfo> scope_info = instr->scope_info();
   __ Push(scope_info);
   __ push(ToRegister(instr->function()));
-  CallRuntime(Runtime::kHiddenPushBlockContext, 2, instr);
+  CallRuntime(Runtime::kPushBlockContext, 2, instr);
   RecordSafepoint(Safepoint::kNoLazyDeopt);
 }
 

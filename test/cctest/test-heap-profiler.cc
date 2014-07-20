@@ -502,9 +502,10 @@ TEST(HeapSnapshotWeakCollection) {
   v8::HandleScope scope(env->GetIsolate());
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
 
-  CompileRun("k = {}; v = {};\n"
-             "ws = new WeakSet(); ws.add(k); ws.add(v);\n"
-             "wm = new WeakMap(); wm.set(k, v);\n");
+  CompileRun(
+      "k = {}; v = {}; s = 'str';\n"
+      "ws = new WeakSet(); ws.add(k); ws.add(v); ws[s] = s;\n"
+      "wm = new WeakMap(); wm.set(k, v); wm[s] = s;\n");
   const v8::HeapSnapshot* snapshot =
       heap_profiler->TakeHeapSnapshot(v8_str("WeakCollections"));
   CHECK(ValidateSnapshot(snapshot));
@@ -515,6 +516,9 @@ TEST(HeapSnapshotWeakCollection) {
   const v8::HeapGraphNode* v =
       GetProperty(global, v8::HeapGraphEdge::kProperty, "v");
   CHECK_NE(NULL, v);
+  const v8::HeapGraphNode* s =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "s");
+  CHECK_NE(NULL, s);
 
   const v8::HeapGraphNode* ws =
       GetProperty(global, v8::HeapGraphEdge::kProperty, "ws");
@@ -535,6 +539,10 @@ TEST(HeapSnapshotWeakCollection) {
     }
   }
   CHECK_EQ(1, weak_entries);
+  const v8::HeapGraphNode* ws_s =
+      GetProperty(ws, v8::HeapGraphEdge::kProperty, "str");
+  CHECK_NE(NULL, ws_s);
+  CHECK_EQ(static_cast<int>(s->GetId()), static_cast<int>(ws_s->GetId()));
 
   const v8::HeapGraphNode* wm =
       GetProperty(global, v8::HeapGraphEdge::kProperty, "wm");
@@ -556,6 +564,85 @@ TEST(HeapSnapshotWeakCollection) {
     }
   }
   CHECK_EQ(2, weak_entries);
+  const v8::HeapGraphNode* wm_s =
+      GetProperty(wm, v8::HeapGraphEdge::kProperty, "str");
+  CHECK_NE(NULL, wm_s);
+  CHECK_EQ(static_cast<int>(s->GetId()), static_cast<int>(wm_s->GetId()));
+}
+
+
+TEST(HeapSnapshotCollection) {
+  i::FLAG_harmony_collections = true;
+
+  LocalContext env;
+  v8::HandleScope scope(env->GetIsolate());
+  v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
+
+  CompileRun(
+      "k = {}; v = {}; s = 'str';\n"
+      "set = new Set(); set.add(k); set.add(v); set[s] = s;\n"
+      "map = new Map(); map.set(k, v); map[s] = s;\n");
+  const v8::HeapSnapshot* snapshot =
+      heap_profiler->TakeHeapSnapshot(v8_str("Collections"));
+  CHECK(ValidateSnapshot(snapshot));
+  const v8::HeapGraphNode* global = GetGlobalObject(snapshot);
+  const v8::HeapGraphNode* k =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "k");
+  CHECK_NE(NULL, k);
+  const v8::HeapGraphNode* v =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "v");
+  CHECK_NE(NULL, v);
+  const v8::HeapGraphNode* s =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "s");
+  CHECK_NE(NULL, s);
+
+  const v8::HeapGraphNode* set =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "set");
+  CHECK_NE(NULL, set);
+  CHECK_EQ(v8::HeapGraphNode::kObject, set->GetType());
+  CHECK_EQ(v8_str("Set"), set->GetName());
+
+  const v8::HeapGraphNode* set_table =
+      GetProperty(set, v8::HeapGraphEdge::kInternal, "table");
+  CHECK_EQ(v8::HeapGraphNode::kArray, set_table->GetType());
+  CHECK_GT(set_table->GetChildrenCount(), 0);
+  int entries = 0;
+  for (int i = 0, count = set_table->GetChildrenCount(); i < count; ++i) {
+    const v8::HeapGraphEdge* prop = set_table->GetChild(i);
+    const v8::SnapshotObjectId to_node_id = prop->GetToNode()->GetId();
+    if (to_node_id == k->GetId() || to_node_id == v->GetId()) {
+      ++entries;
+    }
+  }
+  CHECK_EQ(2, entries);
+  const v8::HeapGraphNode* set_s =
+      GetProperty(set, v8::HeapGraphEdge::kProperty, "str");
+  CHECK_NE(NULL, set_s);
+  CHECK_EQ(static_cast<int>(s->GetId()), static_cast<int>(set_s->GetId()));
+
+  const v8::HeapGraphNode* map =
+      GetProperty(global, v8::HeapGraphEdge::kProperty, "map");
+  CHECK_NE(NULL, map);
+  CHECK_EQ(v8::HeapGraphNode::kObject, map->GetType());
+  CHECK_EQ(v8_str("Map"), map->GetName());
+
+  const v8::HeapGraphNode* map_table =
+      GetProperty(map, v8::HeapGraphEdge::kInternal, "table");
+  CHECK_EQ(v8::HeapGraphNode::kArray, map_table->GetType());
+  CHECK_GT(map_table->GetChildrenCount(), 0);
+  entries = 0;
+  for (int i = 0, count = map_table->GetChildrenCount(); i < count; ++i) {
+    const v8::HeapGraphEdge* prop = map_table->GetChild(i);
+    const v8::SnapshotObjectId to_node_id = prop->GetToNode()->GetId();
+    if (to_node_id == k->GetId() || to_node_id == v->GetId()) {
+      ++entries;
+    }
+  }
+  CHECK_EQ(2, entries);
+  const v8::HeapGraphNode* map_s =
+      GetProperty(map, v8::HeapGraphEdge::kProperty, "str");
+  CHECK_NE(NULL, map_s);
+  CHECK_EQ(static_cast<int>(s->GetId()), static_cast<int>(map_s->GetId()));
 }
 
 
@@ -1641,9 +1728,9 @@ TEST(GlobalObjectFields) {
   const v8::HeapGraphNode* global_context =
       GetProperty(global, v8::HeapGraphEdge::kInternal, "global_context");
   CHECK_NE(NULL, global_context);
-  const v8::HeapGraphNode* global_receiver =
-      GetProperty(global, v8::HeapGraphEdge::kInternal, "global_receiver");
-  CHECK_NE(NULL, global_receiver);
+  const v8::HeapGraphNode* global_proxy =
+      GetProperty(global, v8::HeapGraphEdge::kInternal, "global_proxy");
+  CHECK_NE(NULL, global_proxy);
 }
 
 
@@ -1688,7 +1775,7 @@ TEST(GetHeapValueForNode) {
   v8::HandleScope scope(env->GetIsolate());
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
 
-  CompileRun("a = { s_prop: \'value\', n_prop: 0.1 };");
+  CompileRun("a = { s_prop: \'value\', n_prop: \'value2\' };");
   const v8::HeapSnapshot* snapshot =
       heap_profiler->TakeHeapSnapshot(v8_str("value"));
   CHECK(ValidateSnapshot(snapshot));
@@ -1709,10 +1796,9 @@ TEST(GetHeapValueForNode) {
   CHECK(js_s_prop == heap_profiler->FindObjectById(s_prop->GetId()));
   const v8::HeapGraphNode* n_prop =
       GetProperty(obj, v8::HeapGraphEdge::kProperty, "n_prop");
-  v8::Local<v8::Number> js_n_prop =
-      js_obj->Get(v8_str("n_prop")).As<v8::Number>();
-  CHECK(js_n_prop->NumberValue() ==
-        heap_profiler->FindObjectById(n_prop->GetId())->NumberValue());
+  v8::Local<v8::String> js_n_prop =
+      js_obj->Get(v8_str("n_prop")).As<v8::String>();
+  CHECK(js_n_prop == heap_profiler->FindObjectById(n_prop->GetId()));
 }
 
 

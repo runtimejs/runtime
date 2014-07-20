@@ -11,13 +11,13 @@
 #include "src/conversions.h"
 #include "src/execution.h"
 #include "src/ic-inl.h"
+#include "src/prototype.h"
 #include "src/runtime.h"
 #include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
 
-#ifdef DEBUG
 char IC::TransitionMarkFromState(IC::State state) {
   switch (state) {
     case UNINITIALIZED: return '0';
@@ -48,25 +48,43 @@ const char* GetTransitionMarkModifier(KeyedAccessStoreMode mode) {
 }
 
 
-void IC::TraceIC(const char* type,
-                 Handle<Object> name) {
+#ifdef DEBUG
+
+#define TRACE_GENERIC_IC(isolate, type, reason)                \
+  do {                                                         \
+    if (FLAG_trace_ic) {                                       \
+      PrintF("[%s patching generic stub in ", type);           \
+      JavaScriptFrame::PrintTop(isolate, stdout, false, true); \
+      PrintF(" (%s)]\n", reason);                              \
+    }                                                          \
+  } while (false)
+
+#else
+
+#define TRACE_GENERIC_IC(isolate, type, reason)
+
+#endif  // DEBUG
+
+void IC::TraceIC(const char* type, Handle<Object> name) {
   if (FLAG_trace_ic) {
     Code* new_target = raw_target();
     State new_state = new_target->ic_state();
     PrintF("[%s%s in ", new_target->is_keyed_stub() ? "Keyed" : "", type);
-    StackFrameIterator it(isolate());
-    while (it.frame()->fp() != this->fp()) it.Advance();
-    StackFrame* raw_frame = it.frame();
-    if (raw_frame->is_internal()) {
-      Code* apply_builtin = isolate()->builtins()->builtin(
-          Builtins::kFunctionApply);
-      if (raw_frame->unchecked_code() == apply_builtin) {
-        PrintF("apply from ");
-        it.Advance();
-        raw_frame = it.frame();
-      }
+
+    // TODO(jkummerow): Add support for "apply". The logic is roughly:
+    // marker = [fp_ + kMarkerOffset];
+    // if marker is smi and marker.value == INTERNAL and
+    //     the frame's code == builtin(Builtins::kFunctionApply):
+    // then print "apply from" and advance one frame
+
+    Object* maybe_function =
+        Memory::Object_at(fp_ + JavaScriptFrameConstants::kFunctionOffset);
+    if (maybe_function->IsJSFunction()) {
+      JSFunction* function = JSFunction::cast(maybe_function);
+      JavaScriptFrame::PrintFunctionAndOffset(function, function->code(), pc(),
+                                              stdout, true);
     }
-    JavaScriptFrame::PrintTop(isolate(), stdout, false, true);
+
     ExtraICState extra_state = new_target->extra_ic_state();
     const char* modifier = "";
     if (new_target->kind() == Code::KEYED_STORE_IC) {
@@ -77,26 +95,18 @@ void IC::TraceIC(const char* type,
            TransitionMarkFromState(state()),
            TransitionMarkFromState(new_state),
            modifier);
-    name->Print();
+#ifdef OBJECT_PRINT
+    OFStream os(stdout);
+    name->Print(os);
+#else
+    name->ShortPrint(stdout);
+#endif
     PrintF("]\n");
   }
 }
 
-#define TRACE_GENERIC_IC(isolate, type, reason)                 \
-  do {                                                          \
-    if (FLAG_trace_ic) {                                        \
-      PrintF("[%s patching generic stub in ", type);            \
-      JavaScriptFrame::PrintTop(isolate, stdout, false, true);  \
-      PrintF(" (%s)]\n", reason);                               \
-    }                                                           \
-  } while (false)
+#define TRACE_IC(type, name) TraceIC(type, name)
 
-#else
-#define TRACE_GENERIC_IC(isolate, type, reason)
-#endif  // DEBUG
-
-#define TRACE_IC(type, name)             \
-  ASSERT((TraceIC(type, name), true))
 
 IC::IC(FrameDepth depth, Isolate* isolate)
     : isolate_(isolate),
@@ -213,13 +223,13 @@ static void LookupForRead(Handle<Object> object,
       return;
     }
 
-    Handle<Object> proto(holder->GetPrototype(), lookup->isolate());
-    if (proto->IsNull()) {
+    PrototypeIterator iter(lookup->isolate(), holder);
+    if (iter.IsAtEnd()) {
       ASSERT(!lookup->IsFound());
       return;
     }
 
-    object = proto;
+    object = PrototypeIterator::GetCurrent(iter);
   }
 }
 
@@ -239,7 +249,8 @@ bool IC::TryRemoveInvalidPrototypeDependentStub(Handle<Object> receiver,
       break;
     case PROTOTYPE_MAP:
       // IC::GetCodeCacheHolder is not applicable.
-      if (receiver->GetPrototype(isolate())->IsNull()) return false;
+      PrototypeIterator iter(isolate(), receiver);
+      if (iter.IsAtEnd()) return false;
       break;
   }
 
@@ -448,7 +459,7 @@ void IC::InvalidateMaps(Code* stub) {
       it.rinfo()->set_target_object(undefined, SKIP_WRITE_BARRIER);
     }
   }
-  CPU::FlushICache(stub->instruction_start(), stub->instruction_size());
+  CpuFeatures::FlushICache(stub->instruction_start(), stub->instruction_size());
 }
 
 
@@ -598,9 +609,11 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<String> name) {
       } else if (state() == PREMONOMORPHIC) {
         FunctionPrototypeStub function_prototype_stub(isolate(), kind());
         stub = function_prototype_stub.GetCode();
-      } else if (state() != MEGAMORPHIC) {
+      } else if (!FLAG_compiled_keyed_generic_loads && state() != MEGAMORPHIC) {
         ASSERT(state() != GENERIC);
         stub = megamorphic_stub();
+      } else if (FLAG_compiled_keyed_generic_loads && state() != GENERIC) {
+        stub = generic_stub();
       }
       if (!stub.is_null()) {
         set_target(*stub);
@@ -615,7 +628,11 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<String> name) {
   uint32_t index;
   if (kind() == Code::KEYED_LOAD_IC && name->AsArrayIndex(&index)) {
     // Rewrite to the generic keyed load stub.
-    if (FLAG_use_ic) set_target(*generic_stub());
+    if (FLAG_use_ic) {
+      set_target(*generic_stub());
+      TRACE_IC("LoadIC", name);
+      TRACE_GENERIC_IC(isolate(), "LoadIC", "name as array index");
+    }
     Handle<Object> result;
     ASSIGN_RETURN_ON_EXCEPTION(
         isolate(),
@@ -821,6 +838,10 @@ void IC::PatchCache(Handle<HeapType> type,
         if (UpdatePolymorphicIC(type, name, code)) break;
         CopyICToMegamorphicCache(name);
       }
+      if (FLAG_compiled_keyed_generic_loads && (kind() == Code::LOAD_IC)) {
+        set_target(*generic_stub());
+        break;
+      }
       set_target(*megamorphic_stub());
       // Fall through.
     case MEGAMORPHIC:
@@ -849,6 +870,11 @@ Handle<Code> LoadIC::pre_monomorphic_stub(Isolate* isolate,
 
 Handle<Code> LoadIC::megamorphic_stub() {
   return isolate()->stub_cache()->ComputeLoad(MEGAMORPHIC, extra_ic_state());
+}
+
+
+Handle<Code> LoadIC::generic_stub() const {
+  return KeyedLoadGenericElementStub(isolate()).GetCode();
 }
 
 
@@ -966,9 +992,6 @@ Handle<Code> LoadIC::CompileHandler(LookupResult* lookup,
     }
     case CONSTANT: {
       Handle<Object> constant(lookup->GetConstant(), isolate());
-      // TODO(2803): Don't compute a stub for cons strings because they cannot
-      // be embedded into code.
-      if (constant->IsConsString()) break;
       return compiler.CompileLoadConstant(type, holder, name, constant);
     }
     case NORMAL:
@@ -1210,7 +1233,8 @@ static bool LookupForWrite(Handle<JSObject> receiver,
     // goes into the runtime if access checks are needed, so this is always
     // safe.
     if (receiver->IsJSGlobalProxy()) {
-      return lookup->holder() == receiver->GetPrototype();
+      PrototypeIterator iter(lookup->isolate(), receiver);
+      return lookup->holder() == *PrototypeIterator::GetCurrent(iter);
     }
     // Currently normal holders in the prototype chain are not supported. They
     // would require a runtime positive lookup and verification that the details
@@ -1261,10 +1285,8 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object,
     Handle<JSReceiver> receiver = Handle<JSReceiver>::cast(object);
     Handle<Object> result;
     ASSIGN_RETURN_ON_EXCEPTION(
-        isolate(),
-        result,
-        JSReceiver::SetProperty(receiver, name, value, NONE, strict_mode()),
-        Object);
+        isolate(), result,
+        JSReceiver::SetProperty(receiver, name, value, strict_mode()), Object);
     return result;
   }
 
@@ -1302,10 +1324,8 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object,
   if (receiver->map()->is_observed()) {
     Handle<Object> result;
     ASSIGN_RETURN_ON_EXCEPTION(
-        isolate(),
-        result,
-        JSReceiver::SetProperty(
-            receiver, name, value, NONE, strict_mode(), store_mode),
+        isolate(), result, JSReceiver::SetProperty(receiver, name, value,
+                                                   strict_mode(), store_mode),
         Object);
     return result;
   }
@@ -1336,20 +1356,17 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object,
   // Set the property.
   Handle<Object> result;
   ASSIGN_RETURN_ON_EXCEPTION(
-      isolate(),
-      result,
-      JSReceiver::SetProperty(
-          receiver, name, value, NONE, strict_mode(), store_mode),
+      isolate(), result,
+      JSReceiver::SetProperty(receiver, name, value, strict_mode(), store_mode),
       Object);
   return result;
 }
 
 
-void CallIC::State::Print(StringStream* stream) const {
-  stream->Add("(args(%d), ",
-              argc_);
-  stream->Add("%s, ",
-              call_type_ == CallIC::METHOD ? "METHOD" : "FUNCTION");
+OStream& operator<<(OStream& os, const CallIC::State& s) {
+  return os << "(args(" << s.arg_count() << "), "
+            << (s.call_type() == CallIC::METHOD ? "METHOD" : "FUNCTION")
+            << ", ";
 }
 
 
@@ -1437,9 +1454,12 @@ Handle<Code> StoreIC::CompileHandler(LookupResult* lookup,
           // The stub generated for the global object picks the value directly
           // from the property cell. So the property must be directly on the
           // global object.
-          Handle<GlobalObject> global = receiver->IsJSGlobalProxy()
-              ? handle(GlobalObject::cast(receiver->GetPrototype()))
-              : Handle<GlobalObject>::cast(receiver);
+          PrototypeIterator iter(isolate(), receiver);
+          Handle<GlobalObject> global =
+              receiver->IsJSGlobalProxy()
+                  ? Handle<GlobalObject>::cast(
+                        PrototypeIterator::GetCurrent(iter))
+                  : Handle<GlobalObject>::cast(receiver);
           Handle<PropertyCell> cell(global->GetPropertyCell(lookup), isolate());
           Handle<HeapType> union_type = PropertyCell::UpdatedType(cell, value);
           StoreGlobalStub stub(
@@ -1743,7 +1763,7 @@ MaybeHandle<Object> KeyedStoreIC::Store(Handle<Object> object,
         isolate(),
         result,
         Runtime::SetObjectProperty(
-            isolate(), object, key, value, NONE, strict_mode()),
+            isolate(), object, key, value, strict_mode()),
         Object);
     return result;
   }
@@ -1811,7 +1831,7 @@ MaybeHandle<Object> KeyedStoreIC::Store(Handle<Object> object,
         isolate(),
         store_handle,
         Runtime::SetObjectProperty(
-            isolate(), object, key, value, NONE, strict_mode()),
+            isolate(), object, key, value, strict_mode()),
         Object);
   }
 
@@ -1852,7 +1872,7 @@ bool CallIC::DoCustomHandler(Handle<Object> receiver,
 
   // Are we the array function?
   Handle<JSFunction> array_function = Handle<JSFunction>(
-      isolate()->context()->native_context()->array_function(), isolate());
+      isolate()->native_context()->array_function());
   if (array_function.is_identical_to(Handle<JSFunction>::cast(function))) {
     // Alter the slot.
     Handle<AllocationSite> new_site = isolate()->factory()->NewAllocationSite();
@@ -1931,8 +1951,7 @@ void CallIC::HandleMiss(Handle<Object> receiver,
 
 // Used from ic-<arch>.cc.
 RUNTIME_FUNCTION(CallIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 4);
   CallIC ic(isolate);
@@ -1946,8 +1965,7 @@ RUNTIME_FUNCTION(CallIC_Miss) {
 
 
 RUNTIME_FUNCTION(CallIC_Customization_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 4);
   // A miss on a custom call ic always results in going megamorphic.
@@ -1962,8 +1980,7 @@ RUNTIME_FUNCTION(CallIC_Customization_Miss) {
 
 // Used from ic-<arch>.cc.
 RUNTIME_FUNCTION(LoadIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 2);
   LoadIC ic(IC::NO_EXTRA_FRAME, isolate);
@@ -1978,8 +1995,7 @@ RUNTIME_FUNCTION(LoadIC_Miss) {
 
 // Used from ic-<arch>.cc
 RUNTIME_FUNCTION(KeyedLoadIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 2);
   KeyedLoadIC ic(IC::NO_EXTRA_FRAME, isolate);
@@ -1993,8 +2009,7 @@ RUNTIME_FUNCTION(KeyedLoadIC_Miss) {
 
 
 RUNTIME_FUNCTION(KeyedLoadIC_MissFromStubFailure) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 2);
   KeyedLoadIC ic(IC::EXTRA_CALL_FRAME, isolate);
@@ -2009,8 +2024,7 @@ RUNTIME_FUNCTION(KeyedLoadIC_MissFromStubFailure) {
 
 // Used from ic-<arch>.cc.
 RUNTIME_FUNCTION(StoreIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 3);
   StoreIC ic(IC::NO_EXTRA_FRAME, isolate);
@@ -2027,8 +2041,7 @@ RUNTIME_FUNCTION(StoreIC_Miss) {
 
 
 RUNTIME_FUNCTION(StoreIC_MissFromStubFailure) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 3);
   StoreIC ic(IC::EXTRA_CALL_FRAME, isolate);
@@ -2045,8 +2058,7 @@ RUNTIME_FUNCTION(StoreIC_MissFromStubFailure) {
 
 
 RUNTIME_FUNCTION(StoreIC_ArrayLength) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
 
   ASSERT(args.length() == 2);
@@ -2073,8 +2085,7 @@ RUNTIME_FUNCTION(StoreIC_ArrayLength) {
 // it is necessary to extend the properties array of a
 // JSObject.
 RUNTIME_FUNCTION(SharedStoreIC_ExtendStorage) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope shs(isolate);
   ASSERT(args.length() == 3);
 
@@ -2096,8 +2107,7 @@ RUNTIME_FUNCTION(SharedStoreIC_ExtendStorage) {
 
 // Used from ic-<arch>.cc.
 RUNTIME_FUNCTION(KeyedStoreIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 3);
   KeyedStoreIC ic(IC::NO_EXTRA_FRAME, isolate);
@@ -2114,8 +2124,7 @@ RUNTIME_FUNCTION(KeyedStoreIC_Miss) {
 
 
 RUNTIME_FUNCTION(KeyedStoreIC_MissFromStubFailure) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 3);
   KeyedStoreIC ic(IC::EXTRA_CALL_FRAME, isolate);
@@ -2143,7 +2152,7 @@ RUNTIME_FUNCTION(StoreIC_Slow) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result,
       Runtime::SetObjectProperty(
-          isolate, object, key, value, NONE, strict_mode));
+          isolate, object, key, value, strict_mode));
   return *result;
 }
 
@@ -2160,14 +2169,13 @@ RUNTIME_FUNCTION(KeyedStoreIC_Slow) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result,
       Runtime::SetObjectProperty(
-          isolate, object, key, value, NONE, strict_mode));
+          isolate, object, key, value, strict_mode));
   return *result;
 }
 
 
 RUNTIME_FUNCTION(ElementsTransitionAndStoreIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 4);
   KeyedStoreIC ic(IC::EXTRA_CALL_FRAME, isolate);
@@ -2184,7 +2192,7 @@ RUNTIME_FUNCTION(ElementsTransitionAndStoreIC_Miss) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result,
       Runtime::SetObjectProperty(
-          isolate, object, key, value, NONE, strict_mode));
+          isolate, object, key, value, strict_mode));
   return *result;
 }
 
@@ -2463,18 +2471,20 @@ Type* BinaryOpIC::State::GetResultType(Zone* zone) const {
 }
 
 
-void BinaryOpIC::State::Print(StringStream* stream) const {
-  stream->Add("(%s", Token::Name(op_));
-  if (mode_ == OVERWRITE_LEFT) stream->Add("_ReuseLeft");
-  else if (mode_ == OVERWRITE_RIGHT) stream->Add("_ReuseRight");
-  if (CouldCreateAllocationMementos()) stream->Add("_CreateAllocationMementos");
-  stream->Add(":%s*", KindToString(left_kind_));
-  if (fixed_right_arg_.has_value) {
-    stream->Add("%d", fixed_right_arg_.value);
+OStream& operator<<(OStream& os, const BinaryOpIC::State& s) {
+  os << "(" << Token::Name(s.op_);
+  if (s.mode_ == OVERWRITE_LEFT)
+    os << "_ReuseLeft";
+  else if (s.mode_ == OVERWRITE_RIGHT)
+    os << "_ReuseRight";
+  if (s.CouldCreateAllocationMementos()) os << "_CreateAllocationMementos";
+  os << ":" << BinaryOpIC::State::KindToString(s.left_kind_) << "*";
+  if (s.fixed_right_arg_.has_value) {
+    os << s.fixed_right_arg_.value;
   } else {
-    stream->Add("%s", KindToString(right_kind_));
+    os << BinaryOpIC::State::KindToString(s.right_kind_);
   }
-  stream->Add("->%s)", KindToString(result_kind_));
+  return os << "->" << BinaryOpIC::State::KindToString(s.result_kind_) << ")";
 }
 
 
@@ -2648,21 +2658,14 @@ MaybeHandle<Object> BinaryOpIC::Transition(
   set_target(*target);
 
   if (FLAG_trace_ic) {
-    char buffer[150];
-    NoAllocationStringAllocator allocator(
-        buffer, static_cast<unsigned>(sizeof(buffer)));
-    StringStream stream(&allocator);
-    stream.Add("[BinaryOpIC");
-    old_state.Print(&stream);
-    stream.Add(" => ");
-    state.Print(&stream);
-    stream.Add(" @ %p <- ", static_cast<void*>(*target));
-    stream.OutputToStdOut();
+    OFStream os(stdout);
+    os << "[BinaryOpIC" << old_state << " => " << state << " @ "
+       << static_cast<void*>(*target) << " <- ";
     JavaScriptFrame::PrintTop(isolate(), stdout, false, true);
     if (!allocation_site.is_null()) {
-      PrintF(" using allocation site %p", static_cast<void*>(*allocation_site));
+      os << " using allocation site " << static_cast<void*>(*allocation_site);
     }
-    PrintF("]\n");
+    os << "]" << endl;
   }
 
   // Patch the inlined smi code as necessary.
@@ -2677,8 +2680,7 @@ MaybeHandle<Object> BinaryOpIC::Transition(
 
 
 RUNTIME_FUNCTION(BinaryOpIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT_EQ(2, args.length());
   Handle<Object> left = args.at<Object>(BinaryOpICStub::kLeft);
@@ -2694,8 +2696,7 @@ RUNTIME_FUNCTION(BinaryOpIC_Miss) {
 
 
 RUNTIME_FUNCTION(BinaryOpIC_MissWithAllocationSite) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT_EQ(3, args.length());
   Handle<AllocationSite> allocation_site = args.at<AllocationSite>(
@@ -2929,8 +2930,7 @@ Code* CompareIC::UpdateCaches(Handle<Object> x, Handle<Object> y) {
 
 // Used from ICCompareStub::GenerateMiss in code-stubs-<arch>.cc.
 RUNTIME_FUNCTION(CompareIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   ASSERT(args.length() == 3);
   CompareIC ic(isolate, static_cast<Token::Value>(args.smi_at(2)));
@@ -2995,8 +2995,7 @@ Handle<Object> CompareNilIC::CompareNil(Handle<Object> object) {
 
 
 RUNTIME_FUNCTION(CompareNilIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   HandleScope scope(isolate);
   Handle<Object> object = args.at<Object>(0);
   CompareNilIC ic(isolate);
@@ -3062,8 +3061,7 @@ Handle<Object> ToBooleanIC::ToBoolean(Handle<Object> object) {
 
 
 RUNTIME_FUNCTION(ToBooleanIC_Miss) {
-  Logger::TimerEventScope timer(
-      isolate, Logger::TimerEventScope::v8_ic_miss);
+  TimerEventScope<TimerEventIcMiss> timer(isolate);
   ASSERT(args.length() == 1);
   HandleScope scope(isolate);
   Handle<Object> object = args.at<Object>(0);

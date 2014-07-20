@@ -5,7 +5,7 @@
 #ifndef V8_SNAPSHOT_SOURCE_SINK_H_
 #define V8_SNAPSHOT_SOURCE_SINK_H_
 
-#include "src/checks.h"
+#include "src/base/logging.h"
 #include "src/utils.h"
 
 namespace v8 {
@@ -71,9 +71,10 @@ class SnapshotByteSource V8_FINAL {
 class SnapshotByteSink {
  public:
   virtual ~SnapshotByteSink() { }
-  virtual void Put(int byte, const char* description) = 0;
-  virtual void PutSection(int byte, const char* description) {
-    Put(byte, description);
+  virtual void Put(byte b, const char* description) = 0;
+  virtual void PutSection(int b, const char* description) {
+    ASSERT_LE(b, kMaxUInt8);
+    Put(static_cast<byte>(b), description);
   }
   void PutInt(uintptr_t integer, const char* description);
   void PutRaw(byte* data, int number_of_bytes, const char* description);
@@ -81,6 +82,42 @@ class SnapshotByteSink {
   virtual int Position() = 0;
 };
 
+
+class DummySnapshotSink : public SnapshotByteSink {
+ public:
+  DummySnapshotSink() : length_(0) {}
+  virtual ~DummySnapshotSink() {}
+  virtual void Put(byte b, const char* description) { length_++; }
+  virtual int Position() { return length_; }
+
+ private:
+  int length_;
+};
+
+
+// Wrap a SnapshotByteSink into a DebugSnapshotSink to get debugging output.
+class DebugSnapshotSink : public SnapshotByteSink {
+ public:
+  explicit DebugSnapshotSink(SnapshotByteSink* chained) : sink_(chained) {}
+  virtual void Put(byte b, const char* description) V8_OVERRIDE;
+  virtual int Position() V8_OVERRIDE { return sink_->Position(); }
+
+ private:
+  SnapshotByteSink* sink_;
+};
+
+
+class ListSnapshotSink : public i::SnapshotByteSink {
+ public:
+  explicit ListSnapshotSink(i::List<byte>* data) : data_(data) {}
+  virtual void Put(byte b, const char* description) V8_OVERRIDE {
+    data_->Add(b);
+  }
+  virtual int Position() V8_OVERRIDE { return data_->length(); }
+
+ private:
+  i::List<byte>* data_;
+};
 
 }  // namespace v8::internal
 }  // namespace v8
