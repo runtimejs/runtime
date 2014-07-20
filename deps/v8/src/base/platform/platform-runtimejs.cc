@@ -26,14 +26,20 @@
 #include "v8.h"
 
 #include "platform.h"
-#include "v8threads.h"
-#include "vm-state-inl.h"
-#include "codegen.h"
+#include "src/base/utils/random-number-generator.h"
 
 extern "C" int sched_yield(void);
 
 namespace v8 {
-namespace internal {
+namespace base {
+
+namespace {
+
+bool g_hard_abort = false;
+
+const char* g_gc_fake_mmap = NULL;
+
+}  // namespace
 
 int OS::NumberOfProcessorsOnline() {
   return 1;
@@ -57,6 +63,20 @@ intptr_t OS::CommitPageSize() {
 
 // Get rid of writable permission on code allocations.
 void OS::ProtectCode(void* address, const size_t size) {
+}
+
+
+static LazyInstance<RandomNumberGenerator>::type
+    platform_random_number_generator = LAZY_INSTANCE_INITIALIZER;
+
+
+void OS::Initialize(int64_t random_seed, bool hard_abort,
+                    const char* const gc_fake_mmap) {
+  if (random_seed) {
+    platform_random_number_generator.Pointer()->SetSeed(random_seed);
+  }
+  g_hard_abort = hard_abort;
+  g_gc_fake_mmap = gc_fake_mmap;
 }
 
 
@@ -340,8 +360,8 @@ VirtualMemory::VirtualMemory(size_t size, size_t alignment)
                                 static_cast<intptr_t>(OS::AllocateAlignment()));
 
   void* reservation = memalign(alignment, request_size);
-  Address base = static_cast<Address>(reservation);
-  Address aligned_base = RoundUp(base, alignment);
+  uint8_t* base = static_cast<uint8_t*>(reservation);
+  uint8_t* aligned_base = RoundUp(base, alignment);
   ASSERT_EQ(base, aligned_base);
 
   address_ = reservation;
@@ -412,7 +432,7 @@ bool VirtualMemory::HasLazyCommits() {
 }
 
 
-class Thread::PlatformData : public Malloced {
+class Thread::PlatformData {
  public:
   PlatformData() : thread_() {}
   rt::NativeThreadHandle thread_;
@@ -479,4 +499,4 @@ void Thread::SetThreadLocal(LocalStorageKey key, void* value) {
 }
 
 
-} }  // namespace v8::internal
+} }  // namespace v8::base
