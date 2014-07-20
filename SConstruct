@@ -119,6 +119,7 @@ config = {
         'deps/libcxx/include',
         'deps/eastl/include',
         'deps/v8/include',
+        'deps/v8',
         'deps/acpica/source/include',
         'deps/printf',
         'src',

@@ -24,6 +24,7 @@
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <EASTL/vector.h>
+#include <include/libplatform/libplatform.h>
 
 namespace rt {
 
@@ -41,7 +42,8 @@ public:
     Engines(uint32_t cpu_count)
         :	cpu_count_(cpu_count),
             _non_isolate_ticks(0),
-            proc_mgr_(this) {
+            proc_mgr_(this),
+            v8_platform_(nullptr) {
         RT_ASSERT(nullptr == GLOBAL_engines());
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
@@ -68,6 +70,10 @@ public:
         RT_ASSERT(engines_execution_.size() > 0);
 
         v8::V8::InitializeICU();
+        RT_ASSERT(!v8_platform_);
+        v8_platform_ = v8::platform::CreateDefaultPlatform();
+        RT_ASSERT(v8_platform_);
+        v8::V8::InitializePlatform(v8_platform_);
         v8::V8::SetArrayBufferAllocator(new MallocArrayBufferAllocator());
 
         const char flags[] = "--harmony_collections";
@@ -236,6 +242,7 @@ private:
     volatile uint64_t _non_isolate_ticks;
     ProcessManager proc_mgr_;
 
+    v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;
 
     mutable Locker _platform_locker;
