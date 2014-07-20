@@ -111,7 +111,7 @@ public:
     }
 
     /**
-     * Put message into realm processing queue. Use only
+     * Put message into thread processing queue. Use only
      * for non-IRQ context calls, because it will disable and
      * then enable interrupts on current CPU
      */
@@ -123,7 +123,7 @@ public:
     }
 
     /**
-     * Put message into realm processing queue. Use only
+     * Put message into thread processing queue. Use only
      * for IRQ-context calls. It doesn't touch IRQ flag
      */
     void PushMessageIRQ(SystemContextIRQ irq_context, ThreadMessage* message) {

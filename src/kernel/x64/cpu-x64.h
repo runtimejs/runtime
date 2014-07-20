@@ -56,7 +56,7 @@ public:
      * Get current CPU index
      */
     static uint32_t id() {
-        uint16_t gs = 0;    // gs containts cpu id
+        uint16_t gs = 0;    // gs contains cpu id
         asm volatile("movw %%gs,%0" : "=r"(gs));
         return gs;
     }
