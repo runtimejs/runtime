@@ -18,7 +18,6 @@
 #include <string>
 #include <memory>
 
-#include <v8.h>
 #include "thread.h"
 #include <kernel/kernel.h>
 #include <kernel/template-cache.h>
