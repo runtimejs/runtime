@@ -916,20 +916,24 @@ class ScriptOrigin {
       Handle<Value> resource_name,
       Handle<Integer> resource_line_offset = Handle<Integer>(),
       Handle<Integer> resource_column_offset = Handle<Integer>(),
-      Handle<Boolean> resource_is_shared_cross_origin = Handle<Boolean>())
+      Handle<Boolean> resource_is_shared_cross_origin = Handle<Boolean>(),
+      Handle<Integer> script_id = Handle<Integer>())
       : resource_name_(resource_name),
         resource_line_offset_(resource_line_offset),
         resource_column_offset_(resource_column_offset),
-        resource_is_shared_cross_origin_(resource_is_shared_cross_origin) { }
+        resource_is_shared_cross_origin_(resource_is_shared_cross_origin),
+        script_id_(script_id) { }
   V8_INLINE Handle<Value> ResourceName() const;
   V8_INLINE Handle<Integer> ResourceLineOffset() const;
   V8_INLINE Handle<Integer> ResourceColumnOffset() const;
   V8_INLINE Handle<Boolean> ResourceIsSharedCrossOrigin() const;
+  V8_INLINE Handle<Integer> ScriptID() const;
  private:
   Handle<Value> resource_name_;
   Handle<Integer> resource_line_offset_;
   Handle<Integer> resource_column_offset_;
   Handle<Boolean> resource_is_shared_cross_origin_;
+  Handle<Integer> script_id_;
 };
 
 
@@ -945,6 +949,15 @@ class V8_EXPORT UnboundScript {
 
   int GetId();
   Handle<Value> GetScriptName();
+
+  /**
+   * Data read from magic sourceURL comments.
+   */
+  Handle<Value> GetSourceURL();
+  /**
+   * Data read from magic sourceMappingURL comments.
+   */
+  Handle<Value> GetSourceMappingURL();
 
   /**
    * Returns zero based line number of the code_pos location in the script.
@@ -1061,19 +1074,31 @@ class V8_EXPORT ScriptCompiler {
     Handle<Integer> resource_column_offset;
     Handle<Boolean> resource_is_shared_cross_origin;
 
-    // Cached data from previous compilation (if any), or generated during
-    // compilation (if the generate_cached_data flag is passed to
-    // ScriptCompiler).
+    // Cached data from previous compilation (if a kConsume*Cache flag is
+    // set), or hold newly generated cache data (kProduce*Cache flags) are
+    // set when calling a compile method.
     CachedData* cached_data;
   };
 
   enum CompileOptions {
-    kNoCompileOptions,
-    kProduceDataToCache = 1 << 0
+    kNoCompileOptions = 0,
+    kProduceParserCache,
+    kConsumeParserCache,
+    kProduceCodeCache,
+    kConsumeCodeCache,
+
+    // Support the previous API for a transition period.
+    kProduceDataToCache
   };
 
   /**
    * Compiles the specified script (context-independent).
+   * Cached data as part of the source object can be optionally produced to be
+   * consumed later to speed up compilation of identical source scripts.
+   *
+   * Note that when producing cached data, the source must point to NULL for
+   * cached data. When consuming cached data, the cached data must have been
+   * produced by the same version of V8.
    *
    * \param source Script source code.
    * \return Compiled script object (context independent; for running it must be
@@ -2077,9 +2102,7 @@ enum AccessControl {
  */
 class V8_EXPORT Object : public Value {
  public:
-  bool Set(Handle<Value> key,
-           Handle<Value> value,
-           PropertyAttribute attribs = None);
+  bool Set(Handle<Value> key, Handle<Value> value);
 
   bool Set(uint32_t index, Handle<Value> value);
 
@@ -2105,6 +2128,11 @@ class V8_EXPORT Object : public Value {
    * None when the property doesn't exist.
    */
   PropertyAttribute GetPropertyAttributes(Handle<Value> key);
+
+  /**
+   * Returns Object.getOwnPropertyDescriptor as per ES5 section 15.2.3.3.
+   */
+  Local<Value> GetOwnPropertyDescriptor(Local<String> key);
 
   bool Has(Handle<Value> key);
 
@@ -4144,7 +4172,8 @@ class V8_EXPORT Isolate {
    * list.
    */
   enum UseCounterFeature {
-    kUseAsm = 0
+    kUseAsm = 0,
+    kUseCounterFeatureCount  // This enum value must be last.
   };
 
   typedef void (*UseCounterCallback)(Isolate* isolate,
@@ -4425,6 +4454,21 @@ class V8_EXPORT Isolate {
    */
   void SetUseCounterCallback(UseCounterCallback callback);
 
+  /**
+   * Enables the host application to provide a mechanism for recording
+   * statistics counters.
+   */
+  void SetCounterFunction(CounterLookupCallback);
+
+  /**
+   * Enables the host application to provide a mechanism for recording
+   * histograms. The CreateHistogram function returns a
+   * histogram which will later be passed to the AddHistogramSample
+   * function.
+   */
+  void SetCreateHistogramFunction(CreateHistogramCallback);
+  void SetAddHistogramSampleFunction(AddHistogramSampleCallback);
+
  private:
   template<class K, class V, class Traits> friend class PersistentValueMap;
 
@@ -4549,7 +4593,7 @@ struct JitCodeEvent {
   // Size of the instructions.
   size_t code_len;
   // Script info for CODE_ADDED event.
-  Handle<Script> script;
+  Handle<UnboundScript> script;
   // User-defined data for *_LINE_INFO_* event. It's used to hold the source
   // code line information which is returned from the
   // CODE_START_LINE_INFO_RECORDING event. And it's passed to subsequent
@@ -4735,21 +4779,6 @@ class V8_EXPORT V8 {
 
   /** Get the version string. */
   static const char* GetVersion();
-
-  /**
-   * Enables the host application to provide a mechanism for recording
-   * statistics counters.
-   */
-  static void SetCounterFunction(CounterLookupCallback);
-
-  /**
-   * Enables the host application to provide a mechanism for recording
-   * histograms. The CreateHistogram function returns a
-   * histogram which will later be passed to the AddHistogramSample
-   * function.
-   */
-  static void SetCreateHistogramFunction(CreateHistogramCallback);
-  static void SetAddHistogramSampleFunction(AddHistogramSampleCallback);
 
   /** Callback function for reporting failed access checks.*/
   static void SetFailedAccessCheckCallbackFunction(FailedAccessCheckCallback);
@@ -5258,14 +5287,6 @@ class V8_EXPORT Context {
    */
   void Exit();
 
-  /**
-   * Returns true if the context has experienced an out of memory situation.
-   * Since V8 always treats OOM as fatal error, this can no longer return true.
-   * Therefore this is now deprecated.
-   * */
-  V8_DEPRECATED("This can no longer happen. OOM is a fatal error.",
-                bool HasOutOfMemoryException()) { return false; }
-
   /** Returns an isolate associated with a current context. */
   v8::Isolate* GetIsolate();
 
@@ -5596,7 +5617,7 @@ class Internals {
   static const int kNullValueRootIndex = 7;
   static const int kTrueValueRootIndex = 8;
   static const int kFalseValueRootIndex = 9;
-  static const int kEmptyStringRootIndex = 160;
+  static const int kEmptyStringRootIndex = 163;
 
   // The external allocation limit should be below 256 MB on all architectures
   // to avoid that resource-constrained embedders run low on memory.
@@ -5611,10 +5632,10 @@ class Internals {
   static const int kNodeIsIndependentShift = 4;
   static const int kNodeIsPartiallyDependentShift = 5;
 
-  static const int kJSObjectType = 0xbb;
+  static const int kJSObjectType = 0xbc;
   static const int kFirstNonstringType = 0x80;
   static const int kOddballType = 0x83;
-  static const int kForeignType = 0x87;
+  static const int kForeignType = 0x88;
 
   static const int kUndefinedOddballKind = 5;
   static const int kNullOddballKind = 3;
@@ -6128,8 +6149,14 @@ Handle<Integer> ScriptOrigin::ResourceColumnOffset() const {
   return resource_column_offset_;
 }
 
+
 Handle<Boolean> ScriptOrigin::ResourceIsSharedCrossOrigin() const {
   return resource_is_shared_cross_origin_;
+}
+
+
+Handle<Integer> ScriptOrigin::ScriptID() const {
+  return script_id_;
 }
 
 

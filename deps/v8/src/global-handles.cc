@@ -611,21 +611,21 @@ bool GlobalHandles::IterateObjectGroups(ObjectVisitor* v,
 }
 
 
-bool GlobalHandles::PostGarbageCollectionProcessing(
-    GarbageCollector collector, GCTracer* tracer) {
+int GlobalHandles::PostGarbageCollectionProcessing(
+    GarbageCollector collector) {
   // Process weak global handle callbacks. This must be done after the
   // GC is completely done, because the callbacks may invoke arbitrary
   // API functions.
   ASSERT(isolate_->heap()->gc_state() == Heap::NOT_IN_GC);
   const int initial_post_gc_processing_count = ++post_gc_processing_count_;
-  bool next_gc_likely_to_collect_more = false;
+  int freed_nodes = 0;
   if (collector == SCAVENGER) {
     for (int i = 0; i < new_space_nodes_.length(); ++i) {
       Node* node = new_space_nodes_[i];
       ASSERT(node->is_in_new_space_list());
       if (!node->IsRetainer()) {
         // Free nodes do not have weak callbacks. Do not use them to compute
-        // the next_gc_likely_to_collect_more.
+        // the freed_nodes.
         continue;
       }
       // Skip dependent handles. Their weak callbacks might expect to be
@@ -641,29 +641,29 @@ bool GlobalHandles::PostGarbageCollectionProcessing(
           // PostGarbageCollection processing.  The current node might
           // have been deleted in that round, so we need to bail out (or
           // restart the processing).
-          return next_gc_likely_to_collect_more;
+          return freed_nodes;
         }
       }
       if (!node->IsRetainer()) {
-        next_gc_likely_to_collect_more = true;
+        freed_nodes++;
       }
     }
   } else {
     for (NodeIterator it(this); !it.done(); it.Advance()) {
       if (!it.node()->IsRetainer()) {
         // Free nodes do not have weak callbacks. Do not use them to compute
-        // the next_gc_likely_to_collect_more.
+        // the freed_nodes.
         continue;
       }
       it.node()->clear_partially_dependent();
       if (it.node()->PostGarbageCollectionProcessing(isolate_)) {
         if (initial_post_gc_processing_count != post_gc_processing_count_) {
           // See the comment above.
-          return next_gc_likely_to_collect_more;
+          return freed_nodes;
         }
       }
       if (!it.node()->IsRetainer()) {
-        next_gc_likely_to_collect_more = true;
+        freed_nodes++;
       }
     }
   }
@@ -675,18 +675,18 @@ bool GlobalHandles::PostGarbageCollectionProcessing(
     if (node->IsRetainer()) {
       if (isolate_->heap()->InNewSpace(node->object())) {
         new_space_nodes_[last++] = node;
-        tracer->increment_nodes_copied_in_new_space();
+        isolate_->heap()->IncrementNodesCopiedInNewSpace();
       } else {
         node->set_in_new_space_list(false);
-        tracer->increment_nodes_promoted();
+        isolate_->heap()->IncrementNodesPromoted();
       }
     } else {
       node->set_in_new_space_list(false);
-      tracer->increment_nodes_died_in_new_space();
+      isolate_->heap()->IncrementNodesDiedInNewSpace();
     }
   }
   new_space_nodes_.Rewind(last);
-  return next_gc_likely_to_collect_more;
+  return freed_nodes;
 }
 
 

@@ -162,45 +162,35 @@ void DebugCodegen::GenerateCallICStubDebugBreak(MacroAssembler* masm) {
 
 void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
   // Register state for IC load call (from ic-x64.cc).
-  // ----------- S t a t e -------------
-  //  -- rax    : receiver
-  //  -- rcx    : name
-  // -----------------------------------
-  Generate_DebugBreakCallHelper(masm, rax.bit() | rcx.bit(), 0, false);
+  Register receiver = LoadIC::ReceiverRegister();
+  Register name = LoadIC::NameRegister();
+  Generate_DebugBreakCallHelper(masm, receiver.bit() | name.bit(), 0, false);
 }
 
 
 void DebugCodegen::GenerateStoreICDebugBreak(MacroAssembler* masm) {
   // Register state for IC store call (from ic-x64.cc).
-  // ----------- S t a t e -------------
-  //  -- rax    : value
-  //  -- rcx    : name
-  //  -- rdx    : receiver
-  // -----------------------------------
+  Register receiver = StoreIC::ReceiverRegister();
+  Register name = StoreIC::NameRegister();
+  Register value = StoreIC::ValueRegister();
   Generate_DebugBreakCallHelper(
-      masm, rax.bit() | rcx.bit() | rdx.bit(), 0, false);
+      masm, receiver.bit() | name.bit() | value.bit(), 0, false);
 }
 
 
 void DebugCodegen::GenerateKeyedLoadICDebugBreak(MacroAssembler* masm) {
   // Register state for keyed IC load call (from ic-x64.cc).
-  // ----------- S t a t e -------------
-  //  -- rax     : key
-  //  -- rdx     : receiver
-  // -----------------------------------
-  Generate_DebugBreakCallHelper(masm, rax.bit() | rdx.bit(), 0, false);
+  GenerateLoadICDebugBreak(masm);
 }
 
 
 void DebugCodegen::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
-  // Register state for keyed IC load call (from ic-x64.cc).
-  // ----------- S t a t e -------------
-  //  -- rax    : value
-  //  -- rcx    : key
-  //  -- rdx    : receiver
-  // -----------------------------------
+  // Register state for keyed IC store call (from ic-x64.cc).
+  Register receiver = KeyedStoreIC::ReceiverRegister();
+  Register name = KeyedStoreIC::NameRegister();
+  Register value = KeyedStoreIC::ValueRegister();
   Generate_DebugBreakCallHelper(
-      masm, rax.bit() | rcx.bit() | rdx.bit(), 0, false);
+      masm, receiver.bit() | name.bit() | value.bit(), 0, false);
 }
 
 

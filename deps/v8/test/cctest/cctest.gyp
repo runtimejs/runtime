@@ -37,6 +37,7 @@
       'type': 'executable',
       'dependencies': [
         'resources',
+        '../../tools/gyp/v8.gyp:v8_libplatform',
       ],
       'include_dirs': [
         '../..',
@@ -84,6 +85,7 @@
         'test-heap.cc',
         'test-heap-profiler.cc',
         'test-hydrogen-types.cc',
+        'test-libplatform-default-platform.cc',
         'test-libplatform-task-queue.cc',
         'test-libplatform-worker-thread.cc',
         'test-list.cc',
@@ -96,6 +98,7 @@
         'test-mutex.cc',
         'test-object-observe.cc',
         'test-ordered-hash-table.cc',
+        'test-ostreams.cc',
         'test-parsing.cc',
         'test-platform.cc',
         'test-platform-tls.cc',
@@ -174,6 +177,15 @@
             'test-code-stubs-mips.cc',
             'test-disasm-mips.cc',
             'test-macro-assembler-mips.cc'
+          ],
+        }],
+        ['v8_target_arch=="mips64el"', {
+          'sources': [
+            'test-assembler-mips64.cc',
+            'test-code-stubs.cc',
+            'test-code-stubs-mips64.cc',
+            'test-disasm-mips64.cc',
+            'test-macro-assembler-mips64.cc'
           ],
         }],
         ['v8_target_arch=="x87"', {

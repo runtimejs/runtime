@@ -12,7 +12,7 @@
 namespace v8 {
 namespace internal {
 
-const int Deoptimizer::table_entry_size_ = 12;
+const int Deoptimizer::table_entry_size_ = 8;
 
 
 int Deoptimizer::patch_size() {
@@ -105,7 +105,7 @@ void Deoptimizer::FillInputFrame(Address tos, JavaScriptFrame* frame) {
 
 void Deoptimizer::SetPlatformCompiledStubRegisters(
     FrameDescription* output_frame, CodeStubInterfaceDescriptor* descriptor) {
-  ApiFunction function(descriptor->deoptimization_handler_);
+  ApiFunction function(descriptor->deoptimization_handler());
   ExternalReference xref(&function, ExternalReference::BUILTIN_CALL, isolate_);
   intptr_t handler = reinterpret_cast<intptr_t>(xref.address());
   int params = descriptor->GetHandlerParameterCount();
@@ -328,11 +328,11 @@ void Deoptimizer::TableEntryGenerator::GeneratePrologue() {
     int start = masm()->pc_offset();
     USE(start);
     __ mov(ip, Operand(i));
-    __ push(ip);
     __ b(&done);
     ASSERT(masm()->pc_offset() - start == table_entry_size_);
   }
   __ bind(&done);
+  __ push(ip);
 }
 
 

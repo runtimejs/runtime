@@ -39,7 +39,7 @@
 
 #include "src/mips/assembler-mips.h"
 
-#include "src/cpu.h"
+#include "src/assembler.h"
 #include "src/debug.h"
 
 
@@ -125,7 +125,7 @@ void RelocInfo::apply(intptr_t delta, ICacheFlushMode icache_flush_mode) {
     // Absolute code pointer inside code object moves with the code object.
     byte* p = reinterpret_cast<byte*>(pc_);
     int count = Assembler::RelocateInternalReference(p, delta);
-    CPU::FlushICache(p, count * sizeof(uint32_t));
+    CpuFeatures::FlushICache(p, count * sizeof(uint32_t));
   }
 }
 
@@ -207,7 +207,6 @@ void RelocInfo::set_target_object(Object* target,
                                   WriteBarrierMode write_barrier_mode,
                                   ICacheFlushMode icache_flush_mode) {
   ASSERT(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
-  ASSERT(!target->IsConsString());
   Assembler::set_target_address_at(pc_, host_,
                                    reinterpret_cast<Address>(target),
                                    icache_flush_mode);

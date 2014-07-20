@@ -443,9 +443,7 @@ function ArrayPush() {
   var m = %_ArgumentsLength();
 
   for (var i = 0; i < m; i++) {
-    // Use SetProperty rather than a direct keyed store to ensure that the store
-    // site doesn't become poisened with an elements transition KeyedStoreIC.
-    %SetProperty(array, i+n, %_Arguments(i), 0, kStrictMode);
+    array[i+n] = %_Arguments(i);
   }
 
   var new_length = n + m;
@@ -1462,7 +1460,7 @@ function SetUpArray() {
 
   // Set up non-enumerable constructor property on the Array.prototype
   // object.
-  %SetProperty($Array.prototype, "constructor", $Array, DONT_ENUM);
+  %AddNamedProperty($Array.prototype, "constructor", $Array, DONT_ENUM);
 
   // Set up non-enumerable functions on the Array object.
   InstallFunctions($Array, DONT_ENUM, $Array(

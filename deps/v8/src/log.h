@@ -8,11 +8,16 @@
 #include <string>
 
 #include "src/allocation.h"
+#include "src/base/platform/elapsed-timer.h"
+#include "src/base/platform/platform.h"
 #include "src/objects.h"
-#include "src/platform.h"
-#include "src/platform/elapsed-timer.h"
 
 namespace v8 {
+
+namespace base {
+class Semaphore;
+}
+
 namespace internal {
 
 // Logger is used for collecting logging information from V8 during
@@ -57,7 +62,6 @@ class Isolate;
 class Log;
 class PositionsRecorder;
 class Profiler;
-class Semaphore;
 class Ticker;
 struct TickSample;
 
@@ -147,6 +151,8 @@ class Sampler;
 
 class Logger {
  public:
+  enum StartEnd { START = 0, END = 1 };
+
 #define DECLARE_ENUM(enum_item, ignore) enum_item,
   enum LogEventsAndTags {
     LOG_EVENTS_AND_TAGS_LIST(DECLARE_ENUM)
@@ -286,9 +292,6 @@ class Logger {
                           uintptr_t start,
                           uintptr_t end);
 
-  // ==== Events logged by --log-timer-events. ====
-  enum StartEnd { START, END };
-
   void CodeDeoptEvent(Code* code);
   void CurrentTimeEvent();
 
@@ -297,33 +300,8 @@ class Logger {
   static void EnterExternal(Isolate* isolate);
   static void LeaveExternal(Isolate* isolate);
 
-  static void EmptyLogInternalEvents(const char* name, int se) { }
-  static void LogInternalEvents(const char* name, int se);
-
-  class TimerEventScope {
-   public:
-    TimerEventScope(Isolate* isolate, const char* name)
-        : isolate_(isolate), name_(name) {
-      LogTimerEvent(START);
-    }
-
-    ~TimerEventScope() {
-      LogTimerEvent(END);
-    }
-
-    void LogTimerEvent(StartEnd se);
-
-    static const char* v8_recompile_synchronous;
-    static const char* v8_recompile_concurrent;
-    static const char* v8_compile_full_code;
-    static const char* v8_execute;
-    static const char* v8_external;
-    static const char* v8_ic_miss;
-
-   private:
-    Isolate* isolate_;
-    const char* name_;
-  };
+  static void EmptyTimerEventsLogger(const char* name, int se) {}
+  static void DefaultTimerEventsLogger(const char* name, int se);
 
   // ==== Events logged by --log-regexp ====
   // Regexp compilation and execution events.
@@ -436,9 +414,43 @@ class Logger {
   // 'true' between SetUp() and TearDown().
   bool is_initialized_;
 
-  ElapsedTimer timer_;
+  base::ElapsedTimer timer_;
 
   friend class CpuProfiler;
+};
+
+
+#define TIMER_EVENTS_LIST(V)    \
+  V(RecompileSynchronous, true) \
+  V(RecompileConcurrent, true)  \
+  V(CompileFullCode, true)      \
+  V(Execute, true)              \
+  V(External, true)             \
+  V(IcMiss, false)
+
+#define V(TimerName, expose)                                                  \
+  class TimerEvent##TimerName : public AllStatic {                            \
+   public:                                                                    \
+    static const char* name(void* unused = NULL) { return "V8." #TimerName; } \
+    static bool expose_to_api() { return expose; }                            \
+  };
+TIMER_EVENTS_LIST(V)
+#undef V
+
+
+template <class TimerEvent>
+class TimerEventScope {
+ public:
+  explicit TimerEventScope(Isolate* isolate) : isolate_(isolate) {
+    LogTimerEvent(Logger::START);
+  }
+
+  ~TimerEventScope() { LogTimerEvent(Logger::END); }
+
+  void LogTimerEvent(Logger::StartEnd se);
+
+ private:
+  Isolate* isolate_;
 };
 
 

@@ -29,20 +29,25 @@
 #include "include/v8-testing.h"
 #endif  // V8_SHARED
 
+#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
+#include "src/gdb-jit.h"
+#endif
+
 #ifdef ENABLE_VTUNE_JIT_INTERFACE
 #include "src/third_party/vtune/v8-vtune.h"
 #endif
 
 #include "src/d8.h"
 
+#include "include/libplatform/libplatform.h"
 #ifndef V8_SHARED
 #include "src/api.h"
-#include "src/checks.h"
-#include "src/cpu.h"
+#include "src/base/cpu.h"
+#include "src/base/logging.h"
+#include "src/base/platform/platform.h"
 #include "src/d8-debug.h"
 #include "src/debug.h"
 #include "src/natives.h"
-#include "src/platform.h"
 #include "src/v8.h"
 #endif  // !V8_SHARED
 
@@ -134,11 +139,12 @@ Handle<String> DumbLineEditor::Prompt(const char* prompt) {
 
 #ifndef V8_SHARED
 CounterMap* Shell::counter_map_;
-i::OS::MemoryMappedFile* Shell::counters_file_ = NULL;
+base::OS::MemoryMappedFile* Shell::counters_file_ = NULL;
 CounterCollection Shell::local_counters_;
 CounterCollection* Shell::counters_ = &local_counters_;
-i::Mutex Shell::context_mutex_;
-const i::TimeTicks Shell::kInitialTicks = i::TimeTicks::HighResolutionNow();
+base::Mutex Shell::context_mutex_;
+const base::TimeTicks Shell::kInitialTicks =
+    base::TimeTicks::HighResolutionNow();
 Persistent<Context> Shell::utility_context_;
 #endif  // !V8_SHARED
 
@@ -164,6 +170,36 @@ const char* Shell::ToCString(const v8::String::Utf8Value& value) {
 }
 
 
+// Compile a string within the current v8 context.
+Local<UnboundScript> Shell::CompileString(
+    Isolate* isolate, Local<String> source, Local<Value> name,
+    v8::ScriptCompiler::CompileOptions compile_options) {
+  ScriptOrigin origin(name);
+  ScriptCompiler::Source script_source(source, origin);
+  Local<UnboundScript> script =
+      ScriptCompiler::CompileUnbound(isolate, &script_source, compile_options);
+
+  // Was caching requested & successful? Then compile again, now with cache.
+  if (script_source.GetCachedData()) {
+    if (compile_options == ScriptCompiler::kProduceCodeCache) {
+      compile_options = ScriptCompiler::kConsumeCodeCache;
+    } else if (compile_options == ScriptCompiler::kProduceParserCache) {
+      compile_options = ScriptCompiler::kConsumeParserCache;
+    } else {
+      ASSERT(false);  // A new compile option?
+    }
+    ScriptCompiler::Source cached_source(
+        source, origin, new v8::ScriptCompiler::CachedData(
+                            script_source.GetCachedData()->data,
+                            script_source.GetCachedData()->length,
+                            v8::ScriptCompiler::CachedData::BufferNotOwned));
+    script = ScriptCompiler::CompileUnbound(isolate, &cached_source,
+                                            compile_options);
+  }
+  return script;
+}
+
+
 // Executes a string within the current v8 context.
 bool Shell::ExecuteString(Isolate* isolate,
                           Handle<String> source,
@@ -182,10 +218,9 @@ bool Shell::ExecuteString(Isolate* isolate,
     // When debugging make exceptions appear to be uncaught.
     try_catch.SetVerbose(true);
   }
-  ScriptOrigin origin(name);
-  ScriptCompiler::Source script_source(source, origin);
+
   Handle<UnboundScript> script =
-      ScriptCompiler::CompileUnbound(isolate, &script_source);
+      Shell::CompileString(isolate, source, name, options.compile_options);
   if (script.IsEmpty()) {
     // Print errors that happened during compilation.
     if (report_exceptions && !FLAG_debugger)
@@ -299,7 +334,8 @@ void Shell::PerformanceNow(const v8::FunctionCallbackInfo<v8::Value>& args) {
     args.GetReturnValue().Set(heap->synthetic_time());
 
   } else {
-    i::TimeDelta delta = i::TimeTicks::HighResolutionNow() - kInitialTicks;
+    base::TimeDelta delta =
+        base::TimeTicks::HighResolutionNow() - kInitialTicks;
     args.GetReturnValue().Set(delta.InMillisecondsF());
   }
 }
@@ -674,8 +710,8 @@ Counter* CounterCollection::GetNextCounter() {
 }
 
 
-void Shell::MapCounters(const char* name) {
-  counters_file_ = i::OS::MemoryMappedFile::create(
+void Shell::MapCounters(v8::Isolate* isolate, const char* name) {
+  counters_file_ = base::OS::MemoryMappedFile::create(
       name, sizeof(CounterCollection), &local_counters_);
   void* memory = (counters_file_ == NULL) ?
       NULL : counters_file_->memory();
@@ -684,9 +720,9 @@ void Shell::MapCounters(const char* name) {
     Exit(1);
   }
   counters_ = static_cast<CounterCollection*>(memory);
-  V8::SetCounterFunction(LookupCounter);
-  V8::SetCreateHistogramFunction(CreateHistogram);
-  V8::SetAddHistogramSampleFunction(AddHistogramSample);
+  isolate->SetCounterFunction(LookupCounter);
+  isolate->SetCreateHistogramFunction(CreateHistogram);
+  isolate->SetAddHistogramSampleFunction(AddHistogramSample);
 }
 
 
@@ -872,11 +908,9 @@ Handle<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
                        performance_template);
 #endif  // !V8_SHARED
 
-#if !defined(V8_SHARED) && !defined(_WIN32) && !defined(_WIN64)
   Handle<ObjectTemplate> os_templ = ObjectTemplate::New(isolate);
   AddOSMethods(isolate, os_templ);
   global_template->Set(String::NewFromUtf8(isolate, "os"), os_templ);
-#endif  // !V8_SHARED && !_WIN32 && !_WIN64
 
   return global_template;
 }
@@ -896,11 +930,11 @@ void Shell::Initialize(Isolate* isolate) {
   Shell::counter_map_ = new CounterMap();
   // Set up counters
   if (i::StrLength(i::FLAG_map_counters) != 0)
-    MapCounters(i::FLAG_map_counters);
+    MapCounters(isolate, i::FLAG_map_counters);
   if (i::FLAG_dump_counters || i::FLAG_track_gc_object_stats) {
-    V8::SetCounterFunction(LookupCounter);
-    V8::SetCreateHistogramFunction(CreateHistogram);
-    V8::SetAddHistogramSampleFunction(AddHistogramSample);
+    isolate->SetCounterFunction(LookupCounter);
+    isolate->SetCreateHistogramFunction(CreateHistogram);
+    isolate->SetAddHistogramSampleFunction(AddHistogramSample);
   }
 #endif  // !V8_SHARED
 }
@@ -920,7 +954,7 @@ void Shell::InitializeDebugger(Isolate* isolate) {
 Local<Context> Shell::CreateEvaluationContext(Isolate* isolate) {
 #ifndef V8_SHARED
   // This needs to be a critical section since this is not thread-safe
-  i::LockGuard<i::Mutex> lock_guard(&context_mutex_);
+  base::LockGuard<base::Mutex> lock_guard(&context_mutex_);
 #endif  // !V8_SHARED
   // Initialize the global objects
   Handle<ObjectTemplate> global_template = CreateGlobalTemplate(isolate);
@@ -1190,12 +1224,12 @@ Handle<String> SourceGroup::ReadFile(Isolate* isolate, const char* name) {
 
 
 #ifndef V8_SHARED
-i::Thread::Options SourceGroup::GetThreadOptions() {
+base::Thread::Options SourceGroup::GetThreadOptions() {
   // On some systems (OSX 10.6) the stack size default is 0.5Mb or less
   // which is not enough to parse the big literal expressions used in tests.
   // The stack size should be at least StackGuard::kLimitSize + some
   // OS-specific padding for thread startup code.  2Mbytes seems to be enough.
-  return i::Thread::Options("IsolateThread", 2 * MB);
+  return base::Thread::Options("IsolateThread", 2 * MB);
 }
 
 
@@ -1335,6 +1369,20 @@ bool Shell::SetOptions(int argc, char* argv[]) {
       options.snapshot_blob = argv[i] + 16;
       argv[i] = NULL;
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
+    } else if (strcmp(argv[i], "--cache") == 0 ||
+               strncmp(argv[i], "--cache=", 8) == 0) {
+      const char* value = argv[i] + 7;
+      if (!*value || strncmp(value, "=code", 6) == 0) {
+        options.compile_options = v8::ScriptCompiler::kProduceCodeCache;
+      } else if (strncmp(value, "=parse", 7) == 0) {
+        options.compile_options = v8::ScriptCompiler::kProduceParserCache;
+      } else if (strncmp(value, "=none", 6) == 0) {
+        options.compile_options = v8::ScriptCompiler::kNoCompileOptions;
+      } else {
+        printf("Unknown option to --cache.\n");
+        return false;
+      }
+      argv[i] = NULL;
     }
   }
 
@@ -1549,6 +1597,8 @@ class StartupDataHandler {
 int Shell::Main(int argc, char* argv[]) {
   if (!SetOptions(argc, argv)) return 1;
   v8::V8::InitializeICU(options.icu_data_file);
+  v8::Platform* platform = v8::platform::CreateDefaultPlatform();
+  v8::V8::InitializePlatform(platform);
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
   StartupDataHandler startup_data(options.natives_blob, options.snapshot_blob);
 #endif
@@ -1565,15 +1615,21 @@ int Shell::Main(int argc, char* argv[]) {
   Isolate* isolate = Isolate::New();
 #ifndef V8_SHARED
   v8::ResourceConstraints constraints;
-  constraints.ConfigureDefaults(i::OS::TotalPhysicalMemory(),
-                                i::OS::MaxVirtualMemory(),
-                                i::OS::NumberOfProcessorsOnline());
+  constraints.ConfigureDefaults(base::OS::TotalPhysicalMemory(),
+                                base::OS::MaxVirtualMemory(),
+                                base::OS::NumberOfProcessorsOnline());
   v8::SetResourceConstraints(isolate, &constraints);
 #endif
   DumbLineEditor dumb_line_editor(isolate);
   {
     Isolate::Scope scope(isolate);
     Initialize(isolate);
+#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
+    if (i::FLAG_gdbjit) {
+      v8::V8::SetJitCodeEventHandler(v8::kJitCodeEventDefault,
+                                     i::GDBJITInterface::EventHandler);
+    }
+#endif
 #ifdef ENABLE_VTUNE_JIT_INTERFACE
     vTune::InitializeVtuneForV8();
 #endif
@@ -1626,6 +1682,8 @@ int Shell::Main(int argc, char* argv[]) {
   }
   isolate->Dispose();
   V8::Dispose();
+  V8::ShutdownPlatform();
+  delete platform;
 
   OnExit();
 

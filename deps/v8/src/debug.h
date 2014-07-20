@@ -8,13 +8,13 @@
 #include "src/allocation.h"
 #include "src/arguments.h"
 #include "src/assembler.h"
+#include "src/base/platform/platform.h"
 #include "src/execution.h"
 #include "src/factory.h"
 #include "src/flags.h"
 #include "src/frames-inl.h"
 #include "src/hashmap.h"
 #include "src/liveedit.h"
-#include "src/platform.h"
 #include "src/string-stream.h"
 #include "src/v8threads.h"
 
@@ -159,9 +159,6 @@ class ScriptCache : private HashMap {
   // Return the scripts in the cache.
   Handle<FixedArray> GetScripts();
 
-  // Generate debugger events for collected scripts.
-  void ProcessCollectedScripts();
-
  private:
   // Calculate the hash value from the key (script id).
   static uint32_t Hash(int key) {
@@ -176,8 +173,6 @@ class ScriptCache : private HashMap {
       const v8::WeakCallbackData<v8::Value, void>& data);
 
   Isolate* isolate_;
-  // List used during GC to temporarily store id's of collected scripts.
-  List<int> collected_scripts_;
 };
 
 
@@ -333,7 +328,7 @@ class LockingCommandMessageQueue BASE_EMBEDDED {
  private:
   Logger* logger_;
   CommandMessageQueue queue_;
-  mutable Mutex mutex_;
+  mutable base::Mutex mutex_;
   DISALLOW_COPY_AND_ASSIGN(LockingCommandMessageQueue);
 };
 
@@ -364,18 +359,14 @@ class PromiseOnStack {
 // DebugInfo.
 class Debug {
  public:
-  enum AfterCompileFlags {
-    NO_AFTER_COMPILE_FLAGS,
-    SEND_WHEN_DEBUGGING
-  };
-
   // Debug event triggers.
   void OnDebugBreak(Handle<Object> break_points_hit, bool auto_continue);
   void OnException(Handle<Object> exception, bool uncaught);
+  void OnCompileError(Handle<Script> script);
   void OnBeforeCompile(Handle<Script> script);
-  void OnAfterCompile(Handle<Script> script,
-                      AfterCompileFlags after_compile_flags);
-  void OnScriptCollected(int id);
+  void OnAfterCompile(Handle<Script> script);
+  void OnPromiseEvent(Handle<JSObject> data);
+  void OnAsyncTaskEvent(Handle<JSObject> data);
 
   // API facing.
   void SetEventListener(Handle<Object> callback, Handle<Object> data);
@@ -482,9 +473,6 @@ class Debug {
   // Record function from which eval was called.
   static void RecordEvalCaller(Handle<Script> script);
 
-  // Garbage collection notifications.
-  void AfterGarbageCollection();
-
   // Flags and states.
   DebugScope* debugger_entry() { return thread_local_.current_debug_scope_; }
   inline Handle<Context> debug_context() { return debug_context_; }
@@ -548,8 +536,11 @@ class Debug {
       bool uncaught,
       Handle<Object> promise);
   MUST_USE_RESULT MaybeHandle<Object> MakeCompileEvent(
-      Handle<Script> script, bool before);
-  MUST_USE_RESULT MaybeHandle<Object> MakeScriptCollectedEvent(int id);
+      Handle<Script> script, v8::DebugEvent type);
+  MUST_USE_RESULT MaybeHandle<Object> MakePromiseEvent(
+      Handle<JSObject> promise_event);
+  MUST_USE_RESULT MaybeHandle<Object> MakeAsyncTaskEvent(
+      Handle<JSObject> task_event);
 
   // Mirror cache handling.
   void ClearMirrorCache();
@@ -596,7 +587,7 @@ class Debug {
   v8::Debug::MessageHandler message_handler_;
 
   static const int kQueueInitialSize = 4;
-  Semaphore command_received_;  // Signaled for each command received.
+  base::Semaphore command_received_;  // Signaled for each command received.
   LockingCommandMessageQueue command_queue_;
   LockingCommandMessageQueue event_command_queue_;
 
@@ -714,6 +705,7 @@ class DebugScope BASE_EMBEDDED {
   int break_id_;                   // Previous break id.
   bool failed_;                    // Did the debug context fail to load?
   SaveContext save_;               // Saves previous context.
+  PostponeInterruptsScope no_termination_exceptons_;
 };
 
 

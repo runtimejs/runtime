@@ -66,7 +66,6 @@
     'android_stlport_library': 'stlport_static',
     # Copy it out one scope.
     'android_webview_build%': '<(android_webview_build)',
-    'OS': 'android',
   },  # variables
   'target_defaults': {
     'defines': [
@@ -266,15 +265,8 @@
       }],  # _toolset=="target"
       # Settings for building host targets using the system toolchain.
       ['_toolset=="host"', {
-        'conditions': [
-          ['target_arch=="x64"', {
-            'cflags': [ '-m64', '-pthread' ],
-            'ldflags': [ '-m64', '-pthread' ],
-          }, {
-            'cflags': [ '-m32', '-pthread' ],
-            'ldflags': [ '-m32', '-pthread' ],
-          }],
-        ],
+        'cflags': [ '-pthread' ],
+        'ldflags': [ '-pthread' ],
         'ldflags!': [
           '-Wl,-z,noexecstack',
           '-Wl,--gc-sections',

@@ -41,8 +41,8 @@ void SweeperThread::Run() {
       return;
     }
 
-    collector_->SweepInParallel(heap_->old_data_space());
-    collector_->SweepInParallel(heap_->old_pointer_space());
+    collector_->SweepInParallel(heap_->old_data_space(), 0);
+    collector_->SweepInParallel(heap_->old_pointer_space(), 0);
     end_sweeping_semaphore_.Signal();
   }
 }
@@ -67,7 +67,7 @@ void SweeperThread::WaitForSweeperThread() {
 
 
 bool SweeperThread::SweepingCompleted() {
-  bool value = end_sweeping_semaphore_.WaitFor(TimeDelta::FromSeconds(0));
+  bool value = end_sweeping_semaphore_.WaitFor(base::TimeDelta::FromSeconds(0));
   if (value) {
     end_sweeping_semaphore_.Signal();
   }

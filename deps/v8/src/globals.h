@@ -8,8 +8,8 @@
 #include "include/v8stdint.h"
 
 #include "src/base/build_config.h"
+#include "src/base/logging.h"
 #include "src/base/macros.h"
-#include "src/checks.h"
 
 // Unfortunately, the INFINITY macro cannot be used with the '-pedantic'
 // warning flag and certain versions of GCC due to a bug:
@@ -26,6 +26,13 @@
 #endif
 
 namespace v8 {
+
+namespace base {
+class Mutex;
+class RecursiveMutex;
+class VirtualMemory;
+}
+
 namespace internal {
 
 // Determine whether we are running in a simulated environment.
@@ -39,6 +46,9 @@ namespace internal {
 #define USE_SIMULATOR 1
 #endif
 #if (V8_TARGET_ARCH_MIPS && !V8_HOST_ARCH_MIPS)
+#define USE_SIMULATOR 1
+#endif
+#if (V8_TARGET_ARCH_MIPS64 && !V8_HOST_ARCH_MIPS64)
 #define USE_SIMULATOR 1
 #endif
 #endif
@@ -65,51 +75,6 @@ typedef unsigned int __my_bool__;
 
 typedef uint8_t byte;
 typedef byte* Address;
-
-// Define our own macros for writing 64-bit constants.  This is less fragile
-// than defining __STDC_CONSTANT_MACROS before including <stdint.h>, and it
-// works on compilers that don't have it (like MSVC).
-#if V8_CC_MSVC
-# define V8_UINT64_C(x)   (x ## UI64)
-# define V8_INT64_C(x)    (x ## I64)
-# if V8_HOST_ARCH_64_BIT
-#  define V8_INTPTR_C(x)  (x ## I64)
-#  define V8_PTR_PREFIX   "ll"
-# else
-#  define V8_INTPTR_C(x)  (x)
-#  define V8_PTR_PREFIX   ""
-# endif  // V8_HOST_ARCH_64_BIT
-#elif V8_CC_MINGW64
-# define V8_UINT64_C(x)   (x ## ULL)
-# define V8_INT64_C(x)    (x ## LL)
-# define V8_INTPTR_C(x)   (x ## LL)
-# define V8_PTR_PREFIX    "I64"
-#elif V8_HOST_ARCH_64_BIT
-# if V8_OS_MACOSX
-#  define V8_UINT64_C(x)   (x ## ULL)
-#  define V8_INT64_C(x)    (x ## LL)
-# else
-#  define V8_UINT64_C(x)   (x ## UL)
-#  define V8_INT64_C(x)    (x ## L)
-# endif
-# define V8_INTPTR_C(x)   (x ## L)
-# define V8_PTR_PREFIX    "l"
-#else
-# define V8_UINT64_C(x)   (x ## ULL)
-# define V8_INT64_C(x)    (x ## LL)
-# define V8_INTPTR_C(x)   (x)
-# define V8_PTR_PREFIX    ""
-#endif
-
-#define V8PRIxPTR V8_PTR_PREFIX "x"
-#define V8PRIdPTR V8_PTR_PREFIX "d"
-#define V8PRIuPTR V8_PTR_PREFIX "u"
-
-// Fix for Mac OS X defining uintptr_t as "unsigned long":
-#if V8_OS_MACOSX
-#undef V8PRIxPTR
-#define V8PRIxPTR "lx"
-#endif
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -284,10 +249,6 @@ const uint32_t kFreeListZapValue = 0xfeed1eaf;
 
 const int kCodeZapValue = 0xbadc0de;
 
-// Number of bits to represent the page size for paged spaces. The value of 20
-// gives 1Mb bytes per page.
-const int kPageSizeBits = 20;
-
 // On Intel architecture, cache line size is 64 bytes.
 // On ARM it may be less (32 bytes), but as far this constant is
 // used for aligning data, it doesn't hurt to align on a greater value.
@@ -356,9 +317,6 @@ class Variable;
 class RelocInfo;
 class Deserializer;
 class MessageLocation;
-class VirtualMemory;
-class Mutex;
-class RecursiveMutex;
 
 typedef bool (*WeakSlotCallback)(Object** pointer);
 

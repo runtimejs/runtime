@@ -12,7 +12,6 @@
 #if V8_TARGET_ARCH_MIPS
 
 #include "src/assembler.h"
-#include "src/cpu.h"
 #include "src/disasm.h"
 #include "src/globals.h"    // Need the BitCast.
 #include "src/mips/constants-mips.h"
@@ -456,17 +455,18 @@ void MipsDebugger::Debug() {
                  || (strcmp(cmd, "printobject") == 0)) {
         if (argc == 2) {
           int32_t value;
+          OFStream os(stdout);
           if (GetValue(arg1, &value)) {
             Object* obj = reinterpret_cast<Object*>(value);
-            PrintF("%s: \n", arg1);
+            os << arg1 << ": \n";
 #ifdef DEBUG
-            obj->PrintLn();
+            obj->Print(os);
+            os << "\n";
 #else
-            obj->ShortPrint();
-            PrintF("\n");
+            os << Brief(obj) << "\n";
 #endif
           } else {
-            PrintF("%s unrecognized\n", arg1);
+            os << arg1 << " unrecognized\n";
           }
         } else {
           PrintF("printobject <value>\n");
@@ -567,7 +567,7 @@ void MipsDebugger::Debug() {
         }
       } else if (strcmp(cmd, "gdb") == 0) {
         PrintF("relinquishing control to gdb\n");
-        v8::internal::OS::DebugBreak();
+        v8::base::OS::DebugBreak();
         PrintF("regaining control from gdb\n");
       } else if (strcmp(cmd, "break") == 0) {
         if (argc == 2) {
@@ -1244,7 +1244,7 @@ double Simulator::ReadD(int32_t addr, Instruction* instr) {
   PrintF("Unaligned (double) read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
   return 0;
 }
 
@@ -1258,7 +1258,7 @@ void Simulator::WriteD(int32_t addr, double value, Instruction* instr) {
   PrintF("Unaligned (double) write at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
 }
 
 
@@ -1270,7 +1270,7 @@ uint16_t Simulator::ReadHU(int32_t addr, Instruction* instr) {
   PrintF("Unaligned unsigned halfword read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
   return 0;
 }
 
@@ -1283,7 +1283,7 @@ int16_t Simulator::ReadH(int32_t addr, Instruction* instr) {
   PrintF("Unaligned signed halfword read at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
   return 0;
 }
 
@@ -1297,7 +1297,7 @@ void Simulator::WriteH(int32_t addr, uint16_t value, Instruction* instr) {
   PrintF("Unaligned unsigned halfword write at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
 }
 
 
@@ -1310,7 +1310,7 @@ void Simulator::WriteH(int32_t addr, int16_t value, Instruction* instr) {
   PrintF("Unaligned halfword write at 0x%08x, pc=0x%08" V8PRIxPTR "\n",
          addr,
          reinterpret_cast<intptr_t>(instr));
-  OS::Abort();
+  base::OS::Abort();
 }
 
 
@@ -2857,8 +2857,8 @@ int32_t Simulator::Call(byte* entry, int argument_count, ...) {
   // Compute position of stack on entry to generated code.
   int entry_stack = (original_stack - (argument_count - 4) * sizeof(int32_t)
                                     - kCArgsSlotsSize);
-  if (OS::ActivationFrameAlignment() != 0) {
-    entry_stack &= -OS::ActivationFrameAlignment();
+  if (base::OS::ActivationFrameAlignment() != 0) {
+    entry_stack &= -base::OS::ActivationFrameAlignment();
   }
   // Store remaining arguments on stack, from low to high memory.
   intptr_t* stack_argument = reinterpret_cast<intptr_t*>(entry_stack);

@@ -11,11 +11,6 @@ namespace v8 {
 namespace internal {
 
 
-static inline bool IsShortcutCandidate(int type) {
-  return ((type & kShortcutTypeMask) == kShortcutTypeTag);
-}
-
-
 StaticVisitorBase::VisitorId StaticVisitorBase::GetVisitorId(
     int instance_type,
     int instance_size) {
@@ -148,6 +143,7 @@ StaticVisitorBase::VisitorId StaticVisitorBase::GetVisitorId(
       return kVisitJSFunction;
 
     case HEAP_NUMBER_TYPE:
+    case MUTABLE_HEAP_NUMBER_TYPE:
 #define EXTERNAL_ARRAY_CASE(Type, type, TYPE, ctype, size)                     \
     case EXTERNAL_##TYPE##_ARRAY_TYPE:
 

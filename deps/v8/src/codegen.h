@@ -55,6 +55,8 @@ enum TypeofState { INSIDE_TYPEOF, NOT_INSIDE_TYPEOF };
 #include "src/arm/codegen-arm.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS
 #include "src/mips/codegen-mips.h"  // NOLINT
+#elif V8_TARGET_ARCH_MIPS64
+#include "src/mips64/codegen-mips64.h"  // NOLINT
 #elif V8_TARGET_ARCH_X87
 #include "src/x87/codegen-x87.h"  // NOLINT
 #else
@@ -115,15 +117,30 @@ class ElementsTransitionGenerator : public AllStatic {
  public:
   // If |mode| is set to DONT_TRACK_ALLOCATION_SITE,
   // |allocation_memento_found| may be NULL.
-  static void GenerateMapChangeElementsTransition(MacroAssembler* masm,
+  static void GenerateMapChangeElementsTransition(
+      MacroAssembler* masm,
+      Register receiver,
+      Register key,
+      Register value,
+      Register target_map,
       AllocationSiteMode mode,
       Label* allocation_memento_found);
-  static void GenerateSmiToDouble(MacroAssembler* masm,
-                                  AllocationSiteMode mode,
-                                  Label* fail);
-  static void GenerateDoubleToObject(MacroAssembler* masm,
-                                     AllocationSiteMode mode,
-                                     Label* fail);
+  static void GenerateSmiToDouble(
+      MacroAssembler* masm,
+      Register receiver,
+      Register key,
+      Register value,
+      Register target_map,
+      AllocationSiteMode mode,
+      Label* fail);
+  static void GenerateDoubleToObject(
+      MacroAssembler* masm,
+      Register receiver,
+      Register key,
+      Register value,
+      Register target_map,
+      AllocationSiteMode mode,
+      Label* fail);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ElementsTransitionGenerator);

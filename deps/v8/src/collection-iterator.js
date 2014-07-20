@@ -21,7 +21,23 @@ function SetIteratorNextJS() {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Set Iterator.prototype.next', this]);
   }
-  return %SetIteratorNext(this);
+
+  var value_array = [UNDEFINED, UNDEFINED];
+  var entry = {value: value_array, done: false};
+  switch (%SetIteratorNext(this, value_array)) {
+    case 0:
+      entry.value = UNDEFINED;
+      entry.done = true;
+      break;
+    case ITERATOR_KIND_VALUES:
+      entry.value = value_array[0];
+      break;
+    case ITERATOR_KIND_ENTRIES:
+      value_array[1] = value_array[0];
+      break;
+  }
+
+  return entry;
 }
 
 
@@ -59,7 +75,7 @@ function SetUpSetIterator() {
   ));
 
   %FunctionSetName(SetIteratorSymbolIterator, '[Symbol.iterator]');
-  %SetProperty(SetIterator.prototype, symbolIterator,
+  %AddNamedProperty(SetIterator.prototype, symbolIterator,
       SetIteratorSymbolIterator, DONT_ENUM);
 }
 
@@ -71,11 +87,11 @@ function ExtendSetPrototype() {
 
   InstallFunctions($Set.prototype, DONT_ENUM, $Array(
     'entries', SetEntries,
+    'keys', SetValues,
     'values', SetValues
   ));
 
-  %SetProperty($Set.prototype, symbolIterator, SetValues,
-      DONT_ENUM);
+  %AddNamedProperty($Set.prototype, symbolIterator, SetValues, DONT_ENUM);
 }
 
 ExtendSetPrototype();
@@ -97,7 +113,24 @@ function MapIteratorNextJS() {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Map Iterator.prototype.next', this]);
   }
-  return %MapIteratorNext(this);
+
+  var value_array = [UNDEFINED, UNDEFINED];
+  var entry = {value: value_array, done: false};
+  switch (%MapIteratorNext(this, value_array)) {
+    case 0:
+      entry.value = UNDEFINED;
+      entry.done = true;
+      break;
+    case ITERATOR_KIND_KEYS:
+      entry.value = value_array[0];
+      break;
+    case ITERATOR_KIND_VALUES:
+      entry.value = value_array[1];
+      break;
+    // ITERATOR_KIND_ENTRIES does not need any processing.
+  }
+
+  return entry;
 }
 
 
@@ -139,7 +172,7 @@ function SetUpMapIterator() {
   ));
 
   %FunctionSetName(MapIteratorSymbolIterator, '[Symbol.iterator]');
-  %SetProperty(MapIterator.prototype, symbolIterator,
+  %AddNamedProperty(MapIterator.prototype, symbolIterator,
       MapIteratorSymbolIterator, DONT_ENUM);
 }
 
@@ -155,8 +188,7 @@ function ExtendMapPrototype() {
     'values', MapValues
   ));
 
-  %SetProperty($Map.prototype, symbolIterator, MapEntries,
-      DONT_ENUM);
+  %AddNamedProperty($Map.prototype, symbolIterator, MapEntries, DONT_ENUM);
 }
 
 ExtendMapPrototype();

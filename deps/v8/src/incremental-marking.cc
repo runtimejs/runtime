@@ -499,7 +499,7 @@ static void PatchIncrementalMarkingRecordWriteStubs(
 
 void IncrementalMarking::EnsureMarkingDequeIsCommitted() {
   if (marking_deque_memory_ == NULL) {
-    marking_deque_memory_ = new VirtualMemory(4 * MB);
+    marking_deque_memory_ = new base::VirtualMemory(4 * MB);
   }
   if (!marking_deque_memory_committed_) {
     bool success = marking_deque_memory_->Commit(
@@ -536,7 +536,7 @@ void IncrementalMarking::Start(CompactionFlag flag) {
 
   ResetStepCounters();
 
-  if (!heap_->mark_compact_collector()->IsConcurrentSweepingInProgress()) {
+  if (!heap_->mark_compact_collector()->sweeping_in_progress()) {
     StartMarking(flag);
   } else {
     if (FLAG_trace_incremental_marking) {
@@ -662,7 +662,6 @@ void IncrementalMarking::UpdateMarkingDequeAfterScavenge() {
 
   steps_took_since_last_gc_ = 0;
   steps_count_since_last_gc_ = 0;
-  longest_step_ = 0.0;
 }
 
 
@@ -699,7 +698,10 @@ void IncrementalMarking::ProcessMarkingDeque(intptr_t bytes_to_process) {
     int size = obj->SizeFromMap(map);
     unscanned_bytes_of_large_object_ = 0;
     VisitObject(map, obj, size);
-    bytes_to_process -= (size - unscanned_bytes_of_large_object_);
+    int delta = (size - unscanned_bytes_of_large_object_);
+    // TODO(jochen): remove after http://crbug.com/381820 is resolved.
+    CHECK_LT(0, delta);
+    bytes_to_process -= delta;
   }
 }
 
@@ -723,7 +725,7 @@ void IncrementalMarking::Hurry() {
   if (state() == MARKING) {
     double start = 0.0;
     if (FLAG_trace_incremental_marking || FLAG_print_cumulative_gc_stat) {
-      start = OS::TimeCurrentMillis();
+      start = base::OS::TimeCurrentMillis();
       if (FLAG_trace_incremental_marking) {
         PrintF("[IncrementalMarking] Hurry\n");
       }
@@ -733,7 +735,7 @@ void IncrementalMarking::Hurry() {
     ProcessMarkingDeque();
     state_ = COMPLETE;
     if (FLAG_trace_incremental_marking || FLAG_print_cumulative_gc_stat) {
-      double end = OS::TimeCurrentMillis();
+      double end = base::OS::TimeCurrentMillis();
       double delta = end - start;
       heap_->AddMarkingTime(delta);
       if (FLAG_trace_incremental_marking) {
@@ -876,15 +878,15 @@ void IncrementalMarking::Step(intptr_t allocated_bytes,
 
   if (FLAG_trace_incremental_marking || FLAG_trace_gc ||
       FLAG_print_cumulative_gc_stat) {
-    start = OS::TimeCurrentMillis();
+    start = base::OS::TimeCurrentMillis();
   }
 
   if (state_ == SWEEPING) {
-    if (heap_->mark_compact_collector()->IsConcurrentSweepingInProgress() &&
+    if (heap_->mark_compact_collector()->sweeping_in_progress() &&
         heap_->mark_compact_collector()->IsSweepingCompleted()) {
-      heap_->mark_compact_collector()->WaitUntilSweepingCompleted();
+      heap_->mark_compact_collector()->EnsureSweepingCompleted();
     }
-    if (!heap_->mark_compact_collector()->IsConcurrentSweepingInProgress()) {
+    if (!heap_->mark_compact_collector()->sweeping_in_progress()) {
       bytes_scanned_ = 0;
       StartMarking(PREVENT_COMPACTION);
     }
@@ -961,7 +963,7 @@ void IncrementalMarking::Step(intptr_t allocated_bytes,
 
   if (FLAG_trace_incremental_marking || FLAG_trace_gc ||
       FLAG_print_cumulative_gc_stat) {
-    double end = OS::TimeCurrentMillis();
+    double end = base::OS::TimeCurrentMillis();
     double delta = (end - start);
     longest_step_ = Max(longest_step_, delta);
     steps_took_ += delta;

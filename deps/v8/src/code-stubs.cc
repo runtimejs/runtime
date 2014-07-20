@@ -16,17 +16,96 @@ namespace v8 {
 namespace internal {
 
 
+InterfaceDescriptor::InterfaceDescriptor()
+    : register_param_count_(-1) { }
+
+
 CodeStubInterfaceDescriptor::CodeStubInterfaceDescriptor()
-    : register_param_count_(-1),
-      stack_parameter_count_(no_reg),
+    : stack_parameter_count_(no_reg),
       hint_stack_parameter_count_(-1),
       function_mode_(NOT_JS_FUNCTION_STUB_MODE),
-      register_params_(NULL),
-      register_param_representations_(NULL),
       deoptimization_handler_(NULL),
       handler_arguments_mode_(DONT_PASS_ARGUMENTS),
       miss_handler_(),
       has_miss_handler_(false) { }
+
+
+void InterfaceDescriptor::Initialize(
+    int register_parameter_count,
+    Register* registers,
+    Representation* register_param_representations,
+    PlatformInterfaceDescriptor* platform_descriptor) {
+  platform_specific_descriptor_ = platform_descriptor;
+  register_param_count_ = register_parameter_count;
+
+  // An interface descriptor must have a context register.
+  ASSERT(register_parameter_count > 0 && registers[0].is(ContextRegister()));
+
+  // InterfaceDescriptor owns a copy of the registers array.
+  register_params_.Reset(NewArray<Register>(register_parameter_count));
+  for (int i = 0; i < register_parameter_count; i++) {
+    register_params_[i] = registers[i];
+  }
+
+  // If a representations array is specified, then the descriptor owns that as
+  // well.
+  if (register_param_representations != NULL) {
+    register_param_representations_.Reset(
+        NewArray<Representation>(register_parameter_count));
+    for (int i = 0; i < register_parameter_count; i++) {
+      // If there is a context register, the representation must be tagged.
+      ASSERT(i != 0 || register_param_representations[i].Equals(
+          Representation::Tagged()));
+      register_param_representations_[i] = register_param_representations[i];
+    }
+  }
+}
+
+
+void CodeStubInterfaceDescriptor::Initialize(
+    int register_parameter_count,
+    Register* registers,
+    Address deoptimization_handler,
+    Representation* register_param_representations,
+    int hint_stack_parameter_count,
+    StubFunctionMode function_mode) {
+  InterfaceDescriptor::Initialize(register_parameter_count, registers,
+                                  register_param_representations);
+
+  deoptimization_handler_ = deoptimization_handler;
+
+  hint_stack_parameter_count_ = hint_stack_parameter_count;
+  function_mode_ = function_mode;
+}
+
+
+void CodeStubInterfaceDescriptor::Initialize(
+    int register_parameter_count,
+    Register* registers,
+    Register stack_parameter_count,
+    Address deoptimization_handler,
+    Representation* register_param_representations,
+    int hint_stack_parameter_count,
+    StubFunctionMode function_mode,
+    HandlerArgumentsMode handler_mode) {
+  Initialize(register_parameter_count, registers,
+             deoptimization_handler,
+             register_param_representations,
+             hint_stack_parameter_count,
+             function_mode);
+  stack_parameter_count_ = stack_parameter_count;
+  handler_arguments_mode_ = handler_mode;
+}
+
+
+void CallInterfaceDescriptor::Initialize(
+    int register_parameter_count,
+    Register* registers,
+    Representation* param_representations,
+    PlatformInterfaceDescriptor* platform_descriptor) {
+  InterfaceDescriptor::Initialize(register_parameter_count, registers,
+                                  param_representations, platform_descriptor);
+}
 
 
 bool CodeStub::FindCodeInCache(Code** code_out) {
@@ -40,21 +119,11 @@ bool CodeStub::FindCodeInCache(Code** code_out) {
 }
 
 
-SmartArrayPointer<const char> CodeStub::GetName() {
-  char buffer[100];
-  NoAllocationStringAllocator allocator(buffer,
-                                        static_cast<unsigned>(sizeof(buffer)));
-  StringStream stream(&allocator);
-  PrintName(&stream);
-  return stream.ToCString();
-}
-
-
 void CodeStub::RecordCodeGeneration(Handle<Code> code) {
   IC::RegisterWeakMapDependency(code);
-  SmartArrayPointer<const char> name = GetName();
-  PROFILE(isolate(), CodeCreateEvent(Logger::STUB_TAG, *code, name.get()));
-  GDBJIT(AddCode(GDBJITInterface::STUB, name.get(), *code));
+  OStringStream os;
+  os << *this;
+  PROFILE(isolate(), CodeCreateEvent(Logger::STUB_TAG, *code, os.c_str()));
   Counters* counters = isolate()->counters();
   counters->total_stubs_code_size()->Increment(code->instruction_size());
 }
@@ -127,8 +196,11 @@ Handle<Code> CodeStub::GetCode() {
 #ifdef ENABLE_DISASSEMBLER
     if (FLAG_print_code_stubs) {
       CodeTracer::Scope trace_scope(isolate()->GetCodeTracer());
-      new_object->Disassemble(GetName().get(), trace_scope.file());
-      PrintF(trace_scope.file(), "\n");
+      OFStream os(trace_scope.file());
+      OStringStream name;
+      name << *this;
+      new_object->Disassemble(name.c_str(), os);
+      os << "\n";
     }
 #endif
 
@@ -170,14 +242,14 @@ const char* CodeStub::MajorName(CodeStub::Major major_key,
 }
 
 
-void CodeStub::PrintBaseName(StringStream* stream) {
-  stream->Add("%s", MajorName(MajorKey(), false));
+void CodeStub::PrintBaseName(OStream& os) const {  // NOLINT
+  os << MajorName(MajorKey(), false);
 }
 
 
-void CodeStub::PrintName(StringStream* stream) {
-  PrintBaseName(stream);
-  PrintState(stream);
+void CodeStub::PrintName(OStream& os) const {  // NOLINT
+  PrintBaseName(os);
+  PrintState(os);
 }
 
 
@@ -198,8 +270,8 @@ void BinaryOpICStub::GenerateAheadOfTime(Isolate* isolate) {
 }
 
 
-void BinaryOpICStub::PrintState(StringStream* stream) {
-  state_.Print(stream);
+void BinaryOpICStub::PrintState(OStream& os) const {  // NOLINT
+  os << state_;
 }
 
 
@@ -218,8 +290,9 @@ void BinaryOpICWithAllocationSiteStub::GenerateAheadOfTime(Isolate* isolate) {
 }
 
 
-void BinaryOpICWithAllocationSiteStub::PrintState(StringStream* stream) {
-  state_.Print(stream);
+void BinaryOpICWithAllocationSiteStub::PrintState(
+    OStream& os) const {  // NOLINT
+  os << state_;
 }
 
 
@@ -233,17 +306,17 @@ void BinaryOpICWithAllocationSiteStub::GenerateAheadOfTime(
 }
 
 
-void StringAddStub::PrintBaseName(StringStream* stream) {
-  stream->Add("StringAddStub");
+void StringAddStub::PrintBaseName(OStream& os) const {  // NOLINT
+  os << "StringAddStub";
   if ((flags() & STRING_ADD_CHECK_BOTH) == STRING_ADD_CHECK_BOTH) {
-    stream->Add("_CheckBoth");
+    os << "_CheckBoth";
   } else if ((flags() & STRING_ADD_CHECK_LEFT) == STRING_ADD_CHECK_LEFT) {
-    stream->Add("_CheckLeft");
+    os << "_CheckLeft";
   } else if ((flags() & STRING_ADD_CHECK_RIGHT) == STRING_ADD_CHECK_RIGHT) {
-    stream->Add("_CheckRight");
+    os << "_CheckRight";
   }
   if (pretenure_flag() == TENURED) {
-    stream->Add("_Tenured");
+    os << "_Tenured";
   }
 }
 
@@ -308,7 +381,7 @@ bool ICCompareStub::FindCodeInSpecialCache(Code** code_out) {
 }
 
 
-int ICCompareStub::MinorKey() {
+int ICCompareStub::MinorKey() const {
   return OpField::encode(op_ - Token::EQ) |
          LeftStateField::encode(left_) |
          RightStateField::encode(right_) |
@@ -401,42 +474,53 @@ void HydrogenCodeStub::TraceTransition(StateType from, StateType to) {
   // bug somewhere in our state transition machinery.
   ASSERT(from != to);
   if (!FLAG_trace_ic) return;
-  char buffer[100];
-  NoAllocationStringAllocator allocator(buffer,
-                                        static_cast<unsigned>(sizeof(buffer)));
-  StringStream stream(&allocator);
-  stream.Add("[");
-  PrintBaseName(&stream);
-  stream.Add(": ");
-  from.Print(&stream);
-  stream.Add("=>");
-  to.Print(&stream);
-  stream.Add("]\n");
-  stream.OutputToStdOut();
+  OFStream os(stdout);
+  os << "[";
+  PrintBaseName(os);
+  os << ": " << from << "=>" << to << "]" << endl;
 }
 
 
-void CompareNilICStub::PrintBaseName(StringStream* stream) {
-  CodeStub::PrintBaseName(stream);
-  stream->Add((nil_value_ == kNullValue) ? "(NullValue)":
-                                           "(UndefinedValue)");
+void CompareNilICStub::PrintBaseName(OStream& os) const {  // NOLINT
+  CodeStub::PrintBaseName(os);
+  os << ((nil_value_ == kNullValue) ? "(NullValue)" : "(UndefinedValue)");
 }
 
 
-void CompareNilICStub::PrintState(StringStream* stream) {
-  state_.Print(stream);
+void CompareNilICStub::PrintState(OStream& os) const {  // NOLINT
+  os << state_;
 }
 
 
-void CompareNilICStub::State::Print(StringStream* stream) const {
-  stream->Add("(");
-  SimpleListPrinter printer(stream);
-  if (IsEmpty()) printer.Add("None");
-  if (Contains(UNDEFINED)) printer.Add("Undefined");
-  if (Contains(NULL_TYPE)) printer.Add("Null");
-  if (Contains(MONOMORPHIC_MAP)) printer.Add("MonomorphicMap");
-  if (Contains(GENERIC)) printer.Add("Generic");
-  stream->Add(")");
+// TODO(svenpanne) Make this a real infix_ostream_iterator.
+class SimpleListPrinter {
+ public:
+  explicit SimpleListPrinter(OStream& os) : os_(os), first_(true) {}
+
+  void Add(const char* s) {
+    if (first_) {
+      first_ = false;
+    } else {
+      os_ << ",";
+    }
+    os_ << s;
+  }
+
+ private:
+  OStream& os_;
+  bool first_;
+};
+
+
+OStream& operator<<(OStream& os, const CompareNilICStub::State& s) {
+  os << "(";
+  SimpleListPrinter p(os);
+  if (s.IsEmpty()) p.Add("None");
+  if (s.Contains(CompareNilICStub::UNDEFINED)) p.Add("Undefined");
+  if (s.Contains(CompareNilICStub::NULL_TYPE)) p.Add("Null");
+  if (s.Contains(CompareNilICStub::MONOMORPHIC_MAP)) p.Add("MonomorphicMap");
+  if (s.Contains(CompareNilICStub::GENERIC)) p.Add("Generic");
+  return os << ")";
 }
 
 
@@ -470,37 +554,21 @@ Type* CompareNilICStub::GetInputType(Zone* zone, Handle<Map> map) {
 }
 
 
-void CallIC_ArrayStub::PrintState(StringStream* stream) {
-  state_.Print(stream);
-  stream->Add(" (Array)");
+void CallIC_ArrayStub::PrintState(OStream& os) const {  // NOLINT
+  os << state_ << " (Array)";
 }
 
 
-void CallICStub::PrintState(StringStream* stream) {
-  state_.Print(stream);
+void CallICStub::PrintState(OStream& os) const {  // NOLINT
+  os << state_;
 }
 
 
-void InstanceofStub::PrintName(StringStream* stream) {
-  const char* args = "";
-  if (HasArgsInRegisters()) {
-    args = "_REGS";
-  }
-
-  const char* inline_check = "";
-  if (HasCallSiteInlineCheck()) {
-    inline_check = "_INLINE";
-  }
-
-  const char* return_true_false_object = "";
-  if (ReturnTrueFalseObject()) {
-    return_true_false_object = "_TRUEFALSE";
-  }
-
-  stream->Add("InstanceofStub%s%s%s",
-              args,
-              inline_check,
-              return_true_false_object);
+void InstanceofStub::PrintName(OStream& os) const {  // NOLINT
+  os << "InstanceofStub";
+  if (HasArgsInRegisters()) os << "_REGS";
+  if (HasCallSiteInlineCheck()) os << "_INLINE";
+  if (ReturnTrueFalseObject()) os << "_TRUEFALSE";
 }
 
 
@@ -509,6 +577,109 @@ void JSEntryStub::FinishCode(Handle<Code> code) {
       code->GetIsolate()->factory()->NewFixedArray(1, TENURED);
   handler_table->set(0, Smi::FromInt(handler_offset_));
   code->set_handler_table(*handler_table);
+}
+
+
+void KeyedLoadFastElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister(),
+                           LoadIC::NameRegister() };
+  STATIC_ASSERT(LoadIC::kParameterCount == 2);
+  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+                         FUNCTION_ADDR(KeyedLoadIC_MissFromStubFailure));
+}
+
+
+void KeyedLoadDictionaryElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister(),
+                           LoadIC::NameRegister() };
+  STATIC_ASSERT(LoadIC::kParameterCount == 2);
+  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+                         FUNCTION_ADDR(KeyedLoadIC_MissFromStubFailure));
+}
+
+
+void KeyedLoadGenericElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister(),
+                           LoadIC::NameRegister() };
+  STATIC_ASSERT(LoadIC::kParameterCount == 2);
+  descriptor->Initialize(
+      ARRAY_SIZE(registers), registers,
+      Runtime::FunctionForId(Runtime::kKeyedGetProperty)->entry);
+}
+
+
+void LoadFieldStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers);
+}
+
+
+void KeyedLoadFieldStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers);
+}
+
+
+void StringLengthStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister(),
+                           LoadIC::NameRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers);
+}
+
+
+void KeyedStringLengthStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           LoadIC::ReceiverRegister(),
+                           LoadIC::NameRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers);
+}
+
+
+void KeyedStoreFastElementStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           KeyedStoreIC::ReceiverRegister(),
+                           KeyedStoreIC::NameRegister(),
+                           KeyedStoreIC::ValueRegister() };
+  descriptor->Initialize(
+      ARRAY_SIZE(registers), registers,
+      FUNCTION_ADDR(KeyedStoreIC_MissFromStubFailure));
+}
+
+
+void ElementsTransitionAndStoreStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           ValueRegister(),
+                           MapRegister(),
+                           KeyRegister(),
+                           ObjectRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+                         FUNCTION_ADDR(ElementsTransitionAndStoreIC_Miss));
+}
+
+
+void StoreGlobalStub::InitializeInterfaceDescriptor(
+    CodeStubInterfaceDescriptor* descriptor) {
+  Register registers[] = { InterfaceDescriptor::ContextRegister(),
+                           StoreIC::ReceiverRegister(),
+                           StoreIC::NameRegister(),
+                           StoreIC::ValueRegister() };
+  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+                         FUNCTION_ADDR(StoreIC_MissFromStubFailure));
 }
 
 
@@ -550,47 +721,64 @@ void KeyedStoreElementStub::Generate(MacroAssembler* masm) {
 }
 
 
-void ArgumentsAccessStub::PrintName(StringStream* stream) {
-  stream->Add("ArgumentsAccessStub_");
+void ArgumentsAccessStub::PrintName(OStream& os) const {  // NOLINT
+  os << "ArgumentsAccessStub_";
   switch (type_) {
-    case READ_ELEMENT: stream->Add("ReadElement"); break;
-    case NEW_SLOPPY_FAST: stream->Add("NewSloppyFast"); break;
-    case NEW_SLOPPY_SLOW: stream->Add("NewSloppySlow"); break;
-    case NEW_STRICT: stream->Add("NewStrict"); break;
+    case READ_ELEMENT:
+      os << "ReadElement";
+      break;
+    case NEW_SLOPPY_FAST:
+      os << "NewSloppyFast";
+      break;
+    case NEW_SLOPPY_SLOW:
+      os << "NewSloppySlow";
+      break;
+    case NEW_STRICT:
+      os << "NewStrict";
+      break;
   }
+  return;
 }
 
 
-void CallFunctionStub::PrintName(StringStream* stream) {
-  stream->Add("CallFunctionStub_Args%d", argc_);
+void CallFunctionStub::PrintName(OStream& os) const {  // NOLINT
+  os << "CallFunctionStub_Args" << argc_;
 }
 
 
-void CallConstructStub::PrintName(StringStream* stream) {
-  stream->Add("CallConstructStub");
-  if (RecordCallTarget()) stream->Add("_Recording");
+void CallConstructStub::PrintName(OStream& os) const {  // NOLINT
+  os << "CallConstructStub";
+  if (RecordCallTarget()) os << "_Recording";
 }
 
 
-void ArrayConstructorStub::PrintName(StringStream* stream) {
-  stream->Add("ArrayConstructorStub");
+void ArrayConstructorStub::PrintName(OStream& os) const {  // NOLINT
+  os << "ArrayConstructorStub";
   switch (argument_count_) {
-    case ANY: stream->Add("_Any"); break;
-    case NONE: stream->Add("_None"); break;
-    case ONE: stream->Add("_One"); break;
-    case MORE_THAN_ONE: stream->Add("_More_Than_One"); break;
+    case ANY:
+      os << "_Any";
+      break;
+    case NONE:
+      os << "_None";
+      break;
+    case ONE:
+      os << "_One";
+      break;
+    case MORE_THAN_ONE:
+      os << "_More_Than_One";
+      break;
   }
+  return;
 }
 
 
-void ArrayConstructorStubBase::BasePrintName(const char* name,
-                                             StringStream* stream) {
-  stream->Add(name);
-  stream->Add("_");
-  stream->Add(ElementsKindToString(elements_kind()));
+OStream& ArrayConstructorStubBase::BasePrintName(OStream& os,  // NOLINT
+                                                 const char* name) const {
+  os << name << "_" << ElementsKindToString(elements_kind());
   if (override_mode() == DISABLE_ALLOCATION_SITES) {
-    stream->Add("_DISABLE_ALLOCATION_SITES");
+    os << "_DISABLE_ALLOCATION_SITES";
   }
+  return os;
 }
 
 
@@ -602,24 +790,24 @@ bool ToBooleanStub::UpdateStatus(Handle<Object> object) {
 }
 
 
-void ToBooleanStub::PrintState(StringStream* stream) {
-  types_.Print(stream);
+void ToBooleanStub::PrintState(OStream& os) const {  // NOLINT
+  os << types_;
 }
 
 
-void ToBooleanStub::Types::Print(StringStream* stream) const {
-  stream->Add("(");
-  SimpleListPrinter printer(stream);
-  if (IsEmpty()) printer.Add("None");
-  if (Contains(UNDEFINED)) printer.Add("Undefined");
-  if (Contains(BOOLEAN)) printer.Add("Bool");
-  if (Contains(NULL_TYPE)) printer.Add("Null");
-  if (Contains(SMI)) printer.Add("Smi");
-  if (Contains(SPEC_OBJECT)) printer.Add("SpecObject");
-  if (Contains(STRING)) printer.Add("String");
-  if (Contains(SYMBOL)) printer.Add("Symbol");
-  if (Contains(HEAP_NUMBER)) printer.Add("HeapNumber");
-  stream->Add(")");
+OStream& operator<<(OStream& os, const ToBooleanStub::Types& s) {
+  os << "(";
+  SimpleListPrinter p(os);
+  if (s.IsEmpty()) p.Add("None");
+  if (s.Contains(ToBooleanStub::UNDEFINED)) p.Add("Undefined");
+  if (s.Contains(ToBooleanStub::BOOLEAN)) p.Add("Bool");
+  if (s.Contains(ToBooleanStub::NULL_TYPE)) p.Add("Null");
+  if (s.Contains(ToBooleanStub::SMI)) p.Add("Smi");
+  if (s.Contains(ToBooleanStub::SPEC_OBJECT)) p.Add("SpecObject");
+  if (s.Contains(ToBooleanStub::STRING)) p.Add("String");
+  if (s.Contains(ToBooleanStub::SYMBOL)) p.Add("Symbol");
+  if (s.Contains(ToBooleanStub::HEAP_NUMBER)) p.Add("HeapNumber");
+  return os << ")";
 }
 
 
@@ -694,7 +882,7 @@ static void InstallDescriptor(Isolate* isolate, HydrogenCodeStub* stub) {
   int major_key = stub->MajorKey();
   CodeStubInterfaceDescriptor* descriptor =
       isolate->code_stub_interface_descriptor(major_key);
-  if (!descriptor->initialized()) {
+  if (!descriptor->IsInitialized()) {
     stub->InitializeInterfaceDescriptor(descriptor);
   }
 }

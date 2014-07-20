@@ -7,13 +7,13 @@
 
 #include <cmath>
 
+#include "src/base/platform/platform.h"
 #include "src/cpu-profiler.h"
 #include "src/heap.h"
 #include "src/heap-profiler.h"
 #include "src/isolate.h"
 #include "src/list-inl.h"
 #include "src/objects.h"
-#include "src/platform.h"
 #include "src/store-buffer.h"
 #include "src/store-buffer-inl.h"
 
@@ -388,8 +388,6 @@ bool Heap::OldGenerationAllocationLimitReached() {
 
 
 bool Heap::ShouldBePromoted(Address old_address, int object_size) {
-  // An object should be promoted if the object has survived a
-  // scavenge operation.
   NewSpacePage* page = NewSpacePage::FromAddress(old_address);
   Address age_mark = new_space_.age_mark();
   return page->IsFlagSet(MemoryChunk::NEW_SPACE_BELOW_AGE_MARK) &&
@@ -471,9 +469,9 @@ bool Heap::AllowedToBeMigrated(HeapObject* obj, AllocationSpace dst) {
     case NEW_SPACE:
       return dst == src || dst == TargetSpaceId(type);
     case OLD_POINTER_SPACE:
-      return dst == src &&
-          (dst == TargetSpaceId(type) || obj->IsFiller() ||
-          (obj->IsExternalString() && ExternalString::cast(obj)->is_short()));
+      return dst == src && (dst == TargetSpaceId(type) || obj->IsFiller() ||
+                            (obj->IsExternalString() &&
+                             ExternalString::cast(obj)->is_short()));
     case OLD_DATA_SPACE:
       return dst == src && dst == TargetSpaceId(type);
     case CODE_SPACE:
@@ -803,11 +801,6 @@ void VerifySmisVisitor::VisitPointers(Object** start, Object** end) {
   for (Object** current = start; current < end; current++) {
      CHECK((*current)->IsSmi());
   }
-}
-
-
-double GCTracer::SizeOfHeapObjects() {
-  return (static_cast<double>(heap_->SizeOfObjects())) / MB;
 }
 
 

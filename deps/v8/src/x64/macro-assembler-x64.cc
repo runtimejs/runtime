@@ -542,7 +542,7 @@ void MacroAssembler::Check(Condition cc, BailoutReason reason) {
 
 
 void MacroAssembler::CheckStackAlignment() {
-  int frame_alignment = OS::ActivationFrameAlignment();
+  int frame_alignment = base::OS::ActivationFrameAlignment();
   int frame_alignment_mask = frame_alignment - 1;
   if (frame_alignment > kPointerSize) {
     ASSERT(IsPowerOf2(frame_alignment));
@@ -843,7 +843,7 @@ void MacroAssembler::CallApiFunctionAndReturn(
   bind(&promote_scheduled_exception);
   {
     FrameScope frame(this, StackFrame::INTERNAL);
-    CallRuntime(Runtime::kHiddenPromoteScheduledException, 0);
+    CallRuntime(Runtime::kPromoteScheduledException, 0);
   }
   jmp(&exception_handled);
 
@@ -4097,7 +4097,7 @@ void MacroAssembler::EnterExitFrameEpilogue(int arg_stack_space,
   }
 
   // Get the required frame alignment for the OS.
-  const int kFrameAlignment = OS::ActivationFrameAlignment();
+  const int kFrameAlignment = base::OS::ActivationFrameAlignment();
   if (kFrameAlignment > 0) {
     ASSERT(IsPowerOf2(kFrameAlignment));
     ASSERT(is_int8(kFrameAlignment));
@@ -4593,12 +4593,17 @@ void MacroAssembler::UndoAllocationInNewSpace(Register object) {
 
 void MacroAssembler::AllocateHeapNumber(Register result,
                                         Register scratch,
-                                        Label* gc_required) {
+                                        Label* gc_required,
+                                        MutableMode mode) {
   // Allocate heap number in new space.
   Allocate(HeapNumber::kSize, result, scratch, no_reg, gc_required, TAG_OBJECT);
 
+  Heap::RootListIndex map_index = mode == MUTABLE
+      ? Heap::kMutableHeapNumberMapRootIndex
+      : Heap::kHeapNumberMapRootIndex;
+
   // Set the map.
-  LoadRoot(kScratchRegister, Heap::kHeapNumberMapRootIndex);
+  LoadRoot(kScratchRegister, map_index);
   movp(FieldOperand(result, HeapObject::kMapOffset), kScratchRegister);
 }
 
@@ -4977,7 +4982,7 @@ void MacroAssembler::EmitSeqStringSetCharCheck(Register string,
 
 
 void MacroAssembler::PrepareCallCFunction(int num_arguments) {
-  int frame_alignment = OS::ActivationFrameAlignment();
+  int frame_alignment = base::OS::ActivationFrameAlignment();
   ASSERT(frame_alignment != 0);
   ASSERT(num_arguments >= 0);
 
@@ -5007,7 +5012,7 @@ void MacroAssembler::CallCFunction(Register function, int num_arguments) {
   }
 
   call(function);
-  ASSERT(OS::ActivationFrameAlignment() != 0);
+  ASSERT(base::OS::ActivationFrameAlignment() != 0);
   ASSERT(num_arguments >= 0);
   int argument_slots_on_stack =
       ArgumentStackSlotsForCFunctionCall(num_arguments);
@@ -5015,15 +5020,33 @@ void MacroAssembler::CallCFunction(Register function, int num_arguments) {
 }
 
 
-bool AreAliased(Register r1, Register r2, Register r3, Register r4) {
-  if (r1.is(r2)) return true;
-  if (r1.is(r3)) return true;
-  if (r1.is(r4)) return true;
-  if (r2.is(r3)) return true;
-  if (r2.is(r4)) return true;
-  if (r3.is(r4)) return true;
-  return false;
+#ifdef DEBUG
+bool AreAliased(Register reg1,
+                Register reg2,
+                Register reg3,
+                Register reg4,
+                Register reg5,
+                Register reg6,
+                Register reg7,
+                Register reg8) {
+  int n_of_valid_regs = reg1.is_valid() + reg2.is_valid() +
+      reg3.is_valid() + reg4.is_valid() + reg5.is_valid() + reg6.is_valid() +
+      reg7.is_valid() + reg8.is_valid();
+
+  RegList regs = 0;
+  if (reg1.is_valid()) regs |= reg1.bit();
+  if (reg2.is_valid()) regs |= reg2.bit();
+  if (reg3.is_valid()) regs |= reg3.bit();
+  if (reg4.is_valid()) regs |= reg4.bit();
+  if (reg5.is_valid()) regs |= reg5.bit();
+  if (reg6.is_valid()) regs |= reg6.bit();
+  if (reg7.is_valid()) regs |= reg7.bit();
+  if (reg8.is_valid()) regs |= reg8.bit();
+  int n_of_non_aliasing_regs = NumRegs(regs);
+
+  return n_of_valid_regs != n_of_non_aliasing_regs;
 }
+#endif
 
 
 CodePatcher::CodePatcher(byte* address, int size)
@@ -5039,7 +5062,7 @@ CodePatcher::CodePatcher(byte* address, int size)
 
 CodePatcher::~CodePatcher() {
   // Indicate that code has changed.
-  CPU::FlushICache(address_, size_);
+  CpuFeatures::FlushICache(address_, size_);
 
   // Check that the code was patched as expected.
   ASSERT(masm_.pc_ == address_ + size_);

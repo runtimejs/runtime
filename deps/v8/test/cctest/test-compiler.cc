@@ -32,6 +32,7 @@
 
 #include "src/compiler.h"
 #include "src/disasm.h"
+#include "src/parser.h"
 #include "test/cctest/cctest.h"
 
 using namespace v8::internal;
@@ -49,7 +50,7 @@ static void SetGlobalProperty(const char* name, Object* value) {
   Handle<String> internalized_name =
       isolate->factory()->InternalizeUtf8String(name);
   Handle<JSObject> global(isolate->context()->global_object());
-  Runtime::SetObjectProperty(isolate, global, internalized_name, object, NONE,
+  Runtime::SetObjectProperty(isolate, global, internalized_name, object,
                              SLOPPY).Check();
 }
 
@@ -58,15 +59,10 @@ static Handle<JSFunction> Compile(const char* source) {
   Isolate* isolate = CcTest::i_isolate();
   Handle<String> source_code = isolate->factory()->NewStringFromUtf8(
       CStrVector(source)).ToHandleChecked();
-  Handle<SharedFunctionInfo> shared_function =
-      Compiler::CompileScript(source_code,
-                              Handle<String>(),
-                              0,
-                              0,
-                              false,
-                              Handle<Context>(isolate->native_context()),
-                              NULL, NULL, NO_CACHED_DATA,
-                              NOT_NATIVES_CODE);
+  Handle<SharedFunctionInfo> shared_function = Compiler::CompileScript(
+      source_code, Handle<String>(), 0, 0, false,
+      Handle<Context>(isolate->native_context()), NULL, NULL,
+      v8::ScriptCompiler::kNoCompileOptions, NOT_NATIVES_CODE);
   return isolate->factory()->NewFunctionFromSharedFunctionInfo(
       shared_function, isolate->native_context());
 }

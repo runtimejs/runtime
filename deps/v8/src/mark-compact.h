@@ -570,14 +570,13 @@ class MarkCompactCollector {
   void EnableCodeFlushing(bool enable);
 
   enum SweeperType {
-    CONSERVATIVE,
     PARALLEL_CONSERVATIVE,
     CONCURRENT_CONSERVATIVE,
     PRECISE
   };
 
   enum SweepingParallelism {
-    SWEEP_SEQUENTIALLY,
+    SWEEP_ON_MAIN_THREAD,
     SWEEP_IN_PARALLEL
   };
 
@@ -590,7 +589,7 @@ class MarkCompactCollector {
 #endif
 
   // Sweep a single page from the given space conservatively.
-  // Return a number of reclaimed bytes.
+  // Returns the size of the biggest continuous freed memory chunk in bytes.
   template<SweepingParallelism type>
   static intptr_t SweepConservatively(PagedSpace* space,
                                       FreeList* free_list,
@@ -659,18 +658,25 @@ class MarkCompactCollector {
 
   MarkingParity marking_parity() { return marking_parity_; }
 
-  // Concurrent and parallel sweeping support.
-  void SweepInParallel(PagedSpace* space);
+  // Concurrent and parallel sweeping support. If required_freed_bytes was set
+  // to a value larger than 0, then sweeping returns after a block of at least
+  // required_freed_bytes was freed. If required_freed_bytes was set to zero
+  // then the whole given space is swept.
+  int SweepInParallel(PagedSpace* space, int required_freed_bytes);
 
-  void WaitUntilSweepingCompleted();
+  void EnsureSweepingCompleted();
 
+  // If sweeper threads are not active this method will return true. If
+  // this is a latency issue we should be smarter here. Otherwise, it will
+  // return true if the sweeper threads are done processing the pages.
   bool IsSweepingCompleted();
 
   void RefillFreeList(PagedSpace* space);
 
   bool AreSweeperThreadsActivated();
 
-  bool IsConcurrentSweepingInProgress();
+  // Checks if sweeping is in progress right now on any space.
+  bool sweeping_in_progress() { return sweeping_in_progress_; }
 
   void set_sequential_sweeping(bool sequential_sweeping) {
     sequential_sweeping_ = sequential_sweeping;
@@ -733,9 +739,9 @@ class MarkCompactCollector {
   bool was_marked_incrementally_;
 
   // True if concurrent or parallel sweeping is currently in progress.
-  bool sweeping_pending_;
+  bool sweeping_in_progress_;
 
-  Semaphore pending_sweeper_jobs_semaphore_;
+  base::Semaphore pending_sweeper_jobs_semaphore_;
 
   bool sequential_sweeping_;
 
