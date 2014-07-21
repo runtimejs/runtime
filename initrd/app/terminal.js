@@ -288,7 +288,7 @@ var evalScope = function(print) {
      * Write text to console using provided color
      */
     Console.prototype.write = function(text, color) {
-        if (!this instanceof Console) return;
+        if (!(this instanceof Console)) return;
 
         var textLen = text.length;
         if (0 === textLen) {
@@ -348,7 +348,7 @@ var evalScope = function(print) {
      * Append symbol to console editbox
      */
     Console.prototype.editAppendChar = function(c) {
-        if (!this instanceof Console) return;
+        if (!(this instanceof Console)) return;
 
         var textChars = this.getState().textChars;
         if (textChars.length >= gui.editboxWidth) {
@@ -362,7 +362,7 @@ var evalScope = function(print) {
      * Send backspace to console editbox
      */
     Console.prototype.editBackspace = function() {
-        if (!this instanceof Console) return;
+        if (!(this instanceof Console)) return;
 
         var textChars = this.getState().textChars;
         textChars.pop();
@@ -372,7 +372,7 @@ var evalScope = function(print) {
      * Clear editbox
      */
     Console.prototype.editClear = function() {
-        if (!this instanceof Console) return;
+        if (!(this instanceof Console)) return;
 
         var textChars = this.getState().textChars;
         while (textChars.length > 0) {
@@ -384,7 +384,7 @@ var evalScope = function(print) {
      * Get text from editbox
      */
     Console.prototype.editGetText = function() {
-        if (!this instanceof Console) return;
+        if (!(this instanceof Console)) return;
 
         var textChars = this.getState().textChars;
         return textChars.join('');
