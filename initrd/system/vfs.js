@@ -438,7 +438,7 @@ function(resources) {
                     return;
                 }
 
-                vfsnode.readFile(null, function(data) {
+                vfsnode.readFile(null, function(fileContent) {
                     // FS accessors
                     systemOverwrite.fs = systemOverwrite.fs || {
                         default: createNodeAccessor(workDir),
@@ -457,7 +457,7 @@ function(resources) {
                         log: runtime.log
                     };
 
-                    resources.processManager.create(data, {
+                    resources.processManager.create(fileContent, {
                         system: systemOverwrite,
                         data: data,
                         env: env,
