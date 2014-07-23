@@ -148,6 +148,14 @@ public:
         priority_.Set(1);
     }
 
+    void SetTerminateFlag() {
+        terminate_ = true;
+    }
+
+    bool IsTerminateFlag() const {
+        return terminate_;
+    }
+
     void SetCallWrapper(v8::Local<v8::Function> fn) {
         RT_ASSERT(call_wrapper_.IsEmpty());
         RT_ASSERT(!fn.IsEmpty());
@@ -186,6 +194,8 @@ private:
     ResourceHandle<EngineThread> ethread_;
     FunctionExports exports_;
     Timeouts<uint32_t> timeouts_;
+
+    bool terminate_;
 
     UniquePersistentIndexedPool<v8::Value> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;

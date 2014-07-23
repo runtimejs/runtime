@@ -37,6 +37,7 @@ public:
     DECLARE_NATIVE(KernelLoaderCallback);
     DECLARE_NATIVE(Resources);
     DECLARE_NATIVE(Version);
+    DECLARE_NATIVE(Exit);
     DECLARE_NATIVE(Args);
     DECLARE_NATIVE(InstallInternals);
     DECLARE_NATIVE(CallResult);

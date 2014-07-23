@@ -209,6 +209,10 @@ public:
         return scope.Escape<T>(v8::Local<T>::New(iv8, data_[index]));
     }
 
+    void Clear() {
+        data_.clear();
+    }
+
 private:
     SharedSTLVector<v8::UniquePersistent<T>> data_;
 };

@@ -16,14 +16,6 @@
     "use strict";
 
     /**
-     * Input services client
-     */
-    var input = (function() {
-        var keybd = args.env.keyboard;
-        return {addKeyboardListener: keybd.addListener};
-    })();
-
-    /**
      * Text video display service client
      */
     var video = (function() {
@@ -50,6 +42,7 @@
         };
 
         var cursorColor = color('lightgreen', 'lightgreen');
+        var clearColor = color('black', 'black');
         var drawBuf = null;
         var drawView = null;
 
@@ -67,6 +60,11 @@
                 }
 
                 data.forEach(function(cmd) {
+                    if (cmd.cursor) {
+                        drawView[posCurrent * 2] = ' ';
+                        drawView[posCurrent * 2 + 1] = clearColor;
+                    }
+
                     if ('undefined' !== typeof cmd.x ||
                         'undefined' !== typeof cmd.y) {
                         posCurrent = cmd.y * width + cmd.x;
@@ -108,6 +106,11 @@
                             drawView[posCurrent * 2 + 1] = color(cmd.fg, cmd.bg);
                             ++posCurrent;
                         }
+                    }
+
+                    if (cmd.cursor) {
+                        drawView[posCurrent * 2] = ' ';
+                        drawView[posCurrent * 2 + 1] = cursorColor;
                     }
                 });
 
@@ -182,6 +185,18 @@
                 });
             },
             command: function(cmd) {
+                if ('string' !== typeof cmd.fg) {
+                    cmd.fg = 'white';
+                }
+
+                if ('string' !== typeof cmd.bg) {
+                    cmd.bg = 'black';
+                }
+
+                if ('number' !== typeof cmd.repeat) {
+                    cmd.repeat = 1;
+                }
+
                 drawQueue.add(cmd);
             },
             width: width,
@@ -189,32 +204,14 @@
         };
     })();
 
-    video.print('\n', 1, 'black', 'black');
+    var version = runtime.version();
 
-    /**
-     * Callback for keyboard events
-     */
-    input.addKeyboardListener(function(data) {
-        if ('pressed' !== data.action) {
-            return;
-        }
-
-        switch (data.type) {
-        case 'f1':
-        case 'f2':
-        case 'f3':
-        case 'f4':
-            break;
-        case 'character':
-            video.print(data.character, 1, 'lightgray', 'black');
-            break;
-        case 'backspace':
-            break;
-        case 'enter':
-            video.print('\n', 1, 'lightgray', 'black');
-            break;
-        }
-    });
+    video.print('\n', 1, 'darkgray', 'black');
+    video.print('# Welcome to ', 1, 'darkgray', 'black');
+    video.print('runtime.js ', 1, 'lightgray', 'black');
+    video.print('v' + version.runtime.join('.') + ' on', 1, 'darkgray', 'black');
+    video.print(' V8 ', 1, 'lightgray', 'black');
+    video.print(version.v8 + '\n\n', 1, 'darkgray', 'black');
 
     function createTerminalAccessor() {
         return function(cmd) {
@@ -230,7 +227,8 @@
     }
 
     args.system.process.spawn('/shell.js', {}, {
-        terminal: createTerminalAccessor()
+        terminal: createTerminalAccessor(),
+        keyboard: args.env.keyboard
     }, {});
 
 })(runtime.args());

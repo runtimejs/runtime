@@ -264,13 +264,28 @@ NATIVE_FUNCTION(NativesObject, Args) {
     args.GetReturnValue().Set(threadargs);
 }
 
+NATIVE_FUNCTION(NativesObject, Exit) {
+    PROLOGUE_NOTHIS;
+    v8::V8::TerminateExecution(iv8);
+    th->SetTerminateFlag();
+}
+
 NATIVE_FUNCTION(NativesObject, Version) {
     PROLOGUE_NOTHIS;
-    v8::Local<v8::Object> arr { v8::Array::New(iv8, 3) };
+
+    auto arr = v8::Array::New(iv8, 3);
     arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
     arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
     arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
-    args.GetReturnValue().Set(arr);
+
+    auto obj = v8::Object::New(iv8);
+    LOCAL_V8STRING(s_runtime, "runtime");
+    LOCAL_V8STRING(s_v8, "v8");
+    LOCAL_V8STRING(s_v8ver, v8::V8::GetVersion());
+    obj->Set(s_runtime, arr);
+    obj->Set(s_v8, s_v8ver);
+
+    args.GetReturnValue().Set(obj);
 }
 
 NATIVE_FUNCTION(NativesObject, InstallInternals) {

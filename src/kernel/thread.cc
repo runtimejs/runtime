@@ -27,13 +27,22 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         tpl_cache_(nullptr),
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
         ethread_(ethread),
-        exports_(this) {
+        exports_(this),
+        terminate_(false) {
     priority_.Set(1);
 }
 
 Thread::~Thread() {
     RT_ASSERT(thread_mgr_);
     RT_ASSERT(this != thread_mgr_->current_thread());
+
+    timeout_data_.Clear();
+    irq_data_.Clear();
+    promises_.Clear();
+
+    context_.Reset();
+    args_.Reset();
+    call_wrapper_.Reset();
 
     iv8_->Dispose(); // This deletes v8 isolate object
     delete tpl_cache_;
@@ -220,8 +229,13 @@ void Thread::Run() {
         }
     }
 
+    if (terminate_) {
+        return;
+    }
+
     v8::Local<v8::Value> ex = trycatch.Exception();
     if (!ex.IsEmpty()) {
+
         v8::String::Utf8Value exception_str(ex);
         v8::Local<v8::Message> message = trycatch.Message();
         if (message.IsEmpty()) {
