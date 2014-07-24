@@ -148,7 +148,6 @@
         isProgramActive = true;
         args.system.process.spawn('/test.js', {}, {}, shellEnv, function(value) {
             isProgramActive = false;
-            print('\n');
             prompt.display();
         });
     });

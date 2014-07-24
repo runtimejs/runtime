@@ -15,7 +15,11 @@
 (function(args) {
     "use strict";
 
-    args.env.stdout('test ok');
-    runtime.exit(0);
+    args.env.stdout('test ok\n');
 
+    // setTimeout(function() {
+    //     console.log('timeout ok');
+    // }, 2000);
+
+    // runtime.exit(0);
 })(runtime.args());

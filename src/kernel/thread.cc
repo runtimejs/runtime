@@ -29,6 +29,7 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
         ethread_(ethread),
         exports_(this),
+        ref_count_(0),
         terminate_(false),
         parent_promise_id_(0) {
     priority_.Set(1);
@@ -261,8 +262,9 @@ void Thread::Run() {
         }
     }
 
-    if (terminate_) {
-        printf("[ runtime.exit() ]\n");
+    if (0 == ref_count_ || terminate_) {
+        terminate_ = true;
+        printf("[ terminate thread ]\n");
         auto promise_id = parent_promise_id();
         auto thread = parent_thread();
 
@@ -271,9 +273,9 @@ void Thread::Run() {
         RT_ASSERT(recv);
 
         TransportData data;
-        {	TransportData::SerializeError err { data.MoveValue(this, recv,
+        if (!exit_value_.IsEmpty()) {
+            TransportData::SerializeError err { data.MoveValue(this, recv,
                 v8::Local<v8::Value>::New(iv8_, exit_value_)) };
-            if (TransportData::ThrowError(iv8_, err)) return;
         }
 
         {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(

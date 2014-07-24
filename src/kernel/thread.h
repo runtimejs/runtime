@@ -117,10 +117,12 @@ public:
     }
 
     ExternalFunction* AddExport(v8::Local<v8::Value> fn) {
+        Ref();
         return exports_.Add(fn, ethread_);
     }
 
     uint32_t AddIRQData(v8::UniquePersistent<v8::Value> v) {
+        Ref();
         return irq_data_.Push(std::move(v));
     }
 
@@ -130,18 +132,22 @@ public:
     }
 
     uint32_t AddTimeoutData(v8::UniquePersistent<v8::Value> v) {
+        Ref();
         return timeout_data_.Push(std::move(v));
     }
 
     v8::UniquePersistent<v8::Value> TakeTimeoutData(uint32_t index) {
+        Unref();
         return timeout_data_.Take(index);
     }
 
     uint32_t AddPromise(v8::UniquePersistent<v8::Promise::Resolver> resolver) {
+        Ref();
         return promises_.Push(std::move(resolver));
     }
 
     v8::UniquePersistent<v8::Promise::Resolver> TakePromise(uint32_t index) {
+        Unref();
         return promises_.Take(index);
     }
 
@@ -163,6 +169,20 @@ public:
 
     bool IsTerminateFlag() const {
         return terminate_;
+    }
+
+    /**
+     * Increment thread reference counter
+     */
+    void Ref() {
+        ++ref_count_;
+    }
+
+    /**
+     * Decrement thread reference counter
+     */
+    void Unref() {
+        --ref_count_;
     }
 
     void SetCallWrapper(v8::Local<v8::Function> fn) {
@@ -209,6 +229,7 @@ private:
     FunctionExports exports_;
     Timeouts<uint32_t> timeouts_;
 
+    size_t ref_count_;
     bool terminate_;
 
     uint32_t parent_promise_id_;
