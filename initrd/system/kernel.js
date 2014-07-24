@@ -120,8 +120,6 @@ function Injector() {
             keyboard: keyboard.client,
         });
 
-        vfs.spawn(vfs.getInitrdRoot(), '/app/example.js', {}, {}, {});
-
         return {};
     });
 })();

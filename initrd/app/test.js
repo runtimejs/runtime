@@ -15,9 +15,7 @@
 (function(args) {
     "use strict";
 
-    var console = args.system.console;
-    console.log('Im a cat');
-
-    runtime.exit(1);
+    args.env.stdout('test ok');
+    runtime.exit(0);
 
 })(runtime.args());

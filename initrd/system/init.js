@@ -12,9 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// NOTE: This script executed in every context automatically
+// NOTE: This script is executed in every context automatically
+var console = (function() {
+    var stdout = null;
 
-// This global function should be the only one in this script
+    return {
+        log: function() {
+            if (null === stdout) {
+                stdout = runtime.args().env.stdout;
+            }
+
+            var s = Array.prototype.join.call(arguments, ' ');
+            stdout(s + '\n');
+        }
+    };
+})();
+
 (function(__native) {
     "use strict";
 

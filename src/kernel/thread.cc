@@ -28,7 +28,8 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
         ethread_(ethread),
         exports_(this),
-        terminate_(false) {
+        terminate_(false),
+        parent_promise_id_(0) {
     priority_.Set(1);
 }
 
@@ -40,12 +41,15 @@ Thread::~Thread() {
     irq_data_.Clear();
     promises_.Clear();
 
+    printf("[V8] delete context\n");
     context_.Reset();
     args_.Reset();
+    exit_value_.Reset();
     call_wrapper_.Reset();
 
     iv8_->Dispose(); // This deletes v8 isolate object
     delete tpl_cache_;
+    printf("[V8] delete isolate\n");
     // TODO: delete stack
 }
 
@@ -85,6 +89,7 @@ void Thread::Init() {
     RT_ASSERT(nullptr == tpl_cache_);
     iv8_ = v8::Isolate::New();
     iv8_->SetData(0, this);
+    printf("[V8] new isolate\n");
     v8::Locker lock(iv8_);
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
@@ -116,8 +121,7 @@ void Thread::Run() {
     v8::HandleScope local_handle_scope(iv8_);
 
     if (context_.IsEmpty()) {
-
-        printf("++++++++++++++++ CONTEXT (X0)\n");
+        printf("[V8] new context\n");
         v8::Local<v8::Context> context = tpl_cache_->NewContext();
         context_ = std::move(v8::UniquePersistent<v8::Context>(iv8_, context));
     }
@@ -134,12 +138,22 @@ void Thread::Run() {
         ThreadMessage::Type type = message->type();
 
         switch (type) {
+        case ThreadMessage::Type::SET_ARGUMENTS_NOPARENT: {
+            RT_ASSERT(args_.IsEmpty());
+            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+            RT_ASSERT(!unpacked.IsEmpty());
+
+            args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+        }
+            break;
         case ThreadMessage::Type::SET_ARGUMENTS: {
             RT_ASSERT(args_.IsEmpty());
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
 
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+            parent_thread_ = message->sender();
+            parent_promise_id_ = message->recv_index();
         }
             break;
         case ThreadMessage::Type::EVALUATE: {
@@ -230,6 +244,26 @@ void Thread::Run() {
     }
 
     if (terminate_) {
+        printf("[ runtime.exit() ]\n");
+        auto promise_id = parent_promise_id();
+        auto thread = parent_thread();
+
+        LockingPtr<EngineThread> lptr { thread.get() };
+        Thread* recv { lptr->thread() };
+        RT_ASSERT(recv);
+
+        TransportData data;
+        {	TransportData::SerializeError err { data.MoveValue(this, recv,
+                v8::Local<v8::Value>::New(iv8_, exit_value_)) };
+            if (TransportData::ThrowError(iv8_, err)) return;
+        }
+
+        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
+                handle(),
+                std::move(data), nullptr, promise_id));
+            lptr->PushMessage(std::move(msg));
+        }
         return;
     }
 

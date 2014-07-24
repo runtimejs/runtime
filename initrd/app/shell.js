@@ -75,6 +75,8 @@
         });
     }
 
+    var isProgramActive = null;
+
     var prompt = (function() {
         var inputText = '';
         var inputEnteredFn = null;
@@ -84,6 +86,10 @@
         }
 
         keyboard.addListener(function(data) {
+            if (isProgramActive) {
+                return;
+            }
+
             if ('pressed' !== data.action) {
                 return;
             }
@@ -105,29 +111,48 @@
                 }
                 break;
             case 'enter':
+                print('\n', {cursor: true});
                 if (inputEnteredFn) {
                     inputEnteredFn(inputText);
                 }
                 inputText = '';
-                print('\n', {cursor: true});
-                printPrompt();
                 break;
             }
         });
 
-        printPrompt();
-
         return {
             setInputHandler: function(fn) {
                 inputEnteredFn = fn;
+            },
+            display: function() {
+                printPrompt();
             }
         };
     })();
 
-    prompt.setInputHandler(function(text) {
-        runtime.log(text);
+    var shellEnv = {
+        stdout: function(text, opts) {
+            print(text, opts);
+        },
+        stderr: function(text, opts) {
+            print(text, opts);
+        }
+    };
 
-        // args.system.process.spawn('/cat.js', {}, {}, {});
+    prompt.setInputHandler(function(text) {
+        if ('' === text) {
+            prompt.display();
+            return;
+        }
+
+        isProgramActive = true;
+        args.system.process.spawn('/test.js', {}, {}, shellEnv, function(value) {
+            isProgramActive = false;
+            print('\n');
+            prompt.display();
+        });
     });
+
+    prompt.display();
 
 })(runtime.args());

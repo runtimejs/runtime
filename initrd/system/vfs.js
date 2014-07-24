@@ -416,25 +416,30 @@ function(resources) {
      * @param {object} env - inherited process user environment (objects, interfaces etc)
      * @param {object} systemOverwrite [optional] - process system namespace overwrite
      */
-    function spawn(vfsnodeRoot, path, opts, data, env, systemOverwrite) {
+    function spawn(vfsnodeRoot, path, opts, data, env, systemOverwrite, resolve) {
         if (Object(systemOverwrite) !== systemOverwrite) {
             systemOverwrite = {};
         }
+
+        function reject(err) {}
 
         var pathComponents = vfs.parsePathString(path);
 
         vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
             if (null === vfsnode) {
+                reject(new Error('not found'));
                 return;
             }
 
             vfsnode.stat(function(stats) {
                 if ('file' !== stats.type) {
+                    reject(new Error('is not a file'));
                     return;
                 }
 
                 var workDir = vfsnode.parent;
                 if (null === workDir) {
+                    reject(new Error('no parent directory'));
                     return;
                 }
 
@@ -446,22 +451,18 @@ function(resources) {
 
                     // Process management functions
                     systemOverwrite.process = systemOverwrite.process || {
-                        spawn: function(path, opts, data, env) {
-                            spawn(workDir, path, opts, data, env);
+                        spawn: function(path, opts, data, env, resolve) {
+                            spawn(workDir, path, opts, data, env, undefined, resolve);
                         },
-                    };
-
-                    // Console support
-                    // TODO: log should write into stdout, not kernel log
-                    systemOverwrite.console = systemOverwrite.console || {
-                        log: runtime.log
                     };
 
                     resources.processManager.create(fileContent, {
                         system: systemOverwrite,
                         data: data,
                         env: env,
-                    });
+                    }).then(function(value) {
+                        resolve(value);
+                    }, reject);
                 });
             });
         });

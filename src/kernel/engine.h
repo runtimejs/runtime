@@ -30,6 +30,7 @@ class ThreadMessage {
 public:
     enum class Type {
         EMPTY,
+        SET_ARGUMENTS_NOPARENT,
         SET_ARGUMENTS,
         EVALUATE,
         TIMEOUT_EVENT,

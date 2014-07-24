@@ -98,7 +98,7 @@ public:
         {	TransportData data;
             data.SetResourceFunction();
 
-            std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS,
+            std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS_NOPARENT,
                 ResourceHandle<EngineThread>(), std::move(data)));
             st.get()->PushMessage(std::move(msg));
         }

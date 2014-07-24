@@ -107,6 +107,10 @@ public:
 
     ResourceHandle<EngineThread> handle() const { return ethread_; }
 
+    void SetExitValue(v8::Local<v8::Value> value) {
+        exit_value_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, value));
+    }
+
     ExternalFunction* AddExport(v8::Local<v8::Value> fn) {
         return exports_.Add(fn, ethread_);
     }
@@ -163,6 +167,9 @@ public:
         call_wrapper_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, fn));
     }
 
+    uint32_t parent_promise_id() const { return parent_promise_id_; }
+    ResourceHandle<EngineThread> parent_thread() const { return parent_thread_; }
+
     void SetTimeout(uint32_t timeout_id, uint64_t timeout_ms);
 
     v8::Local<v8::Value> args() const {
@@ -186,6 +193,7 @@ private:
     LocalStorage local_storage_;
     v8::UniquePersistent<v8::Context> context_;
     v8::UniquePersistent<v8::Value> args_;
+    v8::UniquePersistent<v8::Value> exit_value_;
     v8::UniquePersistent<v8::Function> call_wrapper_;
 
     VirtualStack stack_;
@@ -196,6 +204,9 @@ private:
     Timeouts<uint32_t> timeouts_;
 
     bool terminate_;
+
+    uint32_t parent_promise_id_;
+    ResourceHandle<EngineThread> parent_thread_;
 
     UniquePersistentIndexedPool<v8::Value> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;
