@@ -263,8 +263,13 @@ void Thread::Run() {
     }
 
     if (0 == ref_count_ || terminate_) {
+        if (terminate_) {
+            printf("[ terminate thread (reason: runtime.exit() called) ]\n");
+        } else {
+            printf("[ terminate thread (reason: refcount 0) ]\n");
+        }
+
         terminate_ = true;
-        printf("[ terminate thread ]\n");
         auto promise_id = parent_promise_id();
         auto thread = parent_thread();
 
