@@ -23,6 +23,7 @@ namespace rt {
 
 Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
     :	thread_mgr_(thread_mgr),
+        type_(ethread.get()->type()),
         iv8_(nullptr),
         tpl_cache_(nullptr),
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
@@ -34,6 +35,9 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
 }
 
 Thread::~Thread() {
+    // Can't destroy idle thread
+    RT_ASSERT(ThreadType::IDLE != type_);
+
     RT_ASSERT(thread_mgr_);
     RT_ASSERT(this != thread_mgr_->current_thread());
 
@@ -47,9 +51,13 @@ Thread::~Thread() {
     exit_value_.Reset();
     call_wrapper_.Reset();
 
-    iv8_->Dispose(); // This deletes v8 isolate object
+    RT_ASSERT(tpl_cache_);
     delete tpl_cache_;
+
+    RT_ASSERT(iv8_);
     printf("[V8] delete isolate\n");
+    iv8_->Dispose(); // This deletes v8 isolate object
+
     // TODO: delete stack
 }
 
@@ -85,6 +93,11 @@ void Thread::SetTimeout(uint32_t timeout_id, uint64_t timeout_ms) {
 }
 
 void Thread::Init() {
+    // Skip initialization for idle thread
+    if (ThreadType::IDLE == type_) {
+        return;
+    }
+
     RT_ASSERT(nullptr == iv8_);
     RT_ASSERT(nullptr == tpl_cache_);
     iv8_ = v8::Isolate::New();
@@ -97,6 +110,11 @@ void Thread::Init() {
 }
 
 void Thread::Run() {
+    // Idle thread does nothing
+    if (ThreadType::IDLE == type_) {
+        return;
+    }
+
     RT_ASSERT(iv8_);
     RT_ASSERT(tpl_cache_);
 

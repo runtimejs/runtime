@@ -60,7 +60,7 @@ public:
             } else {
                 engine = new Engine(EngineType::EXECUTION);
                 engines_execution_.push_back(engine);
-                engine->threads().Create(); // create idle thread
+                engine->threads().Create(ThreadType::IDLE); // create idle thread
             }
             RT_ASSERT(engine);
             engines_.push_back(engine);
@@ -86,7 +86,7 @@ public:
         RT_ASSERT(engines_execution_.size() > 0);
         Engine* first_engine = engines_execution_[0];
         RT_ASSERT(first_engine);
-        ResourceHandle<EngineThread> st = first_engine->threads().Create();
+        ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
         p.get()->SetThread(st, 0);
 
         rt::InitrdFile startup_file = GLOBAL_initrd()->Get("/system/kernel.js");

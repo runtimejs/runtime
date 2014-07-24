@@ -74,6 +74,11 @@ private:
     size_t export_id_;
 };
 
+enum class ThreadType {
+    DEFAULT,
+    IDLE
+};
+
 class Thread {
     friend class ThreadManager;
 public:
@@ -187,6 +192,7 @@ public:
     uint8_t _fxstate[1024] alignas(16);
 private:
     ThreadManager* thread_mgr_;
+    ThreadType type_;
     v8::Isolate* iv8_;
     TemplateCache* tpl_cache_;
 

@@ -876,7 +876,7 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
 
     ResourceHandle<Process> p = that->proc_mgr_.get()->CreateProcess();
-    ResourceHandle<EngineThread> st = first_engine->threads().Create();
+    ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
     {	LockingPtr<EngineThread> thread { st.get() };
 
