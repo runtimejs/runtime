@@ -65,6 +65,12 @@
                         drawView[posCurrent * 2 + 1] = clearColor;
                     }
 
+                    if (cmd.clear) {
+                        for (var t = 0; t < height * width * 2; ++t) {
+                            drawView[t] = 0;
+                        }
+                    }
+
                     if ('undefined' !== typeof cmd.x ||
                         'undefined' !== typeof cmd.y) {
                         posCurrent = cmd.y * width + cmd.x;

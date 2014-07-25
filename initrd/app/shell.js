@@ -42,7 +42,7 @@
         var fg = 'white';
         var bg = 'black';
         var repeat = 1;
-        var x, y, offset, cursor;
+        var x, y, offset, cursor, clear;
 
         if (Object(opts) === opts) {
             if ('string' === typeof opts.fg) {
@@ -61,6 +61,7 @@
             y = opts.y;
             offset = opts.offset;
             cursor = !!opts.cursor;
+            clear = !!opts.clear;
         }
 
         terminal({
@@ -71,7 +72,8 @@
             x: x,
             y: y,
             offset: offset,
-            cursor: cursor
+            cursor: cursor,
+            clear: clear
         });
     }
 
