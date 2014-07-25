@@ -15,6 +15,7 @@
 // NOTE: This script is executed in every context automatically
 var console = (function() {
     var stdout = null;
+    var stderr = null;
 
     return {
         log: function() {
@@ -24,6 +25,14 @@ var console = (function() {
 
             var s = Array.prototype.join.call(arguments, ' ');
             stdout(s + '\n');
+        },
+        error: function() {
+            if (null === stderr) {
+                stderr = runtime.args().env.stderr;
+            }
+
+            var s = Array.prototype.join.call(arguments, ' ');
+            stderr(s + '\n');
         }
     };
 })();

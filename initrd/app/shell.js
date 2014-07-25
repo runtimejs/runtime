@@ -156,32 +156,56 @@
         }
     };
 
+    function disablePrompt() {
+        isProgramActive = true;
+    }
+
+    function restorePrompt() {
+        isProgramActive = false;
+        prompt.display();
+    }
+
+    function shellError(text) {
+        print('shell: ' + text + '\n', {fg: 'lightred'});
+    }
+
     prompt.setInputHandler(function(text) {
+        disablePrompt();
+        text = text.trim();
+
         if ('' === text) {
-            prompt.display();
+            restorePrompt();
             return;
         }
 
-        isProgramActive = true;
-        function restorePrompt() {
-            isProgramActive = false;
-            prompt.display();
+        var programName = '';
+        var programArgs = '';
+
+        var firstSpaceIndex = text.indexOf(' ');
+        if (-1 !== firstSpaceIndex) {
+            programName = text.slice(0, firstSpaceIndex);
+            programArgs = text.slice(firstSpaceIndex + 1);
+        } else {
+            programName = text;
         }
 
         args.system.fs.current({
             action: 'spawn',
-            path: '/' + text + '.js',
+            path: '/' + programName + '.js',
+            data: {
+                command: programArgs
+            },
             env: shellEnv,
             onExit: function(result) {
                 restorePrompt();
             }
         }).then(function() {}, function(err) {
-            var text = 'unknown error';
+            var message = 'unknown error';
             switch(err.message) {
-                case 'NOT_FOUND': text = 'command not found'; break;
+                case 'NOT_FOUND': message = 'command "' + programName + '" not found'; break;
             }
 
-            print('shell: ' + text + '\n', {fg: 'lightred'});
+            shellError(message);
             restorePrompt();
         });
     });

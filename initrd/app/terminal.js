@@ -60,10 +60,9 @@
                 }
 
                 data.forEach(function(cmd) {
-                    if (cmd.cursor) {
-                        drawView[posCurrent * 2] = ' ';
-                        drawView[posCurrent * 2 + 1] = clearColor;
-                    }
+                    // Always clear cursor before output
+                    drawView[posCurrent * 2] = ' ';
+                    drawView[posCurrent * 2 + 1] = clearColor;
 
                     if (cmd.clear) {
                         for (var t = 0; t < height * width * 2; ++t) {
@@ -84,6 +83,18 @@
                         cmd.repeat = 0;
                     }
 
+                    function ensureScrolled() {
+                        if (posCurrent >= width * height) {
+                            drawView.set(drawView.subarray(width * 2, width * height * 2));
+
+                            for (var t = 0; t < width * 2; ++t) {
+                                drawView[width * (height - 1) * 2 + t] = 0;
+                            }
+
+                            posCurrent -= width;
+                        }
+                    }
+
                     for (var r = 0; r < cmd.repeat; ++r) {
                         var elements = cmd.text.length;
                         for (var i = 0; i < elements; ++i) {
@@ -93,19 +104,11 @@
                             // Newline handling
                             if ('\n' === cr) {
                                 posCurrent -= posCurrent % width - width;
+                                ensureScrolled();
                                 continue;
                             }
 
-                            // Context scroll logic
-                            if (posCurrent >= width * height) {
-                                drawView.set(drawView.subarray(width * 2, width * height * 2));
-
-                                for (var t = 0; t < width * 2; ++t) {
-                                    drawView[width * (height - 1) * 2 + t] = 0;
-                                }
-
-                                posCurrent -= width;
-                            }
+                            ensureScrolled();
 
                             // Write data into memory
                             drawView[posCurrent * 2] = ccode;
