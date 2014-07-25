@@ -14,6 +14,9 @@
 
 (function(args) {
     "use strict";
+    // args.env.stdout('', {x: 0, y: 0, clear: true});
+    // args.env.stdout(' ', {x: 0, y: 0, repeat: 25 * 80});
+    // args.env.stdout('', {x: 0, y: 0});
 
     args.env.stdout('test ok\n');
 

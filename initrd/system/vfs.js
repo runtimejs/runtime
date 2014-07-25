@@ -363,13 +363,72 @@ function(resources) {
     var root = ret.root;
     var initrdRoot = ret.initrd;
 
+    /**
+     * Accessor provides access to vfsnode for outside world
+     */
     function createNodeAccessor(vfsnodeRoot) {
+        /**
+        * Actions on this node. Required params for all actions:
+        * @param {object} opts.action - action name to execute
+        * @param {object} opts.path - path to lookup on node
+        */
         var actions = {
-            stat: function(vfsnode, opts, resolve) {
+            /**
+             * Get node stats info
+             */
+            stat: function(vfsnode, opts, resolve, reject) {
                 vfsnode.stat(resolve);
             },
-            readFile: function(vfsnode, opts, resolve) {
+            /**
+             * Read file content
+             */
+            readFile: function(vfsnode, opts, resolve, reject) {
                 vfsnode.readFile(opts, resolve);
+            },
+            /**
+             * Execute file as a program
+             * @param {object} opts.data [optional] - program data (objects, interfaces, command line etc)
+             * @param {object} opts.env [optional] - inherited program environment (objects, interfaces etc)
+             * @param {object} opts.system [optional] - overwrite program system data
+             * @param {object} opts.onExit [optional] - function to call on program exit
+             */
+            spawn: function(vfsnode, opts, resolve, reject) {
+                var argsData = opts.data || {};
+                var argsEnv = opts.env || {};
+                var argsSystem = opts.system || {};
+                var onExit = opts.onExit || function() {};
+
+                if (Object(argsSystem) !== argsSystem) {
+                    argsSystem = {};
+                }
+
+                vfsnode.stat(function(stats) {
+                    if ('file' !== stats.type) {
+                        reject(new Error('NOT_A_FILE'));
+                        return;
+                    }
+
+                    var workDir = vfsnode.parent;
+                    if (null === workDir) {
+                        reject(new Error('NO_PARENT'));
+                        return;
+                    }
+
+                    vfsnode.readFile(null, function(fileContent) {
+                        // FS accessors
+                        argsSystem.fs = argsSystem.fs || {
+                            current: createNodeAccessor(workDir),
+                        };
+
+                        resources.processManager.create(fileContent, {
+                            system: argsSystem,
+                            data: argsData,
+                            env: argsEnv,
+                        }).then(function(value) {
+                            onExit(value);
+                        }, reject);
+                    });
+                });
             },
         };
 
@@ -380,111 +439,40 @@ function(resources) {
                 }
 
                 if ('string' !== typeof opts.path) {
-                    return error('path required');
+                    return error('NO_PATH');
                 }
 
                 if ('string' !== typeof opts.action) {
-                    return error('action required');
+                    return error('NO_ACTION');
                 }
 
                 var action = opts.action;
 
                 if ('undefined' === typeof actions[action]) {
-                    return error('unknown action');
+                    return error('UNKNOWN_ACTION');
                 }
 
                 var pathComponents = vfs.parsePathString(opts.path);
                 vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
                     if (null === vfsnode) {
-                        return error('file does not exist');
+                        return error('NOT_FOUND');
                     }
 
                     actions[action](vfsnode, opts, function(result) {
                         resolve(result);
+                    }, function(err) {
+                        reject(err);
                     });
                 });
             });
         };
     };
 
-    /**
-     * Spawn new process.
-     * @param {vfsnode} vfsnodeRoot - root node to use for path lookup
-     * @param {string} path - path relative to root node
-     * @param {object} opts - spawn options
-     * @param {object} data - process extra data (objects, interfaces, command line etc)
-     * @param {object} env - inherited process user environment (objects, interfaces etc)
-     * @param {object} systemOverwrite [optional] - process system namespace overwrite
-     */
-    function spawn(vfsnodeRoot, path, opts, data, env, systemOverwrite, resolve) {
-        if (Object(systemOverwrite) !== systemOverwrite) {
-            systemOverwrite = {};
-        }
-
-        function reject(err) {}
-
-        var pathComponents = vfs.parsePathString(path);
-
-        vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
-            if (null === vfsnode) {
-                reject(new Error('not found'));
-                return;
-            }
-
-            vfsnode.stat(function(stats) {
-                if ('file' !== stats.type) {
-                    reject(new Error('is not a file'));
-                    return;
-                }
-
-                var workDir = vfsnode.parent;
-                if (null === workDir) {
-                    reject(new Error('no parent directory'));
-                    return;
-                }
-
-                vfsnode.readFile(null, function(fileContent) {
-                    // FS accessors
-                    systemOverwrite.fs = systemOverwrite.fs || {
-                        default: createNodeAccessor(workDir),
-                    };
-
-                    // Process management functions
-                    systemOverwrite.process = systemOverwrite.process || {
-                        spawn: function(path, opts, data, env, resolve) {
-                            spawn(workDir, path, opts, data, env, undefined, resolve);
-                        },
-                    };
-
-                    resources.processManager.create(fileContent, {
-                        system: systemOverwrite,
-                        data: data,
-                        env: env,
-                    }).then(function(value) {
-                        resolve(value);
-                    }, reject);
-                });
-            });
-        });
-    }
+    var rootAccessor = createNodeAccessor(root);
+    var initrdRootAccessor = createNodeAccessor(initrdRoot);
 
     return {
-        getRoot: function() { return root; },
-        getInitrdRoot: function() { return initrdRoot; },
-        find: function(vfsnode, path) {
-            return new Promise(function(resolve, reject) {
-                var pathComponents = vfs.parsePathString(path);
-
-                vfs.pathLookup(vfsnode, pathComponents, function(vfsnode) {
-                    if (null === vfsnode) {
-                        reject();
-                        return;
-                    }
-
-                    resolve(createNodeAccessor(vfsnode));
-                });
-            });
-        },
-        spawn: spawn,
+        getRoot: function() { return rootAccessor; },
+        getInitrdRoot: function() { return initrdRootAccessor; },
     };
 });

@@ -16,6 +16,11 @@
 (function(args) {
     "use strict";
 
+    if (args.env && args.env.stdout && args.env.stderr) {
+        args.env.stderr('shell: nested shells are not supported\n');
+        return;
+    }
+
     if (!args.data.terminal) {
         throw new Error('shell requires a terminal to output data');
     }
@@ -137,6 +142,16 @@
             print(text, opts);
         },
         stderr: function(text, opts) {
+            // Ensure object
+            if (Object(opts) !== opts) {
+                opts = {};
+            }
+
+            // Use red color for stderr messages by default
+            if ('string' !== typeof opts.fg) {
+                opts.fg = 'lightred';
+            }
+
             print(text, opts);
         }
     };
@@ -148,9 +163,26 @@
         }
 
         isProgramActive = true;
-        args.system.process.spawn('/test.js', {}, {}, shellEnv, function(value) {
+        function restorePrompt() {
             isProgramActive = false;
             prompt.display();
+        }
+
+        args.system.fs.current({
+            action: 'spawn',
+            path: '/' + text + '.js',
+            env: shellEnv,
+            onExit: function(result) {
+                restorePrompt();
+            }
+        }).then(function() {}, function(err) {
+            var text = 'unknown error';
+            switch(err.message) {
+                case 'NOT_FOUND': text = 'command not found'; break;
+            }
+
+            print('shell: ' + text + '\n', {fg: 'lightred'});
+            restorePrompt();
         });
     });
 

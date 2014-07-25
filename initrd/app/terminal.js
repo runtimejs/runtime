@@ -232,9 +232,12 @@
         };
     }
 
-    args.system.process.spawn('/shell.js', {}, {
-        terminal: createTerminalAccessor(),
-        keyboard: args.env.keyboard
-    }, {});
-
+    args.system.fs.current({
+        action: 'spawn',
+        path: '/shell.js',
+        data: {
+            terminal: createTerminalAccessor(),
+            keyboard: args.env.keyboard
+        },
+    });
 })(runtime.args());
