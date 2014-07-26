@@ -226,7 +226,7 @@ public:
             iv8->ThrowException(
                 v8::Exception::Error(
                 v8::String::NewFromUtf8(iv8,
-                "Maximum call stack size exceeded")));
+                "Maximum call stack size exceeded when transferring data")));
             return true;
         case SerializeError::INVALID_TYPE:
             iv8->ThrowException(
