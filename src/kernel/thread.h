@@ -76,7 +76,8 @@ private:
 
 enum class ThreadType {
     DEFAULT,
-    IDLE
+    IDLE,
+    TERMINATED,
 };
 
 class Thread {
@@ -84,11 +85,27 @@ class Thread {
 public:
     Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread);
     ~Thread();
-    void Dispose();
     DELETE_COPY_AND_ASSIGN(Thread);
 
-    void Init();
-    void Run();
+    /**
+     * Set up thread and v8 isolate
+     */
+    void SetUp();
+
+    /**
+     * Send onExit message, clean up resources, delete
+     * v8 isolate
+     */
+    void TearDown();
+
+    /**
+     * Run thread until message queue is empty. If this function
+     * returns true, then this thread haven't finished all it's
+     * work and expects another Run() call.
+     * When this returns false, it's safe to terminate thread.
+     */
+    bool Run();
+
 
     ThreadManager* thread_manager() const {
         return thread_mgr_;
@@ -164,12 +181,11 @@ public:
         priority_.Set(1);
     }
 
+    /**
+     * Mark this thread as ready to be terminated, even if refcount > 0
+     */
     void SetTerminateFlag() {
         terminate_ = true;
-    }
-
-    bool IsTerminateFlag() const {
-        return terminate_;
     }
 
     /**
@@ -206,6 +222,8 @@ public:
         }
         return scope.Escape(v8::Local<v8::Value>::New(iv8_, args_));
     }
+
+    ThreadType type() const { return type_; }
 
     /**
      * Thread state storage required for stack switch

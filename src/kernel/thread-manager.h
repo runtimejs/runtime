@@ -110,11 +110,11 @@ public:
 
         for (auto it = threads_.begin(); it != threads_.end();) {
             auto thread = (*it).thread();
-            if (thread->IsTerminateFlag() && current_thread_ == thread) {
+            if (ThreadType::TERMINATED == thread->type() && current_thread_ == thread) {
                 std::swap(*it, threads_.back());
                 threads_.pop_back();
                 // TODO: delete thread object here too, fix crashes
-                thread->Dispose();
+                // TODO: delete thread stack
             }  else {
                 ++it;
             }
@@ -126,7 +126,7 @@ public:
         for (size_t i = 0; i < threads_.size(); ++i) {
             auto thread = threads_[i].thread();
 
-            if (thread->IsTerminateFlag()) {
+            if (ThreadType::TERMINATED == thread->type()) {
                 continue;
             }
 

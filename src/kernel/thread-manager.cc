@@ -22,12 +22,20 @@ void ThreadEntryPoint(Thread* t) {
     RT_ASSERT(t);
     Cpu::EnableInterrupts();
 
-    t->Init();
+    t->SetUp();
+
     for (;;) {
         Cpu::EnableInterrupts();
-        t->Run();
+        if (!t->Run()) {
+            break;
+        }
         t->thread_manager()->Preempt();
     }
+
+    t->TearDown();
+    t->thread_manager()->Preempt();
+
+    Cpu::HangSystem();
 }
 
 ThreadManager::ThreadManager(Engine* engine)
