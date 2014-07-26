@@ -36,11 +36,16 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
 }
 
 Thread::~Thread() {
+    RT_ASSERT(!"TODO: Make sure it's safe to delete thread object first!");
+    Dispose();
+}
+
+void Thread::Dispose() {
     // Can't destroy idle thread
     RT_ASSERT(ThreadType::IDLE != type_);
 
     RT_ASSERT(thread_mgr_);
-    RT_ASSERT(this != thread_mgr_->current_thread());
+    RT_ASSERT(this == thread_mgr_->current_thread());
 
     timeout_data_.Clear();
     irq_data_.Clear();
@@ -59,6 +64,7 @@ Thread::~Thread() {
     printf("[V8] delete isolate\n");
     iv8_->Dispose(); // This deletes v8 isolate object
 
+    type_ = ThreadType::IDLE;
     // TODO: delete stack
 }
 
@@ -104,7 +110,6 @@ void Thread::Init() {
     iv8_ = v8::Isolate::New();
     iv8_->SetData(0, this);
     printf("[V8] new isolate\n");
-    v8::Locker lock(iv8_);
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
     tpl_cache_ = new TemplateCache(iv8_);
@@ -135,7 +140,6 @@ void Thread::Run() {
         return;
     }
 
-    v8::Locker lock(iv8_);
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
 

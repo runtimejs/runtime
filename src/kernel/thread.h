@@ -84,6 +84,7 @@ class Thread {
 public:
     Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread);
     ~Thread();
+    void Dispose();
     DELETE_COPY_AND_ASSIGN(Thread);
 
     void Init();

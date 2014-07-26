@@ -110,10 +110,11 @@ public:
 
         for (auto it = threads_.begin(); it != threads_.end();) {
             auto thread = (*it).thread();
-            if (thread->IsTerminateFlag() && current_thread_ != thread) {
+            if (thread->IsTerminateFlag() && current_thread_ == thread) {
                 std::swap(*it, threads_.back());
                 threads_.pop_back();
-                delete thread;
+                // TODO: delete thread object here too, fix crashes
+                thread->Dispose();
             }  else {
                 ++it;
             }
