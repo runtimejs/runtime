@@ -386,6 +386,19 @@ function(resources) {
                 vfsnode.readFile(opts, resolve);
             },
             /**
+             * List files under directory
+             */
+            list: function(vfsnode, opts, resolve, reject) {
+                vfsnode.list(function(data) {
+                    var names = [];
+                    for (var i = 0; i < data.length; ++i) {
+                        names.push(data[i].name);
+                    }
+
+                    resolve(names);
+                });
+            },
+            /**
              * Execute file as a program
              * @param {object} opts.data [optional] - program data (objects, interfaces, command line etc)
              * @param {object} opts.env [optional] - inherited program environment (objects, interfaces etc)
