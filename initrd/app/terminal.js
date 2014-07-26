@@ -83,6 +83,10 @@
                         cmd.repeat = 0;
                     }
 
+                    if ('string' !== typeof cmd.text) {
+                        cmd.text = '';
+                    }
+
                     function ensureScrolled() {
                         if (posCurrent >= width * height) {
                             drawView.set(drawView.subarray(width * 2, width * height * 2));

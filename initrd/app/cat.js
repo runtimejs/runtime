@@ -31,7 +31,7 @@
             action: 'readFile',
             path: filename,
         }).then(function(fileContent) {
-            console.log(fileContent);
+            args.env.stdout(fileContent);
         }, function(err) {
             var message = 'unknown error';
             switch(err.message) {

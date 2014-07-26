@@ -83,17 +83,22 @@
     }
 
     var isProgramActive = null;
+    var stdinOpts = {
+        mode: 'line',
+        onData: null
+    };
 
     var prompt = (function() {
         var inputText = '';
         var inputEnteredFn = null;
 
         function printPrompt() {
-            print('$ ', {cursor: true});
+            print('/ ', {cursor: true, fg: 'yellow'});
+            print('$ ', {cursor: true, fg: 'lightgreen'});
         }
 
         keyboard.addListener(function(data) {
-            if (isProgramActive) {
+            if (isProgramActive && null === stdinOpts.onData) {
                 return;
             }
 
@@ -119,7 +124,11 @@
                 break;
             case 'enter':
                 print('\n', {cursor: true});
-                if (inputEnteredFn) {
+                if (stdinOpts.onData) {
+                    stdinOpts.onData({text: inputText});
+                    stdinOpts.onData = null;
+                    stdinOpts.mode = 'line';
+                } else if (inputEnteredFn) {
                     inputEnteredFn(inputText);
                 }
                 inputText = '';
@@ -153,7 +162,20 @@
             }
 
             print(text, opts);
-        }
+        },
+        stdin: function(opts) {
+            if (!opts.onData) {
+                return;
+            }
+
+            if ('string' !== opts.mode) {
+                opts.mode = 'line';
+            }
+
+            stdinOpts.onData = opts.onData;
+            stdinOpts.mode = opts.mode;
+            print('', {cursor: true});
+        },
     };
 
     function disablePrompt() {
@@ -162,6 +184,8 @@
 
     function restorePrompt() {
         isProgramActive = false;
+        stdinOpts.mode = 'line';
+        stdinOpts.onData = null;
         prompt.display();
     }
 
