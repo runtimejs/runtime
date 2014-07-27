@@ -57,10 +57,11 @@ public:
             return true;
         }
         bool tryresult = __sync_lock_test_and_set(_p, 1);
-        if (tryresult) {
+        if (!tryresult) {
             _l->owner = cpuid;
+            return true;
         }
-        return tryresult;
+        return false;
     }
 
     inline void unlock() {
