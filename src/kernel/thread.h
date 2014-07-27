@@ -74,6 +74,12 @@ private:
     size_t export_id_;
 };
 
+enum class ThreadType {
+    DEFAULT,
+    IDLE,
+    TERMINATED,
+};
+
 class Thread {
     friend class ThreadManager;
 public:
@@ -81,8 +87,25 @@ public:
     ~Thread();
     DELETE_COPY_AND_ASSIGN(Thread);
 
-    void Init();
-    void Run();
+    /**
+     * Set up thread and v8 isolate
+     */
+    void SetUp();
+
+    /**
+     * Send onExit message, clean up resources, delete
+     * v8 isolate
+     */
+    void TearDown();
+
+    /**
+     * Run thread until message queue is empty. If this function
+     * returns true, then this thread haven't finished all it's
+     * work and expects another Run() call.
+     * When this returns false, it's safe to terminate thread.
+     */
+    bool Run();
+
 
     ThreadManager* thread_manager() const {
         return thread_mgr_;
@@ -107,11 +130,17 @@ public:
 
     ResourceHandle<EngineThread> handle() const { return ethread_; }
 
+    void SetExitValue(v8::Local<v8::Value> value) {
+        exit_value_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, value));
+    }
+
     ExternalFunction* AddExport(v8::Local<v8::Value> fn) {
+        Ref();
         return exports_.Add(fn, ethread_);
     }
 
     uint32_t AddIRQData(v8::UniquePersistent<v8::Value> v) {
+        Ref();
         return irq_data_.Push(std::move(v));
     }
 
@@ -121,18 +150,22 @@ public:
     }
 
     uint32_t AddTimeoutData(v8::UniquePersistent<v8::Value> v) {
+        Ref();
         return timeout_data_.Push(std::move(v));
     }
 
     v8::UniquePersistent<v8::Value> TakeTimeoutData(uint32_t index) {
+        Unref();
         return timeout_data_.Take(index);
     }
 
     uint32_t AddPromise(v8::UniquePersistent<v8::Promise::Resolver> resolver) {
+        Ref();
         return promises_.Push(std::move(resolver));
     }
 
     v8::UniquePersistent<v8::Promise::Resolver> TakePromise(uint32_t index) {
+        Unref();
         return promises_.Take(index);
     }
 
@@ -148,12 +181,36 @@ public:
         priority_.Set(1);
     }
 
+    /**
+     * Mark this thread as ready to be terminated, even if refcount > 0
+     */
+    void SetTerminateFlag() {
+        terminate_ = true;
+    }
+
+    /**
+     * Increment thread reference counter
+     */
+    void Ref() {
+        ++ref_count_;
+    }
+
+    /**
+     * Decrement thread reference counter
+     */
+    void Unref() {
+        --ref_count_;
+    }
+
     void SetCallWrapper(v8::Local<v8::Function> fn) {
         RT_ASSERT(call_wrapper_.IsEmpty());
         RT_ASSERT(!fn.IsEmpty());
         RT_ASSERT(fn->IsFunction());
         call_wrapper_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, fn));
     }
+
+    uint32_t parent_promise_id() const { return parent_promise_id_; }
+    ResourceHandle<EngineThread> parent_thread() const { return parent_thread_; }
 
     void SetTimeout(uint32_t timeout_id, uint64_t timeout_ms);
 
@@ -166,18 +223,22 @@ public:
         return scope.Escape(v8::Local<v8::Value>::New(iv8_, args_));
     }
 
+    ThreadType type() const { return type_; }
+
     /**
      * Thread state storage required for stack switch
      */
     uint8_t _fxstate[1024] alignas(16);
 private:
     ThreadManager* thread_mgr_;
+    ThreadType type_;
     v8::Isolate* iv8_;
     TemplateCache* tpl_cache_;
 
     LocalStorage local_storage_;
     v8::UniquePersistent<v8::Context> context_;
     v8::UniquePersistent<v8::Value> args_;
+    v8::UniquePersistent<v8::Value> exit_value_;
     v8::UniquePersistent<v8::Function> call_wrapper_;
 
     VirtualStack stack_;
@@ -186,6 +247,12 @@ private:
     ResourceHandle<EngineThread> ethread_;
     FunctionExports exports_;
     Timeouts<uint32_t> timeouts_;
+
+    size_t ref_count_;
+    bool terminate_;
+
+    uint32_t parent_promise_id_;
+    ResourceHandle<EngineThread> parent_thread_;
 
     UniquePersistentIndexedPool<v8::Value> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;

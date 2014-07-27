@@ -12,29 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+(function(args) {
+    "use strict";
+    args.env.stdout('What is your name? ');
 
-#include <kernel/kernel.h>
-
-namespace rt {
-
-class Version {
-public:
-    static uint32_t getMajor() {
-        return 0;
+    function readLine(cb) {
+        args.env.stdin({
+            mode: 'line',
+            onData: function(data) {
+                cb(data.text);
+            }
+        });
     }
 
-    static uint32_t getMinor() {
-        return 1;
-    }
+    readLine(function(text) {
+        console.log('Hello, ' + text + '!');
+        runtime.exit();
+    });
 
-    static uint32_t getRev() {
-        return 2;
-    }
-
-private:
-    ~Version() = delete;
-    DELETE_COPY_AND_ASSIGN(Version);
-};
-
-} // namespace rt
+})(runtime.args());

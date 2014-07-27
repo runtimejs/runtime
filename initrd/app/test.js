@@ -12,29 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+(function(args) {
+    "use strict";
+    // args.env.stdout('', {x: 0, y: 0, clear: true});
+    // args.env.stdout(' ', {x: 0, y: 0, repeat: 25 * 80});
+    // args.env.stdout('', {x: 0, y: 0});
 
-#include <kernel/kernel.h>
+    args.env.stdout('test ok\n');
 
-namespace rt {
+    // setTimeout(function() {
+    //     console.log('timeout ok');
+    // }, 2000);
 
-class Version {
-public:
-    static uint32_t getMajor() {
-        return 0;
-    }
-
-    static uint32_t getMinor() {
-        return 1;
-    }
-
-    static uint32_t getRev() {
-        return 2;
-    }
-
-private:
-    ~Version() = delete;
-    DELETE_COPY_AND_ASSIGN(Version);
-};
-
-} // namespace rt
+    // runtime.exit(0);
+})(runtime.args());

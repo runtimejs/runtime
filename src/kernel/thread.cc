@@ -23,21 +23,20 @@ namespace rt {
 
 Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
     :	thread_mgr_(thread_mgr),
+        type_(ethread.get()->type()),
         iv8_(nullptr),
         tpl_cache_(nullptr),
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
         ethread_(ethread),
-        exports_(this) {
+        exports_(this),
+        ref_count_(0),
+        terminate_(false),
+        parent_promise_id_(0) {
     priority_.Set(1);
 }
 
 Thread::~Thread() {
-    RT_ASSERT(thread_mgr_);
-    RT_ASSERT(this != thread_mgr_->current_thread());
-
-    iv8_->Dispose(); // This deletes v8 isolate object
-    delete tpl_cache_;
-    // TODO: delete stack
+    RT_ASSERT(!"TODO: Make sure it's safe to delete thread object first!");
 }
 
 ExternalFunction* FunctionExports::Add(v8::Local<v8::Value> v,
@@ -71,18 +70,84 @@ void Thread::SetTimeout(uint32_t timeout_id, uint64_t timeout_ms) {
     timeouts_.Set(timeout_id, when);
 }
 
-void Thread::Init() {
+void Thread::SetUp() {
+    // Skip initialization for idle thread
+    if (ThreadType::IDLE == type_) {
+        return;
+    }
+
     RT_ASSERT(nullptr == iv8_);
     RT_ASSERT(nullptr == tpl_cache_);
     iv8_ = v8::Isolate::New();
     iv8_->SetData(0, this);
-    v8::Locker lock(iv8_);
+    printf("[V8] new isolate\n");
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
     tpl_cache_ = new TemplateCache(iv8_);
 }
 
-void Thread::Run() {
+void Thread::TearDown() {
+    RT_ASSERT(ThreadType::DEFAULT == type_);
+    RT_ASSERT(iv8_);
+    RT_ASSERT(iv8_->GetData(0) == this);
+    RT_ASSERT(tpl_cache_);
+
+    {	v8::Isolate::Scope ivscope(iv8_);
+        v8::HandleScope local_handle_scope(iv8_);
+
+        auto promise_id = parent_promise_id();
+        auto thread = parent_thread();
+
+        LockingPtr<EngineThread> lptr { thread.get() };
+        Thread* recv { lptr->thread() };
+        RT_ASSERT(recv);
+
+        TransportData data;
+        if (!exit_value_.IsEmpty()) {
+            TransportData::SerializeError err { data.MoveValue(this, recv,
+                v8::Local<v8::Value>::New(iv8_, exit_value_)) };
+        }
+
+        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
+                handle(),
+                std::move(data), nullptr, promise_id));
+            lptr->PushMessage(std::move(msg));
+        }
+    }
+
+    RT_ASSERT(thread_mgr_);
+    RT_ASSERT(this == thread_mgr_->current_thread());
+
+    timeout_data_.Clear();
+    irq_data_.Clear();
+    promises_.Clear();
+
+    printf("[V8] delete context\n");
+    context_.Reset();
+    args_.Reset();
+    exit_value_.Reset();
+    call_wrapper_.Reset();
+
+    RT_ASSERT(tpl_cache_);
+    delete tpl_cache_;
+
+    RT_ASSERT(iv8_);
+    printf("[V8] delete isolate\n");
+    iv8_->Dispose(); // This deletes v8 isolate object
+
+    type_ = ThreadType::TERMINATED;
+}
+
+bool Thread::Run() {
+    // Not possible to run terminated thread
+    RT_ASSERT(ThreadType::TERMINATED != type_);
+
+    // Idle thread does nothing and never terminates
+    if (ThreadType::IDLE == type_) {
+        return true;
+    }
+
     RT_ASSERT(iv8_);
     RT_ASSERT(tpl_cache_);
 
@@ -99,16 +164,14 @@ void Thread::Run() {
 
     EngineThread::ThreadMessagesVector messages = ethread_.get()->TakeMessages();
     if (0 == messages.size()) {
-        return;
+        return true;
     }
 
-    v8::Locker lock(iv8_);
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
 
     if (context_.IsEmpty()) {
-
-        printf("++++++++++++++++ CONTEXT (X0)\n");
+        printf("[V8] new context\n");
         v8::Local<v8::Context> context = tpl_cache_->NewContext();
         context_ = std::move(v8::UniquePersistent<v8::Context>(iv8_, context));
     }
@@ -125,12 +188,22 @@ void Thread::Run() {
         ThreadMessage::Type type = message->type();
 
         switch (type) {
+        case ThreadMessage::Type::SET_ARGUMENTS_NOPARENT: {
+            RT_ASSERT(args_.IsEmpty());
+            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+            RT_ASSERT(!unpacked.IsEmpty());
+
+            args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+        }
+            break;
         case ThreadMessage::Type::SET_ARGUMENTS: {
             RT_ASSERT(args_.IsEmpty());
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
 
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+            parent_thread_ = message->sender();
+            parent_promise_id_ = message->recv_index();
         }
             break;
         case ThreadMessage::Type::EVALUATE: {
@@ -220,8 +293,20 @@ void Thread::Run() {
         }
     }
 
+    if (0 == ref_count_ || terminate_) {
+        if (terminate_) {
+            printf("[ terminate thread (reason: runtime.exit() called) ]\n");
+        } else {
+            printf("[ terminate thread (reason: refcount 0) ]\n");
+        }
+
+        terminate_ = true;
+        return false;
+    }
+
     v8::Local<v8::Value> ex = trycatch.Exception();
     if (!ex.IsEmpty()) {
+
         v8::String::Utf8Value exception_str(ex);
         v8::Local<v8::Message> message = trycatch.Message();
         if (message.IsEmpty()) {
@@ -239,6 +324,7 @@ void Thread::Run() {
     }
 
     trycatch.Reset();
+    return true;
 }
 
 } // namespace rt

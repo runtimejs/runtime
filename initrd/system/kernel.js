@@ -115,12 +115,15 @@ function Injector() {
      */
     define('kernel', ['resources', 'vga', 'keyboard', 'vfs'],
     function(resources, vga, keyboard, vfs) {
-        vfs.spawn(vfs.getInitrdRoot(), '/app/terminal.js', {}, {}, {
-            textVideo: vga.client,
-            keyboard: keyboard.client,
-        });
 
-        vfs.spawn(vfs.getInitrdRoot(), '/app/example.js', {}, {}, {});
+        vfs.getInitrdRoot()({
+            action: 'spawn',
+            path: '/app/terminal.js',
+            env: {
+                textVideo: vga.client,
+                keyboard: keyboard.client,
+            }
+        });
 
         return {};
     });

@@ -108,9 +108,29 @@ public:
         size_t max_index = 0;
         size_t min_index = 0;
 
-        for (size_t i = 0; i < threads_.size(); ++i) {
+        for (auto it = threads_.begin(); it != threads_.end();) {
+            auto thread = (*it).thread();
+            if (ThreadType::TERMINATED == thread->type() && current_thread_ == thread) {
+                std::swap(*it, threads_.back());
+                threads_.pop_back();
+                // TODO: delete thread object here too, fix crashes
+                // TODO: delete thread stack
+            }  else {
+                ++it;
+            }
+        }
 
-            uint32_t p = threads_[i].thread()->priority();
+        // Make sure we have at least idle thread running
+        RT_ASSERT(threads_.size() > 0);
+
+        for (size_t i = 0; i < threads_.size(); ++i) {
+            auto thread = threads_[i].thread();
+
+            if (ThreadType::TERMINATED == thread->type()) {
+                continue;
+            }
+
+            uint32_t p = thread->priority();
 
             // Copy priority from Atomic32 to thread data
             threads_[i].SetPriority(p);
@@ -124,17 +144,19 @@ public:
                 min = p;
                 min_index = i;
             }
+
         }
 
         if (max != min) {
             current_thread_index_ = max_index;
         } else {
             ++current_thread_index_;
-            if (current_thread_index_ == threads_.size())
-            {
+            if (current_thread_index_ >= threads_.size()) {
                 current_thread_index_ = 0;
             }
         }
+
+        RT_ASSERT(current_thread_index_ < threads_.size());
 
         current_thread_ = threads_[current_thread_index_].thread();
         current_thread_->ResetPriority();

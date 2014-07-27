@@ -12,29 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
-
-#include <kernel/kernel.h>
-
-namespace rt {
-
-class Version {
-public:
-    static uint32_t getMajor() {
-        return 0;
+(function(args) {
+    "use strict";
+    if ('string' !== typeof args.data.command) {
+        console.error('echo: no input data');
+        return;
     }
 
-    static uint32_t getMinor() {
-        return 1;
-    }
-
-    static uint32_t getRev() {
-        return 2;
-    }
-
-private:
-    ~Version() = delete;
-    DELETE_COPY_AND_ASSIGN(Version);
-};
-
-} // namespace rt
+    console.log(args.data.command);
+})(runtime.args());

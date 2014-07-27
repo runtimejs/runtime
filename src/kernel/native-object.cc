@@ -264,13 +264,31 @@ NATIVE_FUNCTION(NativesObject, Args) {
     args.GetReturnValue().Set(threadargs);
 }
 
+NATIVE_FUNCTION(NativesObject, Exit) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+
+    v8::V8::TerminateExecution(iv8);
+    th->SetTerminateFlag();
+    th->SetExitValue(arg0);
+}
+
 NATIVE_FUNCTION(NativesObject, Version) {
     PROLOGUE_NOTHIS;
-    v8::Local<v8::Object> arr { v8::Array::New(iv8, 3) };
+
+    auto arr = v8::Array::New(iv8, 3);
     arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
     arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
     arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
-    args.GetReturnValue().Set(arr);
+
+    auto obj = v8::Object::New(iv8);
+    LOCAL_V8STRING(s_runtime, "runtime");
+    LOCAL_V8STRING(s_v8, "v8");
+    LOCAL_V8STRING(s_v8ver, v8::V8::GetVersion());
+    obj->Set(s_runtime, arr);
+    obj->Set(s_v8, s_v8ver);
+
+    args.GetReturnValue().Set(obj);
 }
 
 NATIVE_FUNCTION(NativesObject, InstallInternals) {
@@ -853,21 +871,26 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
+    auto promise_resolver = v8::Promise::Resolver::New(iv8);
+    auto promise_index = th->AddPromise(
+        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
+
     ResourceHandle<Process> p = that->proc_mgr_.get()->CreateProcess();
-    ResourceHandle<EngineThread> st = first_engine->threads().Create();
+    ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
     {	LockingPtr<EngineThread> thread { st.get() };
 
         {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
                 ThreadMessage::Type::SET_ARGUMENTS,
-                ResourceHandle<EngineThread>(),
-                std::move(td_args)));
+                th->handle(),
+                std::move(td_args),
+                nullptr, promise_index));
             thread->PushMessage(std::move(msg));
         }
 
         {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
                 ThreadMessage::Type::EVALUATE,
-                ResourceHandle<EngineThread>(),
+                th->handle(),
                 std::move(td_code)));
             thread->PushMessage(std::move(msg));
         }
@@ -875,7 +898,7 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
 
     LockingPtr<Process> proc = p.get();
     proc->SetThread(st, 0);
-    args.GetReturnValue().Set(proc->NewInstance(th));
+    args.GetReturnValue().Set(promise_resolver);
 }
 
 NATIVE_FUNCTION(AllocatorObject, AllocDMA) {

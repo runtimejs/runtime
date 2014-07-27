@@ -30,6 +30,7 @@ class ThreadMessage {
 public:
     enum class Type {
         EMPTY,
+        SET_ARGUMENTS_NOPARENT,
         SET_ARGUMENTS,
         EVALUATE,
         TIMEOUT_EVENT,
@@ -92,10 +93,11 @@ public:
 
     v8::Local<v8::Object> NewInstance(Thread* thread);
 
-    EngineThread(Engine* engine)
+    EngineThread(Engine* engine, ThreadType type)
         :	engine_(engine),
             status_(Status::EMPTY),
-            thread_(nullptr) {
+            thread_(nullptr),
+            type_(type) {
         RT_ASSERT(engine_);
     }
 
@@ -137,6 +139,7 @@ public:
     }
 
     Thread* thread() const;
+    ThreadType type() const { return type_; }
 
 private:
     Engine* engine_;
@@ -144,6 +147,7 @@ private:
     Thread* thread_;
     Locker c_locker_;
     ThreadMessagesVector messages_;
+    ThreadType type_;
     DELETE_COPY_AND_ASSIGN(EngineThread);
 };
 
@@ -163,10 +167,10 @@ public:
             RT_ASSERT(engine_);
         }
 
-        ResourceHandle<EngineThread> Create() {
+        ResourceHandle<EngineThread> Create(ThreadType type) {
             ScopedLock lock(datalocker_);
             RT_ASSERT(engine_);
-            EngineThread* t = new EngineThread(engine_);
+            EngineThread* t = new EngineThread(engine_, type);
             threads_.push_back(t);
             ResourceHandle<EngineThread> th(t);
             new_threads_.push_back(th);

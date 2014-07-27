@@ -12,29 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+(function(args) {
+    "use strict";
 
-#include <kernel/kernel.h>
-
-namespace rt {
-
-class Version {
-public:
-    static uint32_t getMajor() {
-        return 0;
-    }
-
-    static uint32_t getMinor() {
-        return 1;
-    }
-
-    static uint32_t getRev() {
-        return 2;
-    }
-
-private:
-    ~Version() = delete;
-    DELETE_COPY_AND_ASSIGN(Version);
-};
-
-} // namespace rt
+    args.system.fs.current({
+        action: 'list',
+        path: '/',
+    }).then(function(data) {
+        data.forEach(function(name) {
+            console.log(name);
+        });
+    }, function(err) {
+        console.error(err.message);
+    });
+})(runtime.args());
