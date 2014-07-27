@@ -11,7 +11,7 @@ You can use mailing list to ask any questions or share your ideas https://groups
 
 Join IRC chatroom #runtimejs on freenode
 
-![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_2.png)
+![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_3.png)
 
 
 Technical details
@@ -86,7 +86,7 @@ Run
 ```
 qemu-system-x86_64                                \
     -m 512                                        \
-    -smp 2                                        \
+    -smp 1                                        \
     -kernel kernel.bin                            \
     -initrd initrd                                \
     -serial stdio
