@@ -77,6 +77,9 @@ function Injector() {
     };
 }
 
+// Global define function
+var define;
+
 (function() {
     "use strict";
 
@@ -88,7 +91,7 @@ function Injector() {
     /**
      * Pretend this is an AMD loader
      */
-    var define = injector.set;
+    define = injector.set;
     define.amd = {};
 
     /**
@@ -105,9 +108,7 @@ function Injector() {
      */
     define('bootstrap', ['resources'],
     function(resources) {
-        var loaderFactory = new Function('define',
-            resources.loader('/system/kernel-loader.js'));
-        loaderFactory(define);
+        resources.loader('/system/kernel-loader.js');
     });
 
     /**

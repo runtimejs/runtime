@@ -148,7 +148,7 @@ NATIVE_FUNCTION(NativesObject, KernelLog) {
 NATIVE_FUNCTION(NativesObject, InitrdText) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    RT_ASSERT(1 == args.Length());
+    VALIDATEARG(0, STRING, "InitrdText: argument 0 is not a string");
 
     v8::Local<v8::String> filename = arg0->ToString();
     v8::String::Utf8Value filename_utf8(filename);
@@ -208,11 +208,18 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
         return;
     }
 
-    v8::Local<v8::String> text { v8::String::NewFromUtf8(iv8,
-        reinterpret_cast<const char*>(file.Data()),
-        v8::String::kNormalString, file.Size()) };
+    {   TransportData data;
+        data.SetEvalData(file.Data(), file.Size(), filename_buf);
 
-    args.GetReturnValue().Set(text);
+        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+            ThreadMessage::Type::EVALUATE,
+            th->handle(),
+            std::move(data)));
+        th->handle().get()->PushMessage(std::move(msg));
+    }
+
+    th->Ref();
+    args.GetReturnValue().SetUndefined();
 }
 
 NATIVE_FUNCTION(NativesObject, Resources) {
@@ -854,7 +861,8 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
     PROLOGUE;
     USEARG(0);
     USEARG(1);
-    RT_ASSERT(arg0->IsString());
+    RT_ASSERT(arg0->IsArray());
+    RT_ASSERT(2 == arg0.As<v8::Array>()->Length());
     RT_ASSERT(arg1->IsObject());
 
     RT_ASSERT(GLOBAL_engines()->execution_engines_count() > 0);

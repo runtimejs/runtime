@@ -209,8 +209,15 @@ bool Thread::Run() {
         case ThreadMessage::Type::EVALUATE: {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
+            RT_ASSERT(unpacked->IsArray());
+            v8::Local<v8::Array> arr { v8::Local<v8::Array>::Cast(unpacked) };
+            v8::Local<v8::Value> code { arr->Get(0) };
+            v8::Local<v8::Value> filename { arr->Get(1) };
+            RT_ASSERT(code->IsString());
+            RT_ASSERT(filename->IsString());
 
-            v8::ScriptCompiler::Source source(unpacked->ToString());
+            v8::ScriptOrigin origin(filename);
+            v8::ScriptCompiler::Source source(code->ToString(), origin);
             v8::Local<v8::Script> script = v8::ScriptCompiler::Compile(iv8_, &source,
                 v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
             if (!script.IsEmpty()) {

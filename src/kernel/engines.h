@@ -89,7 +89,8 @@ public:
         ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
         p.get()->SetThread(st, 0);
 
-        rt::InitrdFile startup_file = GLOBAL_initrd()->Get("/system/kernel.js");
+        const char* filename = "/system/kernel.js";
+        rt::InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
         if (startup_file.IsEmpty()) {
             printf("Unable to load /system/kernel.js from initrd.\n");
             abort();
@@ -104,7 +105,7 @@ public:
         }
 
         {	TransportData data;
-            data.SetString(startup_file.Data(), startup_file.Size());
+            data.SetEvalData(startup_file.Data(), startup_file.Size(), filename);
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
                 ResourceHandle<EngineThread>(), std::move(data)));

@@ -163,6 +163,37 @@ public:
     }
 
     /**
+     * Construct data to be sent as part of evaluate thread message.
+     * From string buffer (source) and filename. Deserialize returns
+     * strings Array [source, filename]
+     */
+    void SetEvalData(const uint8_t* buf, size_t len, const char* filename) {
+        RT_ASSERT(buf);
+        RT_ASSERT(filename);
+        Clear();
+
+        AppendType(Type::ARRAY);
+        stream_.AppendValue<uint32_t>(2);
+
+        {   AppendType(Type::STRING_UTF8);
+            stream_.AppendValue<uint32_t>(len);
+            void* place { stream_.AppendBuffer(len + 1) };
+            memcpy(place, buf, len);
+            uint8_t* p = reinterpret_cast<uint8_t*>(place);
+            p[len] = '\0';
+        }
+
+        {   AppendType(Type::STRING_UTF8);
+            auto namelen = std::strlen(filename);
+            stream_.AppendValue<uint32_t>(namelen);
+            void* place { stream_.AppendBuffer(namelen + 1) };
+            memcpy(place, filename, namelen);
+            uint8_t* p = reinterpret_cast<uint8_t*>(place);
+            p[namelen] = '\0';
+        }
+    }
+
+    /**
      * Construct data from string buffer. Deserialize returns
      * string
      */

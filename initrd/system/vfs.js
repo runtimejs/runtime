@@ -433,7 +433,7 @@ function(resources) {
                             current: createNodeAccessor(workDir),
                         };
 
-                        resources.processManager.create(fileContent, {
+                        resources.processManager.create([fileContent, vfsnode.name], {
                             system: argsSystem,
                             data: argsData,
                             env: argsEnv,

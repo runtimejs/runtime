@@ -29,14 +29,9 @@ function(resources) {
         ],
     };
 
-    function loadFn(name) {
-        var fn = new Function('define', load(name));
-        fn(define);
-    }
-
-    files.standard.forEach(loadFn);
+    files.standard.forEach(load);
 
     return {
-        load: loadFn,
+        load: load,
     };
 });
