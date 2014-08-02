@@ -116,6 +116,10 @@
 #ifndef __ACCOMMON_H__
 #define __ACCOMMON_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Common set of includes for all ACPICA source files.
  * We put them here because we don't want to duplicate them
@@ -132,5 +136,8 @@
 #include "achware.h"            /* Hardware defines and interfaces */
 #include "acutils.h"            /* Utility interfaces */
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ACCOMMON_H__ */
