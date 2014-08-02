@@ -41,6 +41,7 @@ public:
     DECLARE_NATIVE(Args);
     DECLARE_NATIVE(InstallInternals);
     DECLARE_NATIVE(CallResult);
+    DECLARE_NATIVE(Reboot);
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
 
@@ -58,6 +59,7 @@ public:
         obj.SetCallback("callResult", CallResult);
         obj.SetCallback("initrdText", InitrdText);
         obj.SetCallback("debug", Debug);
+        obj.SetCallback("reboot", Reboot);
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
     }

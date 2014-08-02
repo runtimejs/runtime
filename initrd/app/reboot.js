@@ -12,21 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('deviceManager', ['kernelLoader'],
-function(kernelLoader) {
+// Reboot current machine
+(function(args) {
     "use strict";
-
-    /**
-     * TODO: move drivers out of the kernel
-     */
-    kernelLoader.load('/system/driver/ps2kbd.js');
-    kernelLoader.load('/driver/pci.js');
-    kernelLoader.load('/driver/pci-drivers.js');
-
-    // Start PCI bus driver
-    // procManager.create(rt.initrdText("/driver/pci.js"), {
-    //     resources: resources,
-    // });
-
-    return {};
-});
+    args.system.kernel.reboot();
+})(runtime.args());

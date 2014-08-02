@@ -12,21 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('deviceManager', ['kernelLoader'],
-function(kernelLoader) {
+// List PCI devices
+(function(args) {
     "use strict";
 
-    /**
-     * TODO: move drivers out of the kernel
-     */
-    kernelLoader.load('/system/driver/ps2kbd.js');
-    kernelLoader.load('/driver/pci.js');
-    kernelLoader.load('/driver/pci-drivers.js');
-
-    // Start PCI bus driver
-    // procManager.create(rt.initrdText("/driver/pci.js"), {
-    //     resources: resources,
-    // });
-
-    return {};
-});
+    args.system.kernel.lspci().then(function(data) {
+        for (var i = 0; i < data.length; ++i) {
+            var dev = data[i];
+            console.log(dev.bus.toString(16) + ':' + dev.slot.toString(16) + '.' + dev.func + ' ' +
+                dev.vendorId.toString(16) + ':' + dev.deviceId.toString(16) + ' ' +
+                dev.className + ' IRQ: ' + dev.irq + ' PIN: ' + dev.pin);
+        }
+    });
+})(runtime.args());

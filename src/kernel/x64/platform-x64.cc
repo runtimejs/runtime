@@ -15,6 +15,7 @@
 #include <kernel/platform.h>
 #include <kernel/kernel.h>
 #include <kernel/cpu.h>
+#include <kernel/x64/io-x64.h>
 
 namespace rt {
 
@@ -34,6 +35,19 @@ void PlatformArch::InitCurrentCPU() {
 void PlatformArch::AckIRQ() {
     RT_ASSERT(acpi_.local_apic());
     acpi_.local_apic()->EOI();
+}
+
+void PlatformArch::Reboot() {
+    const uint8_t magic = 0x02;
+    const uint16_t port = 0x64;
+
+    uint8_t value = magic;
+    while (value & magic) {
+        value = IoPortsX64::InB(port);
+    }
+
+    IoPortsX64::OutB(port, 0xfe);
+    Cpu::HangSystem();
 }
 
 } // namespace rt

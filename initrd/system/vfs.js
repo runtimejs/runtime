@@ -351,8 +351,8 @@ var vfs = (function() {
 /**
  * Virtual file system component
  */
-define('vfs', ['resources'],
-function(resources) {
+define('vfs', ['resources', 'pci'],
+function(resources, pci) {
     "use strict";
 
     var fsRoot = vfs.createFsRoot();
@@ -431,6 +431,11 @@ function(resources) {
                         // FS accessors
                         argsSystem.fs = argsSystem.fs || {
                             current: createNodeAccessor(workDir),
+                        };
+
+                        argsSystem.kernel = argsSystem.kernel || {
+                            lspci: pci.lspci,
+                            reboot: resources.natives.reboot,
                         };
 
                         resources.processManager.create([fileContent, vfsnode.name], {

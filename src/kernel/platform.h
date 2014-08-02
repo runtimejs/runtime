@@ -73,6 +73,14 @@ public:
     }
 
     /**
+     * Reboot this machine
+     */
+    void Reboot() {
+        platform_arch_.Reboot();
+        Cpu::HangSystem();
+    }
+
+    /**
      * Print current stack backtrace
      */
     void PrintBacktrace();

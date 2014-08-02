@@ -29,6 +29,11 @@ public:
     void StartCPUs();
     void AckIRQ();
 
+    /**
+     * Reboot machine using keyboard controller
+     */
+    void Reboot();
+
     uint32_t cpu_count() const { return acpi_.cpus_count(); }
 
     uint32_t bus_frequency() const {

@@ -313,6 +313,12 @@ NATIVE_FUNCTION(NativesObject, InstallInternals) {
     }
 }
 
+NATIVE_FUNCTION(NativesObject, Reboot) {
+    PROLOGUE_NOTHIS;
+    GLOBAL_platform()->Reboot();
+    Cpu::HangSystem();
+}
+
 NATIVE_FUNCTION(NativesObject, Debug) {
     PROLOGUE_NOTHIS;
 

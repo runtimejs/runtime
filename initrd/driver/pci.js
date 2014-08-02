@@ -777,7 +777,7 @@ define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
         runtime.log(JSON.stringify(driverData), JSON.stringify(argsBars));
     });
 
-    // Print devices info, use for debugging
+    // Print PCI devices debug info
     pciManager.each(function(pciDevice) {
         var address = pciDevice.address();
         var vector = pciDevice.getIRQVector();
@@ -796,5 +796,38 @@ define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
         runtime.log(info);
     });
 
-    return {};
+    return {
+        /*
+         * List PCI devices
+         */
+        lspci: function() {
+            var results = [];
+
+            pciManager.each(function(pciDevice) {
+                var address = pciDevice.address();
+                var vector = pciDevice.getIRQVector();
+                var classData = pciDevice.classData();
+
+                var devicePin = 0;
+                if (!pciDevice.isBridge()) {
+                    devicePin = pciDevice.interruptPin();
+                }
+
+                var pins = [null, 'A', 'B', 'C', 'D'];
+
+                results.push({
+                    bus: address.bus,
+                    slot: address.slot,
+                    func: address.func,
+                    vendorId: pciDevice.vendorId(),
+                    deviceId: pciDevice.deviceId(),
+                    className: classData.className,
+                    irq: vector,
+                    pin: pins[devicePin],
+                });
+            });
+
+            return results;
+        },
+    };
 });
