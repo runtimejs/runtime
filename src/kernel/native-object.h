@@ -153,9 +153,15 @@ public:
     DECLARE_NATIVE(GetPciDevices);
     DECLARE_NATIVE(SystemReset);
 
+    /**
+     * Use ACPICA to switch system sleep state
+     */
+    DECLARE_NATIVE(EnterSleepState);
+
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("getPciDevices", GetPciDevices);
         obj.SetCallback("systemReset", SystemReset);
+        obj.SetCallback("enterSleepState", EnterSleepState);
     }
 private:
     AcpiManager* mgr_;

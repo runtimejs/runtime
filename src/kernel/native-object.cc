@@ -19,6 +19,7 @@
 #include <kernel/v8utils.h>
 #include <memory>
 #include <accommon.h>
+#include <acpi.h>
 #include <kernel/process.h>
 #include <kernel/engines.h>
 #include <common/utils.h>
@@ -656,6 +657,20 @@ NATIVE_FUNCTION(AcpiHandleObject, GetRootBridgeBusNumber) {
     }
 
     args.GetReturnValue().Set(v8::Uint32::New(iv8, s));
+}
+
+NATIVE_FUNCTION(AcpiManagerObject, EnterSleepState) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+
+    uint32_t state = arg0->Uint32Value();
+    RT_ASSERT(state <= ACPI_S_STATES_MAX);
+
+    uint8_t sleep_state = state & 0xff;
+    AcpiEnterSleepStatePrep(sleep_state);
+    Cpu::DisableInterrupts();
+    AcpiEnterSleepState(sleep_state);
+    Cpu::HangSystem();
 }
 
 NATIVE_FUNCTION(AcpiManagerObject, SystemReset) {

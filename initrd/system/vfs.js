@@ -436,6 +436,7 @@ function(resources, pci) {
                         argsSystem.kernel = argsSystem.kernel || {
                             lspci: pci.lspci,
                             reboot: resources.natives.reboot,
+                            enterSleepState: resources.acpi.enterSleepState,
                         };
 
                         resources.processManager.create([fileContent, vfsnode.name], {
