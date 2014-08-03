@@ -351,8 +351,8 @@ var vfs = (function() {
 /**
  * Virtual file system component
  */
-define('vfs', ['resources', 'pci'],
-function(resources, pci) {
+define('vfs', ['resources'],
+function(resources) {
     "use strict";
 
     var fsRoot = vfs.createFsRoot();
@@ -362,6 +362,12 @@ function(resources, pci) {
     var ret = vfs.init(fsRoot, fsInitrd);
     var root = ret.root;
     var initrdRoot = ret.initrd;
+
+    var spawnKernelData = {
+        lspci: function() { throw new Error('NOT_READY') },
+        reboot: resources.natives.reboot,
+        enterSleepState: resources.acpi.enterSleepState,
+    };
 
     /**
      * Accessor provides access to vfsnode for outside world
@@ -433,11 +439,7 @@ function(resources, pci) {
                             current: createNodeAccessor(workDir),
                         };
 
-                        argsSystem.kernel = argsSystem.kernel || {
-                            lspci: pci.lspci,
-                            reboot: resources.natives.reboot,
-                            enterSleepState: resources.acpi.enterSleepState,
-                        };
+                        argsSystem.kernel = argsSystem.kernel || spawnKernelData;
 
                         resources.processManager.create([fileContent, vfsnode.name], {
                             system: argsSystem,
@@ -491,7 +493,19 @@ function(resources, pci) {
     var initrdRootAccessor = createNodeAccessor(initrdRoot);
 
     return {
+        /**
+         * Get VFS global root node
+         */
         getRoot: function() { return rootAccessor; },
+        /**
+         * Get VFS initrd filesystem root node
+         */
         getInitrdRoot: function() { return initrdRootAccessor; },
+        /**
+         * Expose kernel value to all new programs
+         */
+        setKernelValue: function(key, value) {
+            spawnKernelData[key] = value;
+        },
     };
 });

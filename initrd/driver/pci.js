@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
+define('pci', ['pciDrivers', 'resources', 'vfs'],
+function(pciDrivers, resources, vfs) {
     "use strict";
 
     var acpi = resources.acpi;
@@ -796,38 +797,43 @@ define('pci', ['pciDrivers', 'resources'], function(pciDrivers, resources) {
         runtime.log(info);
     });
 
+    function listPciDevices() {
+        var results = [];
+
+        pciManager.each(function(pciDevice) {
+            var address = pciDevice.address();
+            var vector = pciDevice.getIRQVector();
+            var classData = pciDevice.classData();
+
+            var devicePin = 0;
+            if (!pciDevice.isBridge()) {
+                devicePin = pciDevice.interruptPin();
+            }
+
+            var pins = [null, 'A', 'B', 'C', 'D'];
+
+            results.push({
+                bus: address.bus,
+                slot: address.slot,
+                func: address.func,
+                vendorId: pciDevice.vendorId(),
+                deviceId: pciDevice.deviceId(),
+                className: classData.className,
+                irq: vector,
+                pin: pins[devicePin],
+            });
+        });
+
+        return results;
+    }
+
+    // Expose lspci function to applications
+    vfs.setKernelValue('lspci', listPciDevices);
+
     return {
         /*
          * List PCI devices
          */
-        lspci: function() {
-            var results = [];
-
-            pciManager.each(function(pciDevice) {
-                var address = pciDevice.address();
-                var vector = pciDevice.getIRQVector();
-                var classData = pciDevice.classData();
-
-                var devicePin = 0;
-                if (!pciDevice.isBridge()) {
-                    devicePin = pciDevice.interruptPin();
-                }
-
-                var pins = [null, 'A', 'B', 'C', 'D'];
-
-                results.push({
-                    bus: address.bus,
-                    slot: address.slot,
-                    func: address.func,
-                    vendorId: pciDevice.vendorId(),
-                    deviceId: pciDevice.deviceId(),
-                    className: classData.className,
-                    irq: vector,
-                    pin: pins[devicePin],
-                });
-            });
-
-            return results;
-        },
+        lspci: listPciDevices,
     };
 });

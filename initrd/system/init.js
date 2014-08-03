@@ -43,27 +43,30 @@ var console = (function() {
     /**
      * Helper function to support IPC function calls
      */
-    function callWrapper(fn, threadPtr, argsArray, promiseid) {
+    function RPC_CALL(fn, threadPtr, argsArray, promiseid) {
         if (null === fn) {
             // Invalid function call
             __native.callResult(false, threadPtr, promiseid, null);
             return;
         }
 
-        var ret = fn.apply(this, argsArray);
+        var ret;
+        try {
+            ret = fn.apply(this, argsArray);
+        } catch (err) {
+            __native.callResult(false, threadPtr, promiseid, err);
+            return;
+        }
 
         if (ret instanceof Promise) {
             if (!ret.then) return;
 
             ret.then(function(result) {
                 __native.callResult(true, threadPtr, promiseid, result);
-            }, function(result) {
-                __native.callResult(false, threadPtr, promiseid, result);
+            }, function(err) {
+                __native.callResult(false, threadPtr, promiseid, err);
             }).catch(function(err) {
-                // TODO: rethrow this error outside of promise handler
-                runtime.log(err.stack);
-
-                __native.callResult(false, threadPtr, promiseid, null);
+                __native.callResult(false, threadPtr, promiseid, err);
             });
 
             return;
@@ -73,7 +76,7 @@ var console = (function() {
     };
 
     __native.installInternals({
-        callWrapper: callWrapper,
+        callWrapper: RPC_CALL,
     });
 });
 // No more code here

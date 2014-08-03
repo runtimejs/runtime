@@ -239,7 +239,8 @@ bool Thread::Run() {
                 RT_ASSERT(fnval->IsFunction());
             }
 
-            {	v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
+            {   RT_ASSERT(!call_wrapper_.IsEmpty());
+                v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
                 v8::Local<v8::Value> argv[] {
                    fnval,
                    message->sender().NewExternal(iv8_),
