@@ -364,7 +364,7 @@ function(resources) {
     var initrdRoot = ret.initrd;
 
     var spawnKernelData = {
-        lspci: function() { throw new Error('NOT_READY') },
+        lspci: function() { return new Error('NOT_READY') },
         reboot: resources.natives.reboot,
         enterSleepState: resources.acpi.enterSleepState,
     };

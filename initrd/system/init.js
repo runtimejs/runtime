@@ -55,7 +55,7 @@ var console = (function() {
             ret = fn.apply(this, argsArray);
         } catch (err) {
             __native.callResult(false, threadPtr, promiseid, err);
-            return;
+            throw err;
         }
 
         if (ret instanceof Promise) {
@@ -72,7 +72,11 @@ var console = (function() {
             return;
         }
 
-        __native.callResult(true, threadPtr, promiseid, ret);
+        if (ret instanceof Error) {
+            __native.callResult(false, threadPtr, promiseid, ret);
+        } else {
+            __native.callResult(true, threadPtr, promiseid, ret);
+        }
     };
 
     __native.installInternals({
