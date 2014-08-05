@@ -114,7 +114,7 @@ NATIVE_FUNCTION(NativesObject, SetTimeout) {
     PROLOGUE_NOTHIS;
     USEARG(0);
     USEARG(1);
-    VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 should be a function");
+    VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 is not a function");
     RT_ASSERT(arg0->IsFunction());
 
     ResourceHandle<EngineThread> thread { th->handle() };
@@ -149,7 +149,7 @@ NATIVE_FUNCTION(NativesObject, KernelLog) {
 NATIVE_FUNCTION(NativesObject, InitrdText) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    VALIDATEARG(0, STRING, "InitrdText: argument 0 is not a string");
+    VALIDATEARG(0, STRING, "initrdText: argument 0 is not a string");
 
     v8::Local<v8::String> filename = arg0->ToString();
     v8::String::Utf8Value filename_utf8(filename);
@@ -237,17 +237,14 @@ NATIVE_FUNCTION(NativesObject, Resources) {
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
-    ResourceHandle<ResourceMemoryRange> memory_range(new ResourceMemoryRange(0, 0xffffffff));
-    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(th->template_cache(), memory_range))
-        ->GetInstance());
+    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(th->template_cache(),
+        Range<size_t>(0, 0xffffffff)))->GetInstance());
 
-    ResourceHandle<ResourceIORange> io_range(new ResourceIORange(1, 0xffff));
-    obj->Set(s_io_range, (new ResourceIORangeObject(th->template_cache(), io_range))
-        ->GetInstance());
+    obj->Set(s_io_range, (new ResourceIORangeObject(th->template_cache(),
+        Range<uint16_t>(1, 0xffff)))->GetInstance());
 
-    ResourceHandle<ResourceIRQRange> irq_range(new ResourceIRQRange(1, 225));
-    obj->Set(s_irq_range, (new ResourceIRQRangeObject(th->template_cache(), irq_range))
-        ->GetInstance());
+    obj->Set(s_irq_range, (new ResourceIRQRangeObject(th->template_cache(),
+        Range<uint8_t>(1, 255)))->GetInstance());
 
     ResourceHandle<ProcessManager> proc_manager(&GLOBAL_engines()->process_manager());
     obj->Set(s_process_manager, (new ProcessManagerHandleObject(th->template_cache(), proc_manager))
@@ -691,16 +688,16 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
     args.GetReturnValue().Set(arr);
 }
 
-NATIVE_FUNCTION(ResourceMemoryRangeObject, Start) {
+NATIVE_FUNCTION(ResourceMemoryRangeObject, Begin) {
     PROLOGUE;
-    uint64_t start = that->obj_.get()->start();
-    RT_ASSERT(common::Utils::IsSafeDouble(start));
-    args.GetReturnValue().Set(v8::Number::New(iv8, start));
+    auto begin = that->memory_range_.begin();
+    RT_ASSERT(common::Utils::IsSafeDouble(begin));
+    args.GetReturnValue().Set(v8::Number::New(iv8, begin));
 }
 
 NATIVE_FUNCTION(ResourceMemoryRangeObject, End) {
     PROLOGUE;
-    uint64_t end = that->obj_.get()->end();
+    auto end = that->memory_range_.end();
     RT_ASSERT(common::Utils::IsSafeDouble(end));
     args.GetReturnValue().Set(v8::Number::New(iv8, end));
 }
@@ -709,44 +706,53 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Subrange) {
     PROLOGUE;
     USEARG(0);
     USEARG(1);
-    VALIDATEARG(0, NUMBER, "subrange: Argument 0 should be a number.");
-    VALIDATEARG(1, NUMBER, "subrange: Argument 1 should be a number.");
+    VALIDATEARG(0, NUMBER, "subrange: argument 0 is not a number");
+    VALIDATEARG(1, NUMBER, "subrange: argument 1 is not a number");
 
-    uint64_t start = static_cast<uint64_t>(arg0->NumberValue());
-    uint64_t end = static_cast<uint64_t>(arg1->NumberValue());
-    if (start > end) {
-        THROW_RANGE_ERROR("subrange: Invalid range (start > end).");
+    auto begin = static_cast<size_t>(arg0->NumberValue());
+    auto end = static_cast<size_t>(arg1->NumberValue());
+
+    if (begin > end) {
+        THROW_RANGE_ERROR("subrange: invalid range (begin > end)");
+    }
+
+    Range<size_t> subrange(begin, end);
+    if (!subrange.IsSubrangeOf(that->memory_range_)) {
+        THROW_RANGE_ERROR("subrange: invalid range (out of bounds)");
     }
 
     args.GetReturnValue().Set((new ResourceMemoryRangeObject(th->template_cache(),
-        that->obj_.get()->Subrange(start, end)))->GetInstance());
+        subrange))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceMemoryRangeObject, Block) {
     PROLOGUE;
     USEARG(0);
     USEARG(1);
-    VALIDATEARG(0, NUMBER, "block: Argument 0 should be a number.");
-    VALIDATEARG(1, NUMBER, "block: Argument 1 should be a number.");
+    VALIDATEARG(0, NUMBER, "block: argument 0 is not a number");
+    VALIDATEARG(1, NUMBER, "block: argument 1 is not a number");
 
-    uint64_t base = static_cast<uint64_t>(arg0->NumberValue());
-    uint64_t size = static_cast<uint64_t>(arg1->NumberValue());
+    auto base = static_cast<uint64_t>(arg0->NumberValue());
+    auto size = static_cast<uint32_t>(arg1->Uint32Value());
 
-    // TODO: add range checks
+    Range<size_t> subrange(base, base + size);
+    if (!subrange.IsSubrangeOf(that->memory_range_)) {
+        THROW_RANGE_ERROR("block: out of bounds");
+    }
 
     args.GetReturnValue().Set((new ResourceMemoryBlockObject(th->template_cache(),
-        that->obj_.get()->Block(base, size)))->GetInstance());
+        MemoryBlock<uint32_t>(reinterpret_cast<void*>(base), size)))->GetInstance());
 }
 
-NATIVE_FUNCTION(ResourceIORangeObject, First) {
+NATIVE_FUNCTION(ResourceIORangeObject, Begin) {
     PROLOGUE;
-    uint16_t start = that->obj_.get()->first();
-    args.GetReturnValue().Set(v8::Uint32::New(iv8, start));
+    auto begin = that->io_range_.begin();
+    args.GetReturnValue().Set(v8::Uint32::New(iv8, begin));
 }
 
-NATIVE_FUNCTION(ResourceIORangeObject, Last) {
+NATIVE_FUNCTION(ResourceIORangeObject, End) {
     PROLOGUE;
-    uint16_t end = that->obj_.get()->last();
+    auto end = that->io_range_.end();
     args.GetReturnValue().Set(v8::Uint32::New(iv8, end));
 }
 
@@ -754,28 +760,33 @@ NATIVE_FUNCTION(ResourceIORangeObject, Subrange) {
     PROLOGUE;
     USEARG(0);
     USEARG(1);
-    VALIDATEARG(0, NUMBER, "subrange: Argument 0 should be a number.");
-    VALIDATEARG(1, NUMBER, "subrange: Argument 1 should be a number.");
+    VALIDATEARG(0, NUMBER, "subrange: argument 0 is not a number");
+    VALIDATEARG(1, NUMBER, "subrange: argument 1 is not a number");
 
-    uint32_t first = static_cast<uint32_t>(arg0->NumberValue());
-    uint32_t last = static_cast<uint32_t>(arg1->NumberValue());
-    if (first >= last) {
-        THROW_RANGE_ERROR("subrange: Invalid range (first >= last).");
+    auto begin = static_cast<uint32_t>(arg0->Uint32Value());
+    auto end = static_cast<uint32_t>(arg1->Uint32Value());
+
+    if (begin > end) {
+        THROW_RANGE_ERROR("subrange: invalid range (begin > end)");
+    }
+
+    Range<uint16_t> subrange(begin, end);
+    if (!subrange.IsSubrangeOf(that->io_range_)) {
+        THROW_RANGE_ERROR("subrange: invalid range (out of bounds)");
     }
 
     args.GetReturnValue().Set((new ResourceIORangeObject(th->template_cache(),
-        that->obj_.get()->Subrange(first, last)))->GetInstance());
+        subrange))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIORangeObject, Port) {
     PROLOGUE;
     USEARG(0);
-    USEARG(1);
-    VALIDATEARG(0, NUMBER, "port: argument 0 should be a number (uint32).");
+    VALIDATEARG(0, NUMBER, "port: argument 0 is not a number");
 
-    uint32_t number = arg0->Uint32Value();
-    if (number > 0xffff) {
-        THROW_RANGE_ERROR("port: invalid port number (should be <= 0xffff).");
+    auto number = arg0->Uint32Value();
+    if (!that->io_range_.Contains(number)) {
+        THROW_RANGE_ERROR("port: invalid port number (required <= 0xffff)");
     }
 
     args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), number))->GetInstance());
@@ -784,50 +795,41 @@ NATIVE_FUNCTION(ResourceIORangeObject, Port) {
 NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
     PROLOGUE;
     USEARG(0);
-    USEARG(1);
-    VALIDATEARG(0, NUMBER, "offsetPort: argument 0 should be a number (uint32).");
+    VALIDATEARG(0, NUMBER, "offsetPort: argument 0 is not a number");
 
-    uint32_t number = arg0->Uint32Value();
-    if (number > 0xffff) {
-        THROW_RANGE_ERROR("offsetPort: invalid port number (should be <= 0xffff).");
+    auto number = that->io_range_.begin() + arg0->Uint32Value();
+    if (!that->io_range_.Contains(number)) {
+        THROW_RANGE_ERROR("offsetPort: port offset is out of range");
     }
 
-    LockingPtr<ResourceIORange> io { that->obj_.get() };
-    uint32_t p = io->first() + number;
-    if (p > io->last()) {
-        THROW_RANGE_ERROR("offsetPort: offset out of range");
-    }
-
-    printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n", io->first(), number, p);
-
-    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), p))->GetInstance());
+    printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n",
+        that->io_range_.begin(), arg0->Uint32Value(), number);
+    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), number))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
     PROLOGUE;
     USEARG(0);
-    USEARG(1);
-    VALIDATEARG(0, NUMBER, "irq: argument 0 should be a number (uint32).");
+    VALIDATEARG(0, NUMBER, "irq: argument 0 is not a number");
 
     uint32_t number = arg0->Uint32Value();
-    if (number > 255) {
-        THROW_RANGE_ERROR("irq: invalid irq number (should be <= 255).");
+    if (!that->irq_range_.Contains(number)) {
+        THROW_RANGE_ERROR("irq: irq number is out of range");
     }
 
     args.GetReturnValue().Set((new ResourceIRQObject(th->template_cache(),
-        that->obj_.get()->Irq(number & 0xff)))->GetInstance());
+        number))->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIRQObject, On) {
     PROLOGUE;
     USEARG(0);
-    VALIDATEARG(0, FUNCTION, "on: argument 0 should be a function");
+    VALIDATEARG(0, FUNCTION, "on: argument 0 is not a function");
 
     ResourceHandle<EngineThread> thread { th->handle() };
     RT_ASSERT(!thread.empty());
 
-    size_t irq_number = that->obj_.get()->number();
-    RT_ASSERT(irq_number <= 0xff);
+    auto irq_number = that->irq_number_;
 
     uint32_t index { th->AddIRQData(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
     GLOBAL_platform()->irq_dispatcher().Bind(irq_number, thread, index);
@@ -836,45 +838,18 @@ NATIVE_FUNCTION(ResourceIRQObject, On) {
     args.GetReturnValue().SetUndefined();
 }
 
-NATIVE_FUNCTION(ResourceMemoryBlockObject, DBG) {
-    PROLOGUE;
-
-    void* ptr = nullptr;
-    size_t length = 0;
-
-    {	LockingPtr<ResourceMemoryBlock> block { that->obj_.get() };
-        ptr = reinterpret_cast<void*>(block->base());
-        length = block->size();
-    }
-
-    RT_ASSERT(ptr);
-    RT_ASSERT(length > 0);
-
-    printf("[DEBUG] ptr = %p, len = %d\n", ptr, length);
-}
-
 NATIVE_FUNCTION(ResourceMemoryBlockObject, Buffer) {
     PROLOGUE;
-
-    void* ptr = nullptr;
-    size_t length = 0;
-
-    {	LockingPtr<ResourceMemoryBlock> block { that->obj_.get() };
-        ptr = reinterpret_cast<void*>(block->base());
-        length = block->size();
-    }
-
+    void* ptr = that->memory_block_.base();
+    auto length = that->memory_block_.size();
     RT_ASSERT(ptr);
     RT_ASSERT(length > 0);
-
     args.GetReturnValue().Set(v8::ArrayBuffer::New(iv8, ptr, length));
 }
 
 NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
     PROLOGUE;
-    size_t length = that->obj_.get()->size();
-    RT_ASSERT(length <= 0xffffffff);
-    RT_ASSERT(length > 0);
+    auto length = that->memory_block_.size();
     args.GetReturnValue().Set(v8::Uint32::New(iv8, length));
 }
 

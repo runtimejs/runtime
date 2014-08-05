@@ -19,6 +19,10 @@
 #include <kernel/v8utils.h>
 #include <kernel/template-cache.h>
 #include <acpi.h>
+#include <common/utils.h>
+
+using common::Range;
+using common::MemoryBlock;
 
 namespace rt {
 
@@ -170,55 +174,55 @@ private:
 class ResourceMemoryRangeObject : public JsObjectWrapper<ResourceMemoryRangeObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_RANGE> {
 public:
-    ResourceMemoryRangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceMemoryRange> obj)
+    ResourceMemoryRangeObject(TemplateCache* tpl_cache, Range<size_t> memory_range)
         :	JsObjectWrapper(tpl_cache),
-            obj_(obj) { }
+            memory_range_(memory_range) { }
 
-    DECLARE_NATIVE(Start);
+    DECLARE_NATIVE(Begin);
     DECLARE_NATIVE(End);
     DECLARE_NATIVE(Subrange);
     DECLARE_NATIVE(Block);
 
     void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("start", Start);
+        obj.SetCallback("begin", Begin);
         obj.SetCallback("end", End);
         obj.SetCallback("subrange", Subrange);
         obj.SetCallback("block", Block);
     }
 private:
-    ResourceHandle<ResourceMemoryRange> obj_;
+    Range<size_t> memory_range_;
 };
 
 class ResourceIORangeObject : public JsObjectWrapper<ResourceIORangeObject,
         NativeTypeId::TYPEID_RESOURCE_IO_RANGE> {
 public:
-    ResourceIORangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIORange> obj)
+    ResourceIORangeObject(TemplateCache* tpl_cache, Range<uint16_t> io_range)
         :	JsObjectWrapper(tpl_cache),
-            obj_(obj) { }
+            io_range_(io_range) { }
 
-    DECLARE_NATIVE(First);
-    DECLARE_NATIVE(Last);
+    DECLARE_NATIVE(Begin);
+    DECLARE_NATIVE(End);
     DECLARE_NATIVE(Subrange);
     DECLARE_NATIVE(Port);
     DECLARE_NATIVE(OffsetPort);
 
     void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("first", First);
-        obj.SetCallback("last", Last);
+        obj.SetCallback("begin", Begin);
+        obj.SetCallback("end", End);
         obj.SetCallback("subrange", Subrange);
         obj.SetCallback("port", Port);
         obj.SetCallback("offsetPort", OffsetPort);
     }
 private:
-    ResourceHandle<ResourceIORange> obj_;
+    Range<uint16_t> io_range_;
 };
 
 class ResourceIRQRangeObject : public JsObjectWrapper<ResourceIRQRangeObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ_RANGE> {
 public:
-    ResourceIRQRangeObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIRQRange> obj)
+    ResourceIRQRangeObject(TemplateCache* tpl_cache, Range<uint8_t> irq_range)
         :	JsObjectWrapper(tpl_cache),
-            obj_(obj) { }
+            irq_range_(irq_range) { }
 
     DECLARE_NATIVE(Irq);
 
@@ -226,15 +230,15 @@ public:
         obj.SetCallback("irq", Irq);
     }
 private:
-    ResourceHandle<ResourceIRQRange> obj_;
+    Range<uint8_t> irq_range_;
 };
 
 class ResourceIRQObject : public JsObjectWrapper<ResourceIRQObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ> {
 public:
-    ResourceIRQObject(TemplateCache* tpl_cache, ResourceHandle<ResourceIRQ> obj)
+    ResourceIRQObject(TemplateCache* tpl_cache, uint8_t irq_number)
         :	JsObjectWrapper(tpl_cache),
-            obj_(obj) { }
+            irq_number_(irq_number) { }
 
     DECLARE_NATIVE(On);
 
@@ -242,27 +246,25 @@ public:
         obj.SetCallback("on", On);
     }
 private:
-    ResourceHandle<ResourceIRQ> obj_;
+    uint8_t irq_number_;
 };
 
 class ResourceMemoryBlockObject : public JsObjectWrapper<ResourceMemoryBlockObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_BLOCK> {
 public:
-    ResourceMemoryBlockObject(TemplateCache* tpl_cache, ResourceHandle<ResourceMemoryBlock> obj)
+    ResourceMemoryBlockObject(TemplateCache* tpl_cache, MemoryBlock<uint32_t> memory_block)
         :	JsObjectWrapper(tpl_cache),
-            obj_(obj) { }
+            memory_block_(memory_block) { }
 
-    DECLARE_NATIVE(Length);
     DECLARE_NATIVE(Buffer);
-    DECLARE_NATIVE(DBG);
+    DECLARE_NATIVE(Length);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("buffer", Buffer);
         obj.SetCallback("length", Length);
-        obj.SetCallback("debug", DBG);
     }
 private:
-    ResourceHandle<ResourceMemoryBlock> obj_;
+    MemoryBlock<uint32_t> memory_block_;
 };
 
 class Process;

@@ -146,4 +146,50 @@ private:
     bool empty_;
 };
 
+/**
+ * Represents range [begin; end]
+ */
+template<typename T>
+class Range {
+public:
+    Range(T begin, T end)
+        :	begin_(begin), end_(end) {
+        RT_ASSERT(begin_ <= end_);
+    }
+
+    bool IsOverlaps(Range other) {
+        return begin_ <= other.end_ && other.begin_ <= end_;
+    }
+
+    bool IsSubrangeOf(Range other) {
+        return begin_ >= other.begin_ && end_ <= other.end_;
+    }
+
+    bool Contains(T value) {
+        return value >= begin_ && value <= end_;
+    }
+
+    T begin() const { return begin_; }
+    T end() const { return end_; }
+private:
+    T begin_;
+    T end_;
+};
+
+/**
+ * Represents memory block with base address and size
+ */
+template<typename T>
+class MemoryBlock {
+public:
+    MemoryBlock(void* base, T size)
+        :	base_(base), size_(size) {}
+
+    void* base() const { return base_; }
+    T size() const { return size_; }
+private:
+    void* base_;
+    T size_;
+};
+
 } // namespace rt
