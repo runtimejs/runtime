@@ -19,7 +19,6 @@
 #include <kernel/cpu.h>
 #include <kernel/allocator.h>
 #include <kernel/resource.h>
-#include <kernel/process.h>
 #include <kernel/engine.h>
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
@@ -42,7 +41,6 @@ public:
     Engines(uint32_t cpu_count)
         :	cpu_count_(cpu_count),
             _non_isolate_ticks(0),
-            proc_mgr_(this),
             v8_platform_(nullptr) {
         RT_ASSERT(nullptr == GLOBAL_engines());
         RT_ASSERT(this);
@@ -81,13 +79,10 @@ public:
     }
 
     void Startup() {
-        ResourceHandle<Process> p = process_manager().CreateProcess();
-
         RT_ASSERT(engines_execution_.size() > 0);
         Engine* first_engine = engines_execution_[0];
         RT_ASSERT(first_engine);
         ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
-        p.get()->SetThread(st, 0);
 
         const char* filename = "/system/kernel.js";
         rt::InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
@@ -231,7 +226,6 @@ public:
     }
 
     AcpiManager* acpi_manager();
-    ProcessManager& process_manager() { return proc_mgr_; }
 
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
@@ -241,7 +235,6 @@ private:
     SharedVector<Engine*> engines_execution_;
     AcpiManager* _acpi_manager;
     volatile uint64_t _non_isolate_ticks;
-    ProcessManager proc_mgr_;
 
     v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;

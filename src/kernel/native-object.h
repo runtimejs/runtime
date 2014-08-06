@@ -267,39 +267,21 @@ private:
     MemoryBlock<uint32_t> memory_block_;
 };
 
-class Process;
-
-class ProcessHandleObject : public JsObjectWrapper<ProcessHandleObject,
-    NativeTypeId::TYPEID_PROCESS_HANDLE> {
+class IsolatesManagerObject : public JsObjectWrapper<IsolatesManagerObject,
+    NativeTypeId::TYPEID_ISOLATES_MANAGER> {
 public:
-    ProcessHandleObject(TemplateCache* tpl_cache, ResourceHandle<Process> proc)
-        :	JsObjectWrapper(tpl_cache),
-            proc_(proc) {
-    }
-
-    void ObjectInit(ExportBuilder obj) {
-    }
-private:
-    ResourceHandle<Process> proc_;
-};
-
-class ProcessManager;
-
-class ProcessManagerHandleObject : public JsObjectWrapper<ProcessManagerHandleObject,
-    NativeTypeId::TYPEID_PROCESS_MANAGER_HANDLE> {
-public:
-    ProcessManagerHandleObject(TemplateCache* tpl_cache, ResourceHandle<ProcessManager> proc_mgr)
-        :	JsObjectWrapper(tpl_cache),
-            proc_mgr_(proc_mgr) {
+    IsolatesManagerObject(TemplateCache* tpl_cache)
+        :	JsObjectWrapper(tpl_cache) {
     }
 
     DECLARE_NATIVE(Create);
+    DECLARE_NATIVE(List);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("create", Create);
+        obj.SetCallback("list", List);
     }
 private:
-    ResourceHandle<ProcessManager> proc_mgr_;
 };
 
 class AllocatorObject : public JsObjectWrapper<AllocatorObject,

@@ -20,7 +20,6 @@
 #include <memory>
 #include <accommon.h>
 #include <acpi.h>
-#include <kernel/process.h>
 #include <kernel/engines.h>
 #include <common/utils.h>
 #include <kernel/platform.h>
@@ -229,7 +228,7 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     LOCAL_V8STRING(s_memory_range, "memoryRange");
     LOCAL_V8STRING(s_io_range, "ioRange");
     LOCAL_V8STRING(s_irq_range, "irqRange");
-    LOCAL_V8STRING(s_process_manager, "processManager");
+    LOCAL_V8STRING(s_isolates_manager, "isolatesManager");
     LOCAL_V8STRING(s_acpi, "acpi");
     LOCAL_V8STRING(s_allocator, "allocator");
     LOCAL_V8STRING(s_loader, "loader");
@@ -246,8 +245,7 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     obj->Set(s_irq_range, (new ResourceIRQRangeObject(th->template_cache(),
         Range<uint8_t>(1, 255)))->GetInstance());
 
-    ResourceHandle<ProcessManager> proc_manager(&GLOBAL_engines()->process_manager());
-    obj->Set(s_process_manager, (new ProcessManagerHandleObject(th->template_cache(), proc_manager))
+    obj->Set(s_isolates_manager, (new IsolatesManagerObject(th->template_cache()))
         ->GetInstance());
 
     obj->Set(s_acpi, (new AcpiManagerObject(th->template_cache(), GLOBAL_engines()->acpi_manager()))
@@ -853,7 +851,7 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
     args.GetReturnValue().Set(v8::Uint32::New(iv8, length));
 }
 
-NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
+NATIVE_FUNCTION(IsolatesManagerObject, Create) {
     PROLOGUE;
     USEARG(0);
     USEARG(1);
@@ -879,7 +877,6 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
     auto promise_index = th->AddPromise(
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
 
-    ResourceHandle<Process> p = that->proc_mgr_.get()->CreateProcess();
     ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
     {	LockingPtr<EngineThread> thread { st.get() };
@@ -900,9 +897,25 @@ NATIVE_FUNCTION(ProcessManagerHandleObject, Create) {
         }
     }
 
-    LockingPtr<Process> proc = p.get();
-    proc->SetThread(st, 0);
     args.GetReturnValue().Set(promise_resolver);
+}
+
+NATIVE_FUNCTION(IsolatesManagerObject, List) {
+    PROLOGUE;
+    Engine* first_engine = GLOBAL_engines()->execution_engine(0);
+    auto list = first_engine->thread_manager()->List();
+
+    v8::Local<v8::Array> result { v8::Array::New(iv8, list.size()) };
+    for (size_t i = 0; i < list.size(); ++i) {
+        auto& item = list[i];
+        v8::Local<v8::Object> dat { v8::Object::New(iv8) };
+
+        // TODO: add data
+
+        result->Set(i, dat);
+    }
+
+    args.GetReturnValue().Set(result);
 }
 
 NATIVE_FUNCTION(AllocatorObject, AllocDMA) {

@@ -124,6 +124,8 @@ var define;
                 textVideo: vga.client,
                 keyboard: keyboard.client,
             }
+        }).catch(function(err) {
+            runtime.log(err.stack);
         });
 
         return {};

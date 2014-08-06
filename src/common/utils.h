@@ -157,15 +157,15 @@ public:
         RT_ASSERT(begin_ <= end_);
     }
 
-    bool IsOverlaps(Range other) {
+    bool IsOverlaps(Range other) const {
         return begin_ <= other.end_ && other.begin_ <= end_;
     }
 
-    bool IsSubrangeOf(Range other) {
+    bool IsSubrangeOf(Range other) const {
         return begin_ >= other.begin_ && end_ <= other.end_;
     }
 
-    bool Contains(T value) {
+    bool Contains(T value) const {
         return value >= begin_ && value <= end_;
     }
 

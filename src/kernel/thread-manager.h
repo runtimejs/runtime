@@ -32,6 +32,10 @@ extern "C" void enterFirstThread(void* new_state);
 
 class Engine;
 
+class ThreadInfo {
+    // TODO: add info
+};
+
 class ThreadData {
 public:
     explicit ThreadData(Thread* thread)
@@ -177,6 +181,19 @@ public:
 
     uint64_t ticks_count() const {
         return ticks_counter_.Get();
+    }
+
+    SharedSTLVector<ThreadInfo> List() {
+        // TODO (SMP port): lock threads_ here and everywhere else
+        // Safe to use from the same CPU
+
+        SharedSTLVector<ThreadInfo> vec;
+        for (size_t i = 0; i < threads_.size(); ++i) {
+            auto thread = threads_[i].thread();
+            vec.push_back(ThreadInfo());
+        }
+
+        return vec;
     }
 
     void ProcessNewThreads();
