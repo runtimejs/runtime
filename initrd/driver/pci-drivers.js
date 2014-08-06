@@ -19,6 +19,13 @@
 define('pciDrivers', [], function() {
     "use strict";
 
+    var virtioDevice = {
+        name: 'Virtio device',
+        driver: 'virtio.js',
+        busMaster: true,
+        enabled: true,
+    };
+
     /**
      * PCI vendors and devices data
      */
@@ -30,6 +37,7 @@ define('pciDrivers', [], function() {
                     name: 'Realtek RTL-8139/8139C/8139C+ PCI Fast Ethernet NIC',
                     driver: 'rtl8139.js',
                     busMaster: true,
+                    enabled: false,
                 },
             },
         },
@@ -41,6 +49,11 @@ define('pciDrivers', [], function() {
      * and driver properties (driver is filename of driver startup file)
      */
     function findDevice(vendorId, deviceId) {
+        // Check if this is a virtio device
+        if (0x1af4 === vendorId && deviceId >= 0x1000 && deviceId <= 0x103f) {
+            return virtioDevice;
+        }
+
         if ('undefined' === typeof data[vendorId]) {
             return null;
         }

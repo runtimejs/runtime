@@ -19,7 +19,6 @@ function(pciDrivers, resources, vfs) {
     var acpi = resources.acpi;
     var io = resources.ioRange;
     var irqRange = resources.irqRange;
-    var procManager = resources.processManager;
     var memrange = resources.memoryRange;
     var allocator = resources.allocator;
 
@@ -732,7 +731,8 @@ function(pciDrivers, resources, vfs) {
         var deviceId = pciDevice.deviceId();
         var driverData = pciDrivers.findDevice(vendorId, deviceId);
 
-        if (null === driverData || 'undefined' === typeof driverData.driver) {
+        if (null === driverData || 'undefined' === typeof driverData.driver ||
+           !driverData.enabled) {
             return;
         }
 
@@ -770,12 +770,17 @@ function(pciDrivers, resources, vfs) {
             allocator: allocator,
         }
 
-        // procManager.create(rt.initrdText("/driver/" + driverData.driver),
-        //     driverArgs);
+        // Debug
+        // runtime.log(JSON.stringify(driverData), JSON.stringify(argsBars));
 
-        // Temporary for debugging
-        return;
-        runtime.log(JSON.stringify(driverData), JSON.stringify(argsBars));
+        vfs.getInitrdRoot()({
+            action: 'spawn',
+            path: '/driver/' + driverData.driver,
+            data: driverArgs,
+            env: {}
+        }).then(function() {}, function(err) {
+            runtime.log(err);
+        });
     });
 
     // Print PCI devices debug info
