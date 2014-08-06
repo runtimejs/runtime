@@ -301,20 +301,8 @@ bool Thread::Run() {
         }
     }
 
-    if (0 == ref_count_ || terminate_) {
-        if (terminate_) {
-            printf("[ terminate thread (reason: runtime.exit() called) ]\n");
-        } else {
-            printf("[ terminate thread (reason: refcount 0) ]\n");
-        }
-
-        terminate_ = true;
-        return false;
-    }
-
     v8::Local<v8::Value> ex = trycatch.Exception();
-    if (!ex.IsEmpty()) {
-
+    if (!ex.IsEmpty() && !trycatch.HasTerminated()) {
         v8::String::Utf8Value exception_str(ex);
         v8::Local<v8::Message> message = trycatch.Message();
         if (message.IsEmpty()) {
@@ -332,6 +320,18 @@ bool Thread::Run() {
     }
 
     trycatch.Reset();
+
+    if (0 == ref_count_ || terminate_) {
+        if (terminate_) {
+            printf("[ terminate thread (reason: runtime.exit() called) ]\n");
+        } else {
+            printf("[ terminate thread (reason: refcount 0) ]\n");
+        }
+
+        terminate_ = true;
+        return false;
+    }
+
     return true;
 }
 
