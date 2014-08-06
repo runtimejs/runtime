@@ -236,26 +236,35 @@ NATIVE_FUNCTION(NativesObject, Resources) {
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
-    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(th->template_cache(),
-        Range<size_t>(0, 0xffffffff)))->GetInstance());
-
-    obj->Set(s_io_range, (new ResourceIORangeObject(th->template_cache(),
-        Range<uint16_t>(1, 0xffff)))->GetInstance());
-
-    obj->Set(s_irq_range, (new ResourceIRQRangeObject(th->template_cache(),
-        Range<uint8_t>(1, 255)))->GetInstance());
-
-    obj->Set(s_isolates_manager, (new IsolatesManagerObject(th->template_cache()))
+    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(Range<size_t>(0, 0xffffffff)))
+        ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_acpi, (new AcpiManagerObject(th->template_cache(), GLOBAL_engines()->acpi_manager()))
+    obj->Set(s_io_range, (new ResourceIORangeObject(Range<uint16_t>(1, 0xffff)))
+        ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_allocator, (new AllocatorObject(th->template_cache()))->GetInstance());
+    obj->Set(s_irq_range, (new ResourceIRQRangeObject(Range<uint8_t>(1, 255)))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
+
+    obj->Set(s_isolates_manager, (new IsolatesManagerObject())
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
+
+    obj->Set(s_acpi, (new AcpiManagerObject(GLOBAL_engines()->acpi_manager()))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
+
+    obj->Set(s_allocator, (new AllocatorObject())
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 
     obj->Set(s_loader, v8::Function::New(iv8, KernelLoaderCallback));
 
-    obj->Set(s_natives, (new NativesObject(th->template_cache()))->GetInstance());
+    obj->Set(s_natives, (new NativesObject())
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 
     args.GetReturnValue().Set(obj);
 }
@@ -414,7 +423,9 @@ NATIVE_FUNCTION(AcpiHandleObject, Parent) {
         args.GetReturnValue().Set(v8::Null(iv8));
     }
 
-    args.GetReturnValue().Set((new AcpiHandleObject(th->template_cache(), parent_handle))->GetInstance());
+    args.GetReturnValue().Set((new AcpiHandleObject(parent_handle))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(AcpiHandleObject, HardwareId) {
@@ -680,7 +691,9 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
     v8::Local<v8::Array> arr = v8::Array::New(iv8, list.size());
 
     for (size_t i = 0; i < list.size(); ++i) {
-        arr->Set(i, (new AcpiHandleObject(th->template_cache(), list.Get(i)))->GetInstance());
+        arr->Set(i, (new AcpiHandleObject(list.Get(i)))
+            ->BindToTemplateCache(th->template_cache())
+            ->GetInstance());
     }
 
     args.GetReturnValue().Set(arr);
@@ -719,8 +732,9 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Subrange) {
         THROW_RANGE_ERROR("subrange: invalid range (out of bounds)");
     }
 
-    args.GetReturnValue().Set((new ResourceMemoryRangeObject(th->template_cache(),
-        subrange))->GetInstance());
+    args.GetReturnValue().Set((new ResourceMemoryRangeObject(subrange))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceMemoryRangeObject, Block) {
@@ -738,8 +752,10 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Block) {
         THROW_RANGE_ERROR("block: out of bounds");
     }
 
-    args.GetReturnValue().Set((new ResourceMemoryBlockObject(th->template_cache(),
-        MemoryBlock<uint32_t>(reinterpret_cast<void*>(base), size)))->GetInstance());
+    args.GetReturnValue().Set((new ResourceMemoryBlockObject(
+        MemoryBlock<uint32_t>(reinterpret_cast<void*>(base), size)))
+            ->BindToTemplateCache(th->template_cache())
+            ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIORangeObject, Begin) {
@@ -773,8 +789,9 @@ NATIVE_FUNCTION(ResourceIORangeObject, Subrange) {
         THROW_RANGE_ERROR("subrange: invalid range (out of bounds)");
     }
 
-    args.GetReturnValue().Set((new ResourceIORangeObject(th->template_cache(),
-        subrange))->GetInstance());
+    args.GetReturnValue().Set((new ResourceIORangeObject(subrange))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIORangeObject, Port) {
@@ -787,7 +804,9 @@ NATIVE_FUNCTION(ResourceIORangeObject, Port) {
         THROW_RANGE_ERROR("port: invalid port number (required <= 0xffff)");
     }
 
-    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), number))->GetInstance());
+    args.GetReturnValue().Set((new IoPortX64Object(number))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
@@ -802,7 +821,9 @@ NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
 
     printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n",
         that->io_range_.begin(), arg0->Uint32Value(), number);
-    args.GetReturnValue().Set((new IoPortX64Object(th->template_cache(), number))->GetInstance());
+    args.GetReturnValue().Set((new IoPortX64Object(number))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
@@ -815,8 +836,9 @@ NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
         THROW_RANGE_ERROR("irq: irq number is out of range");
     }
 
-    args.GetReturnValue().Set((new ResourceIRQObject(th->template_cache(),
-        number))->GetInstance());
+    args.GetReturnValue().Set((new ResourceIRQObject(number))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(ResourceIRQObject, On) {

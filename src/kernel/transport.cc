@@ -211,7 +211,16 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
                 stream_.AppendValue<uint32_t>(AddRef(value));
                 return SerializeError::NONE;
             } else {
-                RT_ASSERT(!"not implemented");
+                JsObjectWrapperBase* baseptr { static_cast<JsObjectWrapperBase*>(ptr) };
+                RT_ASSERT(baseptr);
+                auto clone = baseptr->Clone();
+                if (nullptr != clone) {
+                    AppendType(Type::NATIVE_OBJECT);
+                    stream_.AppendValue<JsObjectWrapperBase*>(clone);
+                    return SerializeError::NONE;
+                } else {
+                    return SerializeError::NOT_CLONABLE;
+                }
             }
         }
 
@@ -318,9 +327,17 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     }
     case Type::FUNCTION: {
         ExternalFunction* efn = reader.ReadValue<ExternalFunction*>();
+        RT_ASSERT(efn);
         RT_ASSERT(thread->template_cache());
         v8::Local<v8::Value> fnobj { thread->template_cache()->NewWrappedFunction(efn) };
         return scope.Escape(fnobj);
+    }
+    case Type::NATIVE_OBJECT: {
+        JsObjectWrapperBase* baseptr = reader.ReadValue<JsObjectWrapperBase*>();
+        RT_ASSERT(baseptr);
+        RT_ASSERT(thread->template_cache());
+        return scope.Escape(baseptr->BindToTemplateCache(thread->template_cache())
+            ->GetInstance());
     }
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };

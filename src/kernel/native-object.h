@@ -31,8 +31,7 @@ class AcpiManager;
 class NativesObject : public JsObjectWrapper<NativesObject,
         NativeTypeId::TYPEID_NATIVES> {
 public:
-    NativesObject(TemplateCache* tpl_cache)
-        :	JsObjectWrapper(tpl_cache) {}
+    NativesObject() : JsObjectWrapper() {}
 
     DECLARE_NATIVE(CallHandler);
     DECLARE_NATIVE(SetTimeout);
@@ -67,13 +66,17 @@ public:
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return nullptr; // Not clonable
+    }
 };
 
 class IoPortX64Object : public JsObjectWrapper<IoPortX64Object,
         NativeTypeId::TYPEID_RESOURCE_IO_PORT> {
 public:
-    IoPortX64Object(TemplateCache* tpl_cache, uint16_t port_number)
-        :	JsObjectWrapper(tpl_cache),
+    IoPortX64Object(uint16_t port_number)
+        :	JsObjectWrapper(),
             port_number_(port_number) { }
 
     DECLARE_NATIVE(Write8);
@@ -91,6 +94,10 @@ public:
         obj.SetCallback("read16", Read16);
         obj.SetCallback("read32", Read32);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new IoPortX64Object(port_number_);
+    }
 private:
     uint16_t port_number_;
 };
@@ -98,8 +105,8 @@ private:
 class AcpiHandleObject : public JsObjectWrapper<AcpiHandleObject,
         NativeTypeId::TYPEID_ACPI_HANDLE> {
 public:
-    AcpiHandleObject(TemplateCache* tpl_cache, ACPI_HANDLE handle)
-        :	JsObjectWrapper(tpl_cache),
+    AcpiHandleObject(ACPI_HANDLE handle)
+        :	JsObjectWrapper(),
             handle_(handle),
             devinfo_(nullptr) {
         RT_ASSERT(handle);
@@ -127,6 +134,9 @@ public:
         if (devinfo_) delete devinfo_;
     }
 
+    JsObjectWrapperBase* Clone() const {
+        return nullptr; // Not clonable
+    }
 private:
     ACPI_DEVICE_INFO* GetInfo() {
         if (nullptr == devinfo_) {
@@ -148,8 +158,8 @@ private:
 class AcpiManagerObject : public JsObjectWrapper<AcpiManagerObject,
         NativeTypeId::TYPEID_ACPI_MANAGER> {
 public:
-    AcpiManagerObject(TemplateCache* tpl_cache, AcpiManager* mgr)
-        :	JsObjectWrapper(tpl_cache),
+    AcpiManagerObject(AcpiManager* mgr)
+        :	JsObjectWrapper(),
             mgr_(mgr) {
         RT_ASSERT(mgr_);
     }
@@ -167,6 +177,10 @@ public:
         obj.SetCallback("systemReset", SystemReset);
         obj.SetCallback("enterSleepState", EnterSleepState);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new AcpiManagerObject(mgr_);
+    }
 private:
     AcpiManager* mgr_;
 };
@@ -174,8 +188,8 @@ private:
 class ResourceMemoryRangeObject : public JsObjectWrapper<ResourceMemoryRangeObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_RANGE> {
 public:
-    ResourceMemoryRangeObject(TemplateCache* tpl_cache, Range<size_t> memory_range)
-        :	JsObjectWrapper(tpl_cache),
+    ResourceMemoryRangeObject(Range<size_t> memory_range)
+        :	JsObjectWrapper(),
             memory_range_(memory_range) { }
 
     DECLARE_NATIVE(Begin);
@@ -189,6 +203,10 @@ public:
         obj.SetCallback("subrange", Subrange);
         obj.SetCallback("block", Block);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new ResourceMemoryRangeObject(memory_range_);
+    }
 private:
     Range<size_t> memory_range_;
 };
@@ -196,8 +214,8 @@ private:
 class ResourceIORangeObject : public JsObjectWrapper<ResourceIORangeObject,
         NativeTypeId::TYPEID_RESOURCE_IO_RANGE> {
 public:
-    ResourceIORangeObject(TemplateCache* tpl_cache, Range<uint16_t> io_range)
-        :	JsObjectWrapper(tpl_cache),
+    ResourceIORangeObject(Range<uint16_t> io_range)
+        :	JsObjectWrapper(),
             io_range_(io_range) { }
 
     DECLARE_NATIVE(Begin);
@@ -213,6 +231,10 @@ public:
         obj.SetCallback("port", Port);
         obj.SetCallback("offsetPort", OffsetPort);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new ResourceIORangeObject(io_range_);
+    }
 private:
     Range<uint16_t> io_range_;
 };
@@ -220,14 +242,18 @@ private:
 class ResourceIRQRangeObject : public JsObjectWrapper<ResourceIRQRangeObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ_RANGE> {
 public:
-    ResourceIRQRangeObject(TemplateCache* tpl_cache, Range<uint8_t> irq_range)
-        :	JsObjectWrapper(tpl_cache),
+    ResourceIRQRangeObject(Range<uint8_t> irq_range)
+        :	JsObjectWrapper(),
             irq_range_(irq_range) { }
 
     DECLARE_NATIVE(Irq);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("irq", Irq);
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        return new ResourceIRQRangeObject(irq_range_);
     }
 private:
     Range<uint8_t> irq_range_;
@@ -236,14 +262,17 @@ private:
 class ResourceIRQObject : public JsObjectWrapper<ResourceIRQObject,
         NativeTypeId::TYPEID_RESOURCE_IRQ> {
 public:
-    ResourceIRQObject(TemplateCache* tpl_cache, uint8_t irq_number)
-        :	JsObjectWrapper(tpl_cache),
-            irq_number_(irq_number) { }
+    ResourceIRQObject(uint8_t irq_number)
+        :	JsObjectWrapper(), irq_number_(irq_number) { }
 
     DECLARE_NATIVE(On);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("on", On);
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        return new ResourceIRQObject(irq_number_);
     }
 private:
     uint8_t irq_number_;
@@ -252,9 +281,8 @@ private:
 class ResourceMemoryBlockObject : public JsObjectWrapper<ResourceMemoryBlockObject,
         NativeTypeId::TYPEID_RESOURCE_MEMORY_BLOCK> {
 public:
-    ResourceMemoryBlockObject(TemplateCache* tpl_cache, MemoryBlock<uint32_t> memory_block)
-        :	JsObjectWrapper(tpl_cache),
-            memory_block_(memory_block) { }
+    ResourceMemoryBlockObject(MemoryBlock<uint32_t> memory_block)
+        :	JsObjectWrapper(), memory_block_(memory_block) { }
 
     DECLARE_NATIVE(Buffer);
     DECLARE_NATIVE(Length);
@@ -263,6 +291,10 @@ public:
         obj.SetCallback("buffer", Buffer);
         obj.SetCallback("length", Length);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new ResourceMemoryBlockObject(memory_block_);
+    }
 private:
     MemoryBlock<uint32_t> memory_block_;
 };
@@ -270,9 +302,7 @@ private:
 class IsolatesManagerObject : public JsObjectWrapper<IsolatesManagerObject,
     NativeTypeId::TYPEID_ISOLATES_MANAGER> {
 public:
-    IsolatesManagerObject(TemplateCache* tpl_cache)
-        :	JsObjectWrapper(tpl_cache) {
-    }
+    IsolatesManagerObject() : JsObjectWrapper() { }
 
     DECLARE_NATIVE(Create);
     DECLARE_NATIVE(List);
@@ -281,20 +311,26 @@ public:
         obj.SetCallback("create", Create);
         obj.SetCallback("list", List);
     }
+
+    JsObjectWrapperBase* Clone() const {
+        return new IsolatesManagerObject();
+    }
 private:
 };
 
 class AllocatorObject : public JsObjectWrapper<AllocatorObject,
     NativeTypeId::TYPEID_ALLOCATOR> {
 public:
-    AllocatorObject(TemplateCache* tpl_cache)
-        :	JsObjectWrapper(tpl_cache) {
-    }
+    AllocatorObject() : JsObjectWrapper() { }
 
     DECLARE_NATIVE(AllocDMA);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("allocDMA", AllocDMA);
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        return new AllocatorObject();
     }
 private:
 };

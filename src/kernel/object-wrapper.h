@@ -65,14 +65,24 @@ private:
  */
 class JsObjectWrapperBase : public NativeObjectWrapper {
 public:
-    JsObjectWrapperBase(TemplateCache* tpl_cache, NativeTypeId type_id)
+    JsObjectWrapperBase(NativeTypeId type_id)
         :	NativeObjectWrapper(type_id),
-            tpl_cache_(tpl_cache),
+            tpl_cache_(nullptr),
             reference_count_(0) {
+        RT_ASSERT(nullptr == tpl_cache_);
+    }
+
+    virtual JsObjectWrapperBase* Clone() const = 0;
+
+    JsObjectWrapperBase* BindToTemplateCache(TemplateCache* tpl_cache) {
         RT_ASSERT(tpl_cache);
+        RT_ASSERT(!tpl_cache_);
+        tpl_cache_ = tpl_cache;
+        return this;
     }
 
     inline v8::Local<v8::Object> GetInstance() {
+        RT_ASSERT(tpl_cache_ && "BindToTemplateCache() first");
         v8::Isolate* iv8 = tpl_cache_->IsolateV8();
         RT_ASSERT(iv8);
         v8::EscapableHandleScope scope(iv8);
@@ -118,6 +128,8 @@ protected:
     }
 
     void EnsureInstance() {
+        RT_ASSERT(tpl_cache_ && "BindToTemplateCache() first");
+
         if (!object_.IsEmpty()) {
             return;
         }
@@ -145,7 +157,7 @@ protected:
         Weak();
     }
 
-    TemplateCache* const tpl_cache_;
+    TemplateCache* tpl_cache_;
     v8::UniquePersistent<v8::Object> object_;
     uint32_t reference_count_;
     DELETE_COPY_AND_ASSIGN(JsObjectWrapperBase);
@@ -154,8 +166,7 @@ protected:
 template<typename T, NativeTypeId TypeId>
 class JsObjectWrapper : public JsObjectWrapperBase {
 public:
-    inline JsObjectWrapper(TemplateCache* tpl_cache)
-        :	JsObjectWrapperBase(tpl_cache, TypeId) { }
+    inline JsObjectWrapper() : JsObjectWrapperBase(TypeId) { }
 
     inline static T* FromHandle(Thread* thread, v8::Local<v8::Value> val) {
         NativeObjectWrapper* ptr = TemplateCache::GetWrapped(val);

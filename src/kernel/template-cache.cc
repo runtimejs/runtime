@@ -95,7 +95,9 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     RT_ASSERT(init_func_val->IsFunction());
     v8::Local<v8::Function> init_func = v8::Local<v8::Function>::Cast(init_func_val);
 
-    v8::Local<v8::Value> args_local[1] { (new NativesObject(this))->GetInstance() };
+    v8::Local<v8::Value> args_local[1] { (new NativesObject())
+        ->BindToTemplateCache(this)
+        ->GetInstance() };
     init_func->Call(context->Global(), 1, &args_local[0]);
 
     return scope.Escape(context);

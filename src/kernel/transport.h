@@ -120,6 +120,7 @@ public:
         INVALID_TYPE,
         EXTERNAL_BUFFER,
         TYPEDARRAY_VIEW,
+        NOT_CLONABLE,
     };
 
     /**
@@ -277,6 +278,12 @@ public:
                 v8::String::NewFromUtf8(iv8,
                 "ArrayBufferView can't be transferred, use .buffer to get referenced buffer")));
             return true;
+        case SerializeError::NOT_CLONABLE:
+            iv8->ThrowException(
+                v8::Exception::Error(
+                v8::String::NewFromUtf8(iv8,
+                "Native object is not clonable")));
+            return true;
         default:
             RT_ASSERT(!"unknown serializer error");
             return true;
@@ -301,6 +308,7 @@ private:
         ARRAY,
         HASHMAP,
         FUNCTION,
+        NATIVE_OBJECT,
         ERROR_OBJ,
         RESOURCES_FN,
     };
