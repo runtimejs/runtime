@@ -17,6 +17,7 @@
 #include <kernel/object-wrapper.h>
 #include <kernel/thread.h>
 #include <kernel/native-object.h>
+#include <kernel/arraybuffer.h>
 
 namespace rt {
 
@@ -145,15 +146,23 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     if (value->IsArrayBuffer()) {
         // Neuter this array buffer and take its contents
         AppendType(Type::ARRAYBUFFER);
+        RT_ASSERT(thread_);
+        RT_ASSERT(thread_->IsolateV8());
+        v8::Isolate* iv8 { thread_->IsolateV8() };
         v8::Local<v8::ArrayBuffer> b { v8::Local<v8::ArrayBuffer>::Cast(value) };
-        if (b->IsExternal()) {
-            return SerializeError::EXTERNAL_BUFFER;
+        if (0 == b->ByteLength()) {
+            return SerializeError::EMPTY_BUFFER;
         }
-        v8::ArrayBuffer::Contents c { b->Externalize() };
-        stream_.AppendValue<void*>(c.Data());
-        stream_.AppendValue<size_t>(c.ByteLength());
-        b->Neuter();
 
+        auto ab = ArrayBuffer::FromInstance(iv8, b);
+        stream_.AppendValue<void*>(ab->data());
+        stream_.AppendValue<size_t>(ab->size());
+
+        // Make sure ArrayBuffer wrapper instance is aware
+        // that buffer is neutered here
+        ab->Neuter();
+        RT_ASSERT(0 == ab->size());
+        RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
 
@@ -305,7 +314,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     case Type::ARRAYBUFFER: {
         void* buf = reader.ReadValue<void*>();
         size_t len = reader.ReadValue<size_t>();
-        return scope.Escape(v8::ArrayBuffer::NewNonExternal(iv8, buf, len));
+        return scope.Escape(ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance());
     }
     case Type::ARRAY: {
         uint32_t len = reader.ReadValue<uint32_t>();

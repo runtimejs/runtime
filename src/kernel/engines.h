@@ -41,7 +41,8 @@ public:
     Engines(uint32_t cpu_count)
         :	cpu_count_(cpu_count),
             _non_isolate_ticks(0),
-            v8_platform_(nullptr) {
+            v8_platform_(nullptr),
+            arraybuffer_allocator_(nullptr) {
         RT_ASSERT(nullptr == GLOBAL_engines());
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
@@ -72,7 +73,10 @@ public:
         v8_platform_ = v8::platform::CreateDefaultPlatform();
         RT_ASSERT(v8_platform_);
         v8::V8::InitializePlatform(v8_platform_);
-        v8::V8::SetArrayBufferAllocator(new MallocArrayBufferAllocator());
+
+        RT_ASSERT(!arraybuffer_allocator_);
+        arraybuffer_allocator_ = new MallocArrayBufferAllocator();
+        v8::V8::SetArrayBufferAllocator(arraybuffer_allocator_);
 
         const char flags[] = "--harmony_collections";
         v8::V8::SetFlagsFromString(flags, sizeof(flags));
@@ -225,6 +229,10 @@ public:
         }
     }
 
+    MallocArrayBufferAllocator* arraybuffer_allocator() const {
+        return arraybuffer_allocator_;
+    }
+
     AcpiManager* acpi_manager();
 
     ~Engines() = delete;
@@ -238,6 +246,7 @@ private:
 
     v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;
+    MallocArrayBufferAllocator* arraybuffer_allocator_;
 
     mutable Locker _platform_locker;
 };

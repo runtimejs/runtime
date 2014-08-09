@@ -436,14 +436,14 @@ public:
 
     /**
      * Check if malloc (or new) can be used to allocate memory.
-     * Automatically checked on malloc when asserts enabled
+     * Automatically checked on malloc when assertions are enabled
      */
     bool CanMalloc() {
         return malloc_available_;
     }
 
     /**
-     * Allocated 1 physical page identity-mapped to 32 bit part
+     * Allocate 1 physical page identity-mapped to 32 bit part
      * of address space (useful for DMA memory allocation,
      * you can pass the same address to device that doesn't do
      * paging)
@@ -466,6 +466,14 @@ public:
      */
     uint64_t physical_memory_total() const {
         return pmm_.physical_memory_total();
+    }
+
+    /**
+     * Locate physical memory address mapped to
+     * virtual memory address
+     */
+    void* VirtualToPhysicalAddress(void* virtaddr) {
+        return addr_space_.VirtualToPhysical(virtaddr);
     }
 
     inline VirtualAllocator& virtual_allocator() { return vmm_; }

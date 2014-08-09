@@ -24,6 +24,7 @@
 #include <common/utils.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
+#include <kernel/arraybuffer.h>
 
 namespace rt {
 
@@ -220,6 +221,28 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
 
     th->Ref();
     args.GetReturnValue().SetUndefined();
+}
+
+NATIVE_FUNCTION(NativesObject, BufferAddress) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    VALIDATEARG(0, ARRAYBUFFER, "bufferAddress: argument 0 is not an ArrayBuffer");
+    RT_ASSERT(arg0->IsArrayBuffer());
+    auto abv8 = arg0.As<v8::ArrayBuffer>();
+    if (0 == abv8->ByteLength()) {
+        THROW_ERROR("Empty ArrayBuffer doesn't own a memory");
+    }
+
+    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
+    void* ptr = GLOBAL_mem_manager()->VirtualToPhysicalAddress(ab->data());
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    uint32_t high = static_cast<uint32_t>(addr >> 32);
+    uint32_t low = static_cast<uint32_t>(addr & 0xffffffffull);
+
+    auto arr = v8::Array::New(iv8, 2);
+    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, high));
+    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, low));
+    args.GetReturnValue().Set(arr);
 }
 
 NATIVE_FUNCTION(NativesObject, Resources) {
@@ -819,8 +842,8 @@ NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
         THROW_RANGE_ERROR("offsetPort: port offset is out of range");
     }
 
-    printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n",
-        that->io_range_.begin(), arg0->Uint32Value(), number);
+//    printf("[OFFSET PORT] base = %d, offset = %d, result = %d\n",
+//        that->io_range_.begin(), arg0->Uint32Value(), number);
     args.GetReturnValue().Set((new IoPortX64Object(number))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());

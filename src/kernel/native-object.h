@@ -47,6 +47,7 @@ public:
     DECLARE_NATIVE(Reboot);
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
+    DECLARE_NATIVE(BufferAddress);
 
     /**
      * Get array of all initrd file names
@@ -65,6 +66,7 @@ public:
         obj.SetCallback("reboot", Reboot);
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
+        obj.SetCallback("bufferAddress", BufferAddress);
     }
 
     JsObjectWrapperBase* Clone() const {

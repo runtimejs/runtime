@@ -118,7 +118,7 @@ public:
         NONE,
         MAX_STACK,
         INVALID_TYPE,
-        EXTERNAL_BUFFER,
+        EMPTY_BUFFER,
         TYPEDARRAY_VIEW,
         NOT_CLONABLE,
     };
@@ -266,11 +266,11 @@ public:
                 v8::String::NewFromUtf8(iv8,
                 "Unable to transfer data")));
             return true;
-        case SerializeError::EXTERNAL_BUFFER:
+        case SerializeError::EMPTY_BUFFER:
             iv8->ThrowException(
                 v8::Exception::Error(
                 v8::String::NewFromUtf8(iv8,
-                "ArrayBuffer have already transferred")));
+                "ArrayBuffer is empty or have already been transferred")));
             return true;
         case SerializeError::TYPEDARRAY_VIEW:
             iv8->ThrowException(

@@ -56,16 +56,76 @@ void AddressSpaceX64::Install() {
     asm volatile("mov %0, %%cr3":: "b"(cr3_.Encode()));
 }
 
-void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, bool writethrough) {
-    uintptr_t vaddr = reinterpret_cast<uintptr_t>(virtaddr);
-    uint32_t page_offset = vaddr & 0x1FFFFF;
-    uint32_t pd_offset = (vaddr >> 21) & 0x1FF;
-    uint32_t pdp_offset = (vaddr >> 30) & 0x1FF;
-    uint32_t pml4_offset = (vaddr >> 39) & 0x1FF;
+class VirtualAddressX64 {
+public:
+    explicit VirtualAddressX64(void* address)
+        : address_(reinterpret_cast<uintptr_t>(address)) {}
+    explicit VirtualAddressX64(uintptr_t address)
+        : address_(address) {}
 
-    RT_ASSERT(pd_offset < 512);
-    RT_ASSERT(pdp_offset < 512);
-    RT_ASSERT(pml4_offset < 512);
+    inline uint32_t page_offset() const {
+        uint32_t offset = address_ & 0x1FFFFF;
+        return offset;
+    }
+
+    inline uint32_t pd_offset() const {
+        uint32_t offset = (address_ >> 21) & 0x1FF;
+        RT_ASSERT(offset < 512);
+        return offset;
+    }
+
+    inline uint32_t pdp_offset() const {
+        uint32_t offset = (address_ >> 30) & 0x1FF;
+        RT_ASSERT(offset < 512);
+        return offset;
+    }
+
+    inline uint32_t pml4_offset() const {
+        uint32_t offset = (address_ >> 39) & 0x1FF;
+        RT_ASSERT(offset < 512);
+        return offset;
+    }
+
+    inline uintptr_t address() const { return address_; }
+private:
+    uintptr_t address_;
+};
+
+void* AddressSpaceX64::VirtualToPhysical(void* virtaddr) {
+    VirtualAddressX64 vaddr(virtaddr);
+
+    RT_ASSERT(cr3_.PageDirectory);
+    PageTable<PML4Entry>* pml4_table =
+        reinterpret_cast<PageTable<PML4Entry>*>(cr3_.PageDirectory);
+    RT_ASSERT(pml4_table);
+
+    PML4Entry pml4 = pml4_table->GetEntry(vaddr.pml4_offset());
+    if (!pml4.IsPresent) {
+        return nullptr;
+    }
+
+    RT_ASSERT(pml4.PageDirectory);
+    auto pdp_table = reinterpret_cast<PageTable<PDPEntry>*>(pml4.PageDirectory);
+
+    PDPEntry pdp = pdp_table->GetEntry(vaddr.pdp_offset());
+    if (!pdp.IsPresent) {
+        return nullptr;
+    }
+
+    RT_ASSERT(pdp.PageDirectory);
+    auto pd_table = reinterpret_cast<PageTable<PDEntry>*>(pdp.PageDirectory);
+
+    PDEntry pd = pd_table->GetEntry(vaddr.pd_offset());
+    if (!pd.IsPresent) {
+        return nullptr;
+    }
+
+    uint8_t* page_addr = reinterpret_cast<uint8_t*>(pd.PageAddress);
+    return reinterpret_cast<void*>(page_addr + vaddr.page_offset());
+}
+
+void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, bool writethrough) {
+    VirtualAddressX64 vaddr(virtaddr);
 
     physaddr = PhysicalAllocator::PageAligned(physaddr);
     RT_ASSERT(cr3_.PageDirectory);
@@ -79,17 +139,17 @@ void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, b
     bool create_pdpe = false;
     bool create_pml4e = false;
 
-    PML4Entry pml4 = pml4_table->GetEntry(pml4_offset);
+    PML4Entry pml4 = pml4_table->GetEntry(vaddr.pml4_offset());
     if (pml4.IsPresent) {
         RT_ASSERT(pml4.PageDirectory);
         pdp_table = reinterpret_cast<PageTable<PDPEntry>*>(pml4.PageDirectory);
 
-        PDPEntry pdp = pdp_table->GetEntry(pdp_offset);
+        PDPEntry pdp = pdp_table->GetEntry(vaddr.pdp_offset());
         if (pdp.IsPresent) {
             RT_ASSERT(pdp.PageDirectory);
             pd_table = reinterpret_cast<PageTable<PDEntry>*>(pdp.PageDirectory);
 
-            PDEntry pd = pd_table->GetEntry(pd_offset);
+            PDEntry pd = pd_table->GetEntry(vaddr.pd_offset());
             if (pd.IsPresent) {
                 void* page_addr = pd.PageAddress;
                 if (physaddr == page_addr) {
@@ -122,7 +182,7 @@ void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, b
             RT_ASSERT(pd_table);
         }
 
-        pd_table->SetEntry(pd_offset, pd);
+        pd_table->SetEntry(vaddr.pd_offset(), pd);
     }
 
     if (create_pdpe) {
@@ -138,7 +198,7 @@ void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, b
             RT_ASSERT(pdp_table);
         }
 
-        pdp_table->SetEntry(pdp_offset, pdp);
+        pdp_table->SetEntry(vaddr.pdp_offset(), pdp);
     }
 
     if (create_pml4e) {
@@ -148,7 +208,7 @@ void AddressSpaceX64::MapPage(void* virtaddr, void* physaddr, bool invalidate, b
         pml4.IsWriteThrough = false;
         RT_ASSERT(pdp_table);
         pml4.PageDirectory = pdp_table;
-        pml4_table->SetEntry(pml4_offset, pml4);
+        pml4_table->SetEntry(vaddr.pml4_offset(), pml4);
     }
 
     if (invalidate) {

@@ -195,7 +195,17 @@ public:
 
     void Install();
     void Configure();
+
+    /**
+     * Map virtual address to physical one
+     */
     void MapPage(void* virtaddr, void* physaddr, bool invalidate, bool writethrough);
+
+    /**
+     * Convert virtual to physical memory address on this
+     * address space
+     */
+    void* VirtualToPhysical(void* virtaddr);
 
     inline static CR3Entry current() {
         uint64_t cr3value;
