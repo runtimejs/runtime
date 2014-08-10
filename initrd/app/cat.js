@@ -12,26 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
 
     function error(text) {
         console.error('cat: ' + text);
     }
 
-    if ('string' !== typeof args.data.command) {
+    if ('string' !== typeof isolate.data.command) {
         console.error('cat: no input filenames');
         return;
     }
 
-    var fileNames = args.data.command.split(' ');
+    var fileNames = isolate.data.command.split(' ');
 
     fileNames.forEach(function(filename) {
-        args.system.fs.current({
+        isolate.system.fs.current({
             action: 'readFile',
             path: filename,
         }).then(function(fileContent) {
-            args.env.stdout(fileContent);
+            isolate.env.stdout(fileContent);
         }, function(err) {
             var message = 'unknown error';
             switch(err.message) {
@@ -41,4 +41,4 @@
             error(message);
         });
     });
-})(runtime.args());
+})();

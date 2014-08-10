@@ -29,16 +29,14 @@ var libfs = function(fs) {
     };
 };
 
-(function(args) {
+(function() {
     "use strict";
-
-    var console = args.system.console;
 
     // Object 'fs.default' provides access to process working directory
     // filesystem subtree and this is the only subtree that is visible
     // through this object to current process.
     // It's possible to provide 'fs.root' for trusted processes.
-    var fs = libfs(args.system.fs.default);
+    var fs = libfs(isolate.system.fs.current);
 
     console.log('This is the example application');
 
@@ -60,4 +58,4 @@ var libfs = function(fs) {
         console.log(err.message);
     });
 
-})(runtime.args());
+})();

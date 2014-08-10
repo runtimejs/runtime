@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
-    runtime.log('net.js');
-})(runtime.args());
+(function() {
+    console.log('net.js');
+})();

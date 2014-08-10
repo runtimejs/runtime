@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
 
     /**
      * Text video display service client
      */
     var video = (function() {
-        var textVideo = args.env.textVideo;
+        var textVideo = isolate.env.textVideo;
         var canvasReady = false;
 
         var width = textVideo.info.width;
@@ -138,7 +138,7 @@
                     drawBuf = buf;
                     drawView = new Uint8Array(drawBuf);
                 }, function(err) {
-                    runtime.log(err.stack);
+                    isolate.log(err.stack);
                 });
             }
 
@@ -163,7 +163,7 @@
             drawView = new Uint8Array(drawBuf);
         })
         .catch(function(err) {
-            runtime.log(err.stack);
+            isolate.log(err.stack);
         });
 
         return {
@@ -217,7 +217,7 @@
         };
     })();
 
-    var version = runtime.version();
+    var version = kernel.version();
 
     video.print('\n', 1, 'darkgray', 'black');
     video.print('# Welcome to ', 1, 'darkgray', 'black');
@@ -239,12 +239,12 @@
         };
     }
 
-    args.system.fs.current({
+    isolate.system.fs.current({
         action: 'spawn',
         path: '/shell.js',
         data: {
             terminal: createTerminalAccessor(),
-            keyboard: args.env.keyboard
+            keyboard: isolate.env.keyboard
         },
     });
-})(runtime.args());
+})();

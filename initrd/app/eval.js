@@ -13,22 +13,22 @@
 // limitations under the License.
 
 function exit() {
-    runtime.exit();
+    isolate.exit();
 }
 
-(function(args) {
+(function() {
     "use strict";
 
-    if ('string' === typeof args.data.command && '' !== args.data.command) {
-        evalLine(args.data.command);
+    if ('string' === typeof isolate.data.command && '' !== isolate.data.command) {
+        evalLine(isolate.data.command);
         return;
     }
 
-    args.env.stdout('JavaScript REPL (special commands: exit)\n', {fg: 'darkgray'});
+    isolate.env.stdout('JavaScript REPL (special commands: exit)\n', {fg: 'darkgray'});
 
     function readLine(cb) {
-        args.env.stdout('> ', {fg: 'lightgreen'});
-        args.env.stdin({
+        isolate.env.stdout('> ', {fg: 'lightgreen'});
+        isolate.env.stdin({
             mode: 'line',
             onData: function(data) {
                 cb(data.text);
@@ -45,7 +45,7 @@ function exit() {
 
         try {
             var result = (1, eval)(text);
-            args.env.stdout(result + '\n', {fg: 'lightgray'});
+            isolate.env.stdout(result + '\n', {fg: 'lightgray'});
         } catch (err) {
             console.error(err.toString());
         }
@@ -53,11 +53,11 @@ function exit() {
 
     readLine(function onData(text) {
         if ('exit' === text.trim()) {
-            runtime.exit();
+            isolate.exit();
         }
 
         evalLine(text);
         readLine(onData);
     });
 
-})(runtime.args());
+})();

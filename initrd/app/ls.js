@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
 
-    args.system.fs.current({
+    isolate.system.fs.current({
         action: 'list',
         path: '/',
     }).then(function(data) {
@@ -25,4 +25,4 @@
     }, function(err) {
         console.error(err.message);
     });
-})(runtime.args());
+})();

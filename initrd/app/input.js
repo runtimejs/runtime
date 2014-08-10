@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
-    args.env.stdout('What is your name? ');
+    isolate.env.stdout('What is your name? ');
 
     function readLine(cb) {
-        args.env.stdin({
+        isolate.env.stdin({
             mode: 'line',
             onData: function(data) {
                 cb(data.text);
@@ -27,7 +27,7 @@
 
     readLine(function(text) {
         console.log('Hello, ' + text + '!');
-        runtime.exit();
+        isolate.exit();
     });
 
-})(runtime.args());
+})();

@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
 
-    var counter = args.data.counter || 0;
+    var counter = isolate.data.counter || 0;
 
-    args.system.fs.current({
+    isolate.system.fs.current({
         action: 'spawn',
         data: {
             counter: ++counter,
         },
         path: '/test-isolates.js',
-        env: args.env
+        env: isolate.env
     });
 
     console.log('done ' + counter);
-    runtime.exit();
-})(runtime.args());
+    isolate.exit();
+})();

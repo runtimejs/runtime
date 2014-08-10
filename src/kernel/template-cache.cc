@@ -67,13 +67,20 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         global->Set(iv8_, "setTimeout",
                     v8::FunctionTemplate::New(iv8_, NativesObject::SetTimeout));
 
-        v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
-        runtime->Set(iv8_, "args", v8::FunctionTemplate::New(iv8_, NativesObject::Args));
-        runtime->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
-        runtime->Set(iv8_, "version", v8::FunctionTemplate::New(iv8_, NativesObject::Version));
-        runtime->Set(iv8_, "exit", v8::FunctionTemplate::New(iv8_, NativesObject::Exit));
-        runtime->Set(iv8_, "bufferAddress", v8::FunctionTemplate::New(iv8_, NativesObject::BufferAddress));
+        v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New() };
+        isolate->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
+        isolate->Set(iv8_, "exit", v8::FunctionTemplate::New(iv8_, NativesObject::Exit));
+        isolate->Set(iv8_, "data", v8::Null(iv8_));
+        isolate->Set(iv8_, "env", v8::Null(iv8_));
+        isolate->Set(iv8_, "system", v8::Null(iv8_));
+        global->Set(iv8_, "isolate", isolate);
 
+        v8::Local<v8::ObjectTemplate> kernel { v8::ObjectTemplate::New() };
+        kernel->Set(iv8_, "version", v8::FunctionTemplate::New(iv8_, NativesObject::Version));
+        global->Set(iv8_, "kernel", kernel);
+
+        v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
+        runtime->Set(iv8_, "bufferAddress", v8::FunctionTemplate::New(iv8_, NativesObject::BufferAddress));
         global->Set(iv8_, "runtime", runtime);
 
         global_object_template_.Set(iv8_, global);

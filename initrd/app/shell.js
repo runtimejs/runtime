@@ -13,24 +13,24 @@
 // limitations under the License.
 
 
-(function(args) {
+(function() {
     "use strict";
 
-    if (args.env && args.env.stdout && args.env.stderr) {
-        args.env.stderr('shell: nested shells are not supported\n');
+    if (isolate.env && isolate.env.stdout && isolate.env.stderr) {
+        isolate.env.stderr('shell: nested shells are not supported\n');
         return;
     }
 
-    if (!args.data.terminal) {
+    if (!isolate.data.terminal) {
         throw new Error('shell requires a terminal to output data');
     }
 
-    if (!args.data.keyboard) {
+    if (!isolate.data.keyboard) {
         throw new Error('shell requires a keyboard');
     }
 
-    var terminal = args.data.terminal;
-    var keyboard = args.data.keyboard;
+    var terminal = isolate.data.terminal;
+    var keyboard = isolate.data.keyboard;
 
     /**
      * Output string to terminal
@@ -213,7 +213,7 @@
             programName = text;
         }
 
-        args.system.fs.current({
+        isolate.system.fs.current({
             action: 'spawn',
             path: '/' + programName + '.js',
             data: {
@@ -236,4 +236,4 @@
 
     prompt.display();
 
-})(runtime.args());
+})();

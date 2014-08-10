@@ -771,7 +771,7 @@ function(pciDrivers, resources, vfs) {
         }
 
         // Debug
-        // runtime.log(JSON.stringify(driverData), JSON.stringify(argsBars));
+        // isolate.log(JSON.stringify(driverData), JSON.stringify(argsBars));
 
         vfs.getInitrdRoot()({
             action: 'spawn',
@@ -779,7 +779,7 @@ function(pciDrivers, resources, vfs) {
             data: driverArgs,
             env: {}
         }).then(function() {}, function(err) {
-            runtime.log(err);
+            isolate.log(err);
         });
     });
 
@@ -799,7 +799,7 @@ function(pciDrivers, resources, vfs) {
         var info = address.bus.toString(16) + ':' + address.slot.toString(16) + '.' + address.func + ' ' +
             pciDevice.vendorId().toString(16) + ':' + pciDevice.deviceId().toString(16) + ' ' +
             classData.className + ' IRQ: ' + vector + ' PIN: ' + pins[devicePin];
-        runtime.log(info);
+        isolate.log(info);
     });
 
     function listPciDevices() {

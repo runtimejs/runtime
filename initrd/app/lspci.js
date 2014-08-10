@@ -13,14 +13,14 @@
 // limitations under the License.
 
 // List PCI devices
-(function(args) {
+(function() {
     "use strict";
 
     function error(message) {
         console.error('lspci: ' + message);
     }
 
-    args.system.kernel.lspci().then(function(data) {
+    isolate.system.kernel.lspci().then(function(data) {
         for (var i = 0; i < data.length; ++i) {
             var dev = data[i];
             console.log(dev.bus.toString(16) + ':' + dev.slot.toString(16) + '.' + dev.func + ' ' +
@@ -41,4 +41,4 @@
                 break;
         }
     });
-})(runtime.args());
+})();

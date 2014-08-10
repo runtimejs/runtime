@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-runtime.log('Loading system...');
+isolate.log('Loading system...');
 
 function Injector() {
     "use strict";
@@ -58,7 +58,7 @@ function Injector() {
         })).then(function(deps) {
             getModule(name).resolve(fn.apply(null, deps));
         }).catch(function(err) {
-            runtime.log(err.stack);
+            isolate.log(err.stack);
         });
     };
 
@@ -99,7 +99,7 @@ var define;
      */
     define('resources', [],
     function() {
-        return runtime.args()();
+        return isolate.data();
     });
 
     /**
@@ -125,7 +125,7 @@ var define;
                 keyboard: keyboard.client,
             }
         }).catch(function(err) {
-            runtime.log(err.stack);
+            isolate.log(err.stack);
         });
 
         return {};

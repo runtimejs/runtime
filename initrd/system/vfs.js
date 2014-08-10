@@ -441,11 +441,8 @@ function(resources) {
 
                         argsSystem.kernel = argsSystem.kernel || spawnKernelData;
 
-                        resources.isolatesManager.create([fileContent, vfsnode.name], {
-                            system: argsSystem,
-                            data: argsData,
-                            env: argsEnv,
-                        }).then(function(value) {
+                        resources.isolatesManager.create([fileContent, vfsnode.name],
+                            [argsData, argsEnv, argsSystem]).then(function(value) {
                             onExit(value);
                         }, reject);
                     });

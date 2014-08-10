@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Reboot current machine
-(function(args) {
+(function() {
     "use strict";
-    args.system.kernel.reboot();
-})(runtime.args());
+    isolate.system.kernel.reboot();
+})();

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Virtio devices driver
-(function(args) {
+(function() {
     "use strict";
-    runtime.log('virtio driver started');
-})(runtime.args());
+    isolate.log('virtio driver started');
+})();

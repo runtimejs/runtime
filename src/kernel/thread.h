@@ -106,6 +106,10 @@ public:
      */
     bool Run();
 
+    /**
+     * Get global isolate object
+     */
+    v8::Local<v8::Object> GetIsolateGlobal();
 
     ThreadManager* thread_manager() const {
         return thread_mgr_;

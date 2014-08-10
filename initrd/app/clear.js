@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
-    args.env.stdout('', {x: 0, y: 0, clear: true});
-})(runtime.args());
+    isolate.env.stdout('', {x: 0, y: 0, clear: true});
+})();

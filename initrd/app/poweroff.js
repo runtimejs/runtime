@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // Power off machine
-(function(args) {
+(function() {
     "use strict";
     // ACPI S5 mode = power off
-    args.system.kernel.enterSleepState(5);
-})(runtime.args());
+    isolate.system.kernel.enterSleepState(5);
+})();

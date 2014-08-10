@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-(function(args) {
+(function() {
     "use strict";
-    if ('string' !== typeof args.data.command) {
+    if ('string' !== typeof isolate.data.command) {
         console.error('echo: no input data');
         return;
     }
 
-    console.log(args.data.command);
-})(runtime.args());
+    console.log(isolate.data.command);
+})();

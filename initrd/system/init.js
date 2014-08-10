@@ -20,7 +20,7 @@ var console = (function() {
     return {
         log: function() {
             if (null === stdout) {
-                stdout = runtime.args().env.stdout;
+                stdout = isolate.env.stdout;
             }
 
             var s = Array.prototype.join.call(arguments, ' ');
@@ -28,7 +28,7 @@ var console = (function() {
         },
         error: function() {
             if (null === stderr) {
-                stderr = runtime.args().env.stderr;
+                stderr = isolate.env.stderr;
             }
 
             var s = Array.prototype.join.call(arguments, ' ');

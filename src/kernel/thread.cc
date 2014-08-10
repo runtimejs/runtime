@@ -139,6 +139,18 @@ void Thread::TearDown() {
     type_ = ThreadType::TERMINATED;
 }
 
+v8::Local<v8::Object> Thread::GetIsolateGlobal() {
+    v8::EscapableHandleScope scope(iv8_);
+    auto s_isolate = v8::String::NewFromUtf8(iv8_, "isolate");
+
+    auto context = v8::Local<v8::Context>::New(iv8_, context_);
+    RT_ASSERT(!context.IsEmpty());
+    auto isolate_value = context->Global()->Get(s_isolate);
+    RT_ASSERT(!isolate_value.IsEmpty());
+    RT_ASSERT(isolate_value->IsObject());
+    return scope.Escape(isolate_value->ToObject());
+}
+
 bool Thread::Run() {
     // Not possible to run terminated thread
     RT_ASSERT(ThreadType::TERMINATED != type_);
@@ -194,6 +206,9 @@ bool Thread::Run() {
             RT_ASSERT(!unpacked.IsEmpty());
 
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+
+            auto s_data = v8::String::NewFromUtf8(iv8_, "data");
+            GetIsolateGlobal()->Set(s_data, unpacked);
         }
             break;
         case ThreadMessage::Type::SET_ARGUMENTS: {
@@ -202,6 +217,20 @@ bool Thread::Run() {
             RT_ASSERT(!unpacked.IsEmpty());
 
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
+
+            // Install args [isolate.data, isolate.env, isolate.system]
+            auto s_data = v8::String::NewFromUtf8(iv8_, "data");
+            auto s_env = v8::String::NewFromUtf8(iv8_, "env");
+            auto s_system = v8::String::NewFromUtf8(iv8_, "system");
+            auto isolate_obj = GetIsolateGlobal();
+            RT_ASSERT(!unpacked.IsEmpty());
+            RT_ASSERT(unpacked->IsArray());
+            auto args_array = unpacked.As<v8::Array>();
+            RT_ASSERT(3 == args_array->Length());
+            isolate_obj->Set(s_data, args_array->Get(0));
+            isolate_obj->Set(s_env, args_array->Get(1));
+            isolate_obj->Set(s_system, args_array->Get(2));
+
             parent_thread_ = message->sender();
             parent_promise_id_ = message->recv_index();
         }
