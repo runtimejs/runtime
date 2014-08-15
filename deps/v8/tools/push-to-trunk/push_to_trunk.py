@@ -130,7 +130,7 @@ class GetCurrentBleedingEdgeVersion(Step):
   MESSAGE = "Get latest bleeding edge version."
 
   def RunStep(self):
-    self.GitCheckoutFile(self.Config(VERSION_FILE), "master")
+    self.GitCheckoutFile(self.Config(VERSION_FILE), "svn/bleeding_edge")
 
     # Store latest version.
     self.ReadAndPersistVersion("latest_")
@@ -154,7 +154,7 @@ class IncrementVersion(Step):
 
     if SortingKey(self["trunk_version"]) < SortingKey(self["latest_version"]):
       # If the version on bleeding_edge is newer than on trunk, use it.
-      self.GitCheckoutFile(self.Config(VERSION_FILE), "master")
+      self.GitCheckoutFile(self.Config(VERSION_FILE), "svn/bleeding_edge")
       self.ReadAndPersistVersion()
 
     if self.Confirm(("Automatically increment BUILD_NUMBER? (Saying 'n' will "

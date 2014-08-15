@@ -352,8 +352,11 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
       }
       SafepointEntry safepoint = code->GetSafepointEntry(it.frame()->pc());
       int deopt_index = safepoint.deoptimization_index();
-      bool safe_to_deopt = deopt_index != Safepoint::kNoDeoptimizationIndex;
-      CHECK(topmost_optimized_code == NULL || safe_to_deopt);
+      // Turbofan deopt is checked when we are patching addresses on stack.
+      bool turbofanned = code->is_turbofanned();
+      bool safe_to_deopt =
+          deopt_index != Safepoint::kNoDeoptimizationIndex || turbofanned;
+      CHECK(topmost_optimized_code == NULL || safe_to_deopt || turbofanned);
       if (topmost_optimized_code == NULL) {
         topmost_optimized_code = code;
         safe_to_deopt_topmost_optimized_code = safe_to_deopt;
@@ -374,6 +377,7 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
     Code* code = Code::cast(element);
     CHECK_EQ(code->kind(), Code::OPTIMIZED_FUNCTION);
     Object* next = code->next_code_link();
+
     if (code->marked_for_deoptimization()) {
       // Put the code into the list for later patching.
       codes.Add(code, &zone);
@@ -396,6 +400,10 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
     element = next;
   }
 
+  if (FLAG_turbo_deoptimization) {
+    PatchStackForMarkedCode(isolate);
+  }
+
   // TODO(titzer): we need a handle scope only because of the macro assembler,
   // which is only used in EnsureCodeForDeoptimizationEntry.
   HandleScope scope(isolate);
@@ -404,17 +412,81 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
   for (int i = 0; i < codes.length(); i++) {
 #ifdef DEBUG
     if (codes[i] == topmost_optimized_code) {
-      ASSERT(safe_to_deopt_topmost_optimized_code);
+      DCHECK(safe_to_deopt_topmost_optimized_code);
     }
 #endif
     // It is finally time to die, code object.
-    // Do platform-specific patching to force any activations to lazy deopt.
-    PatchCodeForDeoptimization(isolate, codes[i]);
 
-    // We might be in the middle of incremental marking with compaction.
-    // Tell collector to treat this code object in a special way and
-    // ignore all slots that might have been recorded on it.
-    isolate->heap()->mark_compact_collector()->InvalidateCode(codes[i]);
+    // Remove the code from optimized code map.
+    DeoptimizationInputData* deopt_data =
+        DeoptimizationInputData::cast(codes[i]->deoptimization_data());
+    SharedFunctionInfo* shared =
+        SharedFunctionInfo::cast(deopt_data->SharedFunctionInfo());
+    shared->EvictFromOptimizedCodeMap(codes[i], "deoptimized code");
+
+    // Do platform-specific patching to force any activations to lazy deopt.
+    //
+    // We skip patching Turbofan code - we patch return addresses on stack.
+    // TODO(jarin) We should still zap the code object (but we have to
+    // be careful not to zap the deoptimization block).
+    if (!codes[i]->is_turbofanned()) {
+      PatchCodeForDeoptimization(isolate, codes[i]);
+
+      // We might be in the middle of incremental marking with compaction.
+      // Tell collector to treat this code object in a special way and
+      // ignore all slots that might have been recorded on it.
+      isolate->heap()->mark_compact_collector()->InvalidateCode(codes[i]);
+    }
+  }
+}
+
+
+static int FindPatchAddressForReturnAddress(Code* code, int pc) {
+  DeoptimizationInputData* input_data =
+      DeoptimizationInputData::cast(code->deoptimization_data());
+  int patch_count = input_data->ReturnAddressPatchCount();
+  for (int i = 0; i < patch_count; i++) {
+    int return_pc = input_data->ReturnAddressPc(i)->value();
+    int patch_pc = input_data->PatchedAddressPc(i)->value();
+    // If the supplied pc matches the return pc or if the address
+    // has been already patched, return the patch pc.
+    if (pc == return_pc || pc == patch_pc) {
+      return patch_pc;
+    }
+  }
+  return -1;
+}
+
+
+// For all marked Turbofanned code on stack, change the return address to go
+// to the deoptimization block.
+void Deoptimizer::PatchStackForMarkedCode(Isolate* isolate) {
+  // TODO(jarin) We should tolerate missing patch entry for the topmost frame.
+  for (StackFrameIterator it(isolate, isolate->thread_local_top()); !it.done();
+       it.Advance()) {
+    StackFrame::Type type = it.frame()->type();
+    if (type == StackFrame::OPTIMIZED) {
+      Code* code = it.frame()->LookupCode();
+      if (code->is_turbofanned() && code->marked_for_deoptimization()) {
+        JSFunction* function =
+            static_cast<OptimizedFrame*>(it.frame())->function();
+        Address* pc_address = it.frame()->pc_address();
+        int pc_offset =
+            static_cast<int>(*pc_address - code->instruction_start());
+        int new_pc_offset = FindPatchAddressForReturnAddress(code, pc_offset);
+
+        if (FLAG_trace_deopt) {
+          CodeTracer::Scope scope(isolate->GetCodeTracer());
+          PrintF(scope.file(), "[patching stack address for function: ");
+          function->PrintName(scope.file());
+          PrintF(scope.file(), " (Pc offset %i -> %i)]\n", pc_offset,
+                 new_pc_offset);
+        }
+
+        CHECK_LE(0, new_pc_offset);
+        *pc_address += new_pc_offset - pc_offset;
+      }
+    }
   }
 }
 
@@ -564,7 +636,7 @@ Deoptimizer::Deoptimizer(Isolate* isolate,
   if (function->IsSmi()) {
     function = NULL;
   }
-  ASSERT(from != NULL);
+  DCHECK(from != NULL);
   if (function != NULL && function->IsOptimized()) {
     function->shared()->increment_deopt_count();
     if (bailout_type_ == Deoptimizer::SOFT) {
@@ -579,9 +651,9 @@ Deoptimizer::Deoptimizer(Isolate* isolate,
   compiled_code_ = FindOptimizedCode(function, optimized_code);
 
 #if DEBUG
-  ASSERT(compiled_code_ != NULL);
+  DCHECK(compiled_code_ != NULL);
   if (type == EAGER || type == SOFT || type == LAZY) {
-    ASSERT(compiled_code_->kind() != Code::FUNCTION);
+    DCHECK(compiled_code_->kind() != Code::FUNCTION);
   }
 #endif
 
@@ -612,7 +684,7 @@ Code* Deoptimizer::FindOptimizedCode(JSFunction* function,
           : compiled_code;
     }
     case Deoptimizer::DEBUGGER:
-      ASSERT(optimized_code->contains(from_));
+      DCHECK(optimized_code->contains(from_));
       return optimized_code;
   }
   FATAL("Could not find code for optimized function");
@@ -631,8 +703,8 @@ void Deoptimizer::PrintFunctionName() {
 
 
 Deoptimizer::~Deoptimizer() {
-  ASSERT(input_ == NULL && output_ == NULL);
-  ASSERT(disallow_heap_allocation_ == NULL);
+  DCHECK(input_ == NULL && output_ == NULL);
+  DCHECK(disallow_heap_allocation_ == NULL);
   delete trace_scope_;
 }
 
@@ -683,7 +755,7 @@ int Deoptimizer::GetDeoptimizationId(Isolate* isolate,
       addr >= start + (kMaxNumberOfEntries * table_entry_size_)) {
     return kNotDeoptimizationEntry;
   }
-  ASSERT_EQ(0,
+  DCHECK_EQ(0,
             static_cast<int>(addr - start) % table_entry_size_);
   return static_cast<int>(addr - start) / table_entry_size_;
 }
@@ -720,7 +792,7 @@ int Deoptimizer::GetDeoptimizedCodeCount(Isolate* isolate) {
     Object* element = native_context->DeoptimizedCodeListHead();
     while (!element->IsUndefined()) {
       Code* code = Code::cast(element);
-      ASSERT(code->kind() == Code::OPTIMIZED_FUNCTION);
+      DCHECK(code->kind() == Code::OPTIMIZED_FUNCTION);
       length++;
       element = code->next_code_link();
     }
@@ -772,13 +844,13 @@ void Deoptimizer::DoComputeOutputFrames() {
   TranslationIterator iterator(translations, translation_index);
   Translation::Opcode opcode =
       static_cast<Translation::Opcode>(iterator.Next());
-  ASSERT(Translation::BEGIN == opcode);
+  DCHECK(Translation::BEGIN == opcode);
   USE(opcode);
   // Read the number of output frames and allocate an array for their
   // descriptions.
   int count = iterator.Next();
   iterator.Next();  // Drop JS frames count.
-  ASSERT(output_ == NULL);
+  DCHECK(output_ == NULL);
   output_ = new FrameDescription*[count];
   for (int i = 0; i < count; ++i) {
     output_[i] = NULL;
@@ -903,7 +975,10 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   intptr_t top_address;
   if (is_bottommost) {
     // Determine whether the input frame contains alignment padding.
-    has_alignment_padding_ = HasAlignmentPadding(function) ? 1 : 0;
+    has_alignment_padding_ =
+        (!compiled_code_->is_turbofanned() && HasAlignmentPadding(function))
+            ? 1
+            : 0;
     // 2 = context and function in the frame.
     // If the optimized frame had alignment padding, adjust the frame pointer
     // to point to the new position of the old frame pointer after padding
@@ -963,7 +1038,7 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   }
   output_frame->SetCallerFp(output_offset, value);
   intptr_t fp_value = top_address + output_offset;
-  ASSERT(!is_bottommost || (input_->GetRegister(fp_reg.code()) +
+  DCHECK(!is_bottommost || (input_->GetRegister(fp_reg.code()) +
       has_alignment_padding_ * kPointerSize) == fp_value);
   output_frame->SetFp(fp_value);
   if (is_topmost) output_frame->SetRegister(fp_reg.code(), fp_value);
@@ -973,7 +1048,7 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
            V8PRIxPTR " ; caller's fp\n",
            fp_value, output_offset, value);
   }
-  ASSERT(!is_bottommost || !has_alignment_padding_ ||
+  DCHECK(!is_bottommost || !has_alignment_padding_ ||
          (fp_value & kPointerSize) != 0);
 
   if (FLAG_enable_ool_constant_pool) {
@@ -1022,7 +1097,7 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   value = reinterpret_cast<intptr_t>(function);
   // The function for the bottommost output frame should also agree with the
   // input frame.
-  ASSERT(!is_bottommost || input_->GetFrameSlot(input_offset) == value);
+  DCHECK(!is_bottommost || input_->GetFrameSlot(input_offset) == value);
   output_frame->SetFrameSlot(output_offset, value);
   if (trace_scope_ != NULL) {
     PrintF(trace_scope_->file(),
@@ -1188,7 +1263,7 @@ void Deoptimizer::DoComputeArgumentsAdaptorFrame(TranslationIterator* iterator,
            top_address + output_offset, output_offset, value, height - 1);
   }
 
-  ASSERT(0 == output_offset);
+  DCHECK(0 == output_offset);
 
   Builtins* builtins = isolate_->builtins();
   Code* adaptor_trampoline =
@@ -1226,8 +1301,8 @@ void Deoptimizer::DoComputeConstructStubFrame(TranslationIterator* iterator,
   output_frame->SetFrameType(StackFrame::CONSTRUCT);
 
   // Construct stub can not be topmost or bottommost.
-  ASSERT(frame_index > 0 && frame_index < output_count_ - 1);
-  ASSERT(output_[frame_index] == NULL);
+  DCHECK(frame_index > 0 && frame_index < output_count_ - 1);
+  DCHECK(output_[frame_index] == NULL);
   output_[frame_index] = output_frame;
 
   // The top address of the frame is computed from the previous
@@ -1549,9 +1624,12 @@ void Deoptimizer::DoComputeCompiledStubFrame(TranslationIterator* iterator,
   //
 
   CHECK(compiled_code_->is_hydrogen_stub());
-  int major_key = compiled_code_->major_key();
+  int major_key = CodeStub::GetMajorKey(compiled_code_);
   CodeStubInterfaceDescriptor* descriptor =
       isolate_->code_stub_interface_descriptor(major_key);
+  // Check that there is a matching descriptor to the major key.
+  // This will fail if there has not been one installed to the isolate.
+  DCHECK_EQ(descriptor->MajorKey(), major_key);
 
   // The output frame must have room for all pushed register parameters
   // and the standard stack frame slots.  Include space for an argument
@@ -1754,7 +1832,7 @@ void Deoptimizer::DoComputeCompiledStubFrame(TranslationIterator* iterator,
   StubFunctionMode function_mode = descriptor->function_mode();
   StubFailureTrampolineStub(isolate_,
                             function_mode).FindCodeInCache(&trampoline);
-  ASSERT(trampoline != NULL);
+  DCHECK(trampoline != NULL);
   output_frame->SetPc(reinterpret_cast<intptr_t>(
       trampoline->instruction_start()));
   if (FLAG_enable_ool_constant_pool) {
@@ -1801,7 +1879,7 @@ Handle<Object> Deoptimizer::MaterializeNextHeapObject() {
     Handle<JSObject> arguments =
         isolate_->factory()->NewArgumentsObject(function, length);
     Handle<FixedArray> array = isolate_->factory()->NewFixedArray(length);
-    ASSERT_EQ(array->length(), length);
+    DCHECK_EQ(array->length(), length);
     arguments->set_elements(*array);
     materialized_objects_->Add(arguments);
     for (int i = 0; i < length; ++i) {
@@ -1892,7 +1970,7 @@ Handle<Object> Deoptimizer::MaterializeNextValue() {
 
 
 void Deoptimizer::MaterializeHeapObjects(JavaScriptFrameIterator* it) {
-  ASSERT_NE(DEBUGGER, bailout_type_);
+  DCHECK_NE(DEBUGGER, bailout_type_);
 
   MaterializedObjectStore* materialized_store =
       isolate_->materialized_object_store();
@@ -1945,7 +2023,7 @@ void Deoptimizer::MaterializeHeapObjects(JavaScriptFrameIterator* it) {
              d.value(),
              d.destination());
     }
-    ASSERT(values.at(d.destination())->IsTheHole());
+    DCHECK(values.at(d.destination())->IsTheHole());
     values.Set(d.destination(), num);
   }
 
@@ -2779,7 +2857,7 @@ void Deoptimizer::EnsureCodeForDeoptimizationEntry(Isolate* isolate,
   GenerateDeoptimizationEntries(&masm, entry_count, type);
   CodeDesc desc;
   masm.GetCode(&desc);
-  ASSERT(!RelocInfo::RequiresRelocation(desc));
+  DCHECK(!RelocInfo::RequiresRelocation(desc));
 
   MemoryChunk* chunk = data->deopt_entry_code_[type];
   CHECK(static_cast<int>(Deoptimizer::GetMaxDeoptTableSize()) >=
@@ -2873,7 +2951,7 @@ unsigned FrameDescription::GetExpressionCount() {
 
 
 Object* FrameDescription::GetExpression(int index) {
-  ASSERT_EQ(StackFrame::JAVA_SCRIPT, type_);
+  DCHECK_EQ(StackFrame::JAVA_SCRIPT, type_);
   unsigned offset = GetOffsetFromSlotIndex(index);
   return reinterpret_cast<Object*>(*GetFrameSlotPointer(offset));
 }
@@ -2899,7 +2977,7 @@ int32_t TranslationIterator::Next() {
   // bit of zero (marks the end).
   uint32_t bits = 0;
   for (int i = 0; true; i += 7) {
-    ASSERT(HasNext());
+    DCHECK(HasNext());
     uint8_t next = buffer_->get(index_++);
     bits |= (next >> 1) << i;
     if ((next & 1) == 0) break;
@@ -3268,7 +3346,11 @@ Handle<Object> SlotRef::GetValue(Isolate* isolate) {
       return Handle<Object>(Memory::Object_at(addr_), isolate);
 
     case INT32: {
+#if V8_TARGET_BIG_ENDIAN && V8_HOST_ARCH_64_BIT
+      int value = Memory::int32_at(addr_ + kIntSize);
+#else
       int value = Memory::int32_at(addr_);
+#endif
       if (Smi::IsValid(value)) {
         return Handle<Object>(Smi::FromInt(value), isolate);
       } else {
@@ -3277,7 +3359,11 @@ Handle<Object> SlotRef::GetValue(Isolate* isolate) {
     }
 
     case UINT32: {
+#if V8_TARGET_BIG_ENDIAN && V8_HOST_ARCH_64_BIT
+      uint32_t value = Memory::uint32_at(addr_ + kIntSize);
+#else
       uint32_t value = Memory::uint32_at(addr_);
+#endif
       if (value <= static_cast<uint32_t>(Smi::kMaxValue)) {
         return Handle<Object>(Smi::FromInt(static_cast<int>(value)), isolate);
       } else {

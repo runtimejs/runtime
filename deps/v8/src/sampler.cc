@@ -515,9 +515,9 @@ class SamplerThread : public base::Thread {
       need_to_start = true;
     }
 
-    ASSERT(sampler->IsActive());
-    ASSERT(!instance_->active_samplers_.Contains(sampler));
-    ASSERT(instance_->interval_ == sampler->interval());
+    DCHECK(sampler->IsActive());
+    DCHECK(!instance_->active_samplers_.Contains(sampler));
+    DCHECK(instance_->interval_ == sampler->interval());
     instance_->active_samplers_.Add(sampler);
 
     if (need_to_start) instance_->StartSynchronously();
@@ -528,9 +528,9 @@ class SamplerThread : public base::Thread {
     {
       base::LockGuard<base::Mutex> lock_guard(mutex_);
 
-      ASSERT(sampler->IsActive());
+      DCHECK(sampler->IsActive());
       bool removed = instance_->active_samplers_.RemoveElement(sampler);
-      ASSERT(removed);
+      DCHECK(removed);
       USE(removed);
 
       // We cannot delete the instance immediately as we need to Join() the
@@ -586,7 +586,7 @@ SamplerThread* SamplerThread::instance_ = NULL;
 //
 DISABLE_ASAN void TickSample::Init(Isolate* isolate,
                                    const RegisterState& regs) {
-  ASSERT(isolate->IsInitialized());
+  DCHECK(isolate->IsInitialized());
   timestamp = base::TimeTicks::HighResolutionNow();
   pc = regs.pc;
   state = isolate->current_vm_state();
@@ -655,20 +655,20 @@ Sampler::Sampler(Isolate* isolate, int interval)
 
 
 Sampler::~Sampler() {
-  ASSERT(!IsActive());
+  DCHECK(!IsActive());
   delete data_;
 }
 
 
 void Sampler::Start() {
-  ASSERT(!IsActive());
+  DCHECK(!IsActive());
   SetActive(true);
   SamplerThread::AddActiveSampler(this);
 }
 
 
 void Sampler::Stop() {
-  ASSERT(IsActive());
+  DCHECK(IsActive());
   SamplerThread::RemoveActiveSampler(this);
   SetActive(false);
 }

@@ -8,10 +8,12 @@
 #include "src/base/once.h"
 #include "src/base/platform/platform.h"
 #include "src/bootstrapper.h"
+#include "src/compiler/pipeline.h"
 #include "src/debug.h"
 #include "src/deoptimizer.h"
 #include "src/elements.h"
 #include "src/frames.h"
+#include "src/heap/store-buffer.h"
 #include "src/heap-profiler.h"
 #include "src/hydrogen.h"
 #include "src/isolate.h"
@@ -20,7 +22,7 @@
 #include "src/runtime-profiler.h"
 #include "src/sampler.h"
 #include "src/serialize.h"
-#include "src/store-buffer.h"
+
 
 namespace v8 {
 namespace internal {
@@ -46,6 +48,7 @@ void V8::TearDown() {
   Bootstrapper::TearDownExtensions();
   ElementsAccessor::TearDown();
   LOperand::TearDownCaches();
+  compiler::Pipeline::TearDown();
   ExternalReference::TearDownMathExpData();
   RegisteredExtension::UnregisterAll();
   Isolate::GlobalTearDown();
@@ -87,6 +90,7 @@ void V8::InitializeOncePerProcessImpl() {
 #endif
   ElementsAccessor::InitializeOncePerProcess();
   LOperand::SetUpCaches();
+  compiler::Pipeline::SetUp();
   SetUpJSCallerSavedCodeData();
   ExternalReference::SetUp();
   Bootstrapper::InitializeOncePerProcess();
@@ -99,20 +103,20 @@ void V8::InitializeOncePerProcess() {
 
 
 void V8::InitializePlatform(v8::Platform* platform) {
-  ASSERT(!platform_);
-  ASSERT(platform);
+  CHECK(!platform_);
+  CHECK(platform);
   platform_ = platform;
 }
 
 
 void V8::ShutdownPlatform() {
-  ASSERT(platform_);
+  CHECK(platform_);
   platform_ = NULL;
 }
 
 
 v8::Platform* V8::GetCurrentPlatform() {
-  ASSERT(platform_);
+  DCHECK(platform_);
   return platform_;
 }
 

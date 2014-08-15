@@ -1202,28 +1202,35 @@ function MakeScriptObject_(script, include_source) {
 
 
 function MakePromiseEvent(event_data) {
-  if (event_data.type = "new Promise") {
-    return new NewPromiseEvent(event_data);
-  }
+  return new PromiseEvent(event_data);
 }
 
 
-function PromiseGetter() {
+function PromiseEvent(event_data) {
+  this.promise_ = event_data.promise;
+  this.parentPromise_ = event_data.parentPromise;
+  this.status_ = event_data.status;
+  this.value_ = event_data.value;
+}
+
+
+PromiseEvent.prototype.promise = function() {
   return MakeMirror(this.promise_);
 }
 
 
-function NewPromiseEvent(event_data) {
-  this.resolver_ = event_data.resolver;
-  this.promise_ = event_data.promise;
+PromiseEvent.prototype.parentPromise = function() {
+  return MakeMirror(this.parentPromise_);
 }
 
 
-NewPromiseEvent.prototype.promise = PromiseGetter;
+PromiseEvent.prototype.status = function() {
+  return this.status_;
+}
 
 
-NewPromiseEvent.prototype.resolver = function() {
-  return MakeMirror(this.resolver_);
+PromiseEvent.prototype.value = function() {
+  return MakeMirror(this.value_);
 }
 
 

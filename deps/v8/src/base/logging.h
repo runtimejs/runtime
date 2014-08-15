@@ -152,29 +152,6 @@ inline void CheckNonEqualsHelper(const char* file,
 }
 
 
-// Helper function used by the CHECK function when given floating
-// point arguments.  Should not be called directly.
-inline void CheckEqualsHelper(const char* file,
-                              int line,
-                              const char* expected_source,
-                              double expected,
-                              const char* value_source,
-                              double value) {
-  // Force values to 64 bit memory to truncate 80 bit precision on IA32.
-  volatile double* exp = new double[1];
-  *exp = expected;
-  volatile double* val = new double[1];
-  *val = value;
-  if (*exp != *val) {
-    V8_Fatal(file, line,
-             "CHECK_EQ(%s, %s) failed\n#   Expected: %f\n#   Found: %f",
-             expected_source, value_source, *exp, *val);
-  }
-  delete[] exp;
-  delete[] val;
-}
-
-
 inline void CheckNonEqualsHelper(const char* file,
                               int line,
                               const char* expected_source,
@@ -186,27 +163,6 @@ inline void CheckNonEqualsHelper(const char* file,
              "CHECK_EQ(%s, %s) failed\n#   Expected: %f\n#   Found: %f",
              expected_source, value_source, expected, value);
   }
-}
-
-
-inline void CheckNonEqualsHelper(const char* file,
-                                 int line,
-                                 const char* expected_source,
-                                 double expected,
-                                 const char* value_source,
-                                 double value) {
-  // Force values to 64 bit memory to truncate 80 bit precision on IA32.
-  volatile double* exp = new double[1];
-  *exp = expected;
-  volatile double* val = new double[1];
-  *val = value;
-  if (*exp == *val) {
-    V8_Fatal(file, line,
-             "CHECK_NE(%s, %s) failed\n#   Value: %f",
-             expected_source, value_source, *val);
-  }
-  delete[] exp;
-  delete[] val;
 }
 
 
@@ -234,27 +190,27 @@ void DumpBacktrace();
 } }  // namespace v8::base
 
 
-// The ASSERT macro is equivalent to CHECK except that it only
+// The DCHECK macro is equivalent to CHECK except that it only
 // generates code in debug builds.
 #ifdef DEBUG
-#define ASSERT_RESULT(expr)    CHECK(expr)
-#define ASSERT(condition)      CHECK(condition)
-#define ASSERT_EQ(v1, v2)      CHECK_EQ(v1, v2)
-#define ASSERT_NE(v1, v2)      CHECK_NE(v1, v2)
-#define ASSERT_GE(v1, v2)      CHECK_GE(v1, v2)
-#define ASSERT_LT(v1, v2)      CHECK_LT(v1, v2)
-#define ASSERT_LE(v1, v2)      CHECK_LE(v1, v2)
+#define DCHECK_RESULT(expr)    CHECK(expr)
+#define DCHECK(condition)      CHECK(condition)
+#define DCHECK_EQ(v1, v2)      CHECK_EQ(v1, v2)
+#define DCHECK_NE(v1, v2)      CHECK_NE(v1, v2)
+#define DCHECK_GE(v1, v2)      CHECK_GE(v1, v2)
+#define DCHECK_LT(v1, v2)      CHECK_LT(v1, v2)
+#define DCHECK_LE(v1, v2)      CHECK_LE(v1, v2)
 #else
-#define ASSERT_RESULT(expr)    (expr)
-#define ASSERT(condition)      ((void) 0)
-#define ASSERT_EQ(v1, v2)      ((void) 0)
-#define ASSERT_NE(v1, v2)      ((void) 0)
-#define ASSERT_GE(v1, v2)      ((void) 0)
-#define ASSERT_LT(v1, v2)      ((void) 0)
-#define ASSERT_LE(v1, v2)      ((void) 0)
+#define DCHECK_RESULT(expr)    (expr)
+#define DCHECK(condition)      ((void) 0)
+#define DCHECK_EQ(v1, v2)      ((void) 0)
+#define DCHECK_NE(v1, v2)      ((void) 0)
+#define DCHECK_GE(v1, v2)      ((void) 0)
+#define DCHECK_LT(v1, v2)      ((void) 0)
+#define DCHECK_LE(v1, v2)      ((void) 0)
 #endif
 
-#define ASSERT_NOT_NULL(p)  ASSERT_NE(NULL, p)
+#define DCHECK_NOT_NULL(p)  DCHECK_NE(NULL, p)
 
 // "Extra checks" are lightweight checks that are enabled in some release
 // builds.

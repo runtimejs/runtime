@@ -1,3 +1,185 @@
+2014-08-12: Version 3.28.71
+
+        ToNumber(Symbol) should throw TypeError (issue 3499).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-11: Version 3.28.69
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-09: Version 3.28.65
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-08: Version 3.28.64
+
+        ES6: Implement WeakMap and WeakSet constructor logic (issue 3399).
+
+        Enable ES6 unscopables (issue 3401).
+
+        Turn on harmony_unscopables for es_staging (issue 3401).
+
+        Remove proxies from --harmony switch for M38, because problems.
+
+        Reland "Add initial support for compiler unit tests using GTest/GMock."
+        (issue 3489).
+
+        Enable ES6 iteration by default (issue 2214).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-07: Version 3.28.62
+
+        Only escape U+0022 in argument values of `String.prototype` HTML methods
+        (issue 2217).
+
+        Update webkit test for expected own properties.
+
+        This implements unscopables (issue 3401).
+
+        Add `CheckObjectCoercible` for the `String.prototype` HTML methods
+        (issue 2218).
+
+        Add initial support for compiler unit tests using GTest/GMock (issue
+        3489).
+
+        Trigger exception debug events on Promise reject (Chromium issue
+        393913).
+
+        Refactor unit tests for the base library to use GTest (issue 3489).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-06: Version 3.28.60
+
+        Enable ES6 Map and Set by default (issue 1622).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-06: Version 3.28.59
+
+        Removed GetConstructor from the API. Instead either get the
+        "constructor" property stored in the prototype, or keep a side-table.
+
+        Enable ES6 Symbols by default (issue 2158).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-05: Version 3.28.57
+
+        Add dependencies on gtest and gmock.
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-04: Version 3.28.54
+
+        Performance and stability improvements on all platforms.
+
+
+2014-08-01: Version 3.28.53
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-31: Version 3.28.52
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-31: Version 3.28.51
+
+        Drop deprecated memory related notification API (Chromium issue 397026).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-31: Version 3.28.50
+
+        Use emergency memory in the case of out of memory during evacuation
+        (Chromium issue 395314).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-30: Version 3.28.48
+
+        Fix Object.freeze with field type tracking. Keep the descriptor properly
+        intact while update the field type (issue 3458).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-29: Version 3.28.45
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-28: Version 3.28.43
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-25: Version 3.28.38
+
+        Fix issue with setters and their holders in accessors.cc (Chromium issue
+        3462).
+
+        Introduce more debug events for promises (issue 3093).
+
+        Move gc notifications from V8 to Isolate and make idle hint mandatory
+        (Chromium issue 397026).
+
+        The accessors should get the value from the holder and not from this
+        (issue 3461).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-24: Version 3.28.35
+
+        Rebaseline/update the intl tests with ICU 52 (issue 3454).
+
+        Expose the content of Sets and WeakSets through SetMirror (issue 3093).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-23: Version 3.28.32
+
+        Update ICU to 5.2 (matching chromium) (issue 3452).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-22: Version 3.28.31
+
+        Remove harmony-typeof.
+
+        Implement String.prototype.codePointAt and String.fromCodePoint (issue
+        2840).
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-21: Version 3.28.30
+
+        Performance and stability improvements on all platforms.
+
+
+2014-07-21: Version 3.28.29
+
+        Performance and stability improvements on all platforms.
+
+
 2014-07-18: Version 3.28.28
 
         Performance and stability improvements on all platforms.

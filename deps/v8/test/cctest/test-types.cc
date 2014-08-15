@@ -19,27 +19,13 @@ struct ZoneRep {
     return !IsBitset(t) && reinterpret_cast<intptr_t>(AsStruct(t)[0]) == tag;
   }
   static bool IsBitset(Type* t) { return reinterpret_cast<intptr_t>(t) & 1; }
-  static bool IsClass(Type* t) { return IsStruct(t, 0); }
-  static bool IsConstant(Type* t) { return IsStruct(t, 1); }
-  static bool IsContext(Type* t) { return IsStruct(t, 2); }
-  static bool IsArray(Type* t) { return IsStruct(t, 3); }
-  static bool IsFunction(Type* t) { return IsStruct(t, 4); }
-  static bool IsUnion(Type* t) { return IsStruct(t, 5); }
+  static bool IsUnion(Type* t) { return IsStruct(t, 6); }
 
   static Struct* AsStruct(Type* t) {
     return reinterpret_cast<Struct*>(t);
   }
   static int AsBitset(Type* t) {
     return static_cast<int>(reinterpret_cast<intptr_t>(t) >> 1);
-  }
-  static Map* AsClass(Type* t) {
-    return *static_cast<Map**>(AsStruct(t)[3]);
-  }
-  static Object* AsConstant(Type* t) {
-    return *static_cast<Object**>(AsStruct(t)[3]);
-  }
-  static Type* AsContext(Type* t) {
-    return *static_cast<Type**>(AsStruct(t)[2]);
   }
   static Struct* AsUnion(Type* t) {
     return AsStruct(t);
@@ -66,24 +52,10 @@ struct HeapRep {
     return t->IsFixedArray() && Smi::cast(AsStruct(t)->get(0))->value() == tag;
   }
   static bool IsBitset(Handle<HeapType> t) { return t->IsSmi(); }
-  static bool IsClass(Handle<HeapType> t) {
-    return t->IsMap() || IsStruct(t, 0);
-  }
-  static bool IsConstant(Handle<HeapType> t) { return IsStruct(t, 1); }
-  static bool IsContext(Handle<HeapType> t) { return IsStruct(t, 2); }
-  static bool IsArray(Handle<HeapType> t) { return IsStruct(t, 3); }
-  static bool IsFunction(Handle<HeapType> t) { return IsStruct(t, 4); }
-  static bool IsUnion(Handle<HeapType> t) { return IsStruct(t, 5); }
+  static bool IsUnion(Handle<HeapType> t) { return IsStruct(t, 6); }
 
   static Struct* AsStruct(Handle<HeapType> t) { return FixedArray::cast(*t); }
   static int AsBitset(Handle<HeapType> t) { return Smi::cast(*t)->value(); }
-  static Map* AsClass(Handle<HeapType> t) {
-    return t->IsMap() ? Map::cast(*t) : Map::cast(AsStruct(t)->get(2));
-  }
-  static Object* AsConstant(Handle<HeapType> t) { return AsStruct(t)->get(2); }
-  static HeapType* AsContext(Handle<HeapType> t) {
-    return HeapType::cast(AsStruct(t)->get(1));
-  }
   static Struct* AsUnion(Handle<HeapType> t) { return AsStruct(t); }
   static int Length(Struct* structured) { return structured->length() - 1; }
 
@@ -149,6 +121,15 @@ class Types {
       types.push_back(Type::Constant(*it, region));
     }
 
+    doubles.push_back(-0.0);
+    doubles.push_back(+0.0);
+    doubles.push_back(-std::numeric_limits<double>::infinity());
+    doubles.push_back(+std::numeric_limits<double>::infinity());
+    for (int i = 0; i < 10; ++i) {
+      doubles.push_back(rng_->NextInt());
+      doubles.push_back(rng_->NextDouble() * rng_->NextInt());
+    }
+
     NumberArray = Type::Array(Number, region);
     StringArray = Type::Array(String, region);
     AnyArray = Type::Array(Any, region);
@@ -158,7 +139,7 @@ class Types {
     NumberFunction2 = Type::Function(Number, Number, Number, region);
     MethodFunction = Type::Function(String, Object, 0, region);
 
-    for (int i = 0; i < 40; ++i) {
+    for (int i = 0; i < 30; ++i) {
       types.push_back(Fuzz());
     }
   }
@@ -201,9 +182,27 @@ class Types {
   typedef std::vector<TypeHandle> TypeVector;
   typedef std::vector<Handle<i::Map> > MapVector;
   typedef std::vector<Handle<i::Object> > ValueVector;
+  typedef std::vector<double> DoubleVector;
+
   TypeVector types;
   MapVector maps;
   ValueVector values;
+  DoubleVector doubles;  // Some floating-point values, excluding NaN.
+
+  // Range type helper functions, partially copied from types.cc.
+  // Note: dle(dmin(x,y), dmax(x,y)) holds iff neither x nor y is NaN.
+  bool dle(double x, double y) {
+    return x <= y && (x != 0 || IsMinusZero(x) || !IsMinusZero(y));
+  }
+  bool deq(double x, double y) {
+    return dle(x, y) && dle(y, x);
+  }
+  double dmin(double x, double y) {
+    return dle(x, y) ? x : y;
+  }
+  double dmax(double x, double y) {
+    return dle(x, y) ? y : x;
+  }
 
   TypeHandle Of(Handle<i::Object> value) {
     return Type::Of(value, region_);
@@ -215,6 +214,10 @@ class Types {
 
   TypeHandle Constant(Handle<i::Object> value) {
     return Type::Constant(value, region_);
+  }
+
+  TypeHandle Range(double min, double max) {
+    return Type::Range(min, max, region_);
   }
 
   TypeHandle Class(Handle<i::Map> map) {
@@ -289,16 +292,16 @@ class Types {
         return Type::Array(element, region_);
       }
       case 5:
-      case 6:
-      case 7: {  // function
+      case 6: {  // function
         TypeHandle result = Fuzz(depth / 2);
         TypeHandle receiver = Fuzz(depth / 2);
         int arity = rng_->NextInt(3);
         TypeHandle type = Type::Function(result, receiver, arity, region_);
         for (int i = 0; i < type->AsFunction()->Arity(); ++i) {
-          TypeHandle parameter = Fuzz(depth - 1);
+          TypeHandle parameter = Fuzz(depth / 2);
           type->AsFunction()->InitParameter(i, parameter);
         }
+        return type;
       }
       default: {  // union
         int n = rng_->NextInt(10);
@@ -327,6 +330,7 @@ struct Tests : Rep {
   typedef typename TypesInstance::TypeVector::iterator TypeIterator;
   typedef typename TypesInstance::MapVector::iterator MapIterator;
   typedef typename TypesInstance::ValueVector::iterator ValueIterator;
+  typedef typename TypesInstance::DoubleVector::iterator DoubleIterator;
 
   Isolate* isolate;
   HandleScope scope;
@@ -342,24 +346,14 @@ struct Tests : Rep {
 
   bool Equal(TypeHandle type1, TypeHandle type2) {
     return
-        type1->Is(type2) && type2->Is(type1) &&
+        type1->Equals(type2) &&
         Rep::IsBitset(type1) == Rep::IsBitset(type2) &&
-        Rep::IsClass(type1) == Rep::IsClass(type2) &&
-        Rep::IsConstant(type1) == Rep::IsConstant(type2) &&
-        Rep::IsContext(type1) == Rep::IsContext(type2) &&
-        Rep::IsArray(type1) == Rep::IsArray(type2) &&
-        Rep::IsFunction(type1) == Rep::IsFunction(type2) &&
         Rep::IsUnion(type1) == Rep::IsUnion(type2) &&
         type1->NumClasses() == type2->NumClasses() &&
         type1->NumConstants() == type2->NumConstants() &&
         (!Rep::IsBitset(type1) ||
           Rep::AsBitset(type1) == Rep::AsBitset(type2)) &&
-        (!Rep::IsClass(type1) ||
-          Rep::AsClass(type1) == Rep::AsClass(type2)) &&
-        (!Rep::IsConstant(type1) ||
-          Rep::AsConstant(type1) == Rep::AsConstant(type2)) &&
-          // TODO(rossberg): Check details of arrays, functions, bounds.
-          (!Rep::IsUnion(type1) ||
+        (!Rep::IsUnion(type1) ||
           Rep::Length(Rep::AsUnion(type1)) == Rep::Length(Rep::AsUnion(type2)));
   }
 
@@ -478,7 +472,7 @@ struct Tests : Rep {
     for (MapIterator mt = T.maps.begin(); mt != T.maps.end(); ++mt) {
       Handle<i::Map> map = *mt;
       TypeHandle type = T.Class(map);
-      CHECK(this->IsClass(type));
+      CHECK(type->IsClass());
     }
 
     // Map attribute
@@ -505,7 +499,7 @@ struct Tests : Rep {
     for (ValueIterator vt = T.values.begin(); vt != T.values.end(); ++vt) {
       Handle<i::Object> value = *vt;
       TypeHandle type = T.Constant(value);
-      CHECK(this->IsConstant(type));
+      CHECK(type->IsConstant());
     }
 
     // Value attribute
@@ -566,12 +560,60 @@ struct Tests : Rep {
     CHECK(T.Constant(fac->NewNumber(-V8_INFINITY))->Is(T.OtherNumber));
   }
 
+  void Range() {
+    // Constructor
+    for (DoubleIterator i = T.doubles.begin(); i != T.doubles.end(); ++i) {
+      for (DoubleIterator j = T.doubles.begin(); j != T.doubles.end(); ++j) {
+        double min = T.dmin(*i, *j);
+        double max = T.dmax(*i, *j);
+        TypeHandle type = T.Range(min, max);
+        CHECK(type->IsRange());
+      }
+    }
+
+    // Range attributes
+    for (DoubleIterator i = T.doubles.begin(); i != T.doubles.end(); ++i) {
+      for (DoubleIterator j = T.doubles.begin(); j != T.doubles.end(); ++j) {
+        double min = T.dmin(*i, *j);
+        double max = T.dmax(*i, *j);
+        printf("RangeType: min, max = %f, %f\n", min, max);
+        TypeHandle type = T.Range(min, max);
+        printf("RangeType: Min, Max = %f, %f\n",
+               type->AsRange()->Min(), type->AsRange()->Max());
+        CHECK(min == type->AsRange()->Min());
+        CHECK(max == type->AsRange()->Max());
+      }
+    }
+
+// TODO(neis): enable once subtyping is updated.
+//  // Functionality & Injectivity: Range(min1, max1) = Range(min2, max2) <=>
+//  //                              min1 = min2 /\ max1 = max2
+//  for (DoubleIterator i1 = T.doubles.begin(); i1 != T.doubles.end(); ++i1) {
+//    for (DoubleIterator j1 = T.doubles.begin(); j1 != T.doubles.end(); ++j1) {
+//      for (DoubleIterator i2 = T.doubles.begin();
+//           i2 != T.doubles.end(); ++i2) {
+//        for (DoubleIterator j2 = T.doubles.begin();
+//             j2 != T.doubles.end(); ++j2) {
+//          double min1 = T.dmin(*i1, *j1);
+//          double max1 = T.dmax(*i1, *j1);
+//          double min2 = T.dmin(*i2, *j2);
+//          double max2 = T.dmax(*i2, *j2);
+//          TypeHandle type1 = T.Range(min1, max1);
+//          TypeHandle type2 = T.Range(min2, max2);
+//          CHECK(Equal(type1, type2) ==
+//                (T.deq(min1, min2) && T.deq(max1, max2)));
+//        }
+//      }
+//    }
+//  }
+  }
+
   void Array() {
     // Constructor
     for (int i = 0; i < 20; ++i) {
       TypeHandle type = T.Random();
       TypeHandle array = T.Array1(type);
-      CHECK(this->IsArray(array));
+      CHECK(array->IsArray());
     }
 
     // Attributes
@@ -1791,6 +1833,13 @@ TEST(ConstantType) {
   CcTest::InitializeVM();
   ZoneTests().Constant();
   HeapTests().Constant();
+}
+
+
+TEST(RangeType) {
+  CcTest::InitializeVM();
+  ZoneTests().Range();
+  HeapTests().Range();
 }
 
 

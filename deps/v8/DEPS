@@ -14,11 +14,17 @@ deps = {
     "http://gyp.googlecode.com/svn/trunk@1831",
 
   "v8/third_party/icu":
-    Var("chromium_trunk") + "/deps/third_party/icu46@258359",
+    Var("chromium_trunk") + "/deps/third_party/icu52@277999",
 
   "v8/buildtools":
     "https://chromium.googlesource.com/chromium/buildtools.git@" +
     Var("buildtools_revision"),
+
+  "v8/testing/gtest":
+    "http://googletest.googlecode.com/svn/trunk@692",
+
+  "v8/testing/gmock":
+    "http://googlemock.googlecode.com/svn/trunk@485",
 }
 
 deps_os = {
@@ -35,6 +41,7 @@ include_rules = [
   # Everybody can use some things.
   "+include",
   "+unicode",
+  "+third_party/fdlibm",
 ]
 
 # checkdeps.py shouldn't check for includes in these directories:

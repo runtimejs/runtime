@@ -52,7 +52,7 @@ class AstString : public ZoneObject {
 
   // This function can be called after internalizing.
   V8_INLINE Handle<String> string() const {
-    ASSERT(!string_.is_null());
+    DCHECK(!string_.is_null());
     return string_;
   }
 
@@ -177,7 +177,7 @@ class AstValue : public ZoneObject {
     if (type_ == STRING) {
       return string_->string();
     }
-    ASSERT(!value_.is_null());
+    DCHECK(!value_.is_null());
     return value_;
   }
 
@@ -203,7 +203,7 @@ class AstValue : public ZoneObject {
   explicit AstValue(double n) : type_(NUMBER) { number_ = n; }
 
   AstValue(Type t, int i) : type_(t) {
-    ASSERT(type_ == SMI);
+    DCHECK(type_ == SMI);
     smi_ = i;
   }
 
@@ -214,7 +214,7 @@ class AstValue : public ZoneObject {
   }
 
   explicit AstValue(Type t) : type_(t) {
-    ASSERT(t == NULL_TYPE || t == UNDEFINED || t == THE_HOLE);
+    DCHECK(t == NULL_TYPE || t == UNDEFINED || t == THE_HOLE);
   }
 
   Type type_;
@@ -243,7 +243,6 @@ class AstValue : public ZoneObject {
   F(dot_for, ".for") \
   F(dot_generator, ".generator") \
   F(dot_generator_object, ".generator_object") \
-  F(dot_iterable, ".iterable") \
   F(dot_iterator, ".iterator") \
   F(dot_module, ".module") \
   F(dot_result, ".result") \

@@ -137,7 +137,7 @@ inline MemOperand UntagSmiFieldMemOperand(Register rm, int offset) {
 //              n64, and used in RegExp code, and other places
 //              with more than 8 arguments.
 inline MemOperand CFunctionArgumentOperand(int index) {
-  ASSERT(index > kCArgSlotCount);
+  DCHECK(index > kCArgSlotCount);
   // Argument 5 takes the slot just past the four Arg-slots.
   int offset = (index - 5) * kPointerSize + kCArgsSlotsSize;
   return MemOperand(sp, offset);
@@ -477,7 +477,7 @@ class MacroAssembler: public Assembler {
   // nop(type)). These instructions are generated to mark special location in
   // the code, like some special IC code.
   static inline bool IsMarkedCode(Instr instr, int type) {
-    ASSERT((FIRST_IC_MARKER <= type) && (type < LAST_CODE_MARKER));
+    DCHECK((FIRST_IC_MARKER <= type) && (type < LAST_CODE_MARKER));
     return IsNop(instr, type);
   }
 
@@ -495,7 +495,7 @@ class MacroAssembler: public Assembler {
                   rs == static_cast<uint32_t>(ToNumber(zero_reg)));
     int type =
         (sllzz && FIRST_IC_MARKER <= sa && sa < LAST_CODE_MARKER) ? sa : -1;
-    ASSERT((type == -1) ||
+    DCHECK((type == -1) ||
            ((FIRST_IC_MARKER <= type) && (type < LAST_CODE_MARKER)));
     return type;
   }
@@ -606,10 +606,14 @@ class MacroAssembler: public Assembler {
 
   DEFINE_INSTRUCTION(Addu);
   DEFINE_INSTRUCTION(Daddu);
+  DEFINE_INSTRUCTION(Ddiv);
   DEFINE_INSTRUCTION(Subu);
   DEFINE_INSTRUCTION(Dsubu);
+  DEFINE_INSTRUCTION(Dmod);
   DEFINE_INSTRUCTION(Mul);
+  DEFINE_INSTRUCTION(Mulh);
   DEFINE_INSTRUCTION(Dmul);
+  DEFINE_INSTRUCTION(Dmulh);
   DEFINE_INSTRUCTION2(Mult);
   DEFINE_INSTRUCTION2(Dmult);
   DEFINE_INSTRUCTION2(Multu);
@@ -724,7 +728,7 @@ class MacroAssembler: public Assembler {
 
   // Pop two registers. Pops rightmost register first (from lower address).
   void Pop(Register src1, Register src2) {
-    ASSERT(!src1.is(src2));
+    DCHECK(!src1.is(src2));
     ld(src2, MemOperand(sp, 0 * kPointerSize));
     ld(src1, MemOperand(sp, 1 * kPointerSize));
     Daddu(sp, sp, 2 * kPointerSize);
@@ -746,12 +750,9 @@ class MacroAssembler: public Assembler {
   // RegList constant kSafepointSavedRegisters.
   void PushSafepointRegisters();
   void PopSafepointRegisters();
-  void PushSafepointRegistersAndDoubles();
-  void PopSafepointRegistersAndDoubles();
   // Store value in register src in the safepoint stack slot for
   // register dst.
   void StoreToSafepointRegisterSlot(Register src, Register dst);
-  void StoreToSafepointRegistersAndDoublesSlot(Register src, Register dst);
   // Load the value of the src register from its safepoint stack slot
   // into register dst.
   void LoadFromSafepointRegisterSlot(Register dst, Register src);
@@ -1129,7 +1130,7 @@ class MacroAssembler: public Assembler {
     ld(type, FieldMemOperand(obj, HeapObject::kMapOffset));
     lbu(type, FieldMemOperand(type, Map::kInstanceTypeOffset));
     And(type, type, Operand(kIsNotStringMask));
-    ASSERT_EQ(0, kStringTag);
+    DCHECK_EQ(0, kStringTag);
     return eq;
   }
 
@@ -1341,7 +1342,7 @@ const Operand& rt = Operand(zero_reg), BranchDelaySlot bd = PROTECT
   };
 
   Handle<Object> CodeObject() {
-    ASSERT(!code_object_.is_null());
+    DCHECK(!code_object_.is_null());
     return code_object_;
   }
 
@@ -1452,7 +1453,7 @@ const Operand& rt = Operand(zero_reg), BranchDelaySlot bd = PROTECT
       // The int portion is upper 32-bits of 64-bit word.
       dsra(dst, src, kSmiShift - scale);
     } else {
-      ASSERT(scale >= kSmiTagSize);
+      DCHECK(scale >= kSmiTagSize);
       sll(dst, src, scale - kSmiTagSize);
     }
   }

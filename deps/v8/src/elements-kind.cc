@@ -65,15 +65,6 @@ const char* ElementsKindToString(ElementsKind kind) {
 }
 
 
-ElementsKind GetInitialFastElementsKind() {
-  if (FLAG_packed_arrays) {
-    return FAST_SMI_ELEMENTS;
-  } else {
-    return FAST_HOLEY_SMI_ELEMENTS;
-  }
-}
-
-
 struct InitializeFastElementsKindSequence {
   static void Construct(
       ElementsKind** fast_elements_kind_sequence_ptr) {
@@ -105,7 +96,7 @@ static base::LazyInstance<ElementsKind*,
 
 
 ElementsKind GetFastElementsKindFromSequenceIndex(int sequence_number) {
-  ASSERT(sequence_number >= 0 &&
+  DCHECK(sequence_number >= 0 &&
          sequence_number < kFastElementsKindCount);
   return fast_elements_kind_sequence.Get()[sequence_number];
 }
@@ -139,8 +130,8 @@ ElementsKind GetNextTransitionElementsKind(ElementsKind kind) {
 
 ElementsKind GetNextMoreGeneralFastElementsKind(ElementsKind elements_kind,
                                                 bool allow_only_packed) {
-  ASSERT(IsFastElementsKind(elements_kind));
-  ASSERT(elements_kind != TERMINAL_FAST_ELEMENTS_KIND);
+  DCHECK(IsFastElementsKind(elements_kind));
+  DCHECK(elements_kind != TERMINAL_FAST_ELEMENTS_KIND);
   while (true) {
     elements_kind = GetNextTransitionElementsKind(elements_kind);
     if (!IsFastHoleyElementsKind(elements_kind) || !allow_only_packed) {

@@ -6,8 +6,9 @@
 
 #include "src/disasm.h"
 #include "src/disassembler.h"
+#include "src/heap/objects-visiting.h"
 #include "src/jsregexp.h"
-#include "src/objects-visiting.h"
+#include "src/ostreams.h"
 
 namespace v8 {
 namespace internal {
@@ -485,7 +486,8 @@ void PolymorphicCodeCache::PolymorphicCodeCachePrint(OStream& os) {  // NOLINT
 void TypeFeedbackInfo::TypeFeedbackInfoPrint(OStream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "TypeFeedbackInfo");
   os << " - ic_total_count: " << ic_total_count()
-     << ", ic_with_type_info_count: " << ic_with_type_info_count() << "\n";
+     << ", ic_with_type_info_count: " << ic_with_type_info_count()
+     << ", ic_generic_count: " << ic_generic_count() << "\n";
 }
 
 

@@ -14,6 +14,10 @@
 namespace v8 {
 namespace internal {
 
+namespace compiler {
+class RCodeVisualizer;
+}
+
 // Forward declarations.
 class LCodeGen;
 
@@ -112,6 +116,7 @@ class LCodeGen;
   V(MathClz32)                                  \
   V(MathExp)                                    \
   V(MathFloor)                                  \
+  V(MathFround)                                 \
   V(MathLog)                                    \
   V(MathMinMax)                                 \
   V(MathPowHalf)                                \
@@ -171,7 +176,7 @@ class LCodeGen;
     return mnemonic;                                                        \
   }                                                                         \
   static L##type* cast(LInstruction* instr) {                               \
-    ASSERT(instr->Is##type());                                              \
+    DCHECK(instr->Is##type());                                              \
     return reinterpret_cast<L##type*>(instr);                               \
   }
 
@@ -201,7 +206,7 @@ class LInstruction : public ZoneObject {
   enum Opcode {
     // Declare a unique enum value for each instruction.
 #define DECLARE_OPCODE(type) k##type,
-    LITHIUM_CONCRETE_INSTRUCTION_LIST(DECLARE_OPCODE)
+    LITHIUM_CONCRETE_INSTRUCTION_LIST(DECLARE_OPCODE) kAdapter,
     kNumberOfInstructions
 #undef DECLARE_OPCODE
   };
@@ -219,6 +224,9 @@ class LInstruction : public ZoneObject {
   virtual bool IsGap() const { return false; }
 
   virtual bool IsControl() const { return false; }
+
+  // Try deleting this instruction if possible.
+  virtual bool TryDelete() { return false; }
 
   void set_environment(LEnvironment* env) { environment_ = env; }
   LEnvironment* environment() const { return environment_; }
@@ -262,11 +270,12 @@ class LInstruction : public ZoneObject {
   void VerifyCall();
 #endif
 
+  virtual int InputCount() = 0;
+  virtual LOperand* InputAt(int i) = 0;
+
  private:
   // Iterator support.
   friend class InputIterator;
-  virtual int InputCount() = 0;
-  virtual LOperand* InputAt(int i) = 0;
 
   friend class TempIterator;
   virtual int TempCount() = 0;
@@ -330,7 +339,7 @@ class LGap : public LTemplateInstruction<0, 0, 0> {
   virtual bool IsGap() const V8_FINAL V8_OVERRIDE { return true; }
   virtual void PrintDataTo(StringStream* stream) V8_OVERRIDE;
   static LGap* cast(LInstruction* instr) {
-    ASSERT(instr->IsGap());
+    DCHECK(instr->IsGap());
     return reinterpret_cast<LGap*>(instr);
   }
 
@@ -870,6 +879,16 @@ class LMathRound V8_FINAL : public LTemplateInstruction<1, 1, 0> {
 
   DECLARE_CONCRETE_INSTRUCTION(MathRound, "math-round")
   DECLARE_HYDROGEN_ACCESSOR(UnaryMathOperation)
+};
+
+
+class LMathFround V8_FINAL : public LTemplateInstruction<1, 1, 0> {
+ public:
+  explicit LMathFround(LOperand* value) { inputs_[0] = value; }
+
+  LOperand* value() { return inputs_[0]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(MathFround, "math-fround")
 };
 
 
@@ -1570,7 +1589,7 @@ class LReturn V8_FINAL : public LTemplateInstruction<0, 3, 0> {
     return parameter_count()->IsConstantOperand();
   }
   LConstantOperand* constant_parameter_count() {
-    ASSERT(has_constant_parameter_count());
+    DCHECK(has_constant_parameter_count());
     return LConstantOperand::cast(parameter_count());
   }
   LOperand* parameter_count() { return inputs_[2]; }
@@ -1593,15 +1612,17 @@ class LLoadNamedField V8_FINAL : public LTemplateInstruction<1, 1, 0> {
 };
 
 
-class LLoadNamedGeneric V8_FINAL : public LTemplateInstruction<1, 2, 0> {
+class LLoadNamedGeneric V8_FINAL : public LTemplateInstruction<1, 2, 1> {
  public:
-  LLoadNamedGeneric(LOperand* context, LOperand* object) {
+  LLoadNamedGeneric(LOperand* context, LOperand* object, LOperand* vector) {
     inputs_[0] = context;
     inputs_[1] = object;
+    temps_[0] = vector;
   }
 
   LOperand* context() { return inputs_[0]; }
   LOperand* object() { return inputs_[1]; }
+  LOperand* temp_vector() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadNamedGeneric, "load-named-generic")
   DECLARE_HYDROGEN_ACCESSOR(LoadNamedGeneric)
@@ -1682,19 +1703,23 @@ inline static bool ExternalArrayOpRequiresTemp(
 }
 
 
-class LLoadKeyedGeneric V8_FINAL : public LTemplateInstruction<1, 3, 0> {
+class LLoadKeyedGeneric V8_FINAL : public LTemplateInstruction<1, 3, 1> {
  public:
-  LLoadKeyedGeneric(LOperand* context, LOperand* obj, LOperand* key) {
+  LLoadKeyedGeneric(LOperand* context, LOperand* obj, LOperand* key,
+                    LOperand* vector) {
     inputs_[0] = context;
     inputs_[1] = obj;
     inputs_[2] = key;
+    temps_[0] = vector;
   }
 
   LOperand* context() { return inputs_[0]; }
   LOperand* object() { return inputs_[1]; }
   LOperand* key() { return inputs_[2]; }
+  LOperand* temp_vector() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadKeyedGeneric, "load-keyed-generic")
+  DECLARE_HYDROGEN_ACCESSOR(LoadKeyedGeneric)
 };
 
 
@@ -1705,15 +1730,18 @@ class LLoadGlobalCell V8_FINAL : public LTemplateInstruction<1, 0, 0> {
 };
 
 
-class LLoadGlobalGeneric V8_FINAL : public LTemplateInstruction<1, 2, 0> {
+class LLoadGlobalGeneric V8_FINAL : public LTemplateInstruction<1, 2, 1> {
  public:
-  LLoadGlobalGeneric(LOperand* context, LOperand* global_object) {
+  LLoadGlobalGeneric(LOperand* context, LOperand* global_object,
+                     LOperand* vector) {
     inputs_[0] = context;
     inputs_[1] = global_object;
+    temps_[0] = vector;
   }
 
   LOperand* context() { return inputs_[0]; }
   LOperand* global_object() { return inputs_[1]; }
+  LOperand* temp_vector() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadGlobalGeneric, "load-global-generic")
   DECLARE_HYDROGEN_ACCESSOR(LoadGlobalGeneric)
@@ -1878,11 +1906,11 @@ class LCallJSFunction V8_FINAL : public LTemplateInstruction<1, 1, 0> {
 
 class LCallWithDescriptor V8_FINAL : public LTemplateResultInstruction<1> {
  public:
-  LCallWithDescriptor(const CallInterfaceDescriptor* descriptor,
+  LCallWithDescriptor(const InterfaceDescriptor* descriptor,
                       const ZoneList<LOperand*>& operands,
                       Zone* zone)
-    : inputs_(descriptor->environment_length() + 1, zone) {
-    ASSERT(descriptor->environment_length() + 1 == operands.length());
+    : inputs_(descriptor->GetRegisterParameterCount() + 1, zone) {
+    DCHECK(descriptor->GetRegisterParameterCount() + 1 == operands.length());
     inputs_.AddAll(operands, zone);
   }
 
@@ -2742,6 +2770,7 @@ class LChunkBuilder V8_FINAL : public LChunkBuilderBase {
 
   LInstruction* DoMathFloor(HUnaryMathOperation* instr);
   LInstruction* DoMathRound(HUnaryMathOperation* instr);
+  LInstruction* DoMathFround(HUnaryMathOperation* instr);
   LInstruction* DoMathAbs(HUnaryMathOperation* instr);
   LInstruction* DoMathLog(HUnaryMathOperation* instr);
   LInstruction* DoMathExp(HUnaryMathOperation* instr);

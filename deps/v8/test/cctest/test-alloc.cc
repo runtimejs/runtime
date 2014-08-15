@@ -66,7 +66,7 @@ static AllocationResult AllocateAfterFailures() {
   static const int kLargeObjectSpaceFillerLength = 300000;
   static const int kLargeObjectSpaceFillerSize = FixedArray::SizeFor(
       kLargeObjectSpaceFillerLength);
-  ASSERT(kLargeObjectSpaceFillerSize > heap->old_pointer_space()->AreaSize());
+  DCHECK(kLargeObjectSpaceFillerSize > heap->old_pointer_space()->AreaSize());
   while (heap->OldGenerationSpaceAvailable() > kLargeObjectSpaceFillerSize) {
     heap->AllocateFixedArray(
         kLargeObjectSpaceFillerLength, TENURED).ToObjectChecked();
@@ -146,7 +146,7 @@ TEST(StressJS) {
   // Patch the map to have an accessor for "get".
   Handle<Map> map(function->initial_map());
   Handle<DescriptorArray> instance_descriptors(map->instance_descriptors());
-  ASSERT(instance_descriptors->IsEmpty());
+  DCHECK(instance_descriptors->IsEmpty());
 
   PropertyAttributes attrs = static_cast<PropertyAttributes>(0);
   Handle<AccessorInfo> foreign = TestAccessorInfo(isolate, attrs);
@@ -201,7 +201,7 @@ TEST(CodeRange) {
   code_range.SetUp(code_range_size);
   size_t current_allocated = 0;
   size_t total_allocated = 0;
-  List<Block> blocks(1000);
+  List< ::Block> blocks(1000);
 
   while (total_allocated < 5 * code_range_size) {
     if (current_allocated < code_range_size / 10) {
@@ -218,7 +218,7 @@ TEST(CodeRange) {
                                                   requested,
                                                   &allocated);
       CHECK(base != NULL);
-      blocks.Add(Block(base, static_cast<int>(allocated)));
+      blocks.Add(::Block(base, static_cast<int>(allocated)));
       current_allocated += static_cast<int>(allocated);
       total_allocated += static_cast<int>(allocated);
     } else {

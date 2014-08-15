@@ -472,8 +472,6 @@ TEST(HeapSnapshotConsString) {
 
 
 TEST(HeapSnapshotSymbol) {
-  i::FLAG_harmony_symbols = true;
-
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
@@ -496,8 +494,6 @@ TEST(HeapSnapshotSymbol) {
 
 
 TEST(HeapSnapshotWeakCollection) {
-  i::FLAG_harmony_collections = true;
-
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
@@ -572,8 +568,6 @@ TEST(HeapSnapshotWeakCollection) {
 
 
 TEST(HeapSnapshotCollection) {
-  i::FLAG_harmony_collections = true;
-
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
@@ -868,7 +862,7 @@ class TestJSONStream : public v8::OutputStream {
     return kContinue;
   }
   virtual WriteResult WriteUint32Chunk(uint32_t* buffer, int chars_written) {
-    ASSERT(false);
+    DCHECK(false);
     return kAbort;
   }
   void WriteTo(i::Vector<char> dest) { buffer_.WriteTo(dest); }
@@ -1037,13 +1031,13 @@ class TestStatsStream : public v8::OutputStream {
   virtual ~TestStatsStream() {}
   virtual void EndOfStream() { ++eos_signaled_; }
   virtual WriteResult WriteAsciiChunk(char* buffer, int chars_written) {
-    ASSERT(false);
+    DCHECK(false);
     return kAbort;
   }
   virtual WriteResult WriteHeapStatsChunk(v8::HeapStatsUpdate* buffer,
                                           int updates_written) {
     ++intervals_count_;
-    ASSERT(updates_written);
+    DCHECK(updates_written);
     updates_written_ += updates_written;
     entries_count_ = 0;
     if (first_interval_index_ == -1 && updates_written != 0)
@@ -2412,7 +2406,7 @@ TEST(ArrayGrowLeftTrim) {
     "for (var i = 0; i < 3; ++i)\n"
     "    a.shift();\n");
 
-  const char* names[] = { "(anonymous function)" };
+  const char* names[] = {""};
   AllocationTracker* tracker =
       reinterpret_cast<i::HeapProfiler*>(heap_profiler)->allocation_tracker();
   CHECK_NE(NULL, tracker);
@@ -2447,8 +2441,7 @@ TEST(TrackHeapAllocations) {
   // Print for better diagnostics in case of failure.
   tracker->trace_tree()->Print(tracker);
 
-  const char* names[] =
-      { "(anonymous function)", "start", "f_0_0", "f_0_1", "f_0_2" };
+  const char* names[] = {"", "start", "f_0_0", "f_0_1", "f_0_2"};
   AllocationTraceNode* node =
       FindNode(tracker, Vector<const char*>(names, ARRAY_SIZE(names)));
   CHECK_NE(NULL, node);
@@ -2483,7 +2476,7 @@ TEST(TrackBumpPointerAllocations) {
   LocalContext env;
 
   v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
-  const char* names[] = { "(anonymous function)", "start", "f_0", "f_1" };
+  const char* names[] = {"", "start", "f_0", "f_1"};
   // First check that normally all allocations are recorded.
   {
     heap_profiler->StartTrackingHeapObjects(true);
@@ -2617,7 +2610,7 @@ TEST(ArrayBufferSharedBackingStore) {
 
   CHECK_EQ(1024, static_cast<int>(ab_contents.ByteLength()));
   void* data = ab_contents.Data();
-  ASSERT(data != NULL);
+  DCHECK(data != NULL);
   v8::Local<v8::ArrayBuffer> ab2 =
       v8::ArrayBuffer::New(isolate, data, ab_contents.ByteLength());
   CHECK(ab2->IsExternal());
