@@ -34,8 +34,9 @@ public:
         RT_ASSERT(!buffer.IsEmpty());
         RT_ASSERT(buffer->IsArrayBuffer());
         if (buffer->IsExternal()) {
-            return reinterpret_cast<ArrayBuffer*>(buffer
-                ->GetAlignedPointerFromInternalField(kInternalFieldIndex));
+            void* ptr = buffer->GetAlignedPointerFromInternalField(kInternalFieldIndex);
+            RT_ASSERT(ptr);
+            return reinterpret_cast<ArrayBuffer*>(ptr);
         }
 
         auto contents = buffer->Externalize();

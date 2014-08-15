@@ -17,7 +17,10 @@
 #include <kernel/kernel.h>
 #include <kernel/string.h>
 #include <kernel/vector.h>
+#include <common/utils.h>
 #include <v8.h>
+
+using common::Nullable;
 
 #define NATIVE_FUNCTION(TypeName, FuncName) 									\
     void TypeName::FuncName(const v8::FunctionCallbackInfo<v8::Value>& args)
@@ -83,7 +86,8 @@ public:
         ARRAYBUFFER,
         NUMBER,
         ARRAY,
-        BOOL
+        BOOL,
+        PROMISE,
     };
 
     inline static String ToString(const v8::Local<v8::String> str) {
@@ -127,6 +131,7 @@ public:
         case ArgType::NUMBER: return arg->IsNumber();
         case ArgType::ARRAY: return arg->IsArray();
         case ArgType::BOOL: return arg->IsBoolean();
+        case ArgType::PROMISE: return arg->IsPromise();
         default:
             RT_ASSERT(!"Invalid type");
             return false;
@@ -202,6 +207,20 @@ public:
         return std::move(data_[index]);
     }
 
+    Nullable<uint32_t> Find(v8::Local<T> value) {
+        for (uint32_t i = 0; i < data_.size(); ++i) {
+            if (data_[i].IsEmpty()) {
+                continue;
+            }
+
+            if (data_[i] == value) {
+                return Nullable<uint32_t>(i);
+            }
+        }
+
+        return Nullable<uint32_t>();
+    }
+
     v8::Local<T> GetLocal(v8::Isolate* iv8, uint32_t index) const {
         RT_ASSERT(index < data_.size());
         RT_ASSERT(iv8);
@@ -212,7 +231,6 @@ public:
     void Clear() {
         data_.clear();
     }
-
 private:
     SharedSTLVector<v8::UniquePersistent<T>> data_;
 };

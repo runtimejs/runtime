@@ -72,6 +72,9 @@ function(pciDrivers, resources, vfs) {
                             {offset: 0x20, shift: 0, mask: 0xffffffff},
                             {offset: 0x24, shift: 0, mask: 0xffffffff}],
 
+            SUBSYS_VENDOR:  {offset: 0x2c, shift: 0, mask: 0xffff},
+            SUBSYS_ID:      {offset: 0x2c, shift: 2, mask: 0xffff},
+
             INTERRUPT_LINE: {offset: 0x3c, shift: 0, mask: 0xff},
             INTERRUPT_PIN:  {offset: 0x3c, shift: 1, mask: 0xff},
         };
@@ -486,6 +489,17 @@ function(pciDrivers, resources, vfs) {
             };
         };
 
+        this.subsystemData = function __subsystemData() {
+            if (isBridge) {
+                throw new Error('device is a bridge');
+            }
+
+            return {
+                subsystemId: pciAccessor.read(pciAccessor.generalFields().SUBSYS_ID),
+                subsystemVendor: pciAccessor.read(pciAccessor.generalFields().SUBSYS_VENDOR),
+            };
+        };
+
         /**
          * Read PCI base address register (BAR) and return resource type,
          * offset, size and object. Returns null is BAR is not valid
@@ -766,6 +780,8 @@ function(pciDrivers, resources, vfs) {
             pci: {
                 bars: argsBars,
                 irq: irqObject,
+                classData: pciDevice.classData(),
+                subsystemData: pciDevice.subsystemData(),
             },
             allocator: allocator,
         }

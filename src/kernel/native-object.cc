@@ -75,6 +75,45 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
     args.GetReturnValue().Set(promise_resolver);
 }
 
+NATIVE_FUNCTION(NativesObject, SyncRPC) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    VALIDATEARG(0, PROMISE, "syncRPC: argument 0 is not a promise");
+
+    Nullable<uint32_t> pr = th->FindPromise(arg0.As<v8::Promise::Resolver>());
+    if (pr.empty()) {
+        THROW_ERROR("syncRPC: promise is not attached to RPC call");
+    }
+
+    uint32_t promise_id = pr.get();
+    std::unique_ptr<ThreadMessage> message { nullptr };
+    do {
+        message = th->handle().getUnsafe()
+            ->TakePromiseResultMessage(promise_id);
+
+        if (nullptr != message) {
+            break;
+        }
+
+        Cpu::WaitPause();
+        RT_ASSERT(th->thread_manager());
+        th->thread_manager()->Preempt();
+    } while (true);
+
+    RT_ASSERT(message);
+    RT_ASSERT(promise_id == message->recv_index());
+    v8::Local<v8::Value> unpacked { message->data().Unpack(th) };
+    RT_ASSERT(!unpacked.IsEmpty());
+
+    th->TakePromise(message->recv_index());
+
+    if (ThreadMessage::Type::FUNCTION_RETURN_RESOLVE == message->type()) {
+        args.GetReturnValue().Set(unpacked); // Return value directly
+    } else {
+        iv8->ThrowException(unpacked); // Throw an error
+    }
+}
+
 NATIVE_FUNCTION(NativesObject, CallResult) {
     PROLOGUE_NOTHIS;
     RT_ASSERT(4 == args.Length());
@@ -240,8 +279,8 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     uint32_t low = static_cast<uint32_t>(addr & 0xffffffffull);
 
     auto arr = v8::Array::New(iv8, 2);
-    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, high));
-    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, low));
+    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, low));
+    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, high));
     args.GetReturnValue().Set(arr);
 }
 
@@ -308,6 +347,31 @@ NATIVE_FUNCTION(NativesObject, Exit) {
     th->SetExitValue(arg0);
 }
 
+NATIVE_FUNCTION(NativesObject, Eval) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    USEARG(1);
+    VALIDATEARG(0, STRING, "eval: argument 0 is not a string");
+
+    v8::TryCatch trycatch;
+    v8::ScriptOrigin origin((!arg1.IsEmpty() && arg1->IsString())
+                            ? arg1->ToString() : v8::String::Empty(iv8));
+    v8::ScriptCompiler::Source source(arg0->ToString(), origin);
+    v8::Local<v8::Script> script = v8::ScriptCompiler::Compile(iv8, &source,
+        v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
+
+    if (!script.IsEmpty()) {
+        v8::Local<v8::Value> result = script->Run();
+        if (!result.IsEmpty()) {
+            args.GetReturnValue().Set(result);
+        }
+    }
+
+    if (trycatch.HasCaught()) {
+        trycatch.ReThrow();
+    }
+}
+
 NATIVE_FUNCTION(NativesObject, Version) {
     PROLOGUE_NOTHIS;
 
@@ -347,15 +411,47 @@ NATIVE_FUNCTION(NativesObject, Reboot) {
     Cpu::HangSystem();
 }
 
+void PrintMemory(void* buf, size_t offset, size_t size) {
+    uint8_t* p = reinterpret_cast<uint8_t*>(buf);
+    size_t counter = 0;
+    for (size_t i = offset; i < size; ++i) {
+        ++counter;
+        printf("0x%02x ", p[i]);
+        if (0 == counter % 16) {
+            printf("\n");
+        } else if (0 == counter % 8) {
+            printf("| ");
+        }
+    }
+    printf("\n");
+}
+
 NATIVE_FUNCTION(NativesObject, Debug) {
     PROLOGUE_NOTHIS;
+    USEARG(0);
 
-    uint32_t val_2 = *reinterpret_cast<uint32_t*>(0xfebd0000);
-    printf("VAL_2 = %x\n", val_2);
+    printf(" --- DEBUG --- \n");
+    if (arg0->IsArrayBufferView()) {
+        v8::Local<v8::ArrayBufferView> view = arg0.As<v8::ArrayBufferView>();
+        auto ab = ArrayBuffer::FromInstance(iv8, view->Buffer());
+        auto offset = view->ByteOffset();
+        printf("[ ArrayBufferView  ptr=%p offset=%lu bufsize=%lu ]\n", ab->data(), offset, ab->size());
+        if (0 != ab->size()) {
+            PrintMemory(ab->data(), offset, std::min(ab->size(), (size_t)384));
+        }
+    }
+
+    if (arg0->IsArrayBuffer()) {
+        v8::Local<v8::ArrayBuffer> buf = arg0.As<v8::ArrayBuffer>();
+        auto ab = ArrayBuffer::FromInstance(iv8, buf);
+        printf("[ ArrayBuffer  ptr=%p bufsize=%lu ]\n", ab->data(), ab->size());
+        if (0 != ab->size()) {
+            PrintMemory(ab->data(), 0, std::min(ab->size(), (size_t)384));
+        }
+    }
+
+    printf(" --- STOP --- \n");
     Cpu::HangSystem();
-
-
-    RT_ASSERT(!"debug");
 }
 
 NATIVE_FUNCTION(NativesObject, StopVideoLog) {
@@ -986,7 +1082,8 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     v8::Local<v8::Object> ret { v8::Object::New(iv8) };
     ret->Set(s_address, v8::Uint32::New(iv8, static_cast<uint32_t>(ptrvalue)));
     ret->Set(s_size, v8::Uint32::New(iv8, static_cast<uint32_t>(size)));
-    ret->Set(s_buffer, v8::ArrayBuffer::New(iv8, ptr, size));
+    ret->Set(s_buffer, ArrayBuffer::FromBuffer(iv8, ptr, size)->GetInstance());
+
 
     args.GetReturnValue().Set(ret);
 }

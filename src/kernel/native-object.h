@@ -34,6 +34,7 @@ public:
     NativesObject() : JsObjectWrapper() {}
 
     DECLARE_NATIVE(CallHandler);
+    DECLARE_NATIVE(SyncRPC);
     DECLARE_NATIVE(SetTimeout);
     DECLARE_NATIVE(KernelLog);
     DECLARE_NATIVE(InitrdText);
@@ -41,6 +42,7 @@ public:
     DECLARE_NATIVE(Resources);
     DECLARE_NATIVE(Version);
     DECLARE_NATIVE(Exit);
+    DECLARE_NATIVE(Eval);
     DECLARE_NATIVE(Args);
     DECLARE_NATIVE(InstallInternals);
     DECLARE_NATIVE(CallResult);

@@ -70,6 +70,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New() };
         isolate->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
         isolate->Set(iv8_, "exit", v8::FunctionTemplate::New(iv8_, NativesObject::Exit));
+        isolate->Set(iv8_, "eval", v8::FunctionTemplate::New(iv8_, NativesObject::Eval));
         isolate->Set(iv8_, "data", v8::Null(iv8_));
         isolate->Set(iv8_, "env", v8::Null(iv8_));
         isolate->Set(iv8_, "system", v8::Null(iv8_));
@@ -81,6 +82,8 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
         v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
         runtime->Set(iv8_, "bufferAddress", v8::FunctionTemplate::New(iv8_, NativesObject::BufferAddress));
+        runtime->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
+        runtime->Set(iv8_, "syncRPC", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "runtime", runtime);
 
         global_object_template_.Set(iv8_, global);

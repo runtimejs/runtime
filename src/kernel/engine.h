@@ -51,6 +51,10 @@ public:
             recv_index_(recv_index),
             reusable_(false) {}
 
+    ~ThreadMessage() {
+        RT_ASSERT(!reusable_);
+    }
+
     Type type() const { return type_; }
     const TransportData& data() { return data_; }
 
@@ -110,6 +114,32 @@ public:
             messages_.reserve(128);
         }
         return s;
+    }
+
+    /**
+     * Get promise resolve/reject message from message queue
+     */
+    std::unique_ptr<ThreadMessage> TakePromiseResultMessage(uint32_t promise_id) {
+        NoInterrupsScope no_interrups;
+        ScopedLock lock(c_locker_);
+        if (0 == messages_.size()) return nullptr;
+        for (size_t i = 0; i < messages_.size(); ++i) {
+            ThreadMessage* message = messages_[i];
+            if (nullptr == message) {
+                continue;
+            }
+
+            RT_ASSERT(message);
+            if (ThreadMessage::Type::FUNCTION_RETURN_RESOLVE == message->type() ||
+                ThreadMessage::Type::FUNCTION_RETURN_REJECT == message->type()) {
+                if (message->recv_index() == promise_id) {
+                    RT_ASSERT(!message->reusable());
+                    messages_[i] = nullptr; // remove from queue
+                    return std::unique_ptr<ThreadMessage>(message);
+                }
+            }
+        }
+        return nullptr;
     }
 
     /**

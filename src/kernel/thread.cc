@@ -195,7 +195,9 @@ bool Thread::Run() {
     v8::TryCatch trycatch;
 
     for (ThreadMessage* message : messages) {
-        RT_ASSERT(message);
+        if (nullptr == message) {
+            continue; // Skip removed message
+        }
 
         ThreadMessage::Type type = message->type();
 

@@ -23,6 +23,7 @@
 #include <kernel/atomic.h>
 #include <kernel/resource.h>
 #include <common/constants.h>
+#include <common/utils.h>
 #include <kernel/timeouts.h>
 #include <kernel/transport.h>
 #include <kernel/v8utils.h>
@@ -33,6 +34,8 @@ namespace rt {
 class ThreadManager;
 class Interface;
 class EngineThread;
+
+using common::Nullable;
 
 class FunctionExportData {
 public:
@@ -166,6 +169,10 @@ public:
     uint32_t AddPromise(v8::UniquePersistent<v8::Promise::Resolver> resolver) {
         Ref();
         return promises_.Push(std::move(resolver));
+    }
+
+    Nullable<uint32_t> FindPromise(v8::Local<v8::Promise::Resolver> resolver) {
+        return promises_.Find(resolver);
     }
 
     v8::UniquePersistent<v8::Promise::Resolver> TakePromise(uint32_t index) {
