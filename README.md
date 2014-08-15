@@ -7,7 +7,9 @@ The goal of this project is to design and implement a kernel that is optimized t
 
 It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
 
-You can use mailing list to ask any questions or share your ideas https://groups.google.com/group/runtimejs
+You can use issues section to ask any questions or share your ideas https://github.com/runtimejs/runtime/issues
+
+Or mailing list https://groups.google.com/group/runtimejs
 
 Join IRC chatroom #runtimejs on freenode
 
