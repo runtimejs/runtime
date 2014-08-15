@@ -35,9 +35,6 @@
     'variables': {
       'android_ndk_root%': '<!(/bin/echo -n $ANDROID_NDK_ROOT)',
       'android_toolchain%': '<!(/bin/echo -n $ANDROID_TOOLCHAIN)',
-      # This is set when building the Android WebView inside the Android build
-      # system, using the 'android' gyp backend.
-      'android_webview_build%': 0,
     },
     'conditions': [
       ['android_ndk_root==""', {
@@ -64,8 +61,6 @@
     # link the NDK one?
     'use_system_stlport%': '<(android_webview_build)',
     'android_stlport_library': 'stlport_static',
-    # Copy it out one scope.
-    'android_webview_build%': '<(android_webview_build)',
   },  # variables
   'target_defaults': {
     'defines': [
@@ -80,7 +75,12 @@
       },  # Release
     },  # configurations
     'cflags': [ '-Wno-abi', '-Wall', '-W', '-Wno-unused-parameter',
-                '-Wnon-virtual-dtor', '-fno-rtti', '-fno-exceptions', ],
+                '-Wnon-virtual-dtor', '-fno-rtti', '-fno-exceptions',
+                # Note: Using -std=c++0x will define __STRICT_ANSI__, which in
+                # turn will leave out some template stuff for 'long long'. What
+                # we want is -std=c++11, but this is not supported by GCC 4.6 or
+                # Xcode 4.2
+                '-std=gnu++0x' ],
     'target_conditions': [
       ['_toolset=="target"', {
         'cflags!': [

@@ -399,11 +399,17 @@ clean: $(addsuffix .clean, $(ARCHES) $(ANDROID_ARCHES) $(NACL_ARCHES)) native.cl
 # GYP file generation targets.
 OUT_MAKEFILES = $(addprefix $(OUTDIR)/Makefile.,$(BUILDS))
 $(OUT_MAKEFILES): $(GYPFILES) $(ENVFILE)
+	$(eval CXX_TARGET_ARCH:=$(shell $(CXX) -v 2>&1 | grep ^Target: | \
+	        cut -f 2 -d " " | cut -f 1 -d "-" ))
+	$(eval CXX_TARGET_ARCH:=$(subst aarch64,arm64,$(CXX_TARGET_ARCH)))
+	$(eval V8_TARGET_ARCH:=$(subst .,,$(suffix $(basename $@))))
 	PYTHONPATH="$(shell pwd)/tools/generate_shim_headers:$(shell pwd)/build:$(PYTHONPATH):$(shell pwd)/build/gyp/pylib:$(PYTHONPATH)" \
 	GYP_GENERATORS=make \
 	build/gyp/gyp --generator-output="$(OUTDIR)" build/all.gyp \
 	              -Ibuild/standalone.gypi --depth=. \
-	              -Dv8_target_arch=$(subst .,,$(suffix $(basename $@))) \
+	              -Dv8_target_arch=$(V8_TARGET_ARCH) \
+	              $(if $(findstring $(CXX_TARGET_ARCH),$(V8_TARGET_ARCH)), \
+	              -Dtarget_arch=$(V8_TARGET_ARCH),) \
 	              $(if $(findstring optdebug,$@),-Dv8_optimized_debug=2,) \
 	              -S$(suffix $(basename $@))$(suffix $@) $(GYPFLAGS)
 
@@ -468,9 +474,19 @@ gtags.clean:
 builddeps:
 	svn checkout --force http://gyp.googlecode.com/svn/trunk build/gyp \
 	    --revision 1831
-	svn checkout --force \
-	    https://src.chromium.org/chrome/trunk/deps/third_party/icu46 \
-	    third_party/icu --revision 258359
+	if svn info third_party/icu 2>&1 | grep -q icu46 ; then \
+	  svn switch --force \
+	      https://src.chromium.org/chrome/trunk/deps/third_party/icu52 \
+	      third_party/icu --revision 277999 ; \
+	else \
+	  svn checkout --force \
+	      https://src.chromium.org/chrome/trunk/deps/third_party/icu52 \
+	      third_party/icu --revision 277999 ; \
+	fi
+	svn checkout --force http://googletest.googlecode.com/svn/trunk \
+	    testing/gtest --revision 692
+	svn checkout --force http://googlemock.googlecode.com/svn/trunk \
+	    testing/gmock --revision 485
 
 dependencies: builddeps
 	# The spec is a copy of the hooks in v8's DEPS file.

@@ -79,7 +79,7 @@ struct Register {
   inline static int NumAllocatableRegisters();
 
   static int ToAllocationIndex(Register reg) {
-    ASSERT((reg.code() - 2) < (kMaxNumAllocatableRegisters - 1) ||
+    DCHECK((reg.code() - 2) < (kMaxNumAllocatableRegisters - 1) ||
            reg.is(from_code(kCpRegister)));
     return reg.is(from_code(kCpRegister)) ?
            kMaxNumAllocatableRegisters - 1 :  // Return last index for 'cp'.
@@ -87,14 +87,14 @@ struct Register {
   }
 
   static Register FromAllocationIndex(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
+    DCHECK(index >= 0 && index < kMaxNumAllocatableRegisters);
     return index == kMaxNumAllocatableRegisters - 1 ?
            from_code(kCpRegister) :  // Last index is always the 'cp' register.
            from_code(index + 2);  // zero_reg and 'at' are skipped.
   }
 
   static const char* AllocationIndexToString(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
+    DCHECK(index >= 0 && index < kMaxNumAllocatableRegisters);
     const char* const names[] = {
       "v0",
       "v1",
@@ -122,11 +122,11 @@ struct Register {
   bool is_valid() const { return 0 <= code_ && code_ < kNumRegisters; }
   bool is(Register reg) const { return code_ == reg.code_; }
   int code() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return code_;
   }
   int bit() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return 1 << code_;
   }
 
@@ -215,7 +215,7 @@ struct FPURegister {
   static const char* AllocationIndexToString(int index);
 
   static FPURegister FromAllocationIndex(int index) {
-    ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
+    DCHECK(index >= 0 && index < kMaxNumAllocatableRegisters);
     return from_code(index * 2);
   }
 
@@ -227,35 +227,35 @@ struct FPURegister {
   bool is_valid() const { return 0 <= code_ && code_ < kMaxNumRegisters ; }
   bool is(FPURegister creg) const { return code_ == creg.code_; }
   FPURegister low() const {
-    // TODO(plind): Create ASSERT for FR=0 mode. This usage suspect for FR=1.
+    // TODO(plind): Create DCHECK for FR=0 mode. This usage suspect for FR=1.
     // Find low reg of a Double-reg pair, which is the reg itself.
-    ASSERT(code_ % 2 == 0);  // Specified Double reg must be even.
+    DCHECK(code_ % 2 == 0);  // Specified Double reg must be even.
     FPURegister reg;
     reg.code_ = code_;
-    ASSERT(reg.is_valid());
+    DCHECK(reg.is_valid());
     return reg;
   }
   FPURegister high() const {
-    // TODO(plind): Create ASSERT for FR=0 mode. This usage illegal in FR=1.
+    // TODO(plind): Create DCHECK for FR=0 mode. This usage illegal in FR=1.
     // Find high reg of a Doubel-reg pair, which is reg + 1.
-    ASSERT(code_ % 2 == 0);  // Specified Double reg must be even.
+    DCHECK(code_ % 2 == 0);  // Specified Double reg must be even.
     FPURegister reg;
     reg.code_ = code_ + 1;
-    ASSERT(reg.is_valid());
+    DCHECK(reg.is_valid());
     return reg;
   }
 
   int code() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return code_;
   }
   int bit() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return 1 << code_;
   }
   void setcode(int f) {
     code_ = f;
-    ASSERT(is_valid());
+    DCHECK(is_valid());
   }
   // Unfortunately we can't make this private in a struct.
   int code_;
@@ -326,16 +326,16 @@ struct FPUControlRegister {
   bool is_valid() const { return code_ == kFCSRRegister; }
   bool is(FPUControlRegister creg) const { return code_ == creg.code_; }
   int code() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return code_;
   }
   int bit() const {
-    ASSERT(is_valid());
+    DCHECK(is_valid());
     return 1 << code_;
   }
   void setcode(int f) {
     code_ = f;
-    ASSERT(is_valid());
+    DCHECK(is_valid());
   }
   // Unfortunately we can't make this private in a struct.
   int code_;
@@ -369,7 +369,7 @@ class Operand BASE_EMBEDDED {
   INLINE(bool is_reg() const);
 
   inline int64_t immediate() const {
-    ASSERT(!is_reg());
+    DCHECK(!is_reg());
     return imm64_;
   }
 
@@ -457,9 +457,18 @@ class Assembler : public AssemblerBase {
   // position. Links the label to the current position if it is still unbound.
   // Manages the jump elimination optimization if the second parameter is true.
   int32_t branch_offset(Label* L, bool jump_elimination_allowed);
+  int32_t branch_offset_compact(Label* L, bool jump_elimination_allowed);
+  int32_t branch_offset21(Label* L, bool jump_elimination_allowed);
+  int32_t branch_offset21_compact(Label* L, bool jump_elimination_allowed);
   int32_t shifted_branch_offset(Label* L, bool jump_elimination_allowed) {
     int32_t o = branch_offset(L, jump_elimination_allowed);
-    ASSERT((o & 3) == 0);   // Assert the offset is aligned.
+    DCHECK((o & 3) == 0);   // Assert the offset is aligned.
+    return o >> 2;
+  }
+  int32_t shifted_branch_offset_compact(Label* L,
+      bool jump_elimination_allowed) {
+    int32_t o = branch_offset_compact(L, jump_elimination_allowed);
+    DCHECK((o & 3) == 0);   // Assert the offset is aligned.
     return o >> 2;
   }
   uint64_t jump_address(Label* L);
@@ -502,6 +511,9 @@ class Assembler : public AssemblerBase {
   // Return the code target address at a call site from the return address
   // of that call in the instruction stream.
   inline static Address target_address_from_return_address(Address pc);
+
+  // Return the code target address of the patch debug break slot
+  inline static Address break_address_from_return_address(Address pc);
 
   static void JumpLabelToJumpRegister(Address pc);
 
@@ -599,7 +611,7 @@ class Assembler : public AssemblerBase {
   // sll(zero_reg, zero_reg, 0). We use rt_reg == at for non-zero
   // marking, to avoid conflict with ssnop and ehb instructions.
   void nop(unsigned int type = 0) {
-    ASSERT(type < 32);
+    DCHECK(type < 32);
     Register nop_rt_reg = (type == 0) ? zero_reg : at;
     sll(zero_reg, nop_rt_reg, type, true);
   }
@@ -617,14 +629,99 @@ class Assembler : public AssemblerBase {
     beq(rs, rt, branch_offset(L, false) >> 2);
   }
   void bgez(Register rs, int16_t offset);
+  void bgezc(Register rt, int16_t offset);
+  void bgezc(Register rt, Label* L) {
+    bgezc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bgeuc(Register rs, Register rt, int16_t offset);
+  void bgeuc(Register rs, Register rt, Label* L) {
+    bgeuc(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+  void bgec(Register rs, Register rt, int16_t offset);
+  void bgec(Register rs, Register rt, Label* L) {
+    bgec(rs, rt, branch_offset_compact(L, false)>>2);
+  }
   void bgezal(Register rs, int16_t offset);
+  void bgezalc(Register rt, int16_t offset);
+  void bgezalc(Register rt, Label* L) {
+    bgezalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bgezall(Register rs, int16_t offset);
+  void bgezall(Register rs, Label* L) {
+    bgezall(rs, branch_offset(L, false)>>2);
+  }
   void bgtz(Register rs, int16_t offset);
+  void bgtzc(Register rt, int16_t offset);
+  void bgtzc(Register rt, Label* L) {
+    bgtzc(rt, branch_offset_compact(L, false)>>2);
+  }
   void blez(Register rs, int16_t offset);
+  void blezc(Register rt, int16_t offset);
+  void blezc(Register rt, Label* L) {
+    blezc(rt, branch_offset_compact(L, false)>>2);
+  }
   void bltz(Register rs, int16_t offset);
+  void bltzc(Register rt, int16_t offset);
+  void bltzc(Register rt, Label* L) {
+    bltzc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bltuc(Register rs, Register rt, int16_t offset);
+  void bltuc(Register rs, Register rt, Label* L) {
+    bltuc(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+  void bltc(Register rs, Register rt, int16_t offset);
+  void bltc(Register rs, Register rt, Label* L) {
+    bltc(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+
   void bltzal(Register rs, int16_t offset);
+  void blezalc(Register rt, int16_t offset);
+  void blezalc(Register rt, Label* L) {
+    blezalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bltzalc(Register rt, int16_t offset);
+  void bltzalc(Register rt, Label* L) {
+    bltzalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bgtzalc(Register rt, int16_t offset);
+  void bgtzalc(Register rt, Label* L) {
+    bgtzalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void beqzalc(Register rt, int16_t offset);
+  void beqzalc(Register rt, Label* L) {
+    beqzalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void beqc(Register rs, Register rt, int16_t offset);
+  void beqc(Register rs, Register rt, Label* L) {
+    beqc(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+  void beqzc(Register rs, int32_t offset);
+  void beqzc(Register rs, Label* L) {
+    beqzc(rs, branch_offset21_compact(L, false)>>2);
+  }
+  void bnezalc(Register rt, int16_t offset);
+  void bnezalc(Register rt, Label* L) {
+    bnezalc(rt, branch_offset_compact(L, false)>>2);
+  }
+  void bnec(Register rs, Register rt, int16_t offset);
+  void bnec(Register rs, Register rt, Label* L) {
+    bnec(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+  void bnezc(Register rt, int32_t offset);
+  void bnezc(Register rt, Label* L) {
+    bnezc(rt, branch_offset21_compact(L, false)>>2);
+  }
   void bne(Register rs, Register rt, int16_t offset);
   void bne(Register rs, Register rt, Label* L) {
     bne(rs, rt, branch_offset(L, false)>>2);
+  }
+  void bovc(Register rs, Register rt, int16_t offset);
+  void bovc(Register rs, Register rt, Label* L) {
+    bovc(rs, rt, branch_offset_compact(L, false)>>2);
+  }
+  void bnvc(Register rs, Register rt, int16_t offset);
+  void bnvc(Register rs, Register rt, Label* L) {
+    bnvc(rs, rt, branch_offset_compact(L, false)>>2);
   }
 
   // Never use the int16_t b(l)cond version with a branch offset
@@ -644,17 +741,34 @@ class Assembler : public AssemblerBase {
   // Arithmetic.
   void addu(Register rd, Register rs, Register rt);
   void subu(Register rd, Register rs, Register rt);
-  void mult(Register rs, Register rt);
-  void multu(Register rs, Register rt);
+
   void div(Register rs, Register rt);
   void divu(Register rs, Register rt);
+  void ddiv(Register rs, Register rt);
+  void ddivu(Register rs, Register rt);
+  void div(Register rd, Register rs, Register rt);
+  void divu(Register rd, Register rs, Register rt);
+  void ddiv(Register rd, Register rs, Register rt);
+  void ddivu(Register rd, Register rs, Register rt);
+  void mod(Register rd, Register rs, Register rt);
+  void modu(Register rd, Register rs, Register rt);
+  void dmod(Register rd, Register rs, Register rt);
+  void dmodu(Register rd, Register rs, Register rt);
+
   void mul(Register rd, Register rs, Register rt);
+  void muh(Register rd, Register rs, Register rt);
+  void mulu(Register rd, Register rs, Register rt);
+  void muhu(Register rd, Register rs, Register rt);
+  void mult(Register rs, Register rt);
+  void multu(Register rs, Register rt);
+  void dmul(Register rd, Register rs, Register rt);
+  void dmuh(Register rd, Register rs, Register rt);
+  void dmulu(Register rd, Register rs, Register rt);
+  void dmuhu(Register rd, Register rs, Register rt);
   void daddu(Register rd, Register rs, Register rt);
   void dsubu(Register rd, Register rs, Register rt);
   void dmult(Register rs, Register rt);
   void dmultu(Register rs, Register rt);
-  void ddiv(Register rs, Register rt);
-  void ddivu(Register rs, Register rt);
 
   void addiu(Register rd, Register rs, int32_t j);
   void daddiu(Register rd, Register rs, int32_t j);
@@ -669,6 +783,10 @@ class Assembler : public AssemblerBase {
   void ori(Register rd, Register rs, int32_t j);
   void xori(Register rd, Register rs, int32_t j);
   void lui(Register rd, int32_t j);
+  void aui(Register rs, Register rt, int32_t j);
+  void daui(Register rs, Register rt, int32_t j);
+  void dahi(Register rs, int32_t j);
+  void dati(Register rs, int32_t j);
 
   // Shifts.
   // Please note: sll(zero_reg, zero_reg, x) instructions are reserved as nop
@@ -751,6 +869,15 @@ class Assembler : public AssemblerBase {
   void movt(Register rd, Register rs, uint16_t cc = 0);
   void movf(Register rd, Register rs, uint16_t cc = 0);
 
+  void sel(SecondaryField fmt, FPURegister fd, FPURegister ft,
+      FPURegister fs, uint8_t sel);
+  void seleqz(Register rs, Register rt, Register rd);
+  void seleqz(SecondaryField fmt, FPURegister fd, FPURegister ft,
+      FPURegister fs);
+  void selnez(Register rs, Register rt, Register rd);
+  void selnez(SecondaryField fmt, FPURegister fd, FPURegister ft,
+      FPURegister fs);
+
   // Bit twiddling.
   void clz(Register rd, Register rs);
   void ins_(Register rt, Register rs, uint16_t pos, uint16_t size);
@@ -810,6 +937,11 @@ class Assembler : public AssemblerBase {
   void ceil_l_s(FPURegister fd, FPURegister fs);
   void ceil_l_d(FPURegister fd, FPURegister fs);
 
+  void min(SecondaryField fmt, FPURegister fd, FPURegister ft, FPURegister fs);
+  void mina(SecondaryField fmt, FPURegister fd, FPURegister ft, FPURegister fs);
+  void max(SecondaryField fmt, FPURegister fd, FPURegister ft, FPURegister fs);
+  void maxa(SecondaryField fmt, FPURegister fd, FPURegister ft, FPURegister fs);
+
   void cvt_s_w(FPURegister fd, FPURegister fs);
   void cvt_s_l(FPURegister fd, FPURegister fs);
   void cvt_s_d(FPURegister fd, FPURegister fs);
@@ -818,14 +950,31 @@ class Assembler : public AssemblerBase {
   void cvt_d_l(FPURegister fd, FPURegister fs);
   void cvt_d_s(FPURegister fd, FPURegister fs);
 
-  // Conditions and branches.
+  // Conditions and branches for MIPSr6.
+  void cmp(FPUCondition cond, SecondaryField fmt,
+         FPURegister fd, FPURegister ft, FPURegister fs);
+
+  void bc1eqz(int16_t offset, FPURegister ft);
+  void bc1eqz(Label* L, FPURegister ft) {
+    bc1eqz(branch_offset(L, false)>>2, ft);
+  }
+  void bc1nez(int16_t offset, FPURegister ft);
+  void bc1nez(Label* L, FPURegister ft) {
+    bc1nez(branch_offset(L, false)>>2, ft);
+  }
+
+  // Conditions and branches for non MIPSr6.
   void c(FPUCondition cond, SecondaryField fmt,
          FPURegister ft, FPURegister fs, uint16_t cc = 0);
 
   void bc1f(int16_t offset, uint16_t cc = 0);
-  void bc1f(Label* L, uint16_t cc = 0) { bc1f(branch_offset(L, false)>>2, cc); }
+  void bc1f(Label* L, uint16_t cc = 0) {
+    bc1f(branch_offset(L, false)>>2, cc);
+  }
   void bc1t(int16_t offset, uint16_t cc = 0);
-  void bc1t(Label* L, uint16_t cc = 0) { bc1t(branch_offset(L, false)>>2, cc); }
+  void bc1t(Label* L, uint16_t cc = 0) {
+    bc1t(branch_offset(L, false)>>2, cc);
+  }
   void fcmp(FPURegister src1, const double src2, FPUCondition cond);
 
   // Check the code size generated from label to here.
@@ -884,12 +1033,12 @@ class Assembler : public AssemblerBase {
   // Record the AST id of the CallIC being compiled, so that it can be placed
   // in the relocation information.
   void SetRecordedAstId(TypeFeedbackId ast_id) {
-    ASSERT(recorded_ast_id_.IsNone());
+    DCHECK(recorded_ast_id_.IsNone());
     recorded_ast_id_ = ast_id;
   }
 
   TypeFeedbackId RecordedAstId() {
-    ASSERT(!recorded_ast_id_.IsNone());
+    DCHECK(!recorded_ast_id_.IsNone());
     return recorded_ast_id_;
   }
 
@@ -1044,12 +1193,12 @@ class Assembler : public AssemblerBase {
 
   // Temporarily block automatic assembly buffer growth.
   void StartBlockGrowBuffer() {
-    ASSERT(!block_buffer_growth_);
+    DCHECK(!block_buffer_growth_);
     block_buffer_growth_ = true;
   }
 
   void EndBlockGrowBuffer() {
-    ASSERT(block_buffer_growth_);
+    DCHECK(block_buffer_growth_);
     block_buffer_growth_ = false;
   }
 
@@ -1212,7 +1361,7 @@ class Assembler : public AssemblerBase {
         // We have run out of space on trampolines.
         // Make sure we fail in debug mode, so we become aware of each case
         // when this happens.
-        ASSERT(0);
+        DCHECK(0);
         // Internal exception will be caught.
       } else {
         trampoline_slot = next_slot_;

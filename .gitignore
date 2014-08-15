@@ -61,7 +61,10 @@ shell_g
 /test/test262/data
 /test/test262/data.old
 /test/test262/tc39-test262-*
-/third_party
+/testing/gmock
+/testing/gtest
+/third_party/icu
+/third_party/llvm
 /tools/jsfunfuzz
 /tools/jsfunfuzz.zip
 /tools/oom_dump/oom_dump

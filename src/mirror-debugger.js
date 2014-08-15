@@ -81,6 +81,10 @@ function MakeMirror(value, opt_transient) {
     mirror = new ErrorMirror(value);
   } else if (IS_SCRIPT(value)) {
     mirror = new ScriptMirror(value);
+  } else if (IS_MAP(value) || IS_WEAKMAP(value)) {
+    mirror = new MapMirror(value);
+  } else if (IS_SET(value) || IS_WEAKSET(value)) {
+    mirror = new SetMirror(value);
   } else if (ObjectIsPromise(value)) {
     mirror = new PromiseMirror(value);
   } else {
@@ -155,6 +159,8 @@ var SCRIPT_TYPE = 'script';
 var CONTEXT_TYPE = 'context';
 var SCOPE_TYPE = 'scope';
 var PROMISE_TYPE = 'promise';
+var MAP_TYPE = 'map';
+var SET_TYPE = 'set';
 
 // Maximum length when sending strings through the JSON protocol.
 var kMaxProtocolStringLength = 80;
@@ -165,7 +171,7 @@ PropertyKind.Named   = 1;
 PropertyKind.Indexed = 2;
 
 
-// A copy of the PropertyType enum from global.h
+// A copy of the PropertyType enum from property-details.h
 var PropertyType = {};
 PropertyType.Normal                  = 0;
 PropertyType.Field                   = 1;
@@ -173,8 +179,7 @@ PropertyType.Constant                = 2;
 PropertyType.Callbacks               = 3;
 PropertyType.Handler                 = 4;
 PropertyType.Interceptor             = 5;
-PropertyType.Transition              = 6;
-PropertyType.Nonexistent             = 7;
+PropertyType.Nonexistent             = 6;
 
 
 // Different attributes for a property.
@@ -210,6 +215,8 @@ var ScopeType = { Global: 0,
 //         - RegExpMirror
 //         - ErrorMirror
 //         - PromiseMirror
+//         - MapMirror
+//         - SetMirror
 //     - PropertyMirror
 //     - InternalPropertyMirror
 //     - FrameMirror
@@ -417,6 +424,24 @@ Mirror.prototype.isContext = function() {
  */
 Mirror.prototype.isScope = function() {
   return this instanceof ScopeMirror;
+};
+
+
+/**
+ * Check whether the mirror reflects a map.
+ * @returns {boolean} True if the mirror reflects a map
+ */
+Mirror.prototype.isMap = function() {
+  return this instanceof MapMirror;
+};
+
+
+/**
+ * Check whether the mirror reflects a set.
+ * @returns {boolean} True if the mirror reflects a set
+ */
+Mirror.prototype.isSet = function() {
+  return this instanceof SetMirror;
 };
 
 
@@ -658,6 +683,19 @@ ObjectMirror.prototype.hasIndexedInterceptor = function() {
 };
 
 
+// Get all own property names except for private symbols.
+function TryGetPropertyNames(object) {
+  try {
+    // TODO(yangguo): Should there be a special debugger implementation of
+    // %GetOwnPropertyNames that doesn't perform access checks?
+    return %GetOwnPropertyNames(object, PROPERTY_ATTRIBUTES_PRIVATE_SYMBOL);
+  } catch (e) {
+    // Might have hit a failed access check.
+    return [];
+  }
+}
+
+
 /**
  * Return the property names for this object.
  * @param {number} kind Indicate whether named, indexed or both kinds of
@@ -676,9 +714,7 @@ ObjectMirror.prototype.propertyNames = function(kind, limit) {
 
   // Find all the named properties.
   if (kind & PropertyKind.Named) {
-    // Get all own property names except for private symbols.
-    propertyNames =
-        %GetOwnPropertyNames(this.value_, PROPERTY_ATTRIBUTES_PRIVATE_SYMBOL);
+    propertyNames = TryGetPropertyNames(this.value_);
     total += propertyNames.length;
 
     // Get names for named interceptor properties if any.
@@ -761,7 +797,7 @@ ObjectMirror.prototype.internalProperties = function() {
 
 
 ObjectMirror.prototype.property = function(name) {
-  var details = %DebugGetPropertyDetails(this.value_, %ToString(name));
+  var details = %DebugGetPropertyDetails(this.value_, %ToName(name));
   if (details) {
     return new PropertyMirror(this, name, details);
   }
@@ -1250,6 +1286,71 @@ PromiseMirror.prototype.status = function() {
 
 PromiseMirror.prototype.promiseValue = function() {
   return MakeMirror(PromiseGetValue_(this.value_));
+};
+
+
+function MapMirror(value) {
+  %_CallFunction(this, value, MAP_TYPE, ObjectMirror);
+}
+inherits(MapMirror, ObjectMirror);
+
+
+/**
+ * Returns an array of key/value pairs of a map.
+ * This will keep keys alive for WeakMaps.
+ *
+ * @returns {Array.<Object>} Array of key/value pairs of a map.
+ */
+MapMirror.prototype.entries = function() {
+  var result = [];
+
+  if (IS_WEAKMAP(this.value_)) {
+    var entries = %GetWeakMapEntries(this.value_);
+    for (var i = 0; i < entries.length; i += 2) {
+      result.push({
+        key: entries[i],
+        value: entries[i + 1]
+      });
+    }
+    return result;
+  }
+
+  var iter = %_CallFunction(this.value_, builtins.MapEntries);
+  var next;
+  while (!(next = iter.next()).done) {
+    result.push({
+      key: next.value[0],
+      value: next.value[1]
+    });
+  }
+  return result;
+};
+
+
+function SetMirror(value) {
+  %_CallFunction(this, value, SET_TYPE, ObjectMirror);
+}
+inherits(SetMirror, ObjectMirror);
+
+
+/**
+ * Returns an array of elements of a set.
+ * This will keep elements alive for WeakSets.
+ *
+ * @returns {Array.<Object>} Array of elements of a set.
+ */
+SetMirror.prototype.values = function() {
+  if (IS_WEAKSET(this.value_)) {
+    return %GetWeakSetValues(this.value_);
+  }
+
+  var result = [];
+  var iter = %_CallFunction(this.value_, builtins.SetValues);
+  var next;
+  while (!(next = iter.next()).done) {
+    result.push(next.value);
+  }
+  return result;
 };
 
 

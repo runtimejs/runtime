@@ -39,7 +39,7 @@ void InterfaceDescriptor::Initialize(
   register_param_count_ = register_parameter_count;
 
   // An interface descriptor must have a context register.
-  ASSERT(register_parameter_count > 0 && registers[0].is(ContextRegister()));
+  DCHECK(register_parameter_count > 0 && registers[0].is(ContextRegister()));
 
   // InterfaceDescriptor owns a copy of the registers array.
   register_params_.Reset(NewArray<Register>(register_parameter_count));
@@ -54,7 +54,7 @@ void InterfaceDescriptor::Initialize(
         NewArray<Representation>(register_parameter_count));
     for (int i = 0; i < register_parameter_count; i++) {
       // If there is a context register, the representation must be tagged.
-      ASSERT(i != 0 || register_param_representations[i].Equals(
+      DCHECK(i != 0 || register_param_representations[i].Equals(
           Representation::Tagged()));
       register_param_representations_[i] = register_param_representations[i];
     }
@@ -63,12 +63,10 @@ void InterfaceDescriptor::Initialize(
 
 
 void CodeStubInterfaceDescriptor::Initialize(
-    int register_parameter_count,
-    Register* registers,
+    CodeStub::Major major, int register_parameter_count, Register* registers,
     Address deoptimization_handler,
     Representation* register_param_representations,
-    int hint_stack_parameter_count,
-    StubFunctionMode function_mode) {
+    int hint_stack_parameter_count, StubFunctionMode function_mode) {
   InterfaceDescriptor::Initialize(register_parameter_count, registers,
                                   register_param_representations);
 
@@ -76,22 +74,18 @@ void CodeStubInterfaceDescriptor::Initialize(
 
   hint_stack_parameter_count_ = hint_stack_parameter_count;
   function_mode_ = function_mode;
+  major_ = major;
 }
 
 
 void CodeStubInterfaceDescriptor::Initialize(
-    int register_parameter_count,
-    Register* registers,
-    Register stack_parameter_count,
-    Address deoptimization_handler,
+    CodeStub::Major major, int register_parameter_count, Register* registers,
+    Register stack_parameter_count, Address deoptimization_handler,
     Representation* register_param_representations,
-    int hint_stack_parameter_count,
-    StubFunctionMode function_mode,
+    int hint_stack_parameter_count, StubFunctionMode function_mode,
     HandlerArgumentsMode handler_mode) {
-  Initialize(register_parameter_count, registers,
-             deoptimization_handler,
-             register_param_representations,
-             hint_stack_parameter_count,
+  Initialize(major, register_parameter_count, registers, deoptimization_handler,
+             register_param_representations, hint_stack_parameter_count,
              function_mode);
   stack_parameter_count_ = stack_parameter_count;
   handler_arguments_mode_ = handler_mode;
@@ -149,6 +143,9 @@ Handle<Code> PlatformCodeStub::GenerateCode() {
   // Generate the new code.
   MacroAssembler masm(isolate(), NULL, 256);
 
+  // TODO(yangguo) remove this once the code serializer handles code stubs.
+  if (FLAG_serialize_toplevel) masm.enable_serializer();
+
   {
     // Update the static counter each time a new code stub is generated.
     isolate()->counters()->code_stubs()->Increment();
@@ -181,7 +178,7 @@ Handle<Code> CodeStub::GetCode() {
   if (UseSpecialCache()
       ? FindCodeInSpecialCache(&code)
       : FindCodeInCache(&code)) {
-    ASSERT(GetCodeKind() == code->kind());
+    DCHECK(GetCodeKind() == code->kind());
     return Handle<Code>(code);
   }
 
@@ -189,7 +186,7 @@ Handle<Code> CodeStub::GetCode() {
     HandleScope scope(isolate());
 
     Handle<Code> new_object = GenerateCode();
-    new_object->set_major_key(MajorKey());
+    new_object->set_stub_key(GetKey());
     FinishCode(new_object);
     RecordCodeGeneration(new_object);
 
@@ -219,7 +216,7 @@ Handle<Code> CodeStub::GetCode() {
   }
 
   Activate(code);
-  ASSERT(!NeedsImmovableCode() ||
+  DCHECK(!NeedsImmovableCode() ||
          heap->lo_space()->Contains(code) ||
          heap->code_space()->FirstPage()->Contains(code->address()));
   return Handle<Code>(code, isolate());
@@ -233,6 +230,8 @@ const char* CodeStub::MajorName(CodeStub::Major major_key,
     CODE_STUB_LIST(DEF_CASE)
 #undef DEF_CASE
     case UninitializedMajorKey: return "<UninitializedMajorKey>Stub";
+    case NoCache:
+      return "<NoCache>Stub";
     default:
       if (!allow_unknown_keys) {
         UNREACHABLE();
@@ -321,7 +320,7 @@ void StringAddStub::PrintBaseName(OStream& os) const {  // NOLINT
 }
 
 
-InlineCacheState ICCompareStub::GetICState() {
+InlineCacheState ICCompareStub::GetICState() const {
   CompareIC::State state = Max(left_, right_);
   switch (state) {
     case CompareIC::UNINITIALIZED:
@@ -343,7 +342,7 @@ InlineCacheState ICCompareStub::GetICState() {
 
 
 void ICCompareStub::AddToSpecialCache(Handle<Code> new_object) {
-  ASSERT(*known_map_ != NULL);
+  DCHECK(*known_map_ != NULL);
   Isolate* isolate = new_object->GetIsolate();
   Factory* factory = isolate->factory();
   return Map::UpdateCodeCache(known_map_,
@@ -359,7 +358,7 @@ bool ICCompareStub::FindCodeInSpecialCache(Code** code_out) {
   Code::Flags flags = Code::ComputeFlags(
       GetCodeKind(),
       UNINITIALIZED);
-  ASSERT(op_ == Token::EQ || op_ == Token::EQ_STRICT);
+  DCHECK(op_ == Token::EQ || op_ == Token::EQ_STRICT);
   Handle<Object> probe(
       known_map_->FindInCodeCache(
         strict() ?
@@ -371,9 +370,9 @@ bool ICCompareStub::FindCodeInSpecialCache(Code** code_out) {
     *code_out = Code::cast(*probe);
 #ifdef DEBUG
     Token::Value cached_op;
-    ICCompareStub::DecodeMinorKey((*code_out)->stub_info(), NULL, NULL, NULL,
-                                  &cached_op);
-    ASSERT(op_ == cached_op);
+    ICCompareStub::DecodeKey((*code_out)->stub_key(), NULL, NULL, NULL,
+                             &cached_op);
+    DCHECK(op_ == cached_op);
 #endif
     return true;
   }
@@ -389,11 +388,11 @@ int ICCompareStub::MinorKey() const {
 }
 
 
-void ICCompareStub::DecodeMinorKey(int minor_key,
-                                   CompareIC::State* left_state,
-                                   CompareIC::State* right_state,
-                                   CompareIC::State* handler_state,
-                                   Token::Value* op) {
+void ICCompareStub::DecodeKey(uint32_t stub_key, CompareIC::State* left_state,
+                              CompareIC::State* right_state,
+                              CompareIC::State* handler_state,
+                              Token::Value* op) {
+  int minor_key = MinorKeyFromKey(stub_key);
   if (left_state) {
     *left_state =
         static_cast<CompareIC::State>(LeftStateField::decode(minor_key));
@@ -436,7 +435,7 @@ void ICCompareStub::Generate(MacroAssembler* masm) {
       GenerateObjects(masm);
       break;
     case CompareIC::KNOWN_OBJECT:
-      ASSERT(*known_map_ != NULL);
+      DCHECK(*known_map_ != NULL);
       GenerateKnownObjects(masm);
       break;
     case CompareIC::GENERIC:
@@ -447,7 +446,7 @@ void ICCompareStub::Generate(MacroAssembler* masm) {
 
 
 void CompareNilICStub::UpdateStatus(Handle<Object> object) {
-  ASSERT(!state_.Contains(GENERIC));
+  DCHECK(!state_.Contains(GENERIC));
   State old_state(state_);
   if (object->IsNull()) {
     state_.Add(NULL_TYPE);
@@ -472,7 +471,7 @@ template<class StateType>
 void HydrogenCodeStub::TraceTransition(StateType from, StateType to) {
   // Note: Although a no-op transition is semantically OK, it is hinting at a
   // bug somewhere in our state transition machinery.
-  ASSERT(from != to);
+  DCHECK(from != to);
   if (!FLAG_trace_ic) return;
   OFStream os(stdout);
   os << "[";
@@ -580,83 +579,65 @@ void JSEntryStub::FinishCode(Handle<Code> code) {
 }
 
 
-void KeyedLoadFastElementStub::InitializeInterfaceDescriptor(
+void LoadFastElementStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
   Register registers[] = { InterfaceDescriptor::ContextRegister(),
                            LoadIC::ReceiverRegister(),
                            LoadIC::NameRegister() };
   STATIC_ASSERT(LoadIC::kParameterCount == 2);
-  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+  descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers,
                          FUNCTION_ADDR(KeyedLoadIC_MissFromStubFailure));
 }
 
 
-void KeyedLoadDictionaryElementStub::InitializeInterfaceDescriptor(
+void LoadDictionaryElementStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
   Register registers[] = { InterfaceDescriptor::ContextRegister(),
                            LoadIC::ReceiverRegister(),
                            LoadIC::NameRegister() };
   STATIC_ASSERT(LoadIC::kParameterCount == 2);
-  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+  descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers,
                          FUNCTION_ADDR(KeyedLoadIC_MissFromStubFailure));
 }
 
 
-void KeyedLoadGenericElementStub::InitializeInterfaceDescriptor(
+void KeyedLoadGenericStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
   Register registers[] = { InterfaceDescriptor::ContextRegister(),
                            LoadIC::ReceiverRegister(),
                            LoadIC::NameRegister() };
   STATIC_ASSERT(LoadIC::kParameterCount == 2);
   descriptor->Initialize(
-      ARRAY_SIZE(registers), registers,
+      MajorKey(), ARRAY_SIZE(registers), registers,
       Runtime::FunctionForId(Runtime::kKeyedGetProperty)->entry);
 }
 
 
-void LoadFieldStub::InitializeInterfaceDescriptor(
+void HandlerStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
-  Register registers[] = { InterfaceDescriptor::ContextRegister(),
-                           LoadIC::ReceiverRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers);
+  if (kind() == Code::LOAD_IC) {
+    Register registers[] = {InterfaceDescriptor::ContextRegister(),
+                            LoadIC::ReceiverRegister(), LoadIC::NameRegister()};
+    descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers);
+  } else {
+    DCHECK_EQ(Code::STORE_IC, kind());
+    Register registers[] = {InterfaceDescriptor::ContextRegister(),
+                            StoreIC::ReceiverRegister(),
+                            StoreIC::NameRegister(), StoreIC::ValueRegister()};
+    descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers,
+                           FUNCTION_ADDR(StoreIC_MissFromStubFailure));
+  }
 }
 
 
-void KeyedLoadFieldStub::InitializeInterfaceDescriptor(
-    CodeStubInterfaceDescriptor* descriptor) {
-  Register registers[] = { InterfaceDescriptor::ContextRegister(),
-                           LoadIC::ReceiverRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers);
-}
-
-
-void StringLengthStub::InitializeInterfaceDescriptor(
-    CodeStubInterfaceDescriptor* descriptor) {
-  Register registers[] = { InterfaceDescriptor::ContextRegister(),
-                           LoadIC::ReceiverRegister(),
-                           LoadIC::NameRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers);
-}
-
-
-void KeyedStringLengthStub::InitializeInterfaceDescriptor(
-    CodeStubInterfaceDescriptor* descriptor) {
-  Register registers[] = { InterfaceDescriptor::ContextRegister(),
-                           LoadIC::ReceiverRegister(),
-                           LoadIC::NameRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers);
-}
-
-
-void KeyedStoreFastElementStub::InitializeInterfaceDescriptor(
+void StoreFastElementStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
   Register registers[] = { InterfaceDescriptor::ContextRegister(),
                            KeyedStoreIC::ReceiverRegister(),
                            KeyedStoreIC::NameRegister(),
                            KeyedStoreIC::ValueRegister() };
-  descriptor->Initialize(
-      ARRAY_SIZE(registers), registers,
-      FUNCTION_ADDR(KeyedStoreIC_MissFromStubFailure));
+  descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers,
+                         FUNCTION_ADDR(KeyedStoreIC_MissFromStubFailure));
 }
 
 
@@ -667,25 +648,22 @@ void ElementsTransitionAndStoreStub::InitializeInterfaceDescriptor(
                            MapRegister(),
                            KeyRegister(),
                            ObjectRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers,
+  descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers,
                          FUNCTION_ADDR(ElementsTransitionAndStoreIC_Miss));
 }
 
 
-void StoreGlobalStub::InitializeInterfaceDescriptor(
+void InstanceofStub::InitializeInterfaceDescriptor(
     CodeStubInterfaceDescriptor* descriptor) {
   Register registers[] = { InterfaceDescriptor::ContextRegister(),
-                           StoreIC::ReceiverRegister(),
-                           StoreIC::NameRegister(),
-                           StoreIC::ValueRegister() };
-  descriptor->Initialize(ARRAY_SIZE(registers), registers,
-                         FUNCTION_ADDR(StoreIC_MissFromStubFailure));
+                           InstanceofStub::left(),
+                           InstanceofStub::right() };
+  descriptor->Initialize(MajorKey(), ARRAY_SIZE(registers), registers);
 }
 
 
-void KeyedLoadDictionaryElementPlatformStub::Generate(
-    MacroAssembler* masm) {
-  KeyedLoadStubCompiler::GenerateLoadDictionaryElement(masm);
+void LoadDictionaryElementPlatformStub::Generate(MacroAssembler* masm) {
+  ElementHandlerCompiler::GenerateLoadDictionaryElement(masm);
 }
 
 
@@ -695,7 +673,7 @@ void CreateAllocationSiteStub::GenerateAheadOfTime(Isolate* isolate) {
 }
 
 
-void KeyedStoreElementStub::Generate(MacroAssembler* masm) {
+void StoreElementStub::Generate(MacroAssembler* masm) {
   switch (elements_kind_) {
     case FAST_ELEMENTS:
     case FAST_HOLEY_ELEMENTS:
@@ -712,7 +690,7 @@ void KeyedStoreElementStub::Generate(MacroAssembler* masm) {
       UNREACHABLE();
       break;
     case DICTIONARY_ELEMENTS:
-      KeyedStoreStubCompiler::GenerateStoreDictionaryElement(masm);
+      ElementHandlerCompiler::GenerateStoreDictionaryElement(masm);
       break;
     case SLOPPY_ARGUMENTS_ELEMENTS:
       UNREACHABLE();
@@ -835,7 +813,7 @@ bool ToBooleanStub::Types::UpdateStatus(Handle<Object> object) {
     Add(SYMBOL);
     return true;
   } else if (object->IsHeapNumber()) {
-    ASSERT(!object->IsUndetectableObject());
+    DCHECK(!object->IsUndetectableObject());
     Add(HEAP_NUMBER);
     double value = HeapNumber::cast(*object)->value();
     return value != 0 && !std::isnan(value);
@@ -873,7 +851,7 @@ void ProfileEntryHookStub::EntryHookTrampoline(intptr_t function,
                                                intptr_t stack_pointer,
                                                Isolate* isolate) {
   FunctionEntryHook entry_hook = isolate->function_entry_hook();
-  ASSERT(entry_hook != NULL);
+  DCHECK(entry_hook != NULL);
   entry_hook(function, stack_pointer);
 }
 
@@ -953,8 +931,16 @@ void RegExpConstructResultStub::InstallDescriptors(Isolate* isolate) {
 
 
 // static
-void KeyedLoadGenericElementStub::InstallDescriptors(Isolate* isolate) {
-  KeyedLoadGenericElementStub stub(isolate);
+void KeyedLoadGenericStub::InstallDescriptors(Isolate* isolate) {
+  KeyedLoadGenericStub stub(isolate);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void StoreFieldStub::InstallDescriptors(Isolate* isolate) {
+  StoreFieldStub stub(isolate, FieldIndex::ForInObjectOffset(0),
+                      Representation::None());
   InstallDescriptor(isolate, &stub);
 }
 

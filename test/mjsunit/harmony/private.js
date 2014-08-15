@@ -25,7 +25,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --harmony-symbols --harmony-collections
 // Flags: --expose-gc --allow-natives-syntax
 
 var symbols = []
@@ -115,8 +114,8 @@ TestToBoolean()
 
 function TestToNumber() {
   for (var i in symbols) {
-    assertSame(NaN, Number(symbols[i]).valueOf())
-    assertSame(NaN, symbols[i] + 0)
+    assertThrows(function() { Number(symbols[i]); }, TypeError);
+    assertThrows(function() { symbols[i] + 0; }, TypeError);
   }
 }
 TestToNumber()

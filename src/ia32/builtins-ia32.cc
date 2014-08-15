@@ -42,7 +42,7 @@ void Builtins::Generate_Adaptor(MacroAssembler* masm,
     __ push(edi);
     __ push(scratch);  // Restore return address.
   } else {
-    ASSERT(extra_args == NO_EXTRA_ARGUMENTS);
+    DCHECK(extra_args == NO_EXTRA_ARGUMENTS);
   }
 
   // JumpToExternalReference expects eax to contain the number of arguments
@@ -110,7 +110,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
   // -----------------------------------
 
   // Should never create mementos for api functions.
-  ASSERT(!is_api_function || !create_memento);
+  DCHECK(!is_api_function || !create_memento);
 
   // Enter a construct frame.
   {
@@ -1003,6 +1003,9 @@ void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
     __ mov(receiver, Operand(ebp, kArgumentsOffset));  // load arguments
 
     // Use inline caching to speed up access to arguments.
+    if (FLAG_vector_ics) {
+      __ mov(LoadIC::SlotRegister(), Immediate(Smi::FromInt(0)));
+    }
     Handle<Code> ic = masm->isolate()->builtins()->KeyedLoadIC_Initialize();
     __ call(ic, RelocInfo::CODE_TARGET);
     // It is important that we do not have a test instruction after the

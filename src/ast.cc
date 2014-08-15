@@ -65,7 +65,8 @@ VariableProxy::VariableProxy(Zone* zone, Variable* var, int position)
       var_(NULL),  // Will be set by the call to BindTo.
       is_this_(var->is_this()),
       is_assigned_(false),
-      interface_(var->interface()) {
+      interface_(var->interface()),
+      variable_feedback_slot_(kInvalidFeedbackSlot) {
   BindTo(var);
 }
 
@@ -80,15 +81,16 @@ VariableProxy::VariableProxy(Zone* zone,
       var_(NULL),
       is_this_(is_this),
       is_assigned_(false),
-      interface_(interface) {
+      interface_(interface),
+      variable_feedback_slot_(kInvalidFeedbackSlot) {
 }
 
 
 void VariableProxy::BindTo(Variable* var) {
-  ASSERT(var_ == NULL);  // must be bound only once
-  ASSERT(var != NULL);  // must bind
-  ASSERT(!FLAG_harmony_modules || interface_->IsUnified(var->interface()));
-  ASSERT((is_this() && var->is_this()) || name_ == var->raw_name());
+  DCHECK(var_ == NULL);  // must be bound only once
+  DCHECK(var != NULL);  // must bind
+  DCHECK(!FLAG_harmony_modules || interface_->IsUnified(var->interface()));
+  DCHECK((is_this() && var->is_this()) || name_ == var->raw_name());
   // Ideally CONST-ness should match. However, this is very hard to achieve
   // because we don't know the exact semantics of conflicting (const and
   // non-const) multiple variable declarations, const vars introduced via
@@ -400,8 +402,8 @@ void MaterializedLiteral::BuildConstants(Isolate* isolate) {
   if (IsObjectLiteral()) {
     return AsObjectLiteral()->BuildConstantProperties(isolate);
   }
-  ASSERT(IsRegExpLiteral());
-  ASSERT(depth() >= 1);  // Depth should be initialized.
+  DCHECK(IsRegExpLiteral());
+  DCHECK(depth() >= 1);  // Depth should be initialized.
 }
 
 
@@ -591,7 +593,7 @@ bool Call::ComputeGlobalTarget(Handle<GlobalObject> global,
                                LookupResult* lookup) {
   target_ = Handle<JSFunction>::null();
   cell_ = Handle<Cell>::null();
-  ASSERT(lookup->IsFound() &&
+  DCHECK(lookup->IsFound() &&
          lookup->type() == NORMAL &&
          lookup->holder() == *global);
   cell_ = Handle<Cell>(global->GetPropertyCell(lookup));
@@ -958,7 +960,7 @@ OStream& RegExpTree::Print(OStream& os, Zone* zone) {  // NOLINT
 
 RegExpDisjunction::RegExpDisjunction(ZoneList<RegExpTree*>* alternatives)
     : alternatives_(alternatives) {
-  ASSERT(alternatives->length() > 1);
+  DCHECK(alternatives->length() > 1);
   RegExpTree* first_alternative = alternatives->at(0);
   min_match_ = first_alternative->min_match();
   max_match_ = first_alternative->max_match();
@@ -980,7 +982,7 @@ static int IncreaseBy(int previous, int increase) {
 
 RegExpAlternative::RegExpAlternative(ZoneList<RegExpTree*>* nodes)
     : nodes_(nodes) {
-  ASSERT(nodes->length() > 1);
+  DCHECK(nodes->length() > 1);
   min_match_ = 0;
   max_match_ = 0;
   for (int i = 0; i < nodes->length(); i++) {
@@ -1021,7 +1023,14 @@ CaseClause::CaseClause(Zone* zone,
     set_dont_optimize_reason(k##NodeType); \
     add_flag(kDontSelfOptimize); \
   }
-#define DONT_SELFOPTIMIZE_NODE(NodeType) \
+#define DONT_OPTIMIZE_NODE_WITH_FEEDBACK_SLOTS(NodeType) \
+  void AstConstructionVisitor::Visit##NodeType(NodeType* node) { \
+    increase_node_count(); \
+    add_slot_node(node); \
+    set_dont_optimize_reason(k##NodeType); \
+    add_flag(kDontSelfOptimize); \
+  }
+#define DONT_SELFOPTIMIZE_NODE(NodeType)                         \
   void AstConstructionVisitor::Visit##NodeType(NodeType* node) { \
     increase_node_count(); \
     add_flag(kDontSelfOptimize); \
@@ -1059,20 +1068,21 @@ REGULAR_NODE(RegExpLiteral)
 REGULAR_NODE(FunctionLiteral)
 REGULAR_NODE(Assignment)
 REGULAR_NODE(Throw)
-REGULAR_NODE(Property)
 REGULAR_NODE(UnaryOperation)
 REGULAR_NODE(CountOperation)
 REGULAR_NODE(BinaryOperation)
 REGULAR_NODE(CompareOperation)
 REGULAR_NODE(ThisFunction)
+
 REGULAR_NODE_WITH_FEEDBACK_SLOTS(Call)
 REGULAR_NODE_WITH_FEEDBACK_SLOTS(CallNew)
+REGULAR_NODE_WITH_FEEDBACK_SLOTS(Property)
 // In theory, for VariableProxy we'd have to add:
 // if (node->var()->IsLookupSlot())
 //   set_dont_optimize_reason(kReferenceToAVariableWhichRequiresDynamicLookup);
 // But node->var() is usually not bound yet at VariableProxy creation time, and
 // LOOKUP variables only result from constructs that cannot be inlined anyway.
-REGULAR_NODE(VariableProxy)
+REGULAR_NODE_WITH_FEEDBACK_SLOTS(VariableProxy)
 
 // We currently do not optimize any modules.
 DONT_OPTIMIZE_NODE(ModuleDeclaration)
@@ -1082,24 +1092,27 @@ DONT_OPTIMIZE_NODE(ModuleVariable)
 DONT_OPTIMIZE_NODE(ModulePath)
 DONT_OPTIMIZE_NODE(ModuleUrl)
 DONT_OPTIMIZE_NODE(ModuleStatement)
-DONT_OPTIMIZE_NODE(Yield)
 DONT_OPTIMIZE_NODE(WithStatement)
 DONT_OPTIMIZE_NODE(TryCatchStatement)
 DONT_OPTIMIZE_NODE(TryFinallyStatement)
 DONT_OPTIMIZE_NODE(DebuggerStatement)
 DONT_OPTIMIZE_NODE(NativeFunctionLiteral)
 
+DONT_OPTIMIZE_NODE_WITH_FEEDBACK_SLOTS(Yield)
+
 DONT_SELFOPTIMIZE_NODE(DoWhileStatement)
 DONT_SELFOPTIMIZE_NODE(WhileStatement)
 DONT_SELFOPTIMIZE_NODE(ForStatement)
-DONT_SELFOPTIMIZE_NODE_WITH_FEEDBACK_SLOTS(ForInStatement)
 DONT_SELFOPTIMIZE_NODE(ForOfStatement)
+
+DONT_SELFOPTIMIZE_NODE_WITH_FEEDBACK_SLOTS(ForInStatement)
 
 DONT_CACHE_NODE(ModuleLiteral)
 
 
 void AstConstructionVisitor::VisitCallRuntime(CallRuntime* node) {
   increase_node_count();
+  add_slot_node(node);
   if (node->is_jsruntime()) {
     // Don't try to optimize JS runtime calls because we bailout on them.
     set_dont_optimize_reason(kCallToAJavaScriptRuntimeFunction);
@@ -1114,7 +1127,7 @@ void AstConstructionVisitor::VisitCallRuntime(CallRuntime* node) {
 
 Handle<String> Literal::ToString() {
   if (value_->IsString()) return value_->AsString()->string();
-  ASSERT(value_->IsNumber());
+  DCHECK(value_->IsNumber());
   char arr[100];
   Vector<char> buffer(arr, ARRAY_SIZE(arr));
   const char* str;

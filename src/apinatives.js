@@ -68,7 +68,7 @@ function InstantiateFunction(data, name) {
         // internal ToBoolean doesn't handle that!
         if (typeof parent !== 'undefined') {
           var parent_fun = Instantiate(parent);
-          %SetPrototype(prototype, parent_fun.prototype);
+          %InternalSetPrototype(prototype, parent_fun.prototype);
         }
       }
       var fun = %CreateApiFunction(data, prototype);
@@ -104,10 +104,10 @@ function ConfigureTemplateInstance(obj, data) {
         // TODO(verwaest): The 5th value used to be access_control. Remove once
         // the bindings are updated.
         var name = properties[i + 1];
-        var getter = Instantiate(properties[i + 2]);
-        var setter = Instantiate(properties[i + 3]);
+        var getter = properties[i + 2];
+        var setter = properties[i + 3];
         var attribute = properties[i + 4];
-        %DefineAccessorPropertyUnchecked(obj, name, getter, setter, attribute);
+        %DefineApiAccessorProperty(obj, name, getter, setter, attribute);
       } else {
         throw "Bad properties array";
       }

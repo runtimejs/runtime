@@ -60,9 +60,6 @@ void Deoptimizer::PatchCodeForDeoptimization(Isolate* isolate, Code* code) {
 #endif
   DeoptimizationInputData* deopt_data =
       DeoptimizationInputData::cast(code->deoptimization_data());
-  SharedFunctionInfo* shared =
-      SharedFunctionInfo::cast(deopt_data->SharedFunctionInfo());
-  shared->EvictFromOptimizedCodeMap(code, "deoptimized code");
   deopt_data->SetSharedFunctionInfo(Smi::FromInt(0));
   // For each LLazyBailout instruction insert a call to the corresponding
   // deoptimization entry.
@@ -75,9 +72,9 @@ void Deoptimizer::PatchCodeForDeoptimization(Isolate* isolate, Code* code) {
     CodePatcher patcher(call_address, Assembler::kCallSequenceLength);
     patcher.masm()->Call(GetDeoptimizationEntry(isolate, i, LAZY),
                          Assembler::RelocInfoNone());
-    ASSERT(prev_call_address == NULL ||
+    DCHECK(prev_call_address == NULL ||
            call_address >= prev_call_address + patch_size());
-    ASSERT(call_address + patch_size() <= code->instruction_end());
+    DCHECK(call_address + patch_size() <= code->instruction_end());
 #ifdef DEBUG
     prev_call_address = call_address;
 #endif
@@ -294,7 +291,7 @@ void Deoptimizer::EntryGenerator::Generate() {
     // Do not restore rsp, simply pop the value into the next register
     // and overwrite this afterwards.
     if (r.is(rsp)) {
-      ASSERT(i > 0);
+      DCHECK(i > 0);
       r = Register::from_code(i - 1);
     }
     __ popq(r);
@@ -317,7 +314,7 @@ void Deoptimizer::TableEntryGenerator::GeneratePrologue() {
     USE(start);
     __ pushq_imm32(i);
     __ jmp(&done);
-    ASSERT(masm()->pc_offset() - start == table_entry_size_);
+    DCHECK(masm()->pc_offset() - start == table_entry_size_);
   }
   __ bind(&done);
 }

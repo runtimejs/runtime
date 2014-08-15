@@ -30,6 +30,8 @@
 
 #include "src/v8.h"
 
+#include "src/isolate-inl.h"
+
 #ifndef TEST
 #define TEST(Name)                                                             \
   static void Test##Name();                                                    \
@@ -112,6 +114,11 @@ class CcTest {
     return isolate_;
   }
 
+  static i::Isolate* InitIsolateOnce() {
+    if (!initialize_called_) InitializeVM();
+    return i_isolate();
+  }
+
   static i::Isolate* i_isolate() {
     return reinterpret_cast<i::Isolate*>(isolate());
   }
@@ -122,6 +129,10 @@ class CcTest {
 
   static TestHeap* test_heap() {
     return reinterpret_cast<TestHeap*>(i_isolate()->heap());
+  }
+
+  static v8::base::RandomNumberGenerator* random_number_generator() {
+    return InitIsolateOnce()->random_number_generator();
   }
 
   static v8::Local<v8::Object> global() {
@@ -484,6 +495,26 @@ static inline void SimulateFullSpace(v8::internal::PagedSpace* space) {
 }
 
 
+// Helper function that simulates many incremental marking steps until
+// marking is completed.
+static inline void SimulateIncrementalMarking(i::Heap* heap) {
+  i::MarkCompactCollector* collector = heap->mark_compact_collector();
+  i::IncrementalMarking* marking = heap->incremental_marking();
+  if (collector->sweeping_in_progress()) {
+    collector->EnsureSweepingCompleted();
+  }
+  CHECK(marking->IsMarking() || marking->IsStopped());
+  if (marking->IsStopped()) {
+    marking->Start();
+  }
+  CHECK(marking->IsMarking());
+  while (!marking->IsComplete()) {
+    marking->Step(i::MB, i::IncrementalMarking::NO_GC_VIA_STACK_GUARD);
+  }
+  CHECK(marking->IsComplete());
+}
+
+
 // Helper class for new allocations tracking and checking.
 // To use checking of JS allocations tracking in a test,
 // just create an instance of this class.
@@ -505,5 +536,31 @@ class HeapObjectsTracker {
   i::HeapProfiler* heap_profiler_;
 };
 
+
+class InitializedHandleScope {
+ public:
+  InitializedHandleScope()
+      : main_isolate_(CcTest::InitIsolateOnce()),
+        handle_scope_(main_isolate_) {}
+
+  // Prefixing the below with main_ reduces a lot of naming clashes.
+  i::Isolate* main_isolate() { return main_isolate_; }
+
+ private:
+  i::Isolate* main_isolate_;
+  i::HandleScope handle_scope_;
+};
+
+
+class HandleAndZoneScope : public InitializedHandleScope {
+ public:
+  HandleAndZoneScope() : main_zone_(main_isolate()) {}
+
+  // Prefixing the below with main_ reduces a lot of naming clashes.
+  i::Zone* main_zone() { return &main_zone_; }
+
+ private:
+  i::Zone main_zone_;
+};
 
 #endif  // ifndef CCTEST_H_

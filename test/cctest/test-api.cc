@@ -2737,8 +2737,6 @@ THREADED_TEST(GlobalProxyIdentityHash) {
 
 
 THREADED_TEST(SymbolProperties) {
-  i::FLAG_harmony_symbols = true;
-
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   v8::HandleScope scope(isolate);
@@ -2887,8 +2885,6 @@ THREADED_TEST(PrivateProperties) {
 
 
 THREADED_TEST(GlobalSymbols) {
-  i::FLAG_harmony_symbols = true;
-
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   v8::HandleScope scope(isolate);
@@ -2972,7 +2968,7 @@ THREADED_TEST(ArrayBuffer_ApiInternalToExternal) {
 
   CHECK_EQ(1024, static_cast<int>(ab_contents.ByteLength()));
   uint8_t* data = static_cast<uint8_t*>(ab_contents.Data());
-  ASSERT(data != NULL);
+  DCHECK(data != NULL);
   env->Global()->Set(v8_str("ab"), ab);
 
   v8::Handle<v8::Value> result = CompileRun("ab.byteLength");
@@ -5312,15 +5308,28 @@ THREADED_TEST(TryCatchAndFinally) {
 }
 
 
-static void TryCatchNestedHelper(int depth) {
+static void TryCatchNested1Helper(int depth) {
   if (depth > 0) {
     v8::TryCatch try_catch;
     try_catch.SetVerbose(true);
-    TryCatchNestedHelper(depth - 1);
+    TryCatchNested1Helper(depth - 1);
     CHECK(try_catch.HasCaught());
     try_catch.ReThrow();
   } else {
-    CcTest::isolate()->ThrowException(v8_str("back"));
+    CcTest::isolate()->ThrowException(v8_str("E1"));
+  }
+}
+
+
+static void TryCatchNested2Helper(int depth) {
+  if (depth > 0) {
+    v8::TryCatch try_catch;
+    try_catch.SetVerbose(true);
+    TryCatchNested2Helper(depth - 1);
+    CHECK(try_catch.HasCaught());
+    try_catch.ReThrow();
+  } else {
+    CompileRun("throw 'E2';");
   }
 }
 
@@ -5329,10 +5338,22 @@ TEST(TryCatchNested) {
   v8::V8::Initialize();
   LocalContext context;
   v8::HandleScope scope(context->GetIsolate());
-  v8::TryCatch try_catch;
-  TryCatchNestedHelper(5);
-  CHECK(try_catch.HasCaught());
-  CHECK_EQ(0, strcmp(*v8::String::Utf8Value(try_catch.Exception()), "back"));
+
+  {
+    // Test nested try-catch with a native throw in the end.
+    v8::TryCatch try_catch;
+    TryCatchNested1Helper(5);
+    CHECK(try_catch.HasCaught());
+    CHECK_EQ(0, strcmp(*v8::String::Utf8Value(try_catch.Exception()), "E1"));
+  }
+
+  {
+    // Test nested try-catch with a JavaScript throw in the end.
+    v8::TryCatch try_catch;
+    TryCatchNested2Helper(5);
+    CHECK(try_catch.HasCaught());
+    CHECK_EQ(0, strcmp(*v8::String::Utf8Value(try_catch.Exception()), "E2"));
+  }
 }
 
 
@@ -5375,6 +5396,53 @@ TEST(TryCatchMixedNesting) {
   LocalContext context(0, templ);
   CompileRunWithOrigin("TryCatchMixedNestingHelper();\n", "outer", 1, 1);
   TryCatchMixedNestingCheck(&try_catch);
+}
+
+
+void TryCatchNativeHelper(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  ApiTestFuzzer::Fuzz();
+  v8::TryCatch try_catch;
+  args.GetIsolate()->ThrowException(v8_str("boom"));
+  CHECK(try_catch.HasCaught());
+}
+
+
+TEST(TryCatchNative) {
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope scope(isolate);
+  v8::V8::Initialize();
+  v8::TryCatch try_catch;
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->Set(v8_str("TryCatchNativeHelper"),
+             v8::FunctionTemplate::New(isolate, TryCatchNativeHelper));
+  LocalContext context(0, templ);
+  CompileRun("TryCatchNativeHelper();");
+  CHECK(!try_catch.HasCaught());
+}
+
+
+void TryCatchNativeResetHelper(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  ApiTestFuzzer::Fuzz();
+  v8::TryCatch try_catch;
+  args.GetIsolate()->ThrowException(v8_str("boom"));
+  CHECK(try_catch.HasCaught());
+  try_catch.Reset();
+  CHECK(!try_catch.HasCaught());
+}
+
+
+TEST(TryCatchNativeReset) {
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope scope(isolate);
+  v8::V8::Initialize();
+  v8::TryCatch try_catch;
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->Set(v8_str("TryCatchNativeResetHelper"),
+             v8::FunctionTemplate::New(isolate, TryCatchNativeResetHelper));
+  LocalContext context(0, templ);
+  CompileRun("TryCatchNativeResetHelper();");
+  CHECK(!try_catch.HasCaught());
 }
 
 
@@ -6131,15 +6199,17 @@ THREADED_TEST(IndexedInterceptorWithAccessorCheck) {
   context->Global()->Set(v8_str("obj"), obj);
 
   const char* code =
-      "try {"
-      "  for (var i = 0; i < 100; i++) {"
+      "var result = 'PASSED';"
+      "for (var i = 0; i < 100; i++) {"
+      "  try {"
       "    var v = obj[0];"
-      "    if (v != undefined) throw 'Wrong value ' + v + ' at iteration ' + i;"
+      "    result = 'Wrong value ' + v + ' at iteration ' + i;"
+      "    break;"
+      "  } catch (e) {"
+      "    /* pass */"
       "  }"
-      "  'PASSED'"
-      "} catch(e) {"
-      "  e"
-      "}";
+      "}"
+      "result";
   ExpectString(code, "PASSED");
 }
 
@@ -6156,21 +6226,29 @@ THREADED_TEST(IndexedInterceptorWithAccessorCheckSwitchedOn) {
   context->Global()->Set(v8_str("obj"), obj);
 
   const char* code =
-      "try {"
-      "  for (var i = 0; i < 100; i++) {"
-      "    var expected = i;"
-      "    if (i == 5) {"
-      "      %EnableAccessChecks(obj);"
-      "      expected = undefined;"
-      "    }"
-      "    var v = obj[i];"
-      "    if (v != expected) throw 'Wrong value ' + v + ' at iteration ' + i;"
-      "    if (i == 5) %DisableAccessChecks(obj);"
+      "var result = 'PASSED';"
+      "for (var i = 0; i < 100; i++) {"
+      "  var expected = i;"
+      "  if (i == 5) {"
+      "    %EnableAccessChecks(obj);"
       "  }"
-      "  'PASSED'"
-      "} catch(e) {"
-      "  e"
-      "}";
+      "  try {"
+      "    var v = obj[i];"
+      "    if (i == 5) {"
+      "      result = 'Should not have reached this!';"
+      "      break;"
+      "    } else if (v != expected) {"
+      "      result = 'Wrong value ' + v + ' at iteration ' + i;"
+      "      break;"
+      "    }"
+      "  } catch (e) {"
+      "    if (i != 5) {"
+      "      result = e;"
+      "    }"
+      "  }"
+      "  if (i == 5) %DisableAccessChecks(obj);"
+      "}"
+      "result";
   ExpectString(code, "PASSED");
 }
 
@@ -8581,10 +8659,8 @@ THREADED_TEST(SecurityChecksForPrototypeChain) {
   v8::Local<Script> access_other0 = v8_compile("other.Object");
   v8::Local<Script> access_other1 = v8_compile("other[42]");
   for (int i = 0; i < 5; i++) {
-    CHECK(!access_other0->Run()->Equals(other_object));
-    CHECK(access_other0->Run()->IsUndefined());
-    CHECK(!access_other1->Run()->Equals(v8_num(87)));
-    CHECK(access_other1->Run()->IsUndefined());
+    CHECK(access_other0->Run().IsEmpty());
+    CHECK(access_other1->Run().IsEmpty());
   }
 
   // Create an object that has 'other' in its prototype chain and make
@@ -8596,10 +8672,8 @@ THREADED_TEST(SecurityChecksForPrototypeChain) {
   v8::Local<Script> access_f0 = v8_compile("f.Object");
   v8::Local<Script> access_f1 = v8_compile("f[42]");
   for (int j = 0; j < 5; j++) {
-    CHECK(!access_f0->Run()->Equals(other_object));
-    CHECK(access_f0->Run()->IsUndefined());
-    CHECK(!access_f1->Run()->Equals(v8_num(87)));
-    CHECK(access_f1->Run()->IsUndefined());
+    CHECK(access_f0->Run().IsEmpty());
+    CHECK(access_f1->Run().IsEmpty());
   }
 
   // Now it gets hairy: Set the prototype for the other global object
@@ -8618,10 +8692,8 @@ THREADED_TEST(SecurityChecksForPrototypeChain) {
   Local<Script> access_f2 = v8_compile("f.foo");
   Local<Script> access_f3 = v8_compile("f[99]");
   for (int k = 0; k < 5; k++) {
-    CHECK(!access_f2->Run()->Equals(v8_num(100)));
-    CHECK(access_f2->Run()->IsUndefined());
-    CHECK(!access_f3->Run()->Equals(v8_num(101)));
-    CHECK(access_f3->Run()->IsUndefined());
+    CHECK(access_f2->Run().IsEmpty());
+    CHECK(access_f3->Run().IsEmpty());
   }
 }
 
@@ -8702,7 +8774,7 @@ THREADED_TEST(CrossDomainDelete) {
     Context::Scope scope_env2(env2);
     Local<Value> result =
         CompileRun("delete env1.prop");
-    CHECK(result->IsFalse());
+    CHECK(result.IsEmpty());
   }
 
   // Check that env1.prop still exists.
@@ -8740,7 +8812,7 @@ THREADED_TEST(CrossDomainIsPropertyEnumerable) {
   {
     Context::Scope scope_env2(env2);
     Local<Value> result = CompileRun(test);
-    CHECK(result->IsFalse());
+    CHECK(result.IsEmpty());
   }
 }
 
@@ -8767,11 +8839,18 @@ THREADED_TEST(CrossDomainForIn) {
   env2->SetSecurityToken(bar);
   {
     Context::Scope scope_env2(env2);
-    Local<Value> result =
-        CompileRun("(function(){var obj = {'__proto__':env1};"
-                   "for (var p in obj)"
-                   "   if (p == 'prop') return false;"
-                   "return true;})()");
+    Local<Value> result = CompileRun(
+        "(function() {"
+        "  var obj = { '__proto__': env1 };"
+        "  try {"
+        "    for (var p in obj) {"
+        "      if (p == 'prop') return false;"
+        "    }"
+        "    return false;"
+        "  } catch (e) {"
+        "    return true;"
+        "  }"
+        "})()");
     CHECK(result->IsTrue());
   }
 }
@@ -8833,7 +8912,7 @@ TEST(ContextDetachGlobal) {
   // Check that env3 is not accessible from env1
   {
     Local<Value> r = global3->Get(v8_str("prop2"));
-    CHECK(r->IsUndefined());
+    CHECK(r.IsEmpty());
   }
 }
 
@@ -8872,7 +8951,7 @@ TEST(DetachGlobal) {
   // Check that the global has been detached. No other.p property can
   // be found.
   result = CompileRun("other.p");
-  CHECK(result->IsUndefined());
+  CHECK(result.IsEmpty());
 
   // Reuse global2 for env3.
   v8::Handle<Context> env3 = Context::New(env1->GetIsolate(),
@@ -8902,7 +8981,7 @@ TEST(DetachGlobal) {
   // the global object for env3 which has a different security token,
   // so access should be blocked.
   result = CompileRun("other.p");
-  CHECK(result->IsUndefined());
+  CHECK(result.IsEmpty());
 }
 
 
@@ -8955,9 +9034,9 @@ TEST(DetachedAccesses) {
   result = CompileRun("bound_x()");
   CHECK_EQ(v8_str("env2_x"), result);
   result = CompileRun("get_x()");
-  CHECK(result->IsUndefined());
+  CHECK(result.IsEmpty());
   result = CompileRun("get_x_w()");
-  CHECK(result->IsUndefined());
+  CHECK(result.IsEmpty());
   result = CompileRun("this_x()");
   CHECK_EQ(v8_str("env2_x"), result);
 
@@ -9153,33 +9232,35 @@ TEST(AccessControl) {
   // Access blocked property.
   CompileRun("other.blocked_prop = 1");
 
-  ExpectUndefined("other.blocked_prop");
-  ExpectUndefined(
-      "Object.getOwnPropertyDescriptor(other, 'blocked_prop')");
-  ExpectFalse("propertyIsEnumerable.call(other, 'blocked_prop')");
+  CHECK(CompileRun("other.blocked_prop").IsEmpty());
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, 'blocked_prop')")
+            .IsEmpty());
+  CHECK(
+      CompileRun("propertyIsEnumerable.call(other, 'blocked_prop')").IsEmpty());
 
   // Access blocked element.
-  CompileRun("other[239] = 1");
+  CHECK(CompileRun("other[239] = 1").IsEmpty());
 
-  ExpectUndefined("other[239]");
-  ExpectUndefined("Object.getOwnPropertyDescriptor(other, '239')");
-  ExpectFalse("propertyIsEnumerable.call(other, '239')");
+  CHECK(CompileRun("other[239]").IsEmpty());
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, '239')").IsEmpty());
+  CHECK(CompileRun("propertyIsEnumerable.call(other, '239')").IsEmpty());
 
   // Enable ACCESS_HAS
   allowed_access_type[v8::ACCESS_HAS] = true;
-  ExpectUndefined("other[239]");
+  CHECK(CompileRun("other[239]").IsEmpty());
   // ... and now we can get the descriptor...
-  ExpectUndefined("Object.getOwnPropertyDescriptor(other, '239').value");
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, '239').value")
+            .IsEmpty());
   // ... and enumerate the property.
   ExpectTrue("propertyIsEnumerable.call(other, '239')");
   allowed_access_type[v8::ACCESS_HAS] = false;
 
   // Access a property with JS accessor.
-  CompileRun("other.js_accessor_p = 2");
+  CHECK(CompileRun("other.js_accessor_p = 2").IsEmpty());
 
-  ExpectUndefined("other.js_accessor_p");
-  ExpectUndefined(
-      "Object.getOwnPropertyDescriptor(other, 'js_accessor_p')");
+  CHECK(CompileRun("other.js_accessor_p").IsEmpty());
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, 'js_accessor_p')")
+            .IsEmpty());
 
   // Enable both ACCESS_HAS and ACCESS_GET.
   allowed_access_type[v8::ACCESS_HAS] = true;
@@ -9197,10 +9278,10 @@ TEST(AccessControl) {
   allowed_access_type[v8::ACCESS_GET] = false;
 
   // Access an element with JS accessor.
-  CompileRun("other[42] = 2");
+  CHECK(CompileRun("other[42] = 2").IsEmpty());
 
-  ExpectUndefined("other[42]");
-  ExpectUndefined("Object.getOwnPropertyDescriptor(other, '42')");
+  CHECK(CompileRun("other[42]").IsEmpty());
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, '42')").IsEmpty());
 
   // Enable both ACCESS_HAS and ACCESS_GET.
   allowed_access_type[v8::ACCESS_HAS] = true;
@@ -9236,15 +9317,22 @@ TEST(AccessControl) {
 
   // Enumeration doesn't enumerate accessors from inaccessible objects in
   // the prototype chain even if the accessors are in themselves accessible.
-  value =
-      CompileRun("(function(){var obj = {'__proto__':other};"
-                 "for (var p in obj)"
-                 "   if (p == 'accessible_prop' ||"
-                 "       p == 'blocked_js_prop' ||"
-                 "       p == 'blocked_js_prop') {"
-                 "     return false;"
-                 "   }"
-                 "return true;})()");
+  value = CompileRun(
+      "(function() {"
+      "  var obj = { '__proto__': other };"
+      "  try {"
+      "    for (var p in obj) {"
+      "      if (p == 'accessible_prop' ||"
+      "          p == 'blocked_js_prop' ||"
+      "          p == 'blocked_js_prop') {"
+      "        return false;"
+      "      }"
+      "    }"
+      "    return false;"
+      "  } catch (e) {"
+      "    return true;"
+      "  }"
+      "})()");
   CHECK(value->IsTrue());
 
   context1->Exit();
@@ -9287,16 +9375,15 @@ TEST(AccessControlES5) {
   global1->Set(v8_str("other"), global0);
 
   // Regression test for issue 1154.
-  ExpectTrue("Object.keys(other).indexOf('blocked_prop') == -1");
-
-  ExpectUndefined("other.blocked_prop");
+  CHECK(CompileRun("Object.keys(other)").IsEmpty());
+  CHECK(CompileRun("other.blocked_prop").IsEmpty());
 
   // Regression test for issue 1027.
   CompileRun("Object.defineProperty(\n"
              "  other, 'blocked_prop', {configurable: false})");
-  ExpectUndefined("other.blocked_prop");
-  ExpectUndefined(
-      "Object.getOwnPropertyDescriptor(other, 'blocked_prop')");
+  CHECK(CompileRun("other.blocked_prop").IsEmpty());
+  CHECK(CompileRun("Object.getOwnPropertyDescriptor(other, 'blocked_prop')")
+            .IsEmpty());
 
   // Regression test for issue 1171.
   ExpectTrue("Object.isExtensible(other)");
@@ -9372,10 +9459,10 @@ THREADED_TEST(AccessControlGetOwnPropertyNames) {
   // proxy object.  Accessing the object that requires access checks
   // is blocked by the access checks on the object itself.
   value = CompileRun("Object.getOwnPropertyNames(other).length == 0");
-  CHECK(value->IsTrue());
+  CHECK(value.IsEmpty());
 
   value = CompileRun("Object.getOwnPropertyNames(object).length == 0");
-  CHECK(value->IsTrue());
+  CHECK(value.IsEmpty());
 
   context1->Exit();
   context0->Exit();
@@ -9483,7 +9570,7 @@ THREADED_TEST(CrossDomainAccessors) {
   CHECK_EQ(10, value->Int32Value());
 
   value = v8_compile("other.unreachable")->Run();
-  CHECK(value->IsUndefined());
+  CHECK(value.IsEmpty());
 
   context1->Exit();
   context0->Exit();
@@ -10122,7 +10209,7 @@ THREADED_TEST(HiddenPrototypeIdentityHash) {
   int hash = o->GetIdentityHash();
   USE(hash);
   o->Set(v8_str("foo"), v8_num(42));
-  ASSERT_EQ(hash, o->GetIdentityHash());
+  DCHECK_EQ(hash, o->GetIdentityHash());
 }
 
 
@@ -10345,7 +10432,7 @@ THREADED_TEST(SetPrototypeThrows) {
   v8::TryCatch try_catch;
   CHECK(!o1->SetPrototype(o0));
   CHECK(!try_catch.HasCaught());
-  ASSERT(!CcTest::i_isolate()->has_pending_exception());
+  DCHECK(!CcTest::i_isolate()->has_pending_exception());
 
   CHECK_EQ(42, CompileRun("function f() { return 42; }; f()")->Int32Value());
 }
@@ -13451,21 +13538,21 @@ TEST(DontLeakGlobalObjects) {
     { v8::HandleScope scope(CcTest::isolate());
       LocalContext context;
     }
-    v8::V8::ContextDisposedNotification();
+    CcTest::isolate()->ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope(CcTest::isolate());
       LocalContext context;
       v8_compile("Date")->Run();
     }
-    v8::V8::ContextDisposedNotification();
+    CcTest::isolate()->ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope(CcTest::isolate());
       LocalContext context;
       v8_compile("/aaa/")->Run();
     }
-    v8::V8::ContextDisposedNotification();
+    CcTest::isolate()->ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope(CcTest::isolate());
@@ -13474,7 +13561,7 @@ TEST(DontLeakGlobalObjects) {
       LocalContext context(&extensions);
       v8_compile("gc();")->Run();
     }
-    v8::V8::ContextDisposedNotification();
+    CcTest::isolate()->ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
   }
 }
@@ -13928,12 +14015,12 @@ void SetFunctionEntryHookTest::RunLoopInNewEnv(v8::Isolate* isolate) {
   CompileRun(script);
   bar_func_ = i::Handle<i::JSFunction>::cast(
           v8::Utils::OpenHandle(*env->Global()->Get(v8_str("bar"))));
-  ASSERT(!bar_func_.is_null());
+  DCHECK(!bar_func_.is_null());
 
   foo_func_ =
       i::Handle<i::JSFunction>::cast(
            v8::Utils::OpenHandle(*env->Global()->Get(v8_str("foo"))));
-  ASSERT(!foo_func_.is_null());
+  DCHECK(!foo_func_.is_null());
 
   v8::Handle<v8::Value> value = CompileRun("bar();");
   CHECK(value->IsNumber());
@@ -14595,13 +14682,13 @@ THREADED_TEST(AccessChecksReenabledCorrectly) {
   context->Global()->Set(v8_str("obj_1"), instance_1);
 
   Local<Value> value_1 = CompileRun("obj_1.a");
-  CHECK(value_1->IsUndefined());
+  CHECK(value_1.IsEmpty());
 
   Local<v8::Object> instance_2 = templ->NewInstance();
   context->Global()->Set(v8_str("obj_2"), instance_2);
 
   Local<Value> value_2 = CompileRun("obj_2.a");
-  CHECK(value_2->IsUndefined());
+  CHECK(value_2.IsEmpty());
 }
 
 
@@ -14682,11 +14769,9 @@ THREADED_TEST(TurnOnAccessCheck) {
   context->DetachGlobal();
   hidden_global->TurnOnAccessCheck();
 
-  // Failing access check to property get results in undefined.
-  CHECK(f1->Call(global, 0, NULL)->IsUndefined());
-  CHECK(f2->Call(global, 0, NULL)->IsUndefined());
-
-  // Failing access check to function call results in exception.
+  // Failing access check results in exception.
+  CHECK(f1->Call(global, 0, NULL).IsEmpty());
+  CHECK(f2->Call(global, 0, NULL).IsEmpty());
   CHECK(g1->Call(global, 0, NULL).IsEmpty());
   CHECK(g2->Call(global, 0, NULL).IsEmpty());
 
@@ -14770,11 +14855,9 @@ THREADED_TEST(TurnOnAccessCheckAndRecompile) {
   context->DetachGlobal();
   hidden_global->TurnOnAccessCheck();
 
-  // Failing access check to property get results in undefined.
-  CHECK(f1->Call(global, 0, NULL)->IsUndefined());
-  CHECK(f2->Call(global, 0, NULL)->IsUndefined());
-
-  // Failing access check to function call results in exception.
+  // Failing access check results in exception.
+  CHECK(f1->Call(global, 0, NULL).IsEmpty());
+  CHECK(f2->Call(global, 0, NULL).IsEmpty());
   CHECK(g1->Call(global, 0, NULL).IsEmpty());
   CHECK(g2->Call(global, 0, NULL).IsEmpty());
 
@@ -14788,13 +14871,13 @@ THREADED_TEST(TurnOnAccessCheckAndRecompile) {
   f2 = Local<Function>::Cast(hidden_global->Get(v8_str("f2")));
   g1 = Local<Function>::Cast(hidden_global->Get(v8_str("g1")));
   g2 = Local<Function>::Cast(hidden_global->Get(v8_str("g2")));
-  CHECK(hidden_global->Get(v8_str("h"))->IsUndefined());
+  CHECK(hidden_global->Get(v8_str("h")).IsEmpty());
 
-  // Failing access check to property get results in undefined.
-  CHECK(f1->Call(global, 0, NULL)->IsUndefined());
-  CHECK(f2->Call(global, 0, NULL)->IsUndefined());
-
-  // Failing access check to function call results in exception.
+  // Failing access check results in exception.
+  v8::Local<v8::Value> result = f1->Call(global, 0, NULL);
+  CHECK(result.IsEmpty());
+  CHECK(f1->Call(global, 0, NULL).IsEmpty());
+  CHECK(f2->Call(global, 0, NULL).IsEmpty());
   CHECK(g1->Call(global, 0, NULL).IsEmpty());
   CHECK(g2->Call(global, 0, NULL).IsEmpty());
 }
@@ -15623,19 +15706,19 @@ THREADED_TEST(PixelArray) {
   i::Handle<i::Object> no_failure;
   no_failure = i::JSObject::SetElement(
       jsobj, 1, value, NONE, i::SLOPPY).ToHandleChecked();
-  ASSERT(!no_failure.is_null());
+  DCHECK(!no_failure.is_null());
   USE(no_failure);
   CheckElementValue(isolate, 2, jsobj, 1);
   *value.location() = i::Smi::FromInt(256);
   no_failure = i::JSObject::SetElement(
       jsobj, 1, value, NONE, i::SLOPPY).ToHandleChecked();
-  ASSERT(!no_failure.is_null());
+  DCHECK(!no_failure.is_null());
   USE(no_failure);
   CheckElementValue(isolate, 255, jsobj, 1);
   *value.location() = i::Smi::FromInt(-1);
   no_failure = i::JSObject::SetElement(
       jsobj, 1, value, NONE, i::SLOPPY).ToHandleChecked();
-  ASSERT(!no_failure.is_null());
+  DCHECK(!no_failure.is_null());
   USE(no_failure);
   CheckElementValue(isolate, 0, jsobj, 1);
 
@@ -17007,7 +17090,7 @@ void AnalyzeStackInNativeCode(const v8::FunctionCallbackInfo<v8::Value>& args) {
   const int kOverviewTest = 1;
   const int kDetailedTest = 2;
 
-  ASSERT(args.Length() == 1);
+  DCHECK(args.Length() == 1);
 
   int testGroup = args[0]->Int32Value();
   if (testGroup == kOverviewTest) {
@@ -17553,6 +17636,7 @@ static void CreateGarbageInOldSpace() {
 // Test that idle notification can be handled and eventually returns true.
 TEST(IdleNotification) {
   const intptr_t MB = 1024 * 1024;
+  const int IdlePauseInMs = 1000;
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   intptr_t initial_size = CcTest::heap()->SizeOfObjects();
@@ -17561,7 +17645,7 @@ TEST(IdleNotification) {
   CHECK_GT(size_with_garbage, initial_size + MB);
   bool finished = false;
   for (int i = 0; i < 200 && !finished; i++) {
-    finished = v8::V8::IdleNotification();
+    finished = env->GetIsolate()->IdleNotification(IdlePauseInMs);
   }
   intptr_t final_size = CcTest::heap()->SizeOfObjects();
   CHECK(finished);
@@ -17581,7 +17665,7 @@ TEST(IdleNotificationWithSmallHint) {
   CHECK_GT(size_with_garbage, initial_size + MB);
   bool finished = false;
   for (int i = 0; i < 200 && !finished; i++) {
-    finished = v8::V8::IdleNotification(IdlePauseInMs);
+    finished = env->GetIsolate()->IdleNotification(IdlePauseInMs);
   }
   intptr_t final_size = CcTest::heap()->SizeOfObjects();
   CHECK(finished);
@@ -17601,7 +17685,7 @@ TEST(IdleNotificationWithLargeHint) {
   CHECK_GT(size_with_garbage, initial_size + MB);
   bool finished = false;
   for (int i = 0; i < 200 && !finished; i++) {
-    finished = v8::V8::IdleNotification(IdlePauseInMs);
+    finished = env->GetIsolate()->IdleNotification(IdlePauseInMs);
   }
   intptr_t final_size = CcTest::heap()->SizeOfObjects();
   CHECK(finished);
@@ -17618,7 +17702,7 @@ TEST(Regress2107) {
   v8::HandleScope scope(env->GetIsolate());
   intptr_t initial_size = CcTest::heap()->SizeOfObjects();
   // Send idle notification to start a round of incremental GCs.
-  v8::V8::IdleNotification(kShortIdlePauseInMs);
+  env->GetIsolate()->IdleNotification(kShortIdlePauseInMs);
   // Emulate 7 page reloads.
   for (int i = 0; i < 7; i++) {
     {
@@ -17628,8 +17712,8 @@ TEST(Regress2107) {
       CreateGarbageInOldSpace();
       ctx->Exit();
     }
-    v8::V8::ContextDisposedNotification();
-    v8::V8::IdleNotification(kLongIdlePauseInMs);
+    env->GetIsolate()->ContextDisposedNotification();
+    env->GetIsolate()->IdleNotification(kLongIdlePauseInMs);
   }
   // Create garbage and check that idle notification still collects it.
   CreateGarbageInOldSpace();
@@ -17637,7 +17721,7 @@ TEST(Regress2107) {
   CHECK_GT(size_with_garbage, initial_size + MB);
   bool finished = false;
   for (int i = 0; i < 200 && !finished; i++) {
-    finished = v8::V8::IdleNotification(kShortIdlePauseInMs);
+    finished = env->GetIsolate()->IdleNotification(kShortIdlePauseInMs);
   }
   intptr_t final_size = CcTest::heap()->SizeOfObjects();
   CHECK_LT(final_size, initial_size + 1);
@@ -18016,7 +18100,7 @@ THREADED_TEST(QuietSignalingNaNs) {
       uint64_t stored_bits = DoubleToBits(stored_number);
       // Check if quiet nan (bits 51..62 all set).
 #if (defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_MIPS64)) && \
-    !defined(USE_SIMULATOR)
+    !defined(_MIPS_ARCH_MIPS64R6) && !defined(USE_SIMULATOR)
       // Most significant fraction bit for quiet nan is set to 0
       // on MIPS architecture. Allowed by IEEE-754.
       CHECK_EQ(0xffe, static_cast<int>((stored_bits >> 51) & 0xfff));
@@ -18037,7 +18121,7 @@ THREADED_TEST(QuietSignalingNaNs) {
       uint64_t stored_bits = DoubleToBits(stored_date);
       // Check if quiet nan (bits 51..62 all set).
 #if (defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_MIPS64)) && \
-    !defined(USE_SIMULATOR)
+    !defined(_MIPS_ARCH_MIPS64R6) && !defined(USE_SIMULATOR)
       // Most significant fraction bit for quiet nan is set to 0
       // on MIPS architecture. Allowed by IEEE-754.
       CHECK_EQ(0xffe, static_cast<int>((stored_bits >> 51) & 0xfff));
@@ -18113,7 +18197,7 @@ TEST(Regress528) {
     CompileRun(source_simple);
     context->Exit();
   }
-  v8::V8::ContextDisposedNotification();
+  isolate->ContextDisposedNotification();
   for (gc_count = 1; gc_count < 10; gc_count++) {
     other_context->Enter();
     CompileRun(source_simple);
@@ -18135,7 +18219,7 @@ TEST(Regress528) {
     CompileRun(source_eval);
     context->Exit();
   }
-  v8::V8::ContextDisposedNotification();
+  isolate->ContextDisposedNotification();
   for (gc_count = 1; gc_count < 10; gc_count++) {
     other_context->Enter();
     CompileRun(source_eval);
@@ -18162,7 +18246,7 @@ TEST(Regress528) {
     CHECK_EQ(1, message->GetLineNumber());
     context->Exit();
   }
-  v8::V8::ContextDisposedNotification();
+  isolate->ContextDisposedNotification();
   for (gc_count = 1; gc_count < 10; gc_count++) {
     other_context->Enter();
     CompileRun(source_exception);
@@ -18173,7 +18257,7 @@ TEST(Regress528) {
   CHECK_GE(2, gc_count);
   CHECK_EQ(1, GetGlobalObjectsCount());
 
-  v8::V8::ContextDisposedNotification();
+  isolate->ContextDisposedNotification();
 }
 
 
@@ -20316,20 +20400,20 @@ THREADED_TEST(Regress93759) {
   CHECK(result1->Equals(simple_object->GetPrototype()));
 
   Local<Value> result2 = CompileRun("Object.getPrototypeOf(protected)");
-  CHECK(result2->Equals(Undefined(isolate)));
+  CHECK(result2.IsEmpty());
 
   Local<Value> result3 = CompileRun("Object.getPrototypeOf(global)");
   CHECK(result3->Equals(global_object->GetPrototype()));
 
   Local<Value> result4 = CompileRun("Object.getPrototypeOf(proxy)");
-  CHECK(result4->Equals(Undefined(isolate)));
+  CHECK(result4.IsEmpty());
 
   Local<Value> result5 = CompileRun("Object.getPrototypeOf(hidden)");
   CHECK(result5->Equals(
       object_with_hidden->GetPrototype()->ToObject()->GetPrototype()));
 
   Local<Value> result6 = CompileRun("Object.getPrototypeOf(phidden)");
-  CHECK(result6->Equals(Undefined(isolate)));
+  CHECK(result6.IsEmpty());
 }
 
 
@@ -21347,8 +21431,6 @@ THREADED_TEST(Regress157124) {
 
 
 THREADED_TEST(Regress2535) {
-  i::FLAG_harmony_collections = true;
-  i::FLAG_harmony_symbols = true;
   LocalContext context;
   v8::HandleScope scope(context->GetIsolate());
   Local<Value> set_value = CompileRun("new Set();");
@@ -21524,11 +21606,9 @@ TEST(JSONStringifyAccessCheck) {
     LocalContext context1(NULL, global_template);
     context1->Global()->Set(v8_str("other"), global0);
 
-    ExpectString("JSON.stringify(other)", "{}");
-    ExpectString("JSON.stringify({ 'a' : other, 'b' : ['c'] })",
-                 "{\"a\":{},\"b\":[\"c\"]}");
-    ExpectString("JSON.stringify([other, 'b', 'c'])",
-                 "[{},\"b\",\"c\"]");
+    CHECK(CompileRun("JSON.stringify(other)").IsEmpty());
+    CHECK(CompileRun("JSON.stringify({ 'a' : other, 'b' : ['c'] })").IsEmpty());
+    CHECK(CompileRun("JSON.stringify([other, 'b', 'c'])").IsEmpty());
 
     v8::Handle<v8::Array> array = v8::Array::New(isolate, 2);
     array->Set(0, v8_str("a"));
@@ -21536,9 +21616,9 @@ TEST(JSONStringifyAccessCheck) {
     context1->Global()->Set(v8_str("array"), array);
     ExpectString("JSON.stringify(array)", "[\"a\",\"b\"]");
     array->TurnOnAccessCheck();
-    ExpectString("JSON.stringify(array)", "[]");
-    ExpectString("JSON.stringify([array])", "[[]]");
-    ExpectString("JSON.stringify({'a' : array})", "{\"a\":[]}");
+    CHECK(CompileRun("JSON.stringify(array)").IsEmpty());
+    CHECK(CompileRun("JSON.stringify([array])").IsEmpty());
+    CHECK(CompileRun("JSON.stringify({'a' : array})").IsEmpty());
   }
 }
 
@@ -22338,7 +22418,7 @@ class ApiCallOptimizationChecker {
         wrap_function.start(), key, key, key, key, key, key);
     v8::TryCatch try_catch;
     CompileRun(source.start());
-    ASSERT(!try_catch.HasCaught());
+    DCHECK(!try_catch.HasCaught());
     CHECK_EQ(9, count);
   }
 };

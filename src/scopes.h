@@ -21,12 +21,10 @@ class VariableMap: public ZoneHashMap {
 
   virtual ~VariableMap();
 
-  Variable* Declare(Scope* scope,
-                    const AstRawString* name,
-                    VariableMode mode,
-                    bool is_valid_lhs,
-                    Variable::Kind kind,
+  Variable* Declare(Scope* scope, const AstRawString* name, VariableMode mode,
+                    bool is_valid_lhs, Variable::Kind kind,
                     InitializationFlag initialization_flag,
+                    MaybeAssignedFlag maybe_assigned_flag = kNotAssigned,
                     Interface* interface = Interface::NewValue());
 
   Variable* Lookup(const AstRawString* name);
@@ -51,7 +49,7 @@ class DynamicScopePart : public ZoneObject {
 
   VariableMap* GetMap(VariableMode mode) {
     int index = mode - DYNAMIC;
-    ASSERT(index >= 0 && index < 3);
+    DCHECK(index >= 0 && index < 3);
     return maps_[index];
   }
 
@@ -120,20 +118,20 @@ class Scope: public ZoneObject {
   // is in an intermediate scope between this function scope and the the
   // outer scope. Only possible for function scopes; at most one variable.
   void DeclareFunctionVar(VariableDeclaration* declaration) {
-    ASSERT(is_function_scope());
+    DCHECK(is_function_scope());
     function_ = declaration;
   }
 
   // Declare a parameter in this scope.  When there are duplicated
   // parameters the rightmost one 'wins'.  However, the implementation
   // expects all parameters to be declared and from left to right.
-  void DeclareParameter(const AstRawString* name, VariableMode mode);
+  Variable* DeclareParameter(const AstRawString* name, VariableMode mode);
 
   // Declare a local variable in this scope. If the variable has been
   // declared before, the previously declared variable is returned.
-  Variable* DeclareLocal(const AstRawString* name,
-                         VariableMode mode,
+  Variable* DeclareLocal(const AstRawString* name, VariableMode mode,
                          InitializationFlag init_flag,
+                         MaybeAssignedFlag maybe_assigned_flag = kNotAssigned,
                          Interface* interface = Interface::NewValue());
 
   // Declare an implicit global variable in this scope which must be a
@@ -151,7 +149,7 @@ class Scope: public ZoneObject {
     // Note that we must not share the unresolved variables with
     // the same name because they may be removed selectively via
     // RemoveUnresolved().
-    ASSERT(!already_resolved());
+    DCHECK(!already_resolved());
     VariableProxy* proxy =
         factory->NewVariableProxy(name, false, interface, position);
     unresolved_.Add(proxy, zone_);
@@ -249,7 +247,7 @@ class Scope: public ZoneObject {
 
   // In some cases we want to force context allocation for a whole scope.
   void ForceContextAllocation() {
-    ASSERT(!already_resolved());
+    DCHECK(!already_resolved());
     force_context_allocation_ = true;
   }
   bool has_forced_context_allocation() const {
@@ -304,14 +302,14 @@ class Scope: public ZoneObject {
   // The variable holding the function literal for named function
   // literals, or NULL.  Only valid for function scopes.
   VariableDeclaration* function() const {
-    ASSERT(is_function_scope());
+    DCHECK(is_function_scope());
     return function_;
   }
 
   // Parameters. The left-most parameter has index 0.
   // Only valid for function scopes.
   Variable* parameter(int index) const {
-    ASSERT(is_function_scope());
+    DCHECK(is_function_scope());
     return params_[index];
   }
 

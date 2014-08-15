@@ -6,6 +6,7 @@
 
 #include "src/frames.h"
 #include "src/frames-inl.h"
+#include "src/ostreams.h"
 #include "src/parser.h"  // for CompileTimeValue; TODO(rossberg): should move
 #include "src/scopes.h"
 
@@ -27,7 +28,7 @@ AstTyper::AstTyper(CompilationInfo* info)
 
 #define RECURSE(call)                         \
   do {                                        \
-    ASSERT(!visitor->HasStackOverflow());     \
+    DCHECK(!visitor->HasStackOverflow());     \
     call;                                     \
     if (visitor->HasStackOverflow()) return;  \
   } while (false)
@@ -75,7 +76,7 @@ void AstTyper::ObserveTypesAtOsrEntry(IterationStatement* stmt) {
   Scope* scope = info_->scope();
 
   // Assert that the frame on the stack belongs to the function we want to OSR.
-  ASSERT_EQ(*info_->closure(), frame->function());
+  DCHECK_EQ(*info_->closure(), frame->function());
 
   int params = scope->num_parameters();
   int locals = scope->StackLocalCount();
@@ -118,7 +119,7 @@ void AstTyper::ObserveTypesAtOsrEntry(IterationStatement* stmt) {
 
 #define RECURSE(call)                \
   do {                               \
-    ASSERT(!HasStackOverflow());     \
+    DCHECK(!HasStackOverflow());     \
     call;                            \
     if (HasStackOverflow()) return;  \
   } while (false)
@@ -435,7 +436,7 @@ void AstTyper::VisitAssignment(Assignment* expr) {
     if (!expr->IsUninitialized()) {
       if (prop->key()->IsPropertyName()) {
         Literal* lit_key = prop->key()->AsLiteral();
-        ASSERT(lit_key != NULL && lit_key->value()->IsString());
+        DCHECK(lit_key != NULL && lit_key->value()->IsString());
         Handle<String> name = Handle<String>::cast(lit_key->value());
         oracle()->AssignmentReceiverTypes(id, name, expr->GetReceiverTypes());
       } else {
@@ -483,12 +484,9 @@ void AstTyper::VisitProperty(Property* expr) {
   if (!expr->IsUninitialized()) {
     if (expr->key()->IsPropertyName()) {
       Literal* lit_key = expr->key()->AsLiteral();
-      ASSERT(lit_key != NULL && lit_key->value()->IsString());
+      DCHECK(lit_key != NULL && lit_key->value()->IsString());
       Handle<String> name = Handle<String>::cast(lit_key->value());
-      bool is_prototype;
-      oracle()->PropertyReceiverTypes(
-          id, name, expr->GetReceiverTypes(), &is_prototype);
-      expr->set_is_function_prototype(is_prototype);
+      oracle()->PropertyReceiverTypes(id, name, expr->GetReceiverTypes());
     } else {
       bool is_string;
       oracle()->KeyedPropertyReceiverTypes(

@@ -82,6 +82,14 @@
 
     # Allow to suppress the array bounds warning (default is no suppression).
     'wno_array_bounds%': '',
+
+    'variables': {
+      # This is set when building the Android WebView inside the Android build
+      # system, using the 'android' gyp backend.
+      'android_webview_build%': 0,
+    },
+    # Copy it out one scope.
+    'android_webview_build%': '<(android_webview_build)',
   },
   'conditions': [
     ['host_arch=="ia32" or host_arch=="x64" or clang==1', {
@@ -143,7 +151,7 @@
         'target_conditions': [
           ['_toolset=="host"', {
             'conditions': [
-              ['v8_target_arch==host_arch', {
+              ['v8_target_arch==host_arch and android_webview_build==0', {
                 # Host built with an Arm CXX compiler.
                 'conditions': [
                   [ 'arm_version==7', {
@@ -186,7 +194,7 @@
           }],  # _toolset=="host"
           ['_toolset=="target"', {
             'conditions': [
-              ['v8_target_arch==target_arch', {
+              ['v8_target_arch==target_arch and android_webview_build==0', {
                 # Target built with an Arm CXX compiler.
                 'conditions': [
                   [ 'arm_version==7', {
@@ -250,7 +258,7 @@
           'V8_TARGET_ARCH_MIPS',
         ],
         'conditions': [
-          ['v8_target_arch==target_arch', {
+          ['v8_target_arch==target_arch and android_webview_build==0', {
             # Target built with a Mips CXX compiler.
             'target_conditions': [
               ['_toolset=="target"', {
@@ -299,7 +307,7 @@
           'V8_TARGET_ARCH_MIPS',
         ],
         'conditions': [
-          ['v8_target_arch==target_arch', {
+          ['v8_target_arch==target_arch and android_webview_build==0', {
             # Target built with a Mips CXX compiler.
             'target_conditions': [
               ['_toolset=="target"', {
@@ -354,7 +362,7 @@
           'V8_TARGET_ARCH_MIPS64',
         ],
         'conditions': [
-          ['v8_target_arch==target_arch', {
+          ['v8_target_arch==target_arch and android_webview_build==0', {
             # Target built with a Mips CXX compiler.
             'target_conditions': [
               ['_toolset=="target"', {
@@ -368,6 +376,14 @@
                     'cflags': ['-msoft-float'],
                     'ldflags': ['-msoft-float'],
                   }],
+                  ['mips_arch_variant=="r6"', {
+                    'cflags': ['-mips64r6', '-mabi=64', '-Wa,-mips64r6'],
+                    'ldflags': [
+                      '-mips64r6', '-mabi=64',
+                      '-Wl,--dynamic-linker=$(LDSO_PATH)',
+                      '-Wl,--rpath=$(LD_R_PATH)',
+                    ],
+                  }],
                   ['mips_arch_variant=="r2"', {
                     'cflags': ['-mips64r2', '-mabi=64', '-Wa,-mips64r2'],
                     'ldflags': [
@@ -375,9 +391,6 @@
                       '-Wl,--dynamic-linker=$(LDSO_PATH)',
                       '-Wl,--rpath=$(LD_R_PATH)',
                     ],
-                  }],
-                  ['mips_arch_variant=="loongson"', {
-                    'cflags': ['-mips3', '-Wa,-mips3'],
                   }],
                 ],
               }],
@@ -398,11 +411,11 @@
               '__mips_soft_float=1'
             ],
           }],
+          ['mips_arch_variant=="r6"', {
+            'defines': ['_MIPS_ARCH_MIPS64R6',],
+          }],
           ['mips_arch_variant=="r2"', {
             'defines': ['_MIPS_ARCH_MIPS64R2',],
-          }],
-          ['mips_arch_variant=="loongson"', {
-            'defines': ['_MIPS_ARCH_LOONGSON',],
           }],
         ],
       }],  # v8_target_arch=="mips64el"
@@ -439,10 +452,21 @@
         'defines': [
           'WIN32',
         ],
+        # 4351: VS 2005 and later are warning us that they've fixed a bug
+        #       present in VS 2003 and earlier.
+        'msvs_disabled_warnings': [4351],
         'msvs_configuration_attributes': {
           'OutputDirectory': '<(DEPTH)\\build\\$(ConfigurationName)',
           'IntermediateDirectory': '$(OutDir)\\obj\\$(ProjectName)',
           'CharacterSet': '1',
+        },
+      }],
+      ['OS=="win" and v8_target_arch=="ia32"', {
+        'msvs_settings': {
+          'VCCLCompilerTool': {
+            # Ensure no surprising artifacts from 80bit double math with x86.
+            'AdditionalOptions': ['/arch:SSE2'],
+          },
         },
       }],
       ['OS=="win" and v8_enable_prof==1', {
