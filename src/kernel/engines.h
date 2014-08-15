@@ -78,7 +78,7 @@ public:
         arraybuffer_allocator_ = new MallocArrayBufferAllocator();
         v8::V8::SetArrayBufferAllocator(arraybuffer_allocator_);
 
-        const char flags[] = "--harmony_collections";
+        const char flags[] = "";
         v8::V8::SetFlagsFromString(flags, sizeof(flags));
     }
 
