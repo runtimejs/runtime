@@ -242,12 +242,12 @@ TimezoneCache* OS::CreateTimezoneCache() {
 
 
 void OS::DisposeTimezoneCache(TimezoneCache* cache) {
-  ASSERT(cache == NULL);
+  RT_ASSERT(cache == NULL);
 }
 
 
 void OS::ClearTimezoneCache(TimezoneCache* cache) {
-  ASSERT(cache == NULL);
+  RT_ASSERT(cache == NULL);
 }
 
 
@@ -355,14 +355,14 @@ VirtualMemory::VirtualMemory(size_t size)
 
 VirtualMemory::VirtualMemory(size_t size, size_t alignment)
     : address_(NULL), size_(0) {
-  ASSERT(IsAligned(alignment, static_cast<intptr_t>(OS::AllocateAlignment())));
+  RT_ASSERT(IsAligned(alignment, static_cast<intptr_t>(OS::AllocateAlignment())));
   size_t request_size = RoundUp(size + alignment,
                                 static_cast<intptr_t>(OS::AllocateAlignment()));
 
   void* reservation = memalign(alignment, request_size);
   uint8_t* base = static_cast<uint8_t*>(reservation);
   uint8_t* aligned_base = RoundUp(base, alignment);
-  ASSERT_EQ(base, aligned_base);
+  RT_ASSERT(base == aligned_base);
 
   address_ = reservation;
   size_ = request_size;
@@ -372,7 +372,7 @@ VirtualMemory::VirtualMemory(size_t size, size_t alignment)
 VirtualMemory::~VirtualMemory() {
   if (IsReserved()) {
     bool result = ReleaseRegion(address(), size());
-    ASSERT(result);
+    RT_ASSERT(result);
     USE(result);
   }
 }
@@ -466,12 +466,16 @@ void Thread::set_name(const char* name) {
 
 
 void Thread::Start() {
-  ASSERT(!"Thread::Start");
+  // TODO: implement native threads
+  return;
+  RT_ASSERT(!"Thread::Start");
 }
 
 
 void Thread::Join() {
-  ASSERT(!"Thread::Join");
+  // TODO: implement native threads
+  return;
+  RT_ASSERT(!"Thread::Join");
 }
 
 
