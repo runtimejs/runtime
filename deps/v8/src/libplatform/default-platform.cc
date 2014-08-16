@@ -94,12 +94,14 @@ bool DefaultPlatform::PumpMessageLoop(v8::Isolate* isolate) {
 
 void DefaultPlatform::CallOnBackgroundThread(Task *task,
                                              ExpectedRuntime expected_runtime) {
+  DCHECK(!"Missing native threads support");
   EnsureInitialized();
   queue_.Append(task);
 }
 
 
 void DefaultPlatform::CallOnForegroundThread(v8::Isolate* isolate, Task* task) {
+  DCHECK(!"Missing native threads support");
   base::LockGuard<base::Mutex> guard(&lock_);
   main_thread_queue_[isolate].push(task);
 }
