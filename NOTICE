@@ -11,5 +11,6 @@ This product includes software libraries:
 - tinyprintf (http://www.sparetimelabs.com/tinyprintf/tinyprintf.php), located at deps/printf
 - dlmalloc allocator by Doug Lea (ftp://gee.cs.oswego.edu/pub/misc/malloc.c)
 - crc64 function by Salvatore Sanfilippo <antirez at gmail dot com>
+- expect.js library by Guillermo Rauch (https://github.com/LearnBoost/expect.js/)
 
 These libraries have their own licenses.
