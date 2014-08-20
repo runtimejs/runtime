@@ -25,6 +25,13 @@ function(resources) {
             '/system/keyboard.js',
             '/system/vfs.js',
             '/system/driver/vga.js',
+            '/system/net/net.js',
+            '/system/net/eth.js',
+            '/system/net/ip4.js',
+            '/system/net/udp.js',
+            '/system/net/socket.js',
+            '/system/net/dhcp.js',
+            '/system/net/arp.js',
             '/utils.js',
         ],
     };

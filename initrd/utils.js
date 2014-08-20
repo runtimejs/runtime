@@ -53,7 +53,37 @@ function() {
         });
     };
 
+    var crc32 = (function() {
+        function makeTable() {
+            var c, table = new Uint32Array(256);
+            for (var n = 0; n < 256; ++n) {
+                c = n;
+                for (var k = 0; k < 8; ++k) {
+                    c = ((c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1));
+                }
+                table[n] = c;
+            }
+            return table;
+        }
+
+        var table = makeTable();
+
+        return function(buf, offset) {
+            var crc = 0 ^ (-1);
+            for (var i = offset >>> 0, l = buf.length; i < l; ++i) {
+                crc = (crc >>> 8) ^ table[(crc ^ buf[i]) & 0xff];
+            }
+
+            return (crc ^ -1) >>> 0;
+        };
+    })();
+
+    // if (2240272485 !== crc32(new Uint8Array([97, 98, 99, 100, 101]))) {
+    //     throw new Error('crc32 test failed');
+    // }
+
     return {
         waitFor: waitFor,
+        crc32: crc32
     };
 });

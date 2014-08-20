@@ -437,7 +437,7 @@ NATIVE_FUNCTION(NativesObject, Debug) {
         auto offset = view->ByteOffset();
         printf("[ ArrayBufferView  ptr=%p offset=%lu bufsize=%lu ]\n", ab->data(), offset, ab->size());
         if (0 != ab->size()) {
-            PrintMemory(ab->data(), offset, std::min(ab->size(), (size_t)384));
+            PrintMemory(ab->data(), offset, std::min(ab->size(), (size_t)600));
         }
     }
 
@@ -446,7 +446,7 @@ NATIVE_FUNCTION(NativesObject, Debug) {
         auto ab = ArrayBuffer::FromInstance(iv8, buf);
         printf("[ ArrayBuffer  ptr=%p bufsize=%lu ]\n", ab->data(), ab->size());
         if (0 != ab->size()) {
-            PrintMemory(ab->data(), 0, std::min(ab->size(), (size_t)384));
+            PrintMemory(ab->data(), 0, std::min(ab->size(), (size_t)600));
         }
     }
 
