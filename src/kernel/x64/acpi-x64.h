@@ -20,11 +20,13 @@
 #include <vector>
 #include <kernel/x64/cpu-trampoline-x64.h>
 #include <kernel/x64/ioapic-x64.h>
+#include <kernel/x64/hpet-x64.h>
 
 namespace rt {
 
 struct AcpiHeader;
 struct AcpiHeaderMADT;
+struct AcpiHeaderHPET;
 class LocalApicX64;
 
 struct AcpiCPU {
@@ -38,10 +40,18 @@ public:
     AcpiX64()
         :	local_apic_(nullptr),
             local_apic_address_(nullptr),
+            hpet_(nullptr),
             cpu_count_(0) {
         cpus_.reserve(12);
         Init();
         RT_ASSERT(local_apic_);
+
+        if (nullptr == hpet_) {
+            printf("Unable to find HPET device.");
+            abort();
+        }
+
+        RT_ASSERT(hpet_);
     }
 
     LocalApicX64* local_apic() const { return local_apic_; }
@@ -50,9 +60,14 @@ public:
 
     void InitIoApics();
     void StartCPUs();
+
+    uint64_t BootTimeMicroseconds() const {
+        return hpet_->ReadMicroseconds();
+    }
 private:
     LocalApicX64* local_apic_;
     void* local_apic_address_;
+    HpetX64* hpet_;
     std::vector<AcpiCPU> cpus_;
     std::vector<IoApicX64*> io_apics_;
     uint32_t cpu_count_;
@@ -62,6 +77,7 @@ private:
     void ParseRSDT(AcpiHeader* ptr);
     void ParseDT(AcpiHeader* ptr);
     void ParseTableAPIC(AcpiHeaderMADT* header);
+    void ParseTableHPET(AcpiHeaderHPET* header);
     DELETE_COPY_AND_ASSIGN(AcpiX64);
 };
 

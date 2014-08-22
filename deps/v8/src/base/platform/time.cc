@@ -15,6 +15,7 @@
 #if V8_OS_RUNTIMEJS
 #include <kernel/kernel.h>
 #include <kernel/engines.h>
+#include <kernel/platform.h>
 #include <kernel/thread-manager.h>
 #endif
 
@@ -339,14 +340,8 @@ Time Time::Now() {
   // Uncomment for snapshot generation
   // return Time(1);
 
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine());
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->thread_manager());
-  int64_t ticks = ::GLOBAL_engines()->cpu_engine()->thread_manager()->ticks_count();
-  int64_t per_tick = ::GLOBAL_engines()->MsPerTick();
-
-  // Supported 10ms precision at the moment, need to return
-  // time in microseconds
-  return Time(ticks * per_tick * 1000);
+  RT_ASSERT(GLOBAL_platform());
+  return Time(GLOBAL_platform()->BootTimeMicroseconds());
 }
 
 
@@ -582,14 +577,8 @@ TimeTicks TimeTicks::HighResolutionNow() {
   USE(result);
   ticks = (tv.tv_sec * Time::kMicrosecondsPerSecond + tv.tv_usec);
 #elif V8_OS_RUNTIMEJS
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine());
-  RT_ASSERT(::GLOBAL_engines()->cpu_engine()->thread_manager());
-  int64_t platform_ticks = ::GLOBAL_engines()->cpu_engine()->thread_manager()->ticks_count();
-  int64_t per_tick = ::GLOBAL_engines()->MsPerTick();
-
-  // Supported 10ms precision at the moment, need to return
-  // time in microseconds
-  ticks = platform_ticks * per_tick * 1000;
+  RT_ASSERT(GLOBAL_platform());
+  ticks = GLOBAL_platform()->BootTimeMicroseconds();
 #elif V8_OS_POSIX
   struct timespec ts;
   int result = clock_gettime(CLOCK_MONOTONIC, &ts);
