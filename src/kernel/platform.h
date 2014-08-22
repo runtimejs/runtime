@@ -81,6 +81,13 @@ public:
     }
 
     /**
+     * Time since boot in microseconds
+     */
+    uint64_t BootTimeMicroseconds() const {
+        return platform_arch_.BootTimeMicroseconds();
+    }
+
+    /**
      * Print current stack backtrace
      */
     void PrintBacktrace();

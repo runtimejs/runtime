@@ -46,6 +46,28 @@ struct AcpiHeaderMADT {
     uint32_t flags;
 } __attribute__((packed));
 
+struct AcpiHPETAddress {
+    uint8_t addressSpaceId;
+    uint8_t registerBitWidth;
+    uint8_t registerBitOffset;
+    uint8_t reserved;
+    uint64_t address;
+} __attribute__((packed));
+
+struct AcpiHeaderHPET {
+    AcpiHeader header;
+    uint8_t hardwareRevId;
+    uint8_t comparatorCount : 5;
+    uint8_t counterSize : 1;
+    uint8_t reserved : 1;
+    uint8_t legacyPlacement : 1;
+    uint16_t pciVendorId;
+    AcpiHPETAddress address;
+    uint8_t hpetNumber;
+    uint16_t minimumTick;
+    uint8_t pageProtection;
+} __attribute__((packed));
+
 enum class ApicType : uint8_t {
     LOCAL_APIC = 0,
     IO_APIC = 1,
@@ -142,9 +164,26 @@ void AcpiX64::ParseDT(AcpiHeader* ptr) {
     case TableUint32("APIC"):
         ParseTableAPIC(reinterpret_cast<AcpiHeaderMADT*>(ptr));
         break;
+    case TableUint32("HPET"):
+        ParseTableHPET(reinterpret_cast<AcpiHeaderHPET*>(ptr));
+        break;
     default:
         break;
     }
+}
+
+void AcpiX64::ParseTableHPET(AcpiHeaderHPET* header) {
+    RT_ASSERT(header);
+    if (nullptr != hpet_) {
+        // Ignore other HPET devices except first one
+        return;
+    }
+
+    uint64_t address = header->address.address;
+    RT_ASSERT(address);
+    RT_ASSERT(!hpet_);
+    hpet_ = new HpetX64(reinterpret_cast<void*>(address));
+    RT_ASSERT(hpet_);
 }
 
 void AcpiX64::ParseTableAPIC(AcpiHeaderMADT* header) {
