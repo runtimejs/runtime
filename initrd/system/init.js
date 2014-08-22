@@ -13,18 +13,23 @@
 // limitations under the License.
 
 // NOTE: This script is executed in every context automatically
-var console = (function() {
+var console = (function(undef) {
     var stdout = null;
     var stderr = null;
+    var times = {};
+
+    function getStdout() {
+        if (null === stdout) {
+            stdout = isolate.env.stdout;
+        }
+
+        return stdout;
+    }
 
     return {
         log: function() {
-            if (null === stdout) {
-                stdout = isolate.env.stdout;
-            }
-
             var s = Array.prototype.join.call(arguments, ' ');
-            stdout(s + '\n');
+            getStdout()(s + '\n');
         },
         error: function() {
             if (null === stderr) {
@@ -33,7 +38,20 @@ var console = (function() {
 
             var s = Array.prototype.join.call(arguments, ' ');
             stderr(s + '\n');
-        }
+        },
+        time: function(label) {
+            times['l' + label] = Date.now();
+        },
+        timeEnd: function(label) {
+            var time = times['l' + label];
+            if ('undefined' === typeof time) {
+                return;
+            }
+
+            var d = Date.now() - time;
+            getStdout()(label + ': ' + d/1000 + 'ms' + '\n');
+            times['l' + label] = undef;
+        },
     };
 })();
 
