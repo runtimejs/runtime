@@ -18,6 +18,7 @@
 #include <kernel/mem-manager.h>
 #include <kernel/engine.h>
 #include <kernel/engines.h>
+#include <kernel/platform.h>
 
 namespace rt {
 
@@ -65,8 +66,8 @@ v8::Local<v8::Value> FunctionExports::Get(uint32_t index, size_t export_id) {
 
 
 void Thread::SetTimeout(uint32_t timeout_id, uint64_t timeout_ms) {
-    uint64_t ticks_now { thread_mgr_->ticks_count() };
-    uint64_t when = ticks_now + timeout_ms / GLOBAL_engines()->MsPerTick();
+    uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
+    uint64_t when = ticks_now + timeout_ms * 1000;
     timeouts_.Set(timeout_id, when);
 }
 
@@ -163,7 +164,7 @@ bool Thread::Run() {
     RT_ASSERT(iv8_);
     RT_ASSERT(tpl_cache_);
 
-    uint64_t ticks_now { thread_mgr_->ticks_count() };
+    uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
     while (timeouts_.Elapsed(ticks_now)) {
         uint32_t timeout_id { timeouts_.Take() };
 

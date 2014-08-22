@@ -40,6 +40,10 @@ public:
         RT_ASSERT(acpi_.local_apic());
         return acpi_.local_apic()->bus_frequency();
     }
+
+    uint64_t BootTimeMicroseconds() const {
+        return acpi_.BootTimeMicroseconds();
+    }
 private:
     AcpiX64 acpi_;
     DELETE_COPY_AND_ASSIGN(PlatformArch);
