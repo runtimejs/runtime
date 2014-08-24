@@ -363,6 +363,8 @@ function(resources) {
     var root = ret.root;
     var initrdRoot = ret.initrd;
 
+    var spawnSystem = {};
+
     var spawnKernelData = {
         lspci: function() { return new Error('NOT_READY') },
         listNetworkInterfaces: function() { return new Error('NOT_READY') },
@@ -415,11 +417,11 @@ function(resources) {
             spawn: function(vfsnode, opts, resolve, reject) {
                 var argsData = opts.data || {};
                 var argsEnv = opts.env || {};
-                var argsSystem = opts.system || {};
+                var argsSystem = opts.system || spawnSystem;
                 var onExit = opts.onExit || function() {};
 
                 if (Object(argsSystem) !== argsSystem) {
-                    argsSystem = {};
+                    argsSystem = spawnSystem;
                 }
 
                 vfsnode.stat(function(stats) {
@@ -504,6 +506,12 @@ function(resources) {
          */
         setKernelValue: function(key, value) {
             spawnKernelData[key] = value;
+        },
+        /**
+         * Set system namespace value
+         */
+        setSystem: function(name, value) {
+            spawnSystem[name] = value;
         },
     };
 });

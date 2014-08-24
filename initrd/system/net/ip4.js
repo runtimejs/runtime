@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('ip4', [],
+define('net/ip4', [],
 function() {
     "use strict";
 

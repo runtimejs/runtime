@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('eth', [],
+define('net/eth', [],
 function() {
     "use strict";
 
     var headerLength = 14;
+
+    var etherTypeList = {
+        IPv4: 0x0800,
+        ARP:  0x0806,
+        IPv6: 0x86dd,
+    };
 
     function writeHeader(view, offset, opts) {
         var i = 0, pos = 0;
@@ -26,9 +32,8 @@ function() {
         for (i = 0; i < 6; ++i) {
             view.setUint8(offset + pos++, opts.srcMac[i]);
         }
-        // EtherType (Ethernet 2 frame)
-        view.setUint8(offset + pos++, 0x08);
-        view.setUint8(offset + pos++, 0x00);
+
+        view.setUint16(offset + pos, opts.etherType, false);
     }
 
     function parse(reader) {
@@ -60,6 +65,7 @@ function() {
     }
 
     return {
+        etherType: etherTypeList,
         writeHeader: writeHeader,
         headerLength: headerLength,
         parse: parse,

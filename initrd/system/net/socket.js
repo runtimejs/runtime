@@ -12,128 +12,163 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('socket', ['udp'],
-function(udp) {
+define('net/socket', ['net/udp', 'net/utils', 'interface'],
+function(udp, netUtils, intfc) {
     "use strict";
 
-    function UDPSocket(ip, eventFn) {
-        this.ip = null;
-        this.eventFn = eventFn;
-    }
+    var getInterfaceByName = null;
+    var emptyFunction = function() {};
 
-    // Network layer callbacks
-    var sendUDP4 = null;
-    var getInterfaceByName
+    /**
+     * UDP datagram sockets
+     */
+    var udpSockets = (function() {
+        var nextRandomPort = 49152;
 
-    var socketsUDP = [];
-    var bindTableUDP4 = [];
-
-    function validateIpAddressString(ipString) {
-        var parts = String(ipString).split('.');
-        if (4 !== parts.length) {
-            return false;
+        function UDPSocket(onMessage, onError) {
+            this.onMessage = onMessage || emptyFunction;
+            this.onError = onError || emptyFunction;
+            this.port = 0;
         }
 
-        for (var i = 0; i < 4; ++i) {
-            if ((parts[i] & 0xff) !== +parts[i]) {
-                return false;
+        UDPSocket.prototype.bind = function(port) {
+            if (!(this instanceof UDPSocket)) {
+                throw new Error('instanceof check failed');
             }
+
+            if (!port) {
+                // TODO: ensure port is free to use
+                port = nextRandomPort++;
+            }
+
+            bindTable[port] = this;
+            this.port = port;
+        };
+
+        var udpSocketPool = intfc.createHandlePool();
+        var sockets = [];
+        var bindTable = [];
+
+        function getSocketByHandle(socketHandle) {
+            if (!udpSocketPool.has(socketHandle)) {
+                throw new Error('INVALID_HANDLE');
+            }
+
+            return sockets[socketHandle.index()];
         }
 
-        return true;
-    }
+        /**
+         * UDP socket APIs exported to user applications. Return values are
+         * automatically wrapped into promises on the user side. To use this
+         * API from kernel code it's recommended to wrap return values into
+         * promises manually (using Promise.resolve() for example)
+         */
+        var api = {
+            /**
+             * Create new UDP socket
+             *
+             * @param {function} onMessage Message received callback
+             * @param {function} onError Socket error callback
+             */
+            createSocket: function(onMessage, onError) {
+                var socketHandle = udpSocketPool.createHandle();
+                sockets[socketHandle.index()] = new UDPSocket(onMessage, onError);
+                return Promise.resolve(socketHandle);
+            },
+            /**
+             * Bind socket to port
+             *
+             * @param {socketHandle} socketHandle Handle created using createSocket
+             * @param {number} port Port number
+             */
+            bindSocket: function(socketHandle, port) {
+                if (!netUtils.isPortValid(port)) {
+                    throw new Error('INVALID_PORT');
+                }
 
-    function createUDPSocket(socketOpts) {
-        var sock = new UDPSocket(null, socketOpts.event || null);
-        socketsUDP.push(sock);
+                var socket = getSocketByHandle(socketHandle);
+                socket.bind(port);
+                return Promise.resolve(socketHandle);
+            },
+            /**
+             * Send datagram
+             *
+             * @param {socketHandle} socketHandle Handle created using createSocket
+             * @param {string} ipAddress Receiver IP address
+             * @param {number} port Receiver port number
+             * @param {ArrayBuffer} buffer Data buffer
+             * @param {number} offset [optional] Buffer offset or 0
+             * @param {number} length [optional] Buffer length or entire buffer
+             */
+            send: function(socketHandle, ipAddress, port, buffer, offset, length) {
+                if (!netUtils.isPortValid(port)) {
+                    throw new Error('INVALID_PORT');
+                }
 
-        if (socketOpts.bindPort) {
-            if ('number' !== typeof socketOpts.bindPort) {
-                throw new Error('PORT_REQUIRED');
-            }
+                var ip = netUtils.parseIpAddressString(ipAddress);
+                if (!ip) {
+                    throw new Error('INVALID_ADDRESS');
+                }
 
-            if (socketOpts.bindPort <= 0 || socketOpts.bindPort > 0xffff) {
-                throw new Error('INVALID_PORT');
-            }
+                if (!(buffer instanceof ArrayBuffer)) {
+                    throw new Error('INVALID_BUFFER');
+                }
 
-            var port = socketOpts.bindPort >>> 0;
-            if ('undefined' !== typeof bindTableUDP4[port]) {
-                throw new Error('ADDRESS_IN_USE');
-            }
+                if ('undefined' === typeof offset) {
+                    offset = 0;
+                }
 
-            bindTableUDP4[port] = sock;
-        }
+                if ('undefined' === typeof length) {
+                    length = buffer.byteLength;
+                }
 
-        function send(sendOpts) {
-            if ('number' !== typeof sendOpts.port) {
-                throw new Error('PORT_REQUIRED');
-            }
+                offset = offset >>> 0;
+                length = length >>> 0;
 
-            if (sendOpts.port <= 0 || sendOpts.port > 0xffff) {
-                throw new Error('INVALID_PORT');
-            }
+                var socket = getSocketByHandle(socketHandle);
+                if (!socket.port) {
+                    socket.bind(0);
+                }
 
-            if (!validateIpAddressString(sendOpts.address)) {
-                throw new Error('INVALID_ADDRESS');
-            }
-
-            if (!validateIpAddressString(sendOpts.sourceAddress)) {
-                throw new Error('INVALID_ADDRESS');
-            }
-
-            if (!(sendOpts.buf instanceof ArrayBuffer)) {
-                throw new Error('INVALID_BUFFER');
-            }
-
-            var port = sendOpts.port >>> 0;
-            var sourcePort = sendOpts.sourcePort >>> 0;
-            var address = sendOpts.address.split('.');
-            var sourceAddress = sendOpts.sourceAddress.split('.');
-            var buf = sendOpts.buf;
-            var length = (sendOpts.length >>> 0) || buf.byteLength;
-            var offset = (sendOpts.offset >>> 0) || 0;
-            var ifc = String(sendOpts.ifc) || null;
-
-            if (null === sendUDP4) {
-                throw new Error('INTERNAL_ERROR');
-            }
-
-            sendUDP4(ifc, buf, offset, length, address, port, sourceAddress, sourcePort);
-        }
-
-        return function(opts) {
-            switch (opts.action) {
-                case 'send': return send(opts);
+                // TODO: buffer offset/length
+                // TODO: use routing table, currently it always uses the first interface
+                var intf = getInterfaceByName('eth0');
+                var packet = intf.createUDPPacket(socket.port, port, buffer);
+                intf.sendIP4('UDP', ip, packet);
+                return Promise.resolve();
             }
         };
-    }
 
-    return {
-        createSocket: function(type, opts) {
-            switch (type) {
-                case 'udp': return Promise.resolve(createUDPSocket(opts));
-                default: throw new Error('NOT_SUPPORTED_PROTOCOL');
-            }
-        },
-        recvUDP4: function(ip4Header, udpHeader, buf, len, dataOffset) {
+        function recvPacket(ip4Header, udpHeader, buf, len, dataOffset) {
             var port = udpHeader.destPort;
-
-            if ('undefined' === typeof bindTableUDP4[port]) {
+            if ('undefined' === typeof bindTable[port]) {
                 return;
             }
 
-            var sock = bindTableUDP4[port];
+            var socket = bindTable[port];
             var dataLength = udpHeader.dataLength - udp.headerLength;
-            sock.eventFn('message', {
+
+            socket.onMessage({
                 buf: buf.slice(dataOffset, dataOffset + dataLength), // TODO: optimize out this copy
-                family: 'IPv4',
                 port: udpHeader.srcPort,
                 address: ip4Header.srcIP.join('.'),
                 size: dataLength,
             });
-        },
+        }
+
+        intfc.registerInterface('udpSocket', api);
+
+        return {
+            recv: recvPacket,
+            api: api,
+        };
+    })();
+
+    return {
+        udpSocketApi: udpSockets.api,
+        recvUDP4: udpSockets.recv,
         setup: function(opts) {
-            sendUDP4 = opts.sendUDP4;
+            getInterfaceByName = opts.getInterfaceByName;
         },
     };
 });

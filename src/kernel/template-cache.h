@@ -40,6 +40,8 @@ enum class NativeTypeId : uint32_t {
     TYPEID_RESOURCE_IO_RANGE,
     TYPEID_ISOLATES_MANAGER,
     TYPEID_ALLOCATOR,
+    TYPEID_HANDLE,
+    TYPEID_HANDLE_POOL,
     TYPEID_FUNCTION,
 
     LAST // Keep it as the last element
@@ -137,6 +139,7 @@ private:
     v8::Local<v8::UnboundScript> GetInitScript();
     v8::Eternal<v8::ObjectTemplate> global_object_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_template_;
+    v8::Eternal<v8::FunctionTemplate> wrapper_handle_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_callable_template_;
     v8::Eternal<v8::UnboundScript> init_script_;
     std::array<v8::Eternal<v8::Object>, (uint32_t)NativeTypeId::LAST> object_cache_;

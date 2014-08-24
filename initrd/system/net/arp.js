@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('arp', [],
-function() {
+define('net/arp', ['net/eth'],
+function(eth) {
     "use strict";
 
     var HARDWARE_TYPE_ETHERNET = 1;
@@ -23,8 +23,6 @@ function() {
 
     var arpCache = {};
     var arpResolve = {};
-
-    var sendARP = null;
 
     function parse(reader) {
         var hardwareType = reader.readUint16();
@@ -82,7 +80,7 @@ function() {
         };
     }
 
-    function send(ifc, op, srcHwAddr, srcIpAddr, targetHwAddr, targetIpAddr) {
+    function createARPPacket(op, srcHwAddr, srcIpAddr, targetHwAddr, targetIpAddr) {
         var buf = new ArrayBuffer(28);
         var view = new DataView(buf);
 
@@ -106,31 +104,65 @@ function() {
             view.setUint8(pos++, targetIpAddr[i], false);
         }
 
-        sendARP('eth0', buf, 0, buf.byteLength);
+        return buf;
+    };
+
+    function ARPResolver(intf) {
+        this.intf = intf;
+        this.arpCacheTable = new Map();
+        this.arpRequests = new Map();
     }
 
-    function requestHwAddr(ifc, srcHwAddr, srcIpAddr, targetIpAddr, resolve) {
-        var cacheKey = targetIpAddr.join('.');
-        if ('undefined' === typeof arpCache[cacheKey]) {
-            if ('undefined' === typeof arpResolve[cacheKey]) {
-                arpResolve[cacheKey] = [];
-            }
-
-            if (-1 === arpResolve[cacheKey].indexOf(resolve)) {
-                arpResolve[cacheKey] .push(resolve);
-            }
-
-            send(ifc, OPERATION_REQEUST, srcHwAddr, srcIpAddr, [0, 0, 0, 0, 0, 0], targetIpAddr);
-        } else {
-            resolve(arpCache[cacheKey]);
+    ARPResolver.prototype.getAddressForIP = function(targetIpAddr, cb) {
+        var self = this;
+        var key = targetIpAddr.join('.');
+        var result = self.arpCacheTable.get(key);
+        if (result) {
+            return cb(result);
         }
+
+        var requestInfo = self.arpRequests.get(key);
+        if (!requestInfo) {
+            requestInfo = [];
+            self.arpRequests.set(key, requestInfo);
+        }
+
+        isolate.log('[arp] request ' + key)
+        requestInfo.push(cb);
+        var packet = self.intf.createEthPacket(
+            createARPPacket(OPERATION_REQEUST, self.intf.hwAddr,
+                            self.intf.ip, [0, 0, 0, 0, 0, 0], targetIpAddr));
+        self.intf.sendEthBroadcast(eth.etherType.ARP, packet);
+    };
+
+    ARPResolver.prototype.recv = function(reader) {
+        var self = this;
+        var result = parse(reader);
+        if (!result) {
+            return;
+        }
+
+        var senderHw = result.senderHardware;
+        var senderIP = result.senderProtocol;
+        var key = senderIP.join('.');
+
+        // Update cache
+        self.arpCacheTable.set(key, senderHw);
+
+        // Resolve all pending requests
+        var requestInfo = self.arpRequests.get(key);
+        if (requestInfo) {
+            for (var i = 0; i < requestInfo.length; ++i) {
+                requestInfo[i](senderHw);
+            }
+
+            self.arpRequests.delete(key);
+        }
+
+        isolate.log(JSON.stringify(result));
     }
 
     return {
-        requestHwAddr: requestHwAddr,
-        parse: parse,
-        setup: function(opts) {
-            sendARP = opts.sendARP;
-        },
+        ARPResolver: ARPResolver,
     };
 });

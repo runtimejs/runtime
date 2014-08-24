@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('dhcp', ['socket'],
-function(socket) {
+define('net/dhcp', ['net/socket'],
+function(netSocket) {
     "use strict";
 
     var magicCookie = 0x63825363;
@@ -195,78 +195,155 @@ function(socket) {
         };
     }
 
-    function sendDHCP(sock, buf) {
-        sock({
-            action: 'send',
-            address: '255.255.255.255',
-            port: 67,
-            buf: buf,
-            ifc: 'eth0',
-            sourceAddress: '0.0.0.0',
-            sourcePort: 68,
-        });
+    /**
+     * UDP socket api functions
+     */
+    var udpSocketApi = netSocket.udpSocketApi;
+
+    /**
+     * DHCP client
+     *
+     * @param {string} intfName Interface name
+     * @param {array(6)} intfHWAddr Hardware address
+     * @param {function} success DHCP success callback
+     * @param {function} failed DHCP failed callback
+     */
+    function DHCPClient(intfName, intfHWAddr, success, failed) {
+        this.intfName = intfName;
+        this.intfHWAddr = intfHWAddr;
+        this.socket = null;
+        this.requestId = 0x112233;
+        this.success = success;
+        this.failed = failed;
+        this.enabled = false;
     }
 
+    DHCPClient.prototype._sendPacket = function(type, serverIp) {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        var self = this;
+        if (null === self.socket) {
+            throw new Error('socket is not ready');
+        }
+
+        // Request info option
+        var opt0 = {id: 55, bytes: [
+            1, // subnet
+            3, // router
+            6  // dns
+        ]};
+
+        var options = null;
+        if (serverIp) {
+            options = [opt0, {id: 54, bytes: serverIp}];
+        } else {
+            options = [opt0];
+        }
+
+        var packetBuf = createPacket({
+            type: type,
+            srcMac: self.intfHWAddr,
+            requestId: self.requestId,
+            options: options,
+        });
+
+        return udpSocketApi.send(self.socket, '255.255.255.255', 67, packetBuf);
+    };
+
+    DHCPClient.prototype._sendDiscoverPacket = function() {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        return this._sendPacket(packetType.DISCOVER, null);
+    };
+
+    DHCPClient.prototype._sendRequestPacket = function(serverIp) {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        return this._sendPacket(packetType.REQUEST, serverIp);
+    };
+
+    DHCPClient.prototype._onMessage = function(data) {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        var self = this;
+        var dhcpResponse = parseDHCP(data.buf, self.requestId)
+
+        if (null === dhcpResponse) {
+            return;
+        }
+
+        var serverIp = null;
+
+        if (packetType.OFFER === dhcpResponse.messageType) {
+            if (dhcpResponse.serverIdentifierIP && dhcpResponse.serverIdentifierIP.length > 0) {
+                serverIp = dhcpResponse.serverIdentifierIP;
+            } else {
+                // Use source IP address
+                serverIp = data.srcIP.split('.');
+            }
+
+            self._sendRequestPacket(serverIp);
+            return;
+        }
+
+        if (packetType.ACK === dhcpResponse.messageType) {
+            if (self.success) {
+                self.success(dhcpResponse);
+            }
+
+            return;
+        }
+    };
+
+    DHCPClient.prototype._onError = function(err) {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        var self = this;
+        if (self.failed) {
+            self.failed(err);
+        }
+    }
+
+    /**
+     * Start DHCP service
+     */
+    DHCPClient.prototype.start = function() {
+        if (!(this instanceof DHCPClient)) {
+            throw new Error('instanceof check failed');
+        }
+
+        var self = this;
+
+        if (self.enabled) {
+            return;
+        }
+
+        self.enabled = true;
+        udpSocketApi.createSocket(
+            function(data) { self._onMessage(data) },
+            function(err) { self._onError(err) }
+        )
+            .then(function(socket) {
+                self.socket = socket;
+                return udpSocketApi.bindSocket(socket, 68);
+            })
+            .then(function(socket) {
+                self._sendDiscoverPacket();
+            })
+            .catch(function(err) { self._onError(err) });
+    };
+
     return {
-        run: function(ifc, sendUDP4) {
-            return new Promise(function(resolve, reject) {
-                var requestId = 0x112233;
-                var udpSock = null;
-                var serverIdentifierIP = null;
-
-                function socketReady(sock) {
-                    udpSock = sock;
-                    var buf = createPacket({
-                        type: packetType.DISCOVER,
-                        srcMac: ifc.hwAddr,
-                        requestId: requestId,
-                        options: [{id: 55, bytes: [1, 3, 6]}]
-                        //                   [subnet router dns]
-                    });
-
-                    sendDHCP(sock, buf);
-                }
-
-                function acceptOffer() {
-                    var buf = createPacket({
-                        type: packetType.REQUEST,
-                        srcMac: ifc.hwAddr,
-                        requestId: requestId,
-                        options: [{id: 55, bytes: [1, 3, 6]}, {id: 54, bytes: serverIdentifierIP}]
-                        //                   [subnet router dns]
-                    });
-
-                    sendDHCP(udpSock, buf);
-                }
-
-                socket.createSocket('udp', {
-                    bindPort: 68,
-                    event: function(type, data) {
-                        // isolate.log(' ----- DHCP ----- <msg>', JSON.stringify(data));
-                        var dhcpResponse = parseDHCP(data.buf, requestId)
-                        // isolate.log(JSON.stringify(dhcpResponse));
-
-                        if (packetType.OFFER === dhcpResponse.messageType) {
-                            if (dhcpResponse.serverIdentifierIP && dhcpResponse.serverIdentifierIP.length > 0) {
-                                serverIdentifierIP = dhcpResponse.serverIdentifierIP;
-                            } else {
-                                // Use source IP address
-                                serverIdentifierIP = data.srcIP.split('.');
-                            }
-                            acceptOffer();
-                            return;
-                        }
-
-                        if (packetType.ACK === dhcpResponse.messageType) {
-                            resolve(dhcpResponse);
-                            isolate.log('DHCP OK')
-                            return;
-                        }
-                    }
-                }).then(socketReady).catch(function(err) {
-                    isolate.log(err.stack);
-                });
-            });
-        },
+        DHCPClient: DHCPClient,
     };
 });

@@ -84,6 +84,6 @@ function() {
 
     return {
         waitFor: waitFor,
-        crc32: crc32
+        crc32: crc32,
     };
 });

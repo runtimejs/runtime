@@ -19,14 +19,57 @@
         return String.fromCharCode.apply(null, new Uint8Array(buf));
     }
 
-    var sock = isolate.system.kernel.createSocket('udp', {
-        bindPort: 9000,
-        event: function(type, data) {
-            if ('message' === type) {
-                isolate.env.stdout(ab2str(data.buf));
+    function str2ab(str) {
+        var buf = new ArrayBuffer(str.length);
+        var bufView = new Uint8Array(buf);
+        for (var i = 0, l = str.length; i < l; ++i) {
+            bufView[i] = str.charCodeAt(i);
+        }
+
+        return buf;
+    }
+
+    function onMessage(data) {
+        isolate.env.stdout(ab2str(data.buf));
+    }
+
+    function onError() {
+        isolate.log('error')
+    }
+
+    var udpSocketApi = isolate.system.udpSocket;
+    var udpSocket = null;
+
+    udpSocketApi.createSocket(onMessage, onError)
+        .then(function(socket) {
+            udpSocket = socket;
+            return udpSocketApi.bindSocket(socket, 9000);
+        })
+        .then(function(socket) {
+            isolate.env.stdout('bind to UDP port 9000\n', {fg: 'lightgreen'});
+            return socket;
+        })
+        .catch(function(err) {
+            isolate.log(err.stack);
+        });
+
+    function readLine(cb) {
+        isolate.env.stdin({
+            mode: 'line',
+            onData: function(data) {
+                cb(data.text);
             }
-        },
+        });
+    }
+
+    readLine(function again(text) {
+        if (null === udpSocket) {
+            return;
+        }
+
+        var buf = str2ab(text);
+        udpSocketApi.send(udpSocket, '127.0.0.1', 9000, buf);
+        readLine(again);
     });
 
-    isolate.env.stdout('Listening to UDP port 9000\n', {fg: 'lightgreen'});
 })();

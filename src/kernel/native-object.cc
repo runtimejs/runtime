@@ -284,6 +284,14 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     args.GetReturnValue().Set(arr);
 }
 
+NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
+    PROLOGUE_NOTHIS;
+    args.GetReturnValue().Set((new HandlePoolObject(GLOBAL_engines()
+            ->NextHandlePoolIndex()))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
+}
+
 NATIVE_FUNCTION(NativesObject, Resources) {
     PROLOGUE_NOTHIS;
 
@@ -1086,6 +1094,36 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
 
 
     args.GetReturnValue().Set(ret);
+}
+
+NATIVE_FUNCTION(HandleObject, Index) {
+    PROLOGUE;
+    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, that->handle_id_));
+}
+
+NATIVE_FUNCTION(HandlePoolObject, CreateHandle) {
+    PROLOGUE;
+    args.GetReturnValue().Set((new HandleObject(that->pool_id_, that->max_handle_id_++))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
+}
+
+NATIVE_FUNCTION(HandlePoolObject, Has) {
+    PROLOGUE;
+    USEARG(0);
+    HandleObject* obj = HandleObject::FromHandle(th, arg0);
+    if (nullptr == obj) {
+        args.GetReturnValue().Set(v8::False(iv8));
+        return;
+    }
+
+    if (obj->pool_id() != that->pool_id_) {
+        args.GetReturnValue().Set(v8::False(iv8));
+        return;
+    }
+
+    RT_ASSERT(obj->handle_id() < that->max_handle_id_);
+    args.GetReturnValue().Set(v8::True(iv8));
 }
 
 } // namespace rt

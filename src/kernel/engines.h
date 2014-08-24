@@ -42,7 +42,8 @@ public:
         :	cpu_count_(cpu_count),
             _non_isolate_ticks(0),
             v8_platform_(nullptr),
-            arraybuffer_allocator_(nullptr) {
+            arraybuffer_allocator_(nullptr),
+            next_handle_pool_id_(0) {
         RT_ASSERT(nullptr == GLOBAL_engines());
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
@@ -233,6 +234,10 @@ public:
         return arraybuffer_allocator_;
     }
 
+    uint32_t NextHandlePoolIndex() {
+        return next_handle_pool_id_++;
+    }
+
     AcpiManager* acpi_manager();
 
     ~Engines() = delete;
@@ -247,6 +252,7 @@ private:
     v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
+    int32_t next_handle_pool_id_;
 
     mutable Locker _platform_locker;
 };

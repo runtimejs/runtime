@@ -32,7 +32,9 @@ function(resources) {
             '/system/net/socket.js',
             '/system/net/dhcp.js',
             '/system/net/arp.js',
-            '/utils.js',
+            '/system/net/utils.js',
+            '/system/utils.js',
+            '/system/interface.js',
         ],
     };
 

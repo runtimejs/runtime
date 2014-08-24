@@ -52,6 +52,11 @@ public:
     DECLARE_NATIVE(BufferAddress);
 
     /**
+     * Create new handle pool
+     */
+    DECLARE_NATIVE(CreateHandlePool);
+
+    /**
      * Get array of all initrd file names
      */
     DECLARE_NATIVE(InitrdList);
@@ -69,6 +74,7 @@ public:
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
         obj.SetCallback("bufferAddress", BufferAddress);
+        obj.SetCallback("createHandlePool", CreateHandlePool);
     }
 
     JsObjectWrapperBase* Clone() const {
@@ -337,6 +343,55 @@ public:
         return new AllocatorObject();
     }
 private:
+};
+
+/**
+ * Lightweight handle for kernel objects (socket, file, etc)
+ */
+class HandleObject : public JsObjectWrapper<HandleObject,
+    NativeTypeId::TYPEID_HANDLE> {
+public:
+    HandleObject(uint32_t pool_id, uint32_t handle_id) : JsObjectWrapper(),
+        pool_id_(pool_id), handle_id_(handle_id) { }
+
+    DECLARE_NATIVE(Index);
+
+    void ObjectInit(ExportBuilder obj) {
+        obj.SetCallback("index", Index);
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        return new HandleObject(pool_id_, handle_id_);
+    }
+
+    uint32_t pool_id() const { return pool_id_; }
+    uint32_t handle_id() const { return handle_id_; }
+private:
+    uint32_t pool_id_;
+    uint32_t handle_id_;
+};
+
+class HandlePoolObject : public JsObjectWrapper<HandlePoolObject,
+    NativeTypeId::TYPEID_HANDLE_POOL> {
+public:
+    HandlePoolObject(uint32_t pool_id) : JsObjectWrapper(),
+        pool_id_(pool_id) { }
+
+    DECLARE_NATIVE(CreateHandle);
+    DECLARE_NATIVE(Has);
+
+    void ObjectInit(ExportBuilder obj) {
+        obj.SetCallback("createHandle", CreateHandle);
+        obj.SetCallback("has", Has);
+
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        return nullptr; // Not clonable
+    }
+private:
+    uint32_t pool_id_;
+    uint32_t max_handle_id_;
 };
 
 } // namespace rt
