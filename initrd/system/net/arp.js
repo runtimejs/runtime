@@ -21,9 +21,6 @@ function(eth) {
     var OPERATION_REQEUST = 1;
     var OPERATION_REPLY = 2;
 
-    var arpCache = {};
-    var arpResolve = {};
-
     function parse(reader) {
         var hardwareType = reader.readUint16();
         var protocolType = reader.readUint16();
@@ -62,15 +59,6 @@ function(eth) {
                               reader.readUint8(), reader.readUint8()];
 
         isolate.log('ARP RECV');
-
-        var cacheKey = senderProtocol.join('.');
-        arpCache[cacheKey] = senderHardware;
-        if ('undefined' !== typeof arpResolve[cacheKey]) {
-            for (var i = 0; i < arpResolve[cacheKey].length; ++i) {
-                arpResolve[cacheKey][i](senderHardware);
-            }
-            delete arpResolve[cacheKey];
-        }
 
         return {
             senderHardware: senderHardware,
