@@ -88,35 +88,41 @@ enum class ThreadType {
  */
 class TimeoutData {
 public:
-    explicit TimeoutData(v8::UniquePersistent<v8::Value> cb)
-        :	cb_(std::move(cb)),
-            cleared_(false), has_args_(false) {
+    TimeoutData(v8::UniquePersistent<v8::Value> cb, uint32_t delay_ms, bool is_autoreset)
+        :	cb_(std::move(cb)), delay_(delay_ms),
+            cleared_(false), has_args_(false), autoreset_(is_autoreset) {
         RT_ASSERT(!cb_.IsEmpty());
         RT_ASSERT(args_array_.IsEmpty());
     }
 
-    TimeoutData(v8::UniquePersistent<v8::Value> cb, v8::UniquePersistent<v8::Array> args_array)
-        :	cb_(std::move(cb)), args_array_(std::move(args_array)),
-            cleared_(false), has_args_(true) {
+    TimeoutData(v8::UniquePersistent<v8::Value> cb, v8::UniquePersistent<v8::Array> args_array,
+        uint32_t delay_ms, bool is_autoreset)
+        :	cb_(std::move(cb)), args_array_(std::move(args_array)), delay_(delay_ms),
+            cleared_(false), has_args_(true), autoreset_(is_autoreset) {
         RT_ASSERT(!cb_.IsEmpty());
         RT_ASSERT(!args_array_.IsEmpty());
     }
 
     TimeoutData(TimeoutData&& other)
         :	cb_(std::move(other.cb_)), args_array_(std::move(other.args_array_)),
-            cleared_(other.cleared_), has_args_(other.has_args_) {}
+            delay_(other.delay_),
+            cleared_(other.cleared_), has_args_(other.has_args_),
+            autoreset_(other.autoreset_) {}
 
     TimeoutData& operator=(TimeoutData&& other) {
         cb_ = std::move(other.cb_);
         args_array_ = std::move(other.args_array_);
+        delay_ = other.delay_;
         cleared_ = other.cleared_;
         has_args_ = other.has_args_;
+        autoreset_ = other.autoreset_;
         return *this;
     }
 
-    v8::UniquePersistent<v8::Value> TakeCallback() {
+    v8::Local<v8::Value> GetCallback(v8::Isolate* iv8) const {
         RT_ASSERT(!cb_.IsEmpty());
-        return std::move(cb_);
+        v8::EscapableHandleScope scope(iv8);
+        return scope.Escape(v8::Local<v8::Value>::New(iv8, cb_));
     }
 
     v8::UniquePersistent<v8::Array> TakeArgsArray() {
@@ -128,13 +134,19 @@ public:
         return cb_.IsEmpty();
     }
 
+    void SetCleared() { cleared_ = true; }
+    void SetAutoreset() { autoreset_ = true; }
+    uint32_t delay() const { return delay_; }
     bool has_args() const { return has_args_; }
+    bool autoreset() const { return autoreset_; }
     bool cleared() const { return cleared_; }
 private:
     v8::UniquePersistent<v8::Value> cb_;
     v8::UniquePersistent<v8::Array> args_array_;
+    uint32_t delay_;
     bool cleared_;
     bool has_args_;
+    bool autoreset_;
     DELETE_COPY_AND_ASSIGN(TimeoutData);
 };
 
@@ -214,6 +226,21 @@ public:
     uint32_t AddTimeoutData(TimeoutData data) {
         Ref();
         return timeout_data_.Push(std::move(data));
+    }
+
+    bool FlagTimeoutCleared(uint32_t index) {
+        if (index >= timeout_data_.size()) {
+            return false;
+        }
+
+        auto& data = timeout_data_.Get(index);
+        if (data.IsEmpty()) {
+            return false;
+        }
+
+        Unref();
+        data.SetCleared();
+        return true;
     }
 
     TimeoutData TakeTimeoutData(uint32_t index) {

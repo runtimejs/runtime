@@ -36,6 +36,8 @@ public:
     DECLARE_NATIVE(CallHandler);
     DECLARE_NATIVE(SyncRPC);
     DECLARE_NATIVE(SetTimeout);
+    DECLARE_NATIVE(SetInterval);
+    DECLARE_NATIVE(ClearTimer);
     DECLARE_NATIVE(KernelLog);
     DECLARE_NATIVE(InitrdText);
     DECLARE_NATIVE(KernelLoaderCallback);
@@ -62,7 +64,6 @@ public:
     DECLARE_NATIVE(InitrdList);
 
     void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("timeout", SetTimeout);
         obj.SetCallback("kernelLog", KernelLog);
         obj.SetCallback("resources", Resources);
         obj.SetCallback("args", Args);

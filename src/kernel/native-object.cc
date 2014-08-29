@@ -149,19 +149,42 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
     }
 }
 
+NATIVE_FUNCTION(NativesObject, ClearTimer) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    args.GetReturnValue().Set(v8::Boolean::New(iv8,
+        th->FlagTimeoutCleared(arg0->Uint32Value())));
+}
+
+uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
+                  v8::Local<v8::Value> cb, uint32_t delay, bool autoreset) {
+    RT_ASSERT(iv8);
+    RT_ASSERT(th);
+    RT_ASSERT(!cb.IsEmpty());
+    RT_ASSERT(cb->IsFunction());
+    uint32_t index = th->AddTimeoutData(
+        TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset));
+
+    th->SetTimeout(index, delay);
+    return index;
+}
+
 NATIVE_FUNCTION(NativesObject, SetTimeout) {
     PROLOGUE_NOTHIS;
     USEARG(0);
     USEARG(1);
     VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 is not a function");
-    RT_ASSERT(arg0->IsFunction());
+    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8,
+        SetTimer(iv8, th, arg0, arg1->Uint32Value(), false)));
+}
 
-    ResourceHandle<EngineThread> thread { th->handle() };
-    RT_ASSERT(!thread.empty());
-
-    uint32_t index = th->AddTimeoutData(TimeoutData(v8::UniquePersistent<v8::Value>(iv8, arg0)));
-    th->SetTimeout(index, arg1->Uint32Value());
-    args.GetReturnValue().SetUndefined();
+NATIVE_FUNCTION(NativesObject, SetInterval) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    USEARG(1);
+    VALIDATEARG(0, FUNCTION, "setInterval: argument 0 is not a function");
+    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8,
+        SetTimer(iv8, th, arg0, arg1->Uint32Value(), true)));
 }
 
 NATIVE_FUNCTION(NativesObject, KernelLog) {

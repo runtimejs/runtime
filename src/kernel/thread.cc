@@ -193,12 +193,22 @@ bool Thread::Run() {
 
         while (timeouts_.Elapsed(time_now)) {
             uint32_t timeout_id { timeouts_.Take() };
-
             TimeoutData data(TakeTimeoutData(timeout_id));
-            auto fnv = v8::Local<v8::Value>::New(iv8_, data.TakeCallback());
+
+            if (data.cleared()) {
+                continue;
+            }
+
+            auto fnv = data.GetCallback(iv8_);
             RT_ASSERT(!fnv.IsEmpty());
             RT_ASSERT(fnv->IsFunction());
             auto fn = fnv.As<v8::Function>();
+
+            if (data.autoreset()) {
+                // TODO: don't take timeout data in a first place
+                SetTimeout(AddTimeoutData(std::move(data)), data.delay());
+            }
+
             fn->Call(context->Global(), 0, nullptr);
 
             // Prevent too many timeout callbacks in a row

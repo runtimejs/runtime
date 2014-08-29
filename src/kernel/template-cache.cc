@@ -66,6 +66,13 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
         global->Set(iv8_, "setTimeout",
                     v8::FunctionTemplate::New(iv8_, NativesObject::SetTimeout));
+        global->Set(iv8_, "clearTimeout",
+                    v8::FunctionTemplate::New(iv8_, NativesObject::ClearTimer));
+
+        global->Set(iv8_, "setInterval",
+                    v8::FunctionTemplate::New(iv8_, NativesObject::SetInterval));
+        global->Set(iv8_, "clearInterval",
+                    v8::FunctionTemplate::New(iv8_, NativesObject::ClearTimer));
 
         v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New() };
         isolate->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));

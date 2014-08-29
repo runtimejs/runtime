@@ -202,10 +202,17 @@ public:
         return index;
     }
 
+    T& Get(uint32_t index) {
+        RT_ASSERT(index < data_.size());
+        return data_[index];
+    }
+
     T Take(uint32_t index) {
         RT_ASSERT(index < data_.size());
         return std::move(data_[index]);
     }
+
+    size_t size() const { return data_.size(); }
 
     void Clear() {
         data_.clear();
