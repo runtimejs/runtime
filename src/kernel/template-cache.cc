@@ -92,7 +92,9 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     v8::Local<v8::Context> context = v8::Context::New(iv8_, nullptr,
         global_object_template_.Get(iv8_));
 
+
     v8::Context::Scope cs(context);
+    context->Global()->Set(v8::String::NewFromUtf8(iv8_, "global"), context->Global());
 
     if (init_script_.IsEmpty()) {
         init_script_.Set(iv8_, GetInitScript());
