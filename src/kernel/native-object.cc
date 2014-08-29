@@ -159,7 +159,7 @@ NATIVE_FUNCTION(NativesObject, SetTimeout) {
     ResourceHandle<EngineThread> thread { th->handle() };
     RT_ASSERT(!thread.empty());
 
-    uint32_t index { th->AddTimeoutData(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
+    uint32_t index = th->AddTimeoutData(TimeoutData(v8::UniquePersistent<v8::Value>(iv8, arg0)));
     th->SetTimeout(index, arg1->Uint32Value());
     args.GetReturnValue().SetUndefined();
 }

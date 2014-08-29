@@ -33,7 +33,6 @@ public:
         SET_ARGUMENTS_NOPARENT,
         SET_ARGUMENTS,
         EVALUATE,
-        TIMEOUT_EVENT,
         IRQ_RAISE,
         FUNCTION_CALL,
         FUNCTION_RETURN_RESOLVE,

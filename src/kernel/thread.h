@@ -83,6 +83,61 @@ enum class ThreadType {
     TERMINATED,
 };
 
+/**
+ * Contains all data required for timeout callback call
+ */
+class TimeoutData {
+public:
+    explicit TimeoutData(v8::UniquePersistent<v8::Value> cb)
+        :	cb_(std::move(cb)),
+            cleared_(false), has_args_(false) {
+        RT_ASSERT(!cb_.IsEmpty());
+        RT_ASSERT(args_array_.IsEmpty());
+    }
+
+    TimeoutData(v8::UniquePersistent<v8::Value> cb, v8::UniquePersistent<v8::Array> args_array)
+        :	cb_(std::move(cb)), args_array_(std::move(args_array)),
+            cleared_(false), has_args_(true) {
+        RT_ASSERT(!cb_.IsEmpty());
+        RT_ASSERT(!args_array_.IsEmpty());
+    }
+
+    TimeoutData(TimeoutData&& other)
+        :	cb_(std::move(other.cb_)), args_array_(std::move(other.args_array_)),
+            cleared_(other.cleared_), has_args_(other.has_args_) {}
+
+    TimeoutData& operator=(TimeoutData&& other) {
+        cb_ = std::move(other.cb_);
+        args_array_ = std::move(other.args_array_);
+        cleared_ = other.cleared_;
+        has_args_ = other.has_args_;
+        return *this;
+    }
+
+    v8::UniquePersistent<v8::Value> TakeCallback() {
+        RT_ASSERT(!cb_.IsEmpty());
+        return std::move(cb_);
+    }
+
+    v8::UniquePersistent<v8::Array> TakeArgsArray() {
+        RT_ASSERT(!args_array_.IsEmpty());
+        return std::move(args_array_);
+    }
+
+    bool IsEmpty() const {
+        return cb_.IsEmpty();
+    }
+
+    bool has_args() const { return has_args_; }
+    bool cleared() const { return cleared_; }
+private:
+    v8::UniquePersistent<v8::Value> cb_;
+    v8::UniquePersistent<v8::Array> args_array_;
+    bool cleared_;
+    bool has_args_;
+    DELETE_COPY_AND_ASSIGN(TimeoutData);
+};
+
 class Thread {
     friend class ThreadManager;
 public:
@@ -156,12 +211,12 @@ public:
         return scope.Escape(irq_data_.GetLocal(iv8_, index));
     }
 
-    uint32_t AddTimeoutData(v8::UniquePersistent<v8::Value> v) {
+    uint32_t AddTimeoutData(TimeoutData data) {
         Ref();
-        return timeout_data_.Push(std::move(v));
+        return timeout_data_.Push(std::move(data));
     }
 
-    v8::UniquePersistent<v8::Value> TakeTimeoutData(uint32_t index) {
+    TimeoutData TakeTimeoutData(uint32_t index) {
         Unref();
         return timeout_data_.Take(index);
     }
@@ -265,7 +320,7 @@ private:
     uint32_t parent_promise_id_;
     ResourceHandle<EngineThread> parent_thread_;
 
-    UniquePersistentIndexedPool<v8::Value> timeout_data_;
+    IndexedPool<TimeoutData> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;
     UniquePersistentIndexedPool<v8::Promise::Resolver> promises_;
 };

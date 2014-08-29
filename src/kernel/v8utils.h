@@ -183,6 +183,38 @@ public:
 };
 
 /**
+ * Random access array for moveable elements
+ * O(n) insert, O(1) remove, O(1) lookup
+ */
+template<typename T>
+class IndexedPool {
+public:
+    uint32_t Push(T value) {
+        for (uint32_t i = 0; i < data_.size(); ++i) {
+            if (data_[i].IsEmpty()) {
+                data_[i] = std::move(value);
+                return i;
+            }
+        }
+
+        uint32_t index = data_.size();
+        data_.push_back(std::move(value));
+        return index;
+    }
+
+    T Take(uint32_t index) {
+        RT_ASSERT(index < data_.size());
+        return std::move(data_[index]);
+    }
+
+    void Clear() {
+        data_.clear();
+    }
+private:
+    SharedSTLVector<T> data_;
+};
+
+/**
  * Random access array for unique persistent handles
  * O(n) insert, O(1) remove, O(1) lookup
  */
