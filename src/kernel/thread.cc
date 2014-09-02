@@ -118,7 +118,6 @@ void Thread::TearDown() {
     irq_data_.Clear();
     promises_.Clear();
 
-    printf("[V8] delete context\n");
     context_.Reset();
     args_.Reset();
     exit_value_.Reset();
@@ -170,7 +169,6 @@ bool Thread::Run() {
     v8::HandleScope local_handle_scope(iv8_);
 
     if (context_.IsEmpty()) {
-        printf("[V8] new context\n");
         v8::Local<v8::Context> context = tpl_cache_->NewContext();
         context_ = std::move(v8::UniquePersistent<v8::Context>(iv8_, context));
     }
