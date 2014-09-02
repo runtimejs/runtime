@@ -151,6 +151,7 @@ bool Thread::Run() {
 
     // Idle thread does nothing and never terminates
     if (ThreadType::IDLE == type_) {
+        Cpu::Halt();
         return true;
     }
 

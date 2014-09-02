@@ -58,6 +58,13 @@ public:
     static void DisableInterrupts() {
         CpuPlatform::DisableInterrupts();
     }
+
+    /**
+     * Put CPU into sleep until next interrupt
+     */
+    static void Halt() {
+        CpuPlatform::Halt();
+    }
 };
 
 } // namespace rt

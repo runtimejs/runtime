@@ -74,6 +74,13 @@ public:
     inline static void EnableInterrupts() {
         asm volatile("sti");
     }
+
+    /**
+     * Put current CPU into sleep until next interrupt
+     */
+    inline static void Halt() {
+        asm volatile("hlt");
+    }
 };
 
 } // namespace rt
