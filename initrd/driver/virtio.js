@@ -104,20 +104,21 @@ var VRing = (function() {
 
     DescriptorTable.prototype.getBuffer = function(descriptorId) {
         var self = this;
-        var buffer = self.descriptorsBuffers[descriptorId];
-
         var descFlags = 0;
+
         var nextDescriptorId = descriptorId;
         var buffer = self.descriptorsBuffers[descriptorId];
-        do {
-            var desc = self.get(nextDescriptorId);
-            self.descriptorsBuffers[nextDescriptorId] = null;
-            ++self.descriptorsAvailable;
-            descFlags = desc.flags;
-            nextDescriptorId = desc.next;
-        } while (descFlags & DescriptorTable.VRING_DESC_F_NEXT);
 
+        var desc = self.get(descriptorId);
+        while (desc.flags & DescriptorTable.VRING_DESC_F_NEXT) {
+            nextDescriptorId = desc.next;
+            desc = self.get(nextDescriptorId);
+            ++self.descriptorsAvailable;
+        }
+
+        self.setNext(nextDescriptorId, self.freeDescriptorHead);
         self.freeDescriptorHead = descriptorId;
+        ++self.descriptorsAvailable;
         return buffer;
     };
 
@@ -128,6 +129,7 @@ var VRing = (function() {
         this.AVAILABLE_RING_INDEX_IDX = 1;
         this.AVAILABLE_RING_INDEX_RING = 2;
         this.AVAILABLE_RING_INDEX_USED_EVENT = 2 + ringSize;
+        this.VRING_AVAIL_F_NO_INTERRUPT = 1;
         this.added = 0;
     }
 
@@ -152,6 +154,14 @@ var VRing = (function() {
         self.setRing(available, index);
         self.incrementIdx();
         ++self.added;
+    };
+
+    AvailableRing.prototype.disableInterrupts = function() {
+        this.availableRing[this.AVAILABLE_RING_INDEX_FLAGS] = this.VRING_AVAIL_F_NO_INTERRUPT;
+    };
+
+    AvailableRing.prototype.enableInterrupts = function() {
+        this.availableRing[this.AVAILABLE_RING_INDEX_FLAGS] = 0;
     };
 
     function UsedRing(buffer, byteOffset, ringSize) {
@@ -239,6 +249,14 @@ var VRing = (function() {
         var self = this;
         var VRING_DESC_F_NEXT = 1;
 
+        self.availableRing.disableInterrupts();
+        var hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
+        self.availableRing.enableInterrupts();
+
+        if (!hasUnprocessed) {
+            return null;
+        }
+
         var used = self.usedRing.getUsedDescriptor();
         if (null === used) {
             return null;
@@ -248,6 +266,12 @@ var VRing = (function() {
 
         var buffer = self.descriptorTable.getBuffer(descriptorId);
         var len = used.len;
+
+        if (!(buffer instanceof ArrayBuffer)) {
+            // TODO: global vring errors handler
+            isolate.log('VRING ERROR: buffer is not an ArrayBuffer');
+            return null;
+        }
 
         //TODO: shrink buf
         return {
