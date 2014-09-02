@@ -32,7 +32,8 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         exports_(this),
         ref_count_(0),
         terminate_(false),
-        parent_promise_id_(0) {
+        parent_promise_id_(0),
+        runtime_(0) {
     priority_.Set(1);
 }
 
@@ -62,13 +63,6 @@ v8::Local<v8::Value> FunctionExports::Get(uint32_t index, size_t export_id) {
     }
 
     return scope.Escape(data_[index].GetValue(iv8));
-}
-
-
-void Thread::SetTimeout(uint32_t timeout_id, uint64_t timeout_ms) {
-    uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
-    uint64_t when = time_now + timeout_ms * 1000;
-    timeouts_.Set(timeout_id, when);
 }
 
 void Thread::SetUp() {
@@ -168,7 +162,7 @@ bool Thread::Run() {
     uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
 
     EngineThread::ThreadMessagesVector messages = ethread_.get()->TakeMessages();
-    if (0 == messages.size() && !timeouts_.Elapsed(time_now)) {
+    if (0 == messages.size()) {
         return true;
     }
 
@@ -186,37 +180,6 @@ bool Thread::Run() {
     v8::Context::Scope cs(context);
 
     v8::TryCatch trycatch;
-
-    // Run timeout callbacks
-    {   const uint32_t kMaxTimeoutsPerTick = 8;
-        uint32_t timeouts_count = 0;
-
-        while (timeouts_.Elapsed(time_now)) {
-            uint32_t timeout_id { timeouts_.Take() };
-            TimeoutData data(TakeTimeoutData(timeout_id));
-
-            if (data.cleared()) {
-                continue;
-            }
-
-            auto fnv = data.GetCallback(iv8_);
-            RT_ASSERT(!fnv.IsEmpty());
-            RT_ASSERT(fnv->IsFunction());
-            auto fn = fnv.As<v8::Function>();
-
-            if (data.autoreset()) {
-                // TODO: don't take timeout data in a first place
-                SetTimeout(AddTimeoutData(std::move(data)), data.delay());
-            }
-
-            fn->Call(context->Global(), 0, nullptr);
-
-            // Prevent too many timeout callbacks in a row
-            if (++timeouts_count > kMaxTimeoutsPerTick) {
-                break;
-            }
-        }
-    }
 
     for (ThreadMessage* message : messages) {
         if (nullptr == message) {
@@ -328,6 +291,29 @@ bool Thread::Run() {
             iv8_->RunMicrotasks();
         }
             break;
+        case ThreadMessage::Type::TIMEOUT_EVENT: {
+            auto recv_index = message->recv_index();
+            RT_ASSERT(recv_index < std::numeric_limits<uint32_t>::max());
+            uint32_t timeout_id { static_cast<uint32_t>(recv_index) };
+            TimeoutData data(TakeTimeoutData(timeout_id));
+
+            if (data.cleared()) {
+                break;
+            }
+
+            auto fnv = data.GetCallback(iv8_);
+            RT_ASSERT(!fnv.IsEmpty());
+            RT_ASSERT(fnv->IsFunction());
+            auto fn = fnv.As<v8::Function>();
+
+            if (data.autoreset()) {
+                // TODO: don't take timeout data in a first place
+                thread_mgr_->SetTimeout(this, AddTimeoutData(std::move(data)), data.delay());
+            }
+
+            fn->Call(context->Global(), 0, nullptr);
+        }
+            break;
         case ThreadMessage::Type::IRQ_RAISE: {
             v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
                 GetIRQData(message->recv_index())) };
@@ -367,6 +353,12 @@ bool Thread::Run() {
     }
 
     trycatch.Reset();
+
+    {   uint64_t time_now_end { GLOBAL_platform()->BootTimeMicroseconds() };
+        RT_ASSERT(time_now_end >= time_now);
+        uint64_t tick_runtime = time_now_end - time_now;
+        runtime_ += tick_runtime;
+    }
 
     if (0 == ref_count_ || terminate_) {
         if (terminate_) {

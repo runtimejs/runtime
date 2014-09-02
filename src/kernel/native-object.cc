@@ -165,7 +165,8 @@ uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
     uint32_t index = th->AddTimeoutData(
         TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset));
 
-    th->SetTimeout(index, delay);
+    RT_ASSERT(th->thread_manager());
+    th->thread_manager()->SetTimeout(th, index, delay);
     return index;
 }
 

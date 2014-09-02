@@ -33,7 +33,7 @@ v8::Local<v8::Object> EngineThread::NewInstance(Thread* thread) {
 
 void Engine::TimerTick(SystemContextIRQ& irq_context) const {
     if (thread_mgr_) {
-        thread_mgr_->TimerInterruptNotify();
+        thread_mgr_->TimerInterruptNotify(irq_context);
     }
 }
 

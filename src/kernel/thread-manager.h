@@ -23,6 +23,7 @@
 #include <kernel/template-cache.h>
 #include <kernel/atomic.h>
 #include <kernel/resource.h>
+#include <kernel/system-context.h>
 
 namespace rt {
 
@@ -62,6 +63,21 @@ public:
 private:
     Thread* thread_;
     size_t priority_;
+};
+
+class ThreadTimeout {
+public:
+    ThreadTimeout(Thread* thread, uint32_t index)
+        :   thread_(thread),
+            index_(index) {
+        RT_ASSERT(thread);
+    }
+
+    Thread* thread() const { return thread_; }
+    uint32_t index() const { return index_; }
+private:
+    Thread* thread_;
+    uint32_t index_;
 };
 
 class ThreadManager {
@@ -197,7 +213,9 @@ public:
     }
 
     void ProcessNewThreads();
-    void TimerInterruptNotify();
+    void ProcessTimeouts();
+    void TimerInterruptNotify(SystemContextIRQ& irq_context);
+    void SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms);
     void Preempt();
 private:
     Thread* current_thread_;
@@ -207,6 +225,7 @@ private:
     std::vector<ThreadData> threads_;
     Atomic<uint32_t> is_preempt_enabled_;
     Atomic<uint64_t> ticks_counter_;
+    Timeouts<ThreadTimeout> timeouts_;
     DELETE_COPY_AND_ASSIGN(ThreadManager);
 };
 

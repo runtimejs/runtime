@@ -305,8 +305,6 @@ public:
     uint32_t parent_promise_id() const { return parent_promise_id_; }
     ResourceHandle<EngineThread> parent_thread() const { return parent_thread_; }
 
-    void SetTimeout(uint32_t timeout_id, uint64_t timeout_ms);
-
     v8::Local<v8::Value> args() const {
         v8::EscapableHandleScope scope(iv8_);
         if (args_.IsEmpty()) {
@@ -339,13 +337,14 @@ private:
 
     ResourceHandle<EngineThread> ethread_;
     FunctionExports exports_;
-    Timeouts<uint32_t> timeouts_;
 
     size_t ref_count_;
     bool terminate_;
 
     uint32_t parent_promise_id_;
     ResourceHandle<EngineThread> parent_thread_;
+
+    uint64_t runtime_;
 
     IndexedPool<TimeoutData> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;

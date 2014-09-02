@@ -15,6 +15,7 @@
 #include "thread-manager.h"
 #include <kernel/kernel.h>
 #include <kernel/engines.h>
+#include <kernel/platform.h>
 
 namespace rt {
 
@@ -66,8 +67,29 @@ void ThreadManager::ProcessNewThreads() {
     }
 }
 
-void ThreadManager::TimerInterruptNotify() {
+void ThreadManager::ProcessTimeouts() {
+    uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
+    while (timeouts_.Elapsed(ticks_now)) {
+        ThreadTimeout t { timeouts_.Take() };
+        uint32_t timeout_id = t.index();
+
+        {   std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                ThreadMessage::Type::TIMEOUT_EVENT,
+                ResourceHandle<EngineThread>(), TransportData(), nullptr, timeout_id));
+            t.thread()->handle().getUnsafe()->PushMessage(std::move(msg));
+        }
+    }
+}
+
+void ThreadManager::TimerInterruptNotify(SystemContextIRQ& irq_context) {
     ticks_counter_.AddFetch(1);
+}
+
+void ThreadManager::SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms) {
+    RT_ASSERT(thread);
+    uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
+    uint64_t when = time_now + timeout_ms * 1000;
+    timeouts_.Set(ThreadTimeout(thread, timeout_id), when);
 }
 
 void ThreadManager::Preempt() {
@@ -75,6 +97,7 @@ void ThreadManager::Preempt() {
     Thread* new_thread = SwitchToNextThread();
 
     ProcessNewThreads();
+    ProcessTimeouts();
 
     if (curr_thread == new_thread) {
         return;
