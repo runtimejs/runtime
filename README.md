@@ -36,12 +36,13 @@ Status
 
 - embedded V8 engine
 - multitasking (cooperative only)
-- IPC transferable functions and ArrayBuffers
+- [RPC](https://github.com/runtimejs/runtime/wiki/RPC)
 - SMP support (currently disabled)
 - embedded ACPICA for ACPI support
 - simple keyboard and VGA display drivers
 - JavaScript REPL application
 - PCI bus driver device detection
+- simple virtio-net driver
 
 
 ####Planned
