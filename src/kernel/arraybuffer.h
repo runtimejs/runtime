@@ -45,7 +45,7 @@ public:
 
     static ArrayBuffer* FromBuffer(v8::Isolate* iv8, void* data, size_t size) {
         RT_ASSERT(iv8);
-        RT_ASSERT(data);
+        RT_ASSERT((data && size > 0) || (!data && 0 == size));
         return new ArrayBuffer(iv8, v8::ArrayBuffer::New(iv8, data, size), data, size);
     }
 

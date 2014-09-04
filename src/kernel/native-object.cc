@@ -325,8 +325,12 @@ NATIVE_FUNCTION(NativesObject, ToBuffer) {
         ++buf_len;
     }
 
-    char* data = new char[buf_len];
-    str->WriteUtf8(data, len, nullptr, options);
+    char* data = nullptr;
+    if (0 != buf_len) {
+        data = new char[buf_len];
+        str->WriteUtf8(data, buf_len, nullptr, options);
+    }
+
     args.GetReturnValue().Set(ArrayBuffer::FromBuffer(iv8, data, buf_len)
         ->GetInstance());
 }

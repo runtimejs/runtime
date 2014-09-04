@@ -26,6 +26,8 @@ function testNullTerminate(str) {
     var ab = runtime.toBuffer(str, true);
     expect(ab.byteLength).to.equal(str.length + 1);
     compareCharcodes(ab, str);
+    var u8 = new Uint8Array(ab);
+    expect(u8[str.length]).to.equal(0);
 }
 
 function testNoNullTerminate(str) {
@@ -34,5 +36,19 @@ function testNoNullTerminate(str) {
     compareCharcodes(ab, str);
 }
 
-testNullTerminate('hello');
-testNoNullTerminate('hello');
+function testEmptyBuffer() {
+    var ab = runtime.toBuffer('');
+    expect(ab.byteLength).to.equal(0)
+    var u8 = new Uint8Array(ab);
+    u8[0] = 1;
+    u8[1] = 10;
+    expect(u8[0]).to.equal(undefined);
+    expect(u8[1]).to.equal(undefined);
+}
+
+var strings = ['hello', '', '==sd', '<>@#*!', '        ', 'a b c d '];
+strings.forEach(function(str) {
+    testNullTerminate(str);
+    testNoNullTerminate(str);
+    testEmptyBuffer();
+});
