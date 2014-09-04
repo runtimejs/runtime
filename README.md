@@ -9,7 +9,7 @@ It's currently under development and does not include many essential features. I
 
 You can use issues section to ask any questions or share your ideas https://github.com/runtimejs/runtime/issues
 
-Or mailing list https://groups.google.com/group/runtimejs
+Project random discussions here https://github.com/runtimejs/discussions/issues
 
 Join IRC chatroom #runtimejs on freenode
 
