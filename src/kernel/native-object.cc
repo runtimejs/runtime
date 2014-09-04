@@ -311,13 +311,23 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
 NATIVE_FUNCTION(NativesObject, ToBuffer) {
     PROLOGUE_NOTHIS;
     USEARG(0);
+    USEARG(1);
     v8::Local<v8::String> str = arg0->ToString();
     int len = str->Utf8Length();
     RT_ASSERT(len >= 0);
 
-    char* data = new char[len + 1];
-    str->WriteUtf8(data, len, nullptr, v8::String::WriteOptions::NO_OPTIONS);
-    args.GetReturnValue().Set(ArrayBuffer::FromBuffer(iv8, data, len + 1)
+    bool null_terminate = arg1->BooleanValue();
+    size_t buf_len = len;
+    auto options = v8::String::WriteOptions::NO_NULL_TERMINATION;
+
+    if (null_terminate) {
+        options = v8::String::WriteOptions::NO_OPTIONS;
+        ++buf_len;
+    }
+
+    char* data = new char[buf_len];
+    str->WriteUtf8(data, len, nullptr, options);
+    args.GetReturnValue().Set(ArrayBuffer::FromBuffer(iv8, data, buf_len)
         ->GetInstance());
 }
 
