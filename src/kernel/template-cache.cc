@@ -89,6 +89,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
         v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
         runtime->Set(iv8_, "bufferAddress", v8::FunctionTemplate::New(iv8_, NativesObject::BufferAddress));
+        runtime->Set(iv8_, "toBuffer", v8::FunctionTemplate::New(iv8_, NativesObject::ToBuffer));
         runtime->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
         runtime->Set(iv8_, "syncRPC", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "runtime", runtime);

@@ -308,6 +308,19 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     args.GetReturnValue().Set(arr);
 }
 
+NATIVE_FUNCTION(NativesObject, ToBuffer) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    v8::Local<v8::String> str = arg0->ToString();
+    int len = str->Utf8Length();
+    RT_ASSERT(len >= 0);
+
+    char* data = new char[len + 1];
+    str->WriteUtf8(data, len, nullptr, v8::String::WriteOptions::NO_OPTIONS);
+    args.GetReturnValue().Set(ArrayBuffer::FromBuffer(iv8, data, len + 1)
+        ->GetInstance());
+}
+
 NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
     PROLOGUE_NOTHIS;
     args.GetReturnValue().Set((new HandlePoolObject(GLOBAL_engines()

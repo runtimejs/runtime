@@ -54,6 +54,12 @@ public:
     DECLARE_NATIVE(BufferAddress);
 
     /**
+     * Convert JavaScript value converted to string to
+     * UTF-8 encoded ArrayBuffer
+     */
+    DECLARE_NATIVE(ToBuffer);
+
+    /**
      * Create new handle pool
      */
     DECLARE_NATIVE(CreateHandlePool);
