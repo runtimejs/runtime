@@ -60,6 +60,11 @@ public:
     DECLARE_NATIVE(ToBuffer);
 
     /**
+     * Reinterpret ArrayBuffer as UTF-8 string
+     */
+    DECLARE_NATIVE(BufferToString);
+
+    /**
      * Create new handle pool
      */
     DECLARE_NATIVE(CreateHandlePool);

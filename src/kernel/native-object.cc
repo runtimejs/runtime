@@ -335,6 +335,23 @@ NATIVE_FUNCTION(NativesObject, ToBuffer) {
         ->GetInstance());
 }
 
+NATIVE_FUNCTION(NativesObject, BufferToString) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    VALIDATEARG(0, ARRAYBUFFER, "bufferToString: argument 0 is not an ArrayBuffer");
+    RT_ASSERT(arg0->IsArrayBuffer());
+    auto abv8 = arg0.As<v8::ArrayBuffer>();
+
+    if (0 == abv8->ByteLength()) {
+        args.GetReturnValue().SetEmptyString();
+        return;
+    }
+
+    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
+    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
+}
+
 NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
     PROLOGUE_NOTHIS;
     args.GetReturnValue().Set((new HandlePoolObject(GLOBAL_engines()
