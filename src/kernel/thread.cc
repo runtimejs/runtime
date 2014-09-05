@@ -151,7 +151,12 @@ bool Thread::Run() {
 
     // Idle thread does nothing and never terminates
     if (ThreadType::IDLE == type_) {
-        Cpu::Halt();
+
+        if (thread_mgr_->CanHalt()) {
+            Cpu::Halt();
+        }
+
+        thread_mgr_->SetEvCheckpoint();
         return true;
     }
 
@@ -179,12 +184,14 @@ bool Thread::Run() {
     v8::Context::Scope cs(context);
 
     v8::TryCatch trycatch;
+    uint64_t ev_count = 0;
 
     for (ThreadMessage* message : messages) {
         if (nullptr == message) {
             continue; // Skip removed message
         }
 
+        ++ev_count;
         ThreadMessage::Type type = message->type();
 
         switch (type) {
@@ -352,6 +359,10 @@ bool Thread::Run() {
     }
 
     trycatch.Reset();
+
+    if (ev_count > 0) {
+        thread_mgr_->SubmitEvWork(ev_count);
+    }
 
     {   uint64_t time_now_end { GLOBAL_platform()->BootTimeMicroseconds() };
         RT_ASSERT(time_now_end >= time_now);

@@ -42,7 +42,9 @@ void ThreadEntryPoint(Thread* t) {
 ThreadManager::ThreadManager(Engine* engine)
     :	current_thread_(nullptr),
         engine_(engine),
-        current_thread_index_(0) {
+        current_thread_index_(0),
+        ev_done_total_(0),
+        ev_done_checkpoint_(0) {
     RT_ASSERT(engine);
     threads_.reserve(128);
     ticks_counter_.Set(1);

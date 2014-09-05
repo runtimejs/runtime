@@ -212,6 +212,24 @@ public:
         return vec;
     }
 
+    /**
+     * Increment events processed counter
+     */
+    void SubmitEvWork(uint64_t ev_count) {
+        ev_done_total_ += ev_count;
+    }
+
+    uint64_t events_count() const { return ev_done_total_; }
+    uint64_t events_count_checkpoint() const { return ev_done_checkpoint_; }
+
+    void SetEvCheckpoint() {
+        ev_done_checkpoint_ = ev_done_total_;
+    }
+
+    bool CanHalt() const {
+        return ev_done_checkpoint_ == ev_done_total_;
+    }
+
     void ProcessNewThreads();
     void ProcessTimeouts();
     void TimerInterruptNotify(SystemContextIRQ& irq_context);
@@ -226,6 +244,8 @@ private:
     Atomic<uint32_t> is_preempt_enabled_;
     Atomic<uint64_t> ticks_counter_;
     Timeouts<ThreadTimeout> timeouts_;
+    uint64_t ev_done_total_;
+    uint64_t ev_done_checkpoint_;
     DELETE_COPY_AND_ASSIGN(ThreadManager);
 };
 
