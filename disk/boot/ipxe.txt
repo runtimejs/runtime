@@ -1,0 +1,6 @@
+#!ipxe
+
+set base-url http://runtimetest.org
+kernel ${base-url}/kernel.bin
+initrd ${base-url}/initrd
+boot
