@@ -18,6 +18,7 @@
 #include <kernel/mem-manager.h>
 #include <kernel/system-context.h>
 #include <kernel/x64/io-x64.h>
+#include <kernel/x64/platform-x64.h>
 
 namespace rt {
 
@@ -28,7 +29,9 @@ LocalApicX64::LocalApicX64(void* local_apic_address)
     RT_ASSERT(local_apic_address);
 }
 
-void LocalApicX64::InitCpu() {
+void LocalApicX64::InitCpu(PlatformArch* platform) {
+    RT_ASSERT(platform);
+
     GLOBAL_mem_manager()->address_space().MapPage(
         local_apic_address_,
         local_apic_address_, true, true);
@@ -61,25 +64,15 @@ void LocalApicX64::InitCpu() {
         registers_.Write(LocalApicRegister::TIMER, 32);
         registers_.Write(LocalApicRegister::TIMER_DIVIDE_CONFIG, 0x03);
 
-        // Initialize PIT channel 2 in one-shot mode to wait 1/100 sec
-        IoPortsX64::OutB(0x61, (IoPortsX64::InB(0x61) & 0xFD) | 1);
-        IoPortsX64::OutB(0x43, 0xB2);
-
-        // 1193180/100 Hz = 11931 = 2e9bh
-        IoPortsX64::OutB(0x42, 0x9B);					// LSB
-        IoPortsX64::InB(0x60);							// Short delay
-        IoPortsX64::OutB(0x42, 0x2E);					// MSB
-
-        // Reset PIT one-shot counter (start counting)
-        uint32_t tmp = (uint8_t)(IoPortsX64::InB(0x61) & 0xFE);
-        IoPortsX64::OutB(0x61, (uint8_t)tmp);           //gate low
-        IoPortsX64::OutB(0x61, (uint8_t)tmp | 1);		//gate high
+        uint64_t start = platform->BootTimeMicroseconds();
 
         // Reset APIC timer (set counter to -1)
         registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, 0xFFFFFFFF);
 
-        // Wait until PIT counter reaches zero
-        while(!(IoPortsX64::InB(0x61) & 0x20));
+        // 1/100 of a second
+        while (platform->BootTimeMicroseconds() - start < 10000) {
+            Cpu::WaitPause();
+        }
 
         // Stop Apic timer
         registers_.Write(LocalApicRegister::TIMER, 1 << 16);
@@ -91,7 +84,7 @@ void LocalApicX64::InitCpu() {
     }
 
     RT_ASSERT(bus_freq_);
-    uint32_t quantum = 100;
+    uint32_t quantum = 32;
     uint32_t init_count = bus_freq_ / quantum / 16;
 
     // Set minimum initial count value to avoid QEMU

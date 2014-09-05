@@ -230,6 +230,7 @@ public:
             thread_mgr_(nullptr),
             init_(false),
             threads_(this) {}
+
     ~Engine() {}
 
     ThreadManager* thread_manager() const {

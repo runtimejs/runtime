@@ -286,6 +286,22 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
     args.GetReturnValue().SetUndefined();
 }
 
+NATIVE_FUNCTION(NativesObject, SystemInfo) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    LOCAL_V8STRING(s_irq_counters, "irqCounters");
+
+    auto obj = v8::Object::New(iv8);
+
+    // TODO: add other counters
+    auto counters = v8::Array::New(iv8, 1);
+    auto ticks = static_cast<uint32_t>(th->thread_manager()->ticks_count());
+    counters->Set(0, v8::Uint32::NewFromUnsigned(iv8, ticks));
+    obj->Set(s_irq_counters, counters);
+
+    args.GetReturnValue().Set(obj);
+}
+
 NATIVE_FUNCTION(NativesObject, BufferAddress) {
     PROLOGUE_NOTHIS;
     USEARG(0);

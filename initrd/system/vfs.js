@@ -368,6 +368,7 @@ function(resources) {
     var spawnKernelData = {
         lspci: function() { return new Error('NOT_READY') },
         listNetworkInterfaces: function() { return new Error('NOT_READY') },
+        systemInfo: resources.natives.systemInfo,
         reboot: resources.natives.reboot,
         enterSleepState: resources.acpi.enterSleepState,
     };

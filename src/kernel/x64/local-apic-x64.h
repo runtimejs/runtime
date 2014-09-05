@@ -23,6 +23,8 @@
 
 namespace rt {
 
+class PlatformArch;
+
 /**
  * List of available local apic registers
  */
@@ -183,7 +185,7 @@ public:
 
     uint32_t bus_frequency() const { return bus_freq_; }
 
-    void InitCpu();
+    void InitCpu(PlatformArch* platform);
 
 private:
     void* local_apic_address_;

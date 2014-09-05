@@ -54,6 +54,11 @@ public:
     DECLARE_NATIVE(BufferAddress);
 
     /**
+     * Get kernel system info
+     */
+    DECLARE_NATIVE(SystemInfo);
+
+    /**
      * Convert JavaScript value converted to string to
      * UTF-8 encoded ArrayBuffer
      */
@@ -87,6 +92,7 @@ public:
         obj.SetCallback("initrdList", InitrdList);
         obj.SetCallback("bufferAddress", BufferAddress);
         obj.SetCallback("createHandlePool", CreateHandlePool);
+        obj.SetCallback("systemInfo", SystemInfo);
     }
 
     JsObjectWrapperBase* Clone() const {

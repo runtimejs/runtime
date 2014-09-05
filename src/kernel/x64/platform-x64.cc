@@ -29,7 +29,7 @@ void PlatformArch::InitCurrentCPU() {
     }
 
     RT_ASSERT(acpi_.local_apic());
-    acpi_.local_apic()->InitCpu();
+    acpi_.local_apic()->InitCpu(this);
 }
 
 void PlatformArch::AckIRQ() {
