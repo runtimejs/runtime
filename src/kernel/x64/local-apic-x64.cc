@@ -29,12 +29,27 @@ LocalApicX64::LocalApicX64(void* local_apic_address)
     RT_ASSERT(local_apic_address);
 }
 
+void LocalApicX64::CpuSetAPICBase(uintptr_t apic) {
+    uint32_t edx = (apic >> 32) & 0x0f;
+    uint32_t eax = (apic & 0xfffff100) | kApicBaseMSREnable;
+
+    CpuMSRValue value(eax, edx);
+    CpuPlatform::SetMSR(kApicBaseMSR, value);
+}
+
+uintptr_t LocalApicX64::CpuGetAPICBase() {
+    auto value = CpuPlatform::GetMSR(kApicBaseMSR);
+    return (value.lo & 0xfffff100) | ((uintptr_t)(value.hi & 0x0f) << 32);
+}
+
 void LocalApicX64::InitCpu(PlatformArch* platform) {
     RT_ASSERT(platform);
 
     GLOBAL_mem_manager()->address_space().MapPage(
         local_apic_address_,
         local_apic_address_, true, true);
+
+    CpuSetAPICBase(CpuGetAPICBase());
 
     // Clear task priority to enable all interrupts
     registers_.Write(LocalApicRegister::TASK_PRIORITY, 0);
@@ -48,7 +63,7 @@ void LocalApicX64::InitCpu(PlatformArch* platform) {
     registers_.Write(LocalApicRegister::PERF, 4 << 8);
 
     // Flat mode
-    registers_.Write(LocalApicRegister::DESTINATION_FORMAT, 0xF0000000);
+    registers_.Write(LocalApicRegister::DESTINATION_FORMAT, 0xffffffff);
 
     // Logical Destination Mode, all cpus use logical id 1
     registers_.Write(LocalApicRegister::LOGICAL_DESTINATION, 1);
@@ -56,18 +71,20 @@ void LocalApicX64::InitCpu(PlatformArch* platform) {
     // Configure Spurious Interrupt Vector Register
     registers_.Write(LocalApicRegister::SPURIOUS_INTERRUPT_VECTOR, 0x100 | 0xff);
 
+    uint8_t timer_vector = 32;
+
     if (0 == bus_freq_) {
         // Ensure we do this once on CPU 0
         RT_ASSERT(0 == Cpu::id());
 
         // Calibrate times
-        registers_.Write(LocalApicRegister::TIMER, 32);
+        registers_.Write(LocalApicRegister::TIMER, timer_vector);
         registers_.Write(LocalApicRegister::TIMER_DIVIDE_CONFIG, 0x03);
 
         uint64_t start = platform->BootTimeMicroseconds();
 
         // Reset APIC timer (set counter to -1)
-        registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, 0xFFFFFFFF);
+        registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, 0xffffffffU);
 
         // 1/100 of a second
         while (platform->BootTimeMicroseconds() - start < 10000) {
@@ -95,8 +112,12 @@ void LocalApicX64::InitCpu(PlatformArch* platform) {
 
     // Set periodic mode for APIC timer
     registers_.Write(LocalApicRegister::TIMER_INITIAL_COUNT, init_count);
-    registers_.Write(LocalApicRegister::TIMER, 32 | 0x20000);
+    registers_.Write(LocalApicRegister::TIMER, timer_vector | 0x20000);
     registers_.Write(LocalApicRegister::TIMER_DIVIDE_CONFIG, 0x03);
+
+    registers_.Read(LocalApicRegister::SPURIOUS_INTERRUPT_VECTOR);
+
+    EOI();
 }
 
 } // namespace rt

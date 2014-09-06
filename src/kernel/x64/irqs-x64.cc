@@ -369,7 +369,7 @@ void IrqsArch::SetUp() {
 
     // Other
     InstallGate(0x21, &_irq_gate_21, type);
-    InstallGate(0x22, &_irq_gate_22, type);
+    InstallGate(0x22, &int_gate_irq_timer, type);
     InstallGate(0x23, &_irq_gate_23, type);
     InstallGate(0x24, &_irq_gate_24, type);
     InstallGate(0x25, &_irq_gate_25, type);

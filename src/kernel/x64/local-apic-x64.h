@@ -185,9 +185,14 @@ public:
 
     uint32_t bus_frequency() const { return bus_freq_; }
 
-    void InitCpu(PlatformArch* platform);
+    void CpuSetAPICBase(uintptr_t apic);
+    uintptr_t CpuGetAPICBase();
 
+    void InitCpu(PlatformArch* platform);
 private:
+    static const int kApicBaseMSR = 0x1b;
+    static const int kApicBaseMSREnable = 0x800;
+
     void* local_apic_address_;
     LocalApicRegisterAccessor registers_;
     uint32_t bus_freq_;

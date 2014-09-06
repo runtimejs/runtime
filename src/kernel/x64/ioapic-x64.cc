@@ -46,12 +46,12 @@ void IoApicX64::Init() {
 
     // Enable all interrupts
     for (uint32_t i = 0; i < max_interrupts; ++i) {
-        // Not sure about IRQ 2, but I get those a lot in QEMU
-        if (0 == interrupt_base_ && (0 == i || 2 == i)) {
-            // Mask timer and IRQ 2
+        // Mask timer (timer doesn't go through IOAPIC)
+        if (0 == interrupt_base_ && (0 == i)) {
             registers_.SetEntry(i, kIntMasked | (kIRQOffset + i));
             continue;
         }
+
         EnableIrq(kIRQOffset, i);
     }
 }
