@@ -1,3 +1,13 @@
+### 0.1.3 (2014-09-07)
+
+  - Halt system when there is nothing to do
+  - Basic networking (unstable)
+  - Virtio-net NIC driver
+  - KVM fixes
+  - HPET timer
+  - Date.now() microsecond precision
+  - other improvements
+
 ### 0.1.2 (2014-07-27)
 
   - New terminal
