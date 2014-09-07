@@ -41,7 +41,7 @@ public:
      * Pause operation for busy-wait loops
      */
     static void WaitPause() {
-        asm volatile("rep;nop" : : : "memory");
+        asm volatile("pause" : : : "memory");
     }
 
     /**
@@ -73,6 +73,15 @@ public:
      */
     inline static void EnableInterrupts() {
         asm volatile("sti");
+    }
+
+    /**
+     * Get interrupts enabled status
+     */
+    inline static bool IsInterruptsEnabled() {
+        uint32_t eflags;
+        asm volatile("pushf; pop %0" : "=r" (eflags));
+        return 1 == (eflags & 0x200);
     }
 
     /**

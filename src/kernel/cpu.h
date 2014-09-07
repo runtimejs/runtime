@@ -60,6 +60,13 @@ public:
     }
 
     /**
+     * Get interrupts enabled status
+     */
+    static bool IsInterruptsEnabled() {
+        return CpuPlatform::IsInterruptsEnabled();
+    }
+
+    /**
      * Put CPU into sleep until next interrupt
      */
     static void Halt() {
