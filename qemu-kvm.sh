@@ -6,6 +6,6 @@ qemu-system-x86_64                                          \
     -s                                                      \
     -enable-kvm                                             \
     -no-kvm-irqchip                                         \
-    -kernel disk/boot/kernel.bin                            \
+    -kernel disk/boot/runtime                               \
     -initrd disk/boot/initrd                                \
     -serial stdio

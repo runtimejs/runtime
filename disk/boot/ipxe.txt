@@ -1,6 +1,6 @@
 #!ipxe
 
 set base-url http://runtimetest.org
-kernel ${base-url}/kernel.bin
+kernel ${base-url}/runtime
 initrd ${base-url}/initrd
 boot

@@ -17,7 +17,7 @@ if "CI" in os.environ:
 config = {
     "project_name": "runtimejs",
     "build_host": build_host,
-    "binary_output_file": "disk/boot/kernel.bin",
+    "binary_output_file": "disk/boot/runtime",
     "toolchain_bin_path": "",
     "fasm_pathname": "fasm",
     "link_script": "etc/kernel.ld",
