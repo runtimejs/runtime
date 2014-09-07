@@ -83,14 +83,14 @@ To build
     
 ####Try prebuilt binaries in QEMU
 
-Download latest __kernel.bin__ and __initrd__ files from releases page https://github.com/runtimejs/runtime/releases
+Download latest __runtime__ and __initrd__ files from releases page https://github.com/runtimejs/runtime/releases
 
 Run
-```
+```bash
 qemu-system-x86_64                                \
     -m 512                                        \
     -smp 1                                        \
-    -kernel kernel.bin                            \
+    -kernel runtime                               \
     -initrd initrd                                \
     -serial stdio
 ```
