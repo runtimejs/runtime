@@ -13,6 +13,7 @@ map.txt
 runtimejs
 disk/boot/initrd
 disk/boot/kernel.bin
+disk/boot/runtime
 /mkinitrd
 qt_rtproj.*
 /test-host
