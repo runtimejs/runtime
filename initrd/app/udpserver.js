@@ -22,7 +22,12 @@
 
     function onMessage(data) {
         var str = runtime.bufferToString(data.buf);
-        console.log('reqeust from: ' + data.address);
+
+        if (str.length > 1) {
+            isolate.env.stdout('message from ');
+            isolate.env.stdout(data.address + ' ', {fg: 'yellow'});
+            isolate.env.stdout(str, {fg: 'green'});
+        }
 
         var lines = [
             '======================================================================',
