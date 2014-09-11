@@ -57,6 +57,6 @@
         setTimeout(function() {
             console.error('Timed out');
             isolate.exit();
-        }, 2000);
+        }, 5000);
     });
 })();

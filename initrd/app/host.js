@@ -249,7 +249,7 @@ DNSClient.prototype.resolve = function(hostname) {
 
         setTimeout(function() {
             self._setResult(hostname, false, new Error('TIMEOUT'));
-        }, 2000);
+        }, 5000);
 
         return isolate.system.udpSocket.send(self.socket, '8.8.8.8', 53, buf);
     }).catch(function(err) {
