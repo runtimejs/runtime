@@ -70,9 +70,12 @@
                         }
                     }
 
-                    if ('undefined' !== typeof cmd.x ||
-                        'undefined' !== typeof cmd.y) {
-                        posCurrent = cmd.y * width + cmd.x;
+                    if ('number' === typeof cmd.x) {
+                        posCurrent -= posCurrent % width - cmd.x;
+                    }
+
+                    if ('number' === typeof cmd.y) {
+                        posCurrent = posCurrent % width + cmd.y * width;
                     }
 
                     if ('undefined' !== typeof cmd.offset) {
