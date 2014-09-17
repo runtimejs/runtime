@@ -154,30 +154,31 @@ DEFINE_BOOL(harmony_scoping, false, "enable harmony block scoping")
 DEFINE_BOOL(harmony_modules, false,
             "enable harmony modules (implies block scoping)")
 DEFINE_BOOL(harmony_proxies, false, "enable harmony proxies")
-DEFINE_BOOL(harmony_generators, false, "enable harmony generators")
 DEFINE_BOOL(harmony_numeric_literals, false,
             "enable harmony numeric literals (0o77, 0b11)")
 DEFINE_BOOL(harmony_strings, false, "enable harmony string")
 DEFINE_BOOL(harmony_arrays, false, "enable harmony arrays")
 DEFINE_BOOL(harmony_arrow_functions, false, "enable harmony arrow functions")
+DEFINE_BOOL(harmony_classes, false, "enable harmony classes")
+DEFINE_BOOL(harmony_object_literals, false,
+            "enable harmony object literal extensions")
 DEFINE_BOOL(harmony, false, "enable all harmony features (except proxies)")
 
 DEFINE_IMPLICATION(harmony, harmony_scoping)
 DEFINE_IMPLICATION(harmony, harmony_modules)
 // TODO(rossberg): Reenable when problems are sorted out.
 // DEFINE_IMPLICATION(harmony, harmony_proxies)
-DEFINE_IMPLICATION(harmony, harmony_generators)
 DEFINE_IMPLICATION(harmony, harmony_numeric_literals)
 DEFINE_IMPLICATION(harmony, harmony_strings)
 DEFINE_IMPLICATION(harmony, harmony_arrays)
 DEFINE_IMPLICATION(harmony, harmony_arrow_functions)
+DEFINE_IMPLICATION(harmony, harmony_classes)
+DEFINE_IMPLICATION(harmony, harmony_object_literals)
 DEFINE_IMPLICATION(harmony_modules, harmony_scoping)
 
 DEFINE_IMPLICATION(harmony, es_staging)
 
 // Flags for experimental implementation features.
-DEFINE_BOOL(compiled_keyed_dictionary_loads, true,
-            "use optimizing compiler to generate keyed dictionary load stubs")
 DEFINE_BOOL(compiled_keyed_generic_loads, false,
             "use optimizing compiler to generate keyed generic load stubs")
 DEFINE_BOOL(clever_optimizations, true,
@@ -330,12 +331,19 @@ DEFINE_BOOL(trace_turbo_types, true, "trace generated TurboFan types")
 DEFINE_BOOL(trace_turbo_scheduler, false, "trace generated TurboFan scheduler")
 DEFINE_BOOL(turbo_verify, false, "verify TurboFan graphs at each phase")
 DEFINE_BOOL(turbo_stats, false, "print TurboFan statistics")
+#if V8_TURBOFAN_BACKEND
+DEFINE_BOOL(turbo_types, true, "use typed lowering in TurboFan")
+#else
 DEFINE_BOOL(turbo_types, false, "use typed lowering in TurboFan")
+#endif
 DEFINE_BOOL(turbo_source_positions, false,
             "track source code positions when building TurboFan IR")
-DEFINE_BOOL(context_specialization, true,
+DEFINE_BOOL(context_specialization, false,
             "enable context specialization in TurboFan")
 DEFINE_BOOL(turbo_deoptimization, false, "enable deoptimization in TurboFan")
+DEFINE_BOOL(turbo_inlining, false, "enable inlining in TurboFan")
+DEFINE_BOOL(trace_turbo_inlining, false, "trace TurboFan inlining")
+DEFINE_IMPLICATION(turbo_inlining, turbo_types)
 
 DEFINE_INT(typed_array_max_size_in_heap, 64,
            "threshold for in-heap typed array")
@@ -432,8 +440,6 @@ DEFINE_BOOL(serialize_toplevel, false, "enable caching of toplevel scripts")
 // compiler.cc
 DEFINE_INT(min_preparse_length, 1024,
            "minimum length for automatic enable preparsing")
-DEFINE_BOOL(always_full_compiler, false,
-            "try to use the dedicated run-once backend for all code")
 DEFINE_INT(max_opt_count, 10,
            "maximum number of optimization attempts before giving up.")
 
@@ -491,6 +497,8 @@ DEFINE_BOOL(trace_gc_nvp, false,
             "after each garbage collection")
 DEFINE_BOOL(trace_gc_ignore_scavenger, false,
             "do not print trace line after scavenger collection")
+DEFINE_BOOL(trace_idle_notification, false,
+            "print one trace line following each idle notification")
 DEFINE_BOOL(print_cumulative_gc_stat, false,
             "print cumulative GC statistics in name=value format on exit")
 DEFINE_BOOL(print_max_heap_committed, false,
@@ -522,12 +530,11 @@ DEFINE_BOOL(trace_incremental_marking, false,
             "trace progress of the incremental marking")
 DEFINE_BOOL(track_gc_object_stats, false,
             "track object counts and memory usage")
-DEFINE_BOOL(always_precise_sweeping, true, "always sweep precisely")
 DEFINE_BOOL(parallel_sweeping, false, "enable parallel sweeping")
 DEFINE_BOOL(concurrent_sweeping, true, "enable concurrent sweeping")
 DEFINE_INT(sweeper_threads, 0,
            "number of parallel and concurrent sweeping threads")
-DEFINE_BOOL(job_based_sweeping, false, "enable job based sweeping")
+DEFINE_BOOL(job_based_sweeping, true, "enable job based sweeping")
 #ifdef VERIFY_HEAP
 DEFINE_BOOL(verify_heap, false, "verify heap pointers before and after GC")
 #endif

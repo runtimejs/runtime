@@ -8,6 +8,7 @@
 #include "src/v8.h"
 
 #include "src/compiler/common-operator.h"
+#include "src/compiler/generic-node-inl.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/opcodes.h"
 #include "src/compiler/operator.h"
@@ -23,15 +24,18 @@ namespace compiler {
 // Inputs are always arranged in order as follows:
 //     0 [ values, context, effects, control ] node->InputCount()
 
+inline int NodeProperties::FirstValueIndex(Node* node) { return 0; }
 
-inline int NodeProperties::GetContextIndex(Node* node) {
+inline int NodeProperties::FirstContextIndex(Node* node) {
   return PastValueIndex(node);
 }
 
-inline int NodeProperties::FirstValueIndex(Node* node) { return 0; }
+inline int NodeProperties::FirstFrameStateIndex(Node* node) {
+  return PastContextIndex(node);
+}
 
 inline int NodeProperties::FirstEffectIndex(Node* node) {
-  return PastContextIndex(node);
+  return PastFrameStateIndex(node);
 }
 
 inline int NodeProperties::FirstControlIndex(Node* node) {
@@ -45,8 +49,13 @@ inline int NodeProperties::PastValueIndex(Node* node) {
 }
 
 inline int NodeProperties::PastContextIndex(Node* node) {
-  return GetContextIndex(node) +
+  return FirstContextIndex(node) +
          OperatorProperties::GetContextInputCount(node->op());
+}
+
+inline int NodeProperties::PastFrameStateIndex(Node* node) {
+  return FirstFrameStateIndex(node) +
+         OperatorProperties::GetFrameStateInputCount(node->op());
 }
 
 inline int NodeProperties::PastEffectIndex(Node* node) {
@@ -71,7 +80,12 @@ inline Node* NodeProperties::GetValueInput(Node* node, int index) {
 
 inline Node* NodeProperties::GetContextInput(Node* node) {
   DCHECK(OperatorProperties::HasContextInput(node->op()));
-  return node->InputAt(GetContextIndex(node));
+  return node->InputAt(FirstContextIndex(node));
+}
+
+inline Node* NodeProperties::GetFrameStateInput(Node* node) {
+  DCHECK(OperatorProperties::HasFrameStateInput(node->op()));
+  return node->InputAt(FirstFrameStateIndex(node));
 }
 
 inline Node* NodeProperties::GetEffectInput(Node* node, int index) {
@@ -86,6 +100,10 @@ inline Node* NodeProperties::GetControlInput(Node* node, int index) {
   return node->InputAt(FirstControlIndex(node) + index);
 }
 
+inline int NodeProperties::GetFrameStateIndex(Node* node) {
+  DCHECK(OperatorProperties::HasFrameStateInput(node->op()));
+  return FirstFrameStateIndex(node);
+}
 
 // -----------------------------------------------------------------------------
 // Edge kinds.
@@ -106,7 +124,7 @@ inline bool NodeProperties::IsValueEdge(Node::Edge edge) {
 
 inline bool NodeProperties::IsContextEdge(Node::Edge edge) {
   Node* node = edge.from();
-  return IsInputRange(edge, GetContextIndex(node),
+  return IsInputRange(edge, FirstContextIndex(node),
                       OperatorProperties::GetContextInputCount(node->op()));
 }
 
@@ -134,17 +152,40 @@ inline bool NodeProperties::IsControl(Node* node) {
 // -----------------------------------------------------------------------------
 // Miscellaneous mutators.
 
+inline void NodeProperties::ReplaceControlInput(Node* node, Node* control) {
+  node->ReplaceInput(FirstControlIndex(node), control);
+}
+
 inline void NodeProperties::ReplaceEffectInput(Node* node, Node* effect,
                                                int index) {
   DCHECK(index < OperatorProperties::GetEffectInputCount(node->op()));
-  return node->ReplaceInput(
-      OperatorProperties::GetValueInputCount(node->op()) +
-          OperatorProperties::GetContextInputCount(node->op()) + index,
-      effect);
+  return node->ReplaceInput(FirstEffectIndex(node) + index, effect);
 }
 
 inline void NodeProperties::RemoveNonValueInputs(Node* node) {
   node->TrimInputCount(OperatorProperties::GetValueInputCount(node->op()));
+}
+
+
+// Replace value uses of {node} with {value} and effect uses of {node} with
+// {effect}. If {effect == NULL}, then use the effect input to {node}.
+inline void NodeProperties::ReplaceWithValue(Node* node, Node* value,
+                                             Node* effect) {
+  DCHECK(!OperatorProperties::HasControlOutput(node->op()));
+  if (effect == NULL && OperatorProperties::HasEffectInput(node->op())) {
+    effect = NodeProperties::GetEffectInput(node);
+  }
+
+  // Requires distinguishing between value and effect edges.
+  UseIter iter = node->uses().begin();
+  while (iter != node->uses().end()) {
+    if (NodeProperties::IsEffectEdge(iter.edge())) {
+      DCHECK_NE(NULL, effect);
+      iter = iter.UpdateToAndIncrement(effect);
+    } else {
+      iter = iter.UpdateToAndIncrement(value);
+    }
+  }
 }
 
 

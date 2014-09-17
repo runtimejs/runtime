@@ -162,8 +162,8 @@ TEST(TerminateOnlyV8ThreadFromThreadItselfNoLoop) {
 class TerminatorThread : public v8::base::Thread {
  public:
   explicit TerminatorThread(i::Isolate* isolate)
-      : Thread("TerminatorThread"),
-        isolate_(reinterpret_cast<v8::Isolate*>(isolate)) { }
+      : Thread(Options("TerminatorThread")),
+        isolate_(reinterpret_cast<v8::Isolate*>(isolate)) {}
   void Run() {
     semaphore->Wait();
     CHECK(!v8::V8::IsExecutionTerminating(isolate_));
@@ -458,4 +458,16 @@ TEST(PostponeTerminateException) {
   CompileRun("for (var i = 0; i < 10000; i++);");
   CHECK(try_catch.HasTerminated());
   CHECK_EQ(2, callback_counter);
+}
+
+
+TEST(ErrorObjectAfterTermination) {
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope scope(isolate);
+  v8::Handle<v8::Context> context = v8::Context::New(CcTest::isolate());
+  v8::Context::Scope context_scope(context);
+  v8::V8::TerminateExecution(isolate);
+  v8::Local<v8::Value> error = v8::Exception::Error(v8_str("error"));
+  // TODO(yangguo): crbug/403509. Check for empty handle instead.
+  CHECK(error->IsUndefined());
 }

@@ -19,7 +19,6 @@ CONFIG = {
   CLUSTERFUZZ_API_KEY_FILE: ".cf_api_key",
 }
 
-CR_DEPS_URL = 'http://src.chromium.org/svn/trunk/src/DEPS'
 
 class CheckActiveRoll(Step):
   MESSAGE = "Check active roll."
@@ -50,8 +49,9 @@ class DetectLastPush(Step):
   MESSAGE = "Detect commit ID of the last push to trunk."
 
   def RunStep(self):
-    push_hash = self.FindLastTrunkPush(include_patches=True)
-    self["last_push"] = self.GitSVNFindSVNRev(push_hash)
+    push_hash = self.FindLastTrunkPush(
+        branch="origin/master", include_patches=True)
+    self["last_push"] = self.GetCommitPositionNumber(push_hash)
 
 
 class DetectLastRoll(Step):
@@ -59,10 +59,14 @@ class DetectLastRoll(Step):
 
   def RunStep(self):
     # Interpret the DEPS file to retrieve the v8 revision.
+    # TODO(machenbach): This should be part or the roll-deps api of
+    # depot_tools.
     Var = lambda var: '%s'
-    exec(self.ReadURL(CR_DEPS_URL))
-    last_roll = vars['v8_revision']
-    if last_roll >= self["last_push"]:
+    exec(FileToText(os.path.join(self._options.chromium, "DEPS")))
+    last_roll = self.GetCommitPositionNumber(vars['v8_revision'])
+    # FIXME(machenbach): When rolling from bleeding edge and from trunk there
+    # be different commit numbers here. Better use version?
+    if int(last_roll) >= int(self["last_push"]):
       print("There is no newer v8 revision than the one in Chromium (%s)."
             % last_roll)
       return True
@@ -95,12 +99,13 @@ class RollChromium(Step):
         "--author", self._options.author,
         "--reviewer", self._options.reviewer,
         "--chromium", self._options.chromium,
-        "--force",
         "--use-commit-queue",
       ]
       if self._options.sheriff:
         args.extend([
             "--sheriff", "--googlers-mapping", self._options.googlers_mapping])
+      if self._options.dry_run:
+        args.extend(["--dry-run"])
       R = chromium_roll.ChromiumRoll
       self._side_effect_handler.Call(
           R(chromium_roll.CONFIG, self._side_effect_handler).Run,
@@ -112,8 +117,7 @@ class AutoRoll(ScriptsBase):
     parser.add_argument("-c", "--chromium", required=True,
                         help=("The path to your Chromium src/ "
                               "directory to automate the V8 roll."))
-    parser.add_argument("--roll",
-                        help="Make Chromium roll. Dry run if unspecified.",
+    parser.add_argument("--roll", help="Call Chromium roll script.",
                         default=False, action="store_true")
 
   def _ProcessOptions(self, options):  # pragma: no cover

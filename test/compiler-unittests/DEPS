@@ -1,5 +1,0 @@
-include_rules = [
-  "+src",
-  "+testing/gmock",
-  "+testing/gtest",
-]

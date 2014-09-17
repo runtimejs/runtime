@@ -1118,6 +1118,8 @@ bool V8HeapExplorer::ExtractReferencesPass1(int entry, HeapObject* obj) {
     ExtractSharedFunctionInfoReferences(entry, SharedFunctionInfo::cast(obj));
   } else if (obj->IsScript()) {
     ExtractScriptReferences(entry, Script::cast(obj));
+  } else if (obj->IsAccessorInfo()) {
+    ExtractAccessorInfoReferences(entry, AccessorInfo::cast(obj));
   } else if (obj->IsAccessorPair()) {
     ExtractAccessorPairReferences(entry, AccessorPair::cast(obj));
   } else if (obj->IsCodeCache()) {
@@ -1469,6 +1471,35 @@ void V8HeapExplorer::ExtractScriptReferences(int entry, Script* script) {
 }
 
 
+void V8HeapExplorer::ExtractAccessorInfoReferences(
+    int entry, AccessorInfo* accessor_info) {
+  SetInternalReference(accessor_info, entry, "name", accessor_info->name(),
+                       AccessorInfo::kNameOffset);
+  SetInternalReference(accessor_info, entry, "expected_receiver_type",
+                       accessor_info->expected_receiver_type(),
+                       AccessorInfo::kExpectedReceiverTypeOffset);
+  if (accessor_info->IsDeclaredAccessorInfo()) {
+    DeclaredAccessorInfo* declared_accessor_info =
+        DeclaredAccessorInfo::cast(accessor_info);
+    SetInternalReference(declared_accessor_info, entry, "descriptor",
+                         declared_accessor_info->descriptor(),
+                         DeclaredAccessorInfo::kDescriptorOffset);
+  } else if (accessor_info->IsExecutableAccessorInfo()) {
+    ExecutableAccessorInfo* executable_accessor_info =
+        ExecutableAccessorInfo::cast(accessor_info);
+    SetInternalReference(executable_accessor_info, entry, "getter",
+                         executable_accessor_info->getter(),
+                         ExecutableAccessorInfo::kGetterOffset);
+    SetInternalReference(executable_accessor_info, entry, "setter",
+                         executable_accessor_info->setter(),
+                         ExecutableAccessorInfo::kSetterOffset);
+    SetInternalReference(executable_accessor_info, entry, "data",
+                         executable_accessor_info->data(),
+                         ExecutableAccessorInfo::kDataOffset);
+  }
+}
+
+
 void V8HeapExplorer::ExtractAccessorPairReferences(
     int entry, AccessorPair* accessors) {
   SetInternalReference(accessors, entry, "getter", accessors->getter(),
@@ -1697,10 +1728,6 @@ void V8HeapExplorer::ExtractPropertyReferences(JSObject* js_obj, int entry) {
               descs->GetKey(i), descs->GetValue(i));
           break;
         case NORMAL:  // only in slow mode
-        case HANDLER:  // only in lookup results, not in descriptors
-        case INTERCEPTOR:  // only in lookup results, not in descriptors
-          break;
-        case NONEXISTENT:
           UNREACHABLE();
           break;
       }
@@ -1786,25 +1813,8 @@ String* V8HeapExplorer::GetConstructorName(JSObject* object) {
   if (object->IsJSFunction()) return heap->closure_string();
   String* constructor_name = object->constructor_name();
   if (constructor_name == heap->Object_string()) {
-    // Look up an immediate "constructor" property, if it is a function,
-    // return its name. This is for instances of binding objects, which
-    // have prototype constructor type "Object".
-    Object* constructor_prop = NULL;
-    Isolate* isolate = heap->isolate();
-    LookupResult result(isolate);
-    object->LookupOwnRealNamedProperty(
-        isolate->factory()->constructor_string(), &result);
-    if (!result.IsFound()) return object->constructor_name();
-
-    constructor_prop = result.GetLazyValue();
-    if (constructor_prop->IsJSFunction()) {
-      Object* maybe_name =
-          JSFunction::cast(constructor_prop)->shared()->name();
-      if (maybe_name->IsString()) {
-        String* name = String::cast(maybe_name);
-        if (name->length() > 0) return name;
-      }
-    }
+    // TODO(verwaest): Try to get object.constructor.name in this case.
+    // This requires handlification of the V8HeapExplorer.
   }
   return object->constructor_name();
 }
@@ -2600,15 +2610,6 @@ bool HeapSnapshotGenerator::GenerateSnapshot() {
 
 #ifdef VERIFY_HEAP
   Heap* debug_heap = heap_;
-  CHECK(debug_heap->old_data_space()->swept_precisely());
-  CHECK(debug_heap->old_pointer_space()->swept_precisely());
-  CHECK(debug_heap->code_space()->swept_precisely());
-  CHECK(debug_heap->cell_space()->swept_precisely());
-  CHECK(debug_heap->property_cell_space()->swept_precisely());
-  CHECK(debug_heap->map_space()->swept_precisely());
-#endif
-
-#ifdef VERIFY_HEAP
   debug_heap->Verify();
 #endif
 

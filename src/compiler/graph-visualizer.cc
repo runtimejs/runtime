@@ -24,7 +24,7 @@ namespace compiler {
 
 class GraphVisualizer : public NullNodeVisitor {
  public:
-  GraphVisualizer(OStream& os, const Graph* graph);  // NOLINT
+  GraphVisualizer(OStream& os, Zone* zone, const Graph* graph);  // NOLINT
 
   void Print();
 
@@ -33,8 +33,9 @@ class GraphVisualizer : public NullNodeVisitor {
 
  private:
   void AnnotateNode(Node* node);
-  void PrintEdge(Node* from, int index, Node* to);
+  void PrintEdge(Node::Edge edge);
 
+  Zone* zone_;
   NodeSet all_nodes_;
   NodeSet white_nodes_;
   bool use_to_def_;
@@ -165,6 +166,10 @@ void GraphVisualizer::AnnotateNode(Node* node) {
        ++i, j--) {
     os_ << "|<I" << i.index() << ">X #" << (*i)->id();
   }
+  for (int j = OperatorProperties::GetFrameStateInputCount(node->op()); j > 0;
+       ++i, j--) {
+    os_ << "|<I" << i.index() << ">F #" << (*i)->id();
+  }
   for (int j = OperatorProperties::GetEffectInputCount(node->op()); j > 0;
        ++i, j--) {
     os_ << "|<I" << i.index() << ">E #" << (*i)->id();
@@ -191,7 +196,10 @@ void GraphVisualizer::AnnotateNode(Node* node) {
 }
 
 
-void GraphVisualizer::PrintEdge(Node* from, int index, Node* to) {
+void GraphVisualizer::PrintEdge(Node::Edge edge) {
+  Node* from = edge.from();
+  int index = edge.index();
+  Node* to = edge.to();
   bool unconstrained = IsLikelyBackEdge(from, index, to);
   os_ << "  ID" << from->id();
   if (all_nodes_.count(to) == 0) {
@@ -200,11 +208,15 @@ void GraphVisualizer::PrintEdge(Node* from, int index, Node* to) {
              GetControlCluster(from) == NULL ||
              (OperatorProperties::GetControlInputCount(from->op()) > 0 &&
               NodeProperties::GetControlInput(from) != to)) {
-    os_ << ":I" << index << ":n -> ID" << to->id() << ":s";
-    if (unconstrained) os_ << " [constraint=false,style=dotted]";
+    os_ << ":I" << index << ":n -> ID" << to->id() << ":s"
+        << "[" << (unconstrained ? "constraint=false, " : "")
+        << (NodeProperties::IsControlEdge(edge) ? "style=bold, " : "")
+        << (NodeProperties::IsEffectEdge(edge) ? "style=dotted, " : "")
+        << (NodeProperties::IsContextEdge(edge) ? "style=dashed, " : "") << "]";
   } else {
-    os_ << " -> ID" << to->id() << ":s [color=transparent"
-        << (unconstrained ? ", constraint=false" : "") << "]";
+    os_ << " -> ID" << to->id() << ":s [color=transparent, "
+        << (unconstrained ? "constraint=false, " : "")
+        << (NodeProperties::IsControlEdge(edge) ? "style=dashed, " : "") << "]";
   }
   os_ << "\n";
 }
@@ -214,6 +226,10 @@ void GraphVisualizer::Print() {
   os_ << "digraph D {\n"
       << "  node [fontsize=8,height=0.25]\n"
       << "  rankdir=\"BT\"\n"
+      << "  ranksep=\"1.2 equally\"\n"
+      << "  overlap=\"false\"\n"
+      << "  splines=\"true\"\n"
+      << "  concentrate=\"true\"\n"
       << "  \n";
 
   // Make sure all nodes have been output before writing out the edges.
@@ -225,8 +241,8 @@ void GraphVisualizer::Print() {
   // Visit all uses of white nodes.
   use_to_def_ = false;
   GenericGraphVisit::Visit<GraphVisualizer, NodeUseIterationTraits<Node> >(
-      const_cast<Graph*>(graph_), white_nodes_.begin(), white_nodes_.end(),
-      this);
+      const_cast<Graph*>(graph_), zone_, white_nodes_.begin(),
+      white_nodes_.end(), this);
 
   os_ << "  DEAD_INPUT [\n"
       << "    style=\"filled\" \n"
@@ -239,25 +255,26 @@ void GraphVisualizer::Print() {
     Node::Inputs inputs = (*i)->inputs();
     for (Node::Inputs::iterator iter(inputs.begin()); iter != inputs.end();
          ++iter) {
-      PrintEdge(iter.edge().from(), iter.edge().index(), iter.edge().to());
+      PrintEdge(iter.edge());
     }
   }
   os_ << "}\n";
 }
 
 
-GraphVisualizer::GraphVisualizer(OStream& os, const Graph* graph)  // NOLINT
-    : all_nodes_(NodeSet::key_compare(),
-                 NodeSet::allocator_type(graph->zone())),
-      white_nodes_(NodeSet::key_compare(),
-                   NodeSet::allocator_type(graph->zone())),
+GraphVisualizer::GraphVisualizer(OStream& os, Zone* zone,
+                                 const Graph* graph)  // NOLINT
+    : zone_(zone),
+      all_nodes_(NodeSet::key_compare(), NodeSet::allocator_type(zone)),
+      white_nodes_(NodeSet::key_compare(), NodeSet::allocator_type(zone)),
       use_to_def_(true),
       os_(os),
       graph_(graph) {}
 
 
 OStream& operator<<(OStream& os, const AsDOT& ad) {
-  GraphVisualizer(os, &ad.graph).Print();
+  Zone tmp_zone(ad.graph.zone()->isolate());
+  GraphVisualizer(os, &tmp_zone, &ad.graph).Print();
   return os;
 }
 }

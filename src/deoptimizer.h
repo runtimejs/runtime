@@ -17,19 +17,9 @@ namespace internal {
 
 
 static inline double read_double_value(Address p) {
-#ifdef V8_HOST_CAN_READ_UNALIGNED
-  return Memory::double_at(p);
-#else  // V8_HOST_CAN_READ_UNALIGNED
-  // Prevent gcc from using load-double (mips ldc1) on (possibly)
-  // non-64-bit aligned address.
-  union conversion {
-    double d;
-    uint32_t u[2];
-  } c;
-  c.u[0] = *reinterpret_cast<uint32_t*>(p);
-  c.u[1] = *reinterpret_cast<uint32_t*>(p + 4);
-  return c.d;
-#endif  // V8_HOST_CAN_READ_UNALIGNED
+  double d;
+  memcpy(&d, p, sizeof(d));
+  return d;
 }
 
 
@@ -176,8 +166,6 @@ class Deoptimizer : public Malloced {
   // (via code->set_marked_for_deoptimization) and unlinks all functions that
   // refer to that code.
   static void DeoptimizeMarkedCode(Isolate* isolate);
-
-  static void PatchStackForMarkedCode(Isolate* isolate);
 
   // Visit all the known optimized functions in a given isolate.
   static void VisitAllOptimizedFunctions(
@@ -379,7 +367,7 @@ class Deoptimizer : public Malloced {
   // Fill the given output frame's registers to contain the failure handler
   // address and the number of parameters for a stub failure trampoline.
   void SetPlatformCompiledStubRegisters(FrameDescription* output_frame,
-                                        CodeStubInterfaceDescriptor* desc);
+                                        CodeStubDescriptor* desc);
 
   // Fill the given output frame's double registers with the original values
   // from the input frame's double registers.
@@ -494,7 +482,7 @@ class FrameDescription {
     // This convoluted DCHECK is needed to work around a gcc problem that
     // improperly detects an array bounds overflow in optimized debug builds
     // when using a plain DCHECK.
-    if (n >= ARRAY_SIZE(registers_)) {
+    if (n >= arraysize(registers_)) {
       DCHECK(false);
       return 0;
     }
@@ -503,17 +491,17 @@ class FrameDescription {
   }
 
   double GetDoubleRegister(unsigned n) const {
-    DCHECK(n < ARRAY_SIZE(double_registers_));
+    DCHECK(n < arraysize(double_registers_));
     return double_registers_[n];
   }
 
   void SetRegister(unsigned n, intptr_t value) {
-    DCHECK(n < ARRAY_SIZE(registers_));
+    DCHECK(n < arraysize(registers_));
     registers_[n] = value;
   }
 
   void SetDoubleRegister(unsigned n, double value) {
-    DCHECK(n < ARRAY_SIZE(double_registers_));
+    DCHECK(n < arraysize(double_registers_));
     double_registers_[n] = value;
   }
 
@@ -922,6 +910,9 @@ class DeoptimizedFrameInfo : public Malloced {
     return function_;
   }
 
+  // Get the frame context.
+  Object* GetContext() { return context_; }
+
   // Check if this frame is preceded by construct stub frame.  The bottom-most
   // inlined frame might still be called by an uninlined construct stub.
   bool HasConstructStub() {
@@ -958,6 +949,7 @@ class DeoptimizedFrameInfo : public Malloced {
   }
 
   JSFunction* function_;
+  Object* context_;
   bool has_construct_stub_;
   int parameters_count_;
   int expression_count_;

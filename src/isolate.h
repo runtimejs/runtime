@@ -33,10 +33,10 @@ class RandomNumberGenerator;
 namespace internal {
 
 class Bootstrapper;
-class CallInterfaceDescriptor;
+class CallInterfaceDescriptorData;
 class CodeGenerator;
 class CodeRange;
-class CodeStubInterfaceDescriptor;
+class CodeStubDescriptor;
 class CodeTracer;
 class CompilationCache;
 class ConsStringIteratorOp;
@@ -78,6 +78,7 @@ typedef void* ExternalReferenceRedirectorPointer();
 
 class Debug;
 class Debugger;
+class PromiseOnStack;
 
 #if !defined(__arm__) && V8_TARGET_ARCH_ARM || \
     !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
@@ -132,6 +133,22 @@ typedef ZoneList<Handle<Object> > ZoneObjectList;
 
 #define ASSIGN_RETURN_ON_EXCEPTION(isolate, dst, call, T)  \
   ASSIGN_RETURN_ON_EXCEPTION_VALUE(isolate, dst, call, MaybeHandle<T>())
+
+#define THROW_NEW_ERROR(isolate, call, T)                                    \
+  do {                                                                       \
+    Handle<Object> __error__;                                                \
+    ASSIGN_RETURN_ON_EXCEPTION(isolate, __error__, isolate->factory()->call, \
+                               T);                                           \
+    return isolate->Throw<T>(__error__);                                     \
+  } while (false)
+
+#define THROW_NEW_ERROR_RETURN_FAILURE(isolate, call)             \
+  do {                                                            \
+    Handle<Object> __error__;                                     \
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, __error__,        \
+                                       isolate->factory()->call); \
+    return isolate->Throw(*__error__);                            \
+  } while (false)
 
 #define RETURN_ON_EXCEPTION_VALUE(isolate, call, value)            \
   do {                                                             \
@@ -240,11 +257,7 @@ class ThreadLocalTop BASE_EMBEDDED {
         v8::TryCatch::JSStackComparableAddress(try_catch_handler()));
   }
 
-  void Free() {
-    DCHECK(!has_pending_message_);
-    DCHECK(!external_caught_exception_);
-    DCHECK(try_catch_handler_ == NULL);
-  }
+  void Free();
 
   Isolate* isolate_;
   // The context where the current execution method is created and for variable
@@ -269,6 +282,11 @@ class ThreadLocalTop BASE_EMBEDDED {
   // Stack.
   Address c_entry_fp_;  // the frame pointer of the top c entry frame
   Address handler_;   // try-blocks are chained through the stack
+
+  // Throwing an exception may cause a Promise rejection.  For this purpose
+  // we keep track of a stack of nested promises and the corresponding
+  // try-catch handlers.
+  PromiseOnStack* promise_on_stack_;
 
 #ifdef USE_SIMULATOR
   Simulator* simulator_;
@@ -355,9 +373,6 @@ typedef List<HeapObject*> DebugObjectCache;
   V(Object*, string_stream_current_security_token, NULL)                       \
   /* Serializer state. */                                                      \
   V(ExternalReferenceTable*, external_reference_table, NULL)                   \
-  /* AstNode state. */                                                         \
-  V(int, ast_node_id, 0)                                                       \
-  V(unsigned, ast_node_count, 0)                                               \
   V(int, pending_microtask_count, 0)                                           \
   V(bool, autorun_microtasks, true)                                            \
   V(HStatistics*, hstatistics, NULL)                                           \
@@ -676,6 +691,11 @@ class Isolate {
   // JavaScript code.  If an exception is scheduled true is returned.
   bool OptionalRescheduleException(bool is_bottom_call);
 
+  // Push and pop a promise and the current try-catch handler.
+  void PushPromise(Handle<JSObject> promise);
+  void PopPromise();
+  Handle<Object> GetPromiseOnStackOnThrow();
+
   class ExceptionScope {
    public:
     explicit ExceptionScope(Isolate* isolate) :
@@ -758,7 +778,6 @@ class Isolate {
   // Return pending location if any or unfilled structure.
   MessageLocation GetMessageLocation();
   Object* ThrowIllegalOperation();
-  Object* ThrowInvalidStringLength();
 
   // Promote a scheduled exception to pending. Asserts has_scheduled_exception.
   Object* PromoteScheduledException();
@@ -1015,19 +1034,7 @@ class Isolate {
 
   bool IsFastArrayConstructorPrototypeChainIntact();
 
-  CodeStubInterfaceDescriptor*
-      code_stub_interface_descriptor(int index);
-
-  enum CallDescriptorKey {
-    KeyedCall,
-    NamedCall,
-    CallHandler,
-    ArgumentAdaptorCall,
-    ApiFunctionCall,
-    NUMBER_OF_CALL_DESCRIPTORS
-  };
-
-  CallInterfaceDescriptor* call_descriptor(CallDescriptorKey index);
+  CallInterfaceDescriptorData* call_descriptor_data(int index);
 
   void IterateDeferredHandles(ObjectVisitor* visitor);
   void LinkDeferredHandles(DeferredHandles* deferred_handles);
@@ -1263,8 +1270,7 @@ class Isolate {
   RegExpStack* regexp_stack_;
   DateCache* date_cache_;
   unibrow::Mapping<unibrow::Ecma262Canonicalize> interp_canonicalize_mapping_;
-  CodeStubInterfaceDescriptor* code_stub_interface_descriptors_;
-  CallInterfaceDescriptor* call_descriptors_;
+  CallInterfaceDescriptorData* call_descriptor_data_;
   base::RandomNumberGenerator* random_number_generator_;
 
   // Whether the isolate has been created for snapshotting.
@@ -1347,6 +1353,22 @@ class Isolate {
 
 #undef FIELD_ACCESSOR
 #undef THREAD_LOCAL_TOP_ACCESSOR
+
+
+class PromiseOnStack {
+ public:
+  PromiseOnStack(StackHandler* handler, Handle<JSObject> promise,
+                 PromiseOnStack* prev)
+      : handler_(handler), promise_(promise), prev_(prev) {}
+  StackHandler* handler() { return handler_; }
+  Handle<JSObject> promise() { return promise_; }
+  PromiseOnStack* prev() { return prev_; }
+
+ private:
+  StackHandler* handler_;
+  Handle<JSObject> promise_;
+  PromiseOnStack* prev_;
+};
 
 
 // If the GCC version is 4.1.x or 4.2.x an additional field is added to the
@@ -1467,7 +1489,7 @@ class PostponeInterruptsScope BASE_EMBEDDED {
 };
 
 
-class CodeTracer V8_FINAL : public Malloced {
+class CodeTracer FINAL : public Malloced {
  public:
   explicit CodeTracer(int isolate_id)
       : file_(NULL),

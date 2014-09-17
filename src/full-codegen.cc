@@ -4,6 +4,7 @@
 
 #include "src/v8.h"
 
+#include "src/code-factory.h"
 #include "src/codegen.h"
 #include "src/compiler.h"
 #include "src/debug.h"
@@ -14,7 +15,6 @@
 #include "src/scopeinfo.h"
 #include "src/scopes.h"
 #include "src/snapshot.h"
-#include "src/stub-cache.h"
 
 namespace v8 {
 namespace internal {
@@ -285,6 +285,9 @@ void BreakableStatementChecker::VisitThisFunction(ThisFunction* expr) {
 }
 
 
+void BreakableStatementChecker::VisitSuperReference(SuperReference* expr) {}
+
+
 #define __ ACCESS_MASM(masm())
 
 bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
@@ -406,14 +409,13 @@ void FullCodeGenerator::PrepareForBailout(Expression* node, State state) {
 
 void FullCodeGenerator::CallLoadIC(ContextualMode contextual_mode,
                                    TypeFeedbackId id) {
-  ExtraICState extra_state = LoadIC::ComputeExtraICState(contextual_mode);
-  Handle<Code> ic = LoadIC::initialize_stub(isolate(), extra_state);
+  Handle<Code> ic = CodeFactory::LoadIC(isolate(), contextual_mode).code();
   CallIC(ic, id);
 }
 
 
 void FullCodeGenerator::CallStoreIC(TypeFeedbackId id) {
-  Handle<Code> ic = StoreIC::initialize_stub(isolate(), strict_mode());
+  Handle<Code> ic = CodeFactory::StoreIC(isolate(), strict_mode()).code();
   CallIC(ic, id);
 }
 
@@ -819,6 +821,12 @@ void FullCodeGenerator::SetStatementPosition(Statement* stmt) {
 }
 
 
+void FullCodeGenerator::VisitSuperReference(SuperReference* super) {
+  DCHECK(FLAG_harmony_classes);
+  UNIMPLEMENTED();
+}
+
+
 void FullCodeGenerator::SetExpressionPosition(Expression* expr) {
   if (!info_->is_debug()) {
     CodeGenerator::RecordPositions(masm_, expr->position());
@@ -870,7 +878,7 @@ FullCodeGenerator::InlineFunctionGenerator
         static_cast<int>(id) - static_cast<int>(Runtime::kFirstInlineFunction);
     DCHECK(lookup_index >= 0);
     DCHECK(static_cast<size_t>(lookup_index) <
-           ARRAY_SIZE(kInlineFunctionGenerators));
+           arraysize(kInlineFunctionGenerators));
     return kInlineFunctionGenerators[lookup_index];
 }
 
@@ -1463,6 +1471,8 @@ void FullCodeGenerator::VisitDebuggerStatement(DebuggerStatement* stmt) {
 
   __ DebugBreak();
   // Ignore the return value.
+
+  PrepareForBailoutForId(stmt->DebugBreakId(), NO_REGISTERS);
 }
 
 
@@ -1537,11 +1547,9 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
   const int literals = fun->NumberOfLiterals();
   Handle<Code> code = Handle<Code>(fun->shared()->code());
   Handle<Code> construct_stub = Handle<Code>(fun->shared()->construct_stub());
-  bool is_generator = false;
-  bool is_arrow = false;
   Handle<SharedFunctionInfo> shared =
       isolate()->factory()->NewSharedFunctionInfo(
-          name, literals, is_generator, is_arrow, code,
+          name, literals, FunctionKind::kNormalFunction, code,
           Handle<ScopeInfo>(fun->shared()->scope_info()),
           Handle<FixedArray>(fun->shared()->feedback_vector()));
   shared->set_construct_stub(*construct_stub);
