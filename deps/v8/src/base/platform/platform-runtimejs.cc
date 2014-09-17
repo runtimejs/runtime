@@ -41,20 +41,9 @@ const char* g_gc_fake_mmap = NULL;
 
 }  // namespace
 
-int OS::NumberOfProcessorsOnline() {
-  return 1;
-}
-
 double ceiling(double x) {
   return ceil(x);
 }
-
-// Maximum size of the virtual memory.  0 means there is no artificial
-// limit.
-intptr_t OS::MaxVirtualMemory() {
-    return 0;
-}
-
 
 intptr_t OS::CommitPageSize() {
   return 1024*4;
@@ -355,7 +344,7 @@ VirtualMemory::VirtualMemory(size_t size)
 
 VirtualMemory::VirtualMemory(size_t size, size_t alignment)
     : address_(NULL), size_(0) {
-  RT_ASSERT(IsAligned(alignment, static_cast<intptr_t>(OS::AllocateAlignment())));
+  DCHECK((alignment % OS::AllocateAlignment()) == 0);
   size_t request_size = RoundUp(size + alignment,
                                 static_cast<intptr_t>(OS::AllocateAlignment()));
 

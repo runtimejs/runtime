@@ -16,6 +16,11 @@
 #include <sys/sysctl.h>
 #endif
 
+#if V8_OS_RUNTIMEJS
+#include <kernel/kernel.h>
+#include <kernel/mem-manager.h>
+#endif
+
 #include <limits>
 
 #include "src/base/logging.h"
@@ -45,6 +50,8 @@ int SysInfo::NumberOfProcessors() {
     return 1;
   }
   return static_cast<int>(result);
+#elif V8_OS_RUNTIMEJS
+  return 1;
 #elif V8_OS_WIN
   SYSTEM_INFO system_info = {0};
   ::GetNativeSystemInfo(&system_info);
@@ -64,6 +71,8 @@ int64_t SysInfo::AmountOfPhysicalMemory() {
     return 0;
   }
   return memsize;
+#elif V8_OS_RUNTIMEJS
+  return static_cast<int64_t>(GLOBAL_mem_manager()->physical_memory_total());
 #elif V8_OS_FREEBSD
   int pages, page_size;
   size_t size = sizeof(pages);
@@ -109,6 +118,8 @@ int64_t SysInfo::AmountOfPhysicalMemory() {
 // static
 int64_t SysInfo::AmountOfVirtualMemory() {
 #if V8_OS_NACL || V8_OS_WIN
+  return 0;
+#elif V8_OS_RUNTIMEJS
   return 0;
 #elif V8_OS_POSIX
   struct rlimit rlim;
