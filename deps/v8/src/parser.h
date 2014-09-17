@@ -355,21 +355,6 @@ class ParserTraits {
     typedef Variable GeneratorVariable;
     typedef v8::internal::Zone Zone;
 
-    class Checkpoint BASE_EMBEDDED {
-     public:
-      template <typename Parser>
-      explicit Checkpoint(Parser* parser) {
-        isolate_ = parser->zone()->isolate();
-        saved_ast_node_id_ = isolate_->ast_node_id();
-      }
-
-      void Restore() { isolate_->set_ast_node_id(saved_ast_node_id_); }
-
-     private:
-      Isolate* isolate_;
-      int saved_ast_node_id_;
-    };
-
     typedef v8::internal::AstProperties AstProperties;
     typedef Vector<VariableProxy*> ParameterIdentifierVector;
 
@@ -388,20 +373,22 @@ class ParserTraits {
     typedef AstNodeFactory<AstConstructionVisitor> Factory;
   };
 
+  class Checkpoint;
+
   explicit ParserTraits(Parser* parser) : parser_(parser) {}
 
   // Custom operations executed when FunctionStates are created and destructed.
-  template<typename FunctionState>
-  static void SetUpFunctionState(FunctionState* function_state, Zone* zone) {
-    Isolate* isolate = zone->isolate();
-    function_state->saved_ast_node_id_ = isolate->ast_node_id();
-    isolate->set_ast_node_id(BailoutId::FirstUsable().ToInt());
+  template <typename FunctionState>
+  static void SetUpFunctionState(FunctionState* function_state) {
+    function_state->saved_id_gen_ = *function_state->ast_node_id_gen_;
+    *function_state->ast_node_id_gen_ =
+        AstNode::IdGen(BailoutId::FirstUsable().ToInt());
   }
 
-  template<typename FunctionState>
-  static void TearDownFunctionState(FunctionState* function_state, Zone* zone) {
+  template <typename FunctionState>
+  static void TearDownFunctionState(FunctionState* function_state) {
     if (function_state->outer_function_state_ != NULL) {
-      zone->isolate()->set_ast_node_id(function_state->saved_ast_node_id_);
+      *function_state->ast_node_id_gen_ = function_state->saved_id_gen_;
     }
   }
 
@@ -439,7 +426,8 @@ class ParserTraits {
   }
 
   static void CheckFunctionLiteralInsideTopLevelObjectLiteral(
-      Scope* scope, Expression* value, bool* has_function) {
+      Scope* scope, ObjectLiteralProperty* property, bool* has_function) {
+    Expression* value = property->value();
     if (scope->DeclarationScope()->is_global_scope() &&
         value->AsFunctionLiteral() != NULL) {
       *has_function = true;
@@ -529,6 +517,7 @@ class ParserTraits {
   static Literal* EmptyLiteral() {
     return NULL;
   }
+  static ObjectLiteralProperty* EmptyObjectLiteralProperty() { return NULL; }
 
   // Used in error return values.
   static ZoneList<Expression*>* NullExpressionList() {
@@ -545,8 +534,12 @@ class ParserTraits {
   // Producing data during the recursive descent.
   const AstRawString* GetSymbol(Scanner* scanner);
   const AstRawString* GetNextSymbol(Scanner* scanner);
+  const AstRawString* GetNumberAsSymbol(Scanner* scanner);
 
   Expression* ThisExpression(Scope* scope,
+                             AstNodeFactory<AstConstructionVisitor>* factory,
+                             int pos = RelocInfo::kNoPosition);
+  Expression* SuperReference(Scope* scope,
                              AstNodeFactory<AstConstructionVisitor>* factory,
                              int pos = RelocInfo::kNoPosition);
   Literal* ExpressionFromLiteral(
@@ -580,14 +573,10 @@ class ParserTraits {
   // Temporary glue; these functions will move to ParserBase.
   Expression* ParseV8Intrinsic(bool* ok);
   FunctionLiteral* ParseFunctionLiteral(
-      const AstRawString* name,
-      Scanner::Location function_name_location,
-      bool name_is_strict_reserved,
-      bool is_generator,
-      int function_token_position,
-      FunctionLiteral::FunctionType type,
-      FunctionLiteral::ArityRestriction arity_restriction,
-      bool* ok);
+      const AstRawString* name, Scanner::Location function_name_location,
+      bool name_is_strict_reserved, FunctionKind kind,
+      int function_token_position, FunctionLiteral::FunctionType type,
+      FunctionLiteral::ArityRestriction arity_restriction, bool* ok);
   V8_INLINE void SkipLazyFunctionBody(const AstRawString* name,
                                       int* materialized_literal_count,
                                       int* expected_property_count, bool* ok);
@@ -604,7 +593,16 @@ class ParserTraits {
 
 class Parser : public ParserBase<ParserTraits> {
  public:
-  explicit Parser(CompilationInfo* info);
+  // Note that the hash seed in ParseInfo must be the hash seed from the
+  // Isolate's heap, otherwise the heap will be in an inconsistent state once
+  // the strings created by the Parser are internalized.
+  struct ParseInfo {
+    uintptr_t stack_limit;
+    uint32_t hash_seed;
+    UnicodeCache* unicode_cache;
+  };
+
+  Parser(CompilationInfo* info, ParseInfo* parse_info);
   ~Parser() {
     delete reusable_preparser_;
     reusable_preparser_ = NULL;
@@ -617,11 +615,19 @@ class Parser : public ParserBase<ParserTraits> {
   // nodes) if parsing failed.
   static bool Parse(CompilationInfo* info,
                     bool allow_lazy = false) {
-    Parser parser(info);
+    ParseInfo parse_info = {info->isolate()->stack_guard()->real_climit(),
+                            info->isolate()->heap()->HashSeed(),
+                            info->isolate()->unicode_cache()};
+    Parser parser(info, &parse_info);
     parser.set_allow_lazy(allow_lazy);
     return parser.Parse();
   }
   bool Parse();
+  void ParseOnBackground();
+
+  // Handle errors detected during parsing, move statistics to Isolate,
+  // internalize strings (move them to the heap).
+  void Internalize();
 
  private:
   friend class ParserTraits;
@@ -654,12 +660,16 @@ class Parser : public ParserBase<ParserTraits> {
   FunctionLiteral* ParseLazy();
   FunctionLiteral* ParseLazy(Utf16CharacterStream* source);
 
-  Isolate* isolate() { return isolate_; }
+  Isolate* isolate() { return info_->isolate(); }
   CompilationInfo* info() const { return info_; }
+  Handle<Script> script() const { return info_->script(); }
+  AstValueFactory* ast_value_factory() const {
+    return info_->ast_value_factory();
+  }
 
   // Called by ParseProgram after setting up the scanner.
-  FunctionLiteral* DoParseProgram(CompilationInfo* info,
-                                  Handle<String> source);
+  FunctionLiteral* DoParseProgram(CompilationInfo* info, Scope** scope,
+                                  Scope** ad_hoc_eval_scope);
 
   void SetCachedData();
 
@@ -677,7 +687,8 @@ class Parser : public ParserBase<ParserTraits> {
   // By making the 'exception handling' explicit, we are forced to check
   // for failure at the call sites.
   void* ParseSourceElements(ZoneList<Statement*>* processor, int end_token,
-                            bool is_eval, bool is_global, bool* ok);
+                            bool is_eval, bool is_global,
+                            Scope** ad_hoc_eval_scope, bool* ok);
   Statement* ParseModuleElement(ZoneList<const AstRawString*>* labels,
                                 bool* ok);
   Statement* ParseModuleDeclaration(ZoneList<const AstRawString*>* names,
@@ -741,14 +752,10 @@ class Parser : public ParserBase<ParserTraits> {
       Statement* body, bool* ok);
 
   FunctionLiteral* ParseFunctionLiteral(
-      const AstRawString* name,
-      Scanner::Location function_name_location,
-      bool name_is_strict_reserved,
-      bool is_generator,
-      int function_token_position,
-      FunctionLiteral::FunctionType type,
-      FunctionLiteral::ArityRestriction arity_restriction,
-      bool* ok);
+      const AstRawString* name, Scanner::Location function_name_location,
+      bool name_is_strict_reserved, FunctionKind kind,
+      int function_token_position, FunctionLiteral::FunctionType type,
+      FunctionLiteral::ArityRestriction arity_restriction, bool* ok);
 
   // Magical syntax support.
   Expression* ParseV8Intrinsic(bool* ok);
@@ -804,17 +811,11 @@ class Parser : public ParserBase<ParserTraits> {
 
   void ThrowPendingError();
 
-  void InternalizeUseCounts();
-
-  Isolate* isolate_;
-
-  Handle<Script> script_;
   Scanner scanner_;
   PreParser* reusable_preparser_;
   Scope* original_scope_;  // for ES5 function declarations in sloppy eval
   Target* target_stack_;  // for break, continue statements
   ParseData* cached_parse_data_;
-  AstValueFactory* ast_value_factory_;
 
   CompilationInfo* info_;
 
@@ -826,7 +827,11 @@ class Parser : public ParserBase<ParserTraits> {
   const char* pending_error_char_arg_;
   bool pending_error_is_reference_error_;
 
+  // Other information which will be stored in Parser and moved to Isolate after
+  // parsing.
   int use_counts_[v8::Isolate::kUseCounterFeatureCount];
+  int total_preparse_skipped_;
+  HistogramTimer* pre_parse_timer_;
 };
 
 
@@ -843,7 +848,7 @@ Scope* ParserTraits::NewScope(Scope* parent_scope, ScopeType scope_type) {
 
 
 const AstRawString* ParserTraits::EmptyIdentifierString() {
-  return parser_->ast_value_factory_->empty_string();
+  return parser_->ast_value_factory()->empty_string();
 }
 
 
@@ -870,7 +875,7 @@ void ParserTraits::CheckConflictingVarDeclarations(v8::internal::Scope* scope,
 
 
 AstValueFactory* ParserTraits::ast_value_factory() {
-  return parser_->ast_value_factory_;
+  return parser_->ast_value_factory();
 }
 
 

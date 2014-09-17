@@ -240,10 +240,6 @@ void JSObject::PrintProperties(OStream& os) {  // NOLINT
           os << Brief(descs->GetCallbacksObject(i)) << " (callback)\n";
           break;
         case NORMAL:  // only in slow mode
-        case HANDLER:  // only in lookup results, not in descriptors
-        case INTERCEPTOR:  // only in lookup results, not in descriptors
-        // There are no transitions in the descriptor array.
-        case NONEXISTENT:
           UNREACHABLE();
           break;
       }
@@ -375,9 +371,6 @@ void JSObject::PrintTransitions(OStream& os) {  // NOLINT
           break;
         // Values below are never in the target descriptor array.
         case NORMAL:
-        case HANDLER:
-        case INTERCEPTOR:
-        case NONEXISTENT:
           UNREACHABLE();
           break;
       }
@@ -430,7 +423,8 @@ void Symbol::SymbolPrint(OStream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "Symbol");
   os << " - hash: " << Hash();
   os << "\n - name: " << Brief(name());
-  os << " - private: " << is_private();
+  os << "\n - private: " << is_private();
+  os << "\n - own: " << is_own();
   os << "\n";
 }
 
@@ -613,7 +607,7 @@ void Name::NamePrint(OStream& os) {  // NOLINT
 
 
 // This method is only meant to be called from gdb for debugging purposes.
-// Since the string can also be in two-byte encoding, non-ASCII characters
+// Since the string can also be in two-byte encoding, non-Latin1 characters
 // will be ignored in the output.
 char* String::ToAsciiArray() {
   // Static so that subsequent calls frees previously allocated space.
@@ -757,7 +751,7 @@ void JSArrayBuffer::JSArrayBufferPrint(OStream& os) {  // NOLINT
 void JSTypedArray::JSTypedArrayPrint(OStream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "JSTypedArray");
   os << " - map = " << reinterpret_cast<void*>(map()) << "\n";
-  os << " - buffer =" << Brief(buffer());
+  os << " - buffer = " << Brief(buffer());
   os << "\n - byte_offset = " << Brief(byte_offset());
   os << "\n - byte_length = " << Brief(byte_length());
   os << "\n - length = " << Brief(length());
@@ -1104,9 +1098,6 @@ void TransitionArray::PrintTransitions(OStream& os) {  // NOLINT
         break;
       // Values below are never in the target descriptor array.
       case NORMAL:
-      case HANDLER:
-      case INTERCEPTOR:
-      case NONEXISTENT:
         UNREACHABLE();
         break;
     }

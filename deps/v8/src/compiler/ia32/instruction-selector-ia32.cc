@@ -11,7 +11,7 @@ namespace internal {
 namespace compiler {
 
 // Adds IA32-specific methods for generating operands.
-class IA32OperandGenerator V8_FINAL : public OperandGenerator {
+class IA32OperandGenerator FINAL : public OperandGenerator {
  public:
   explicit IA32OperandGenerator(InstructionSelector* selector)
       : OperandGenerator(selector) {}
@@ -30,8 +30,8 @@ class IA32OperandGenerator V8_FINAL : public OperandGenerator {
       case IrOpcode::kHeapConstant: {
         // Constants in new space cannot be used as immediates in V8 because
         // the GC does not scan code objects when collecting the new generation.
-        Handle<HeapObject> value = ValueOf<Handle<HeapObject> >(node->op());
-        return !isolate()->heap()->InNewSpace(*value);
+        Unique<HeapObject> value = OpParameter<Unique<HeapObject> >(node);
+        return !isolate()->heap()->InNewSpace(*value.handle());
       }
       default:
         return false;
@@ -41,28 +41,31 @@ class IA32OperandGenerator V8_FINAL : public OperandGenerator {
 
 
 void InstructionSelector::VisitLoad(Node* node) {
-  MachineType rep = OpParameter<MachineType>(node);
+  MachineType rep = RepresentationOf(OpParameter<LoadRepresentation>(node));
+  MachineType typ = TypeOf(OpParameter<LoadRepresentation>(node));
   IA32OperandGenerator g(this);
   Node* base = node->InputAt(0);
   Node* index = node->InputAt(1);
 
-  InstructionOperand* output = rep == kMachineFloat64
-                                   ? g.DefineAsDoubleRegister(node)
-                                   : g.DefineAsRegister(node);
   ArchOpcode opcode;
+  // TODO(titzer): signed/unsigned small loads
   switch (rep) {
-    case kMachineFloat64:
-      opcode = kSSELoad;
+    case kRepFloat32:
+      opcode = kIA32Movss;
       break;
-    case kMachineWord8:
-      opcode = kIA32LoadWord8;
+    case kRepFloat64:
+      opcode = kIA32Movsd;
       break;
-    case kMachineWord16:
-      opcode = kIA32LoadWord16;
+    case kRepBit:  // Fall through.
+    case kRepWord8:
+      opcode = typ == kTypeInt32 ? kIA32Movsxbl : kIA32Movzxbl;
       break;
-    case kMachineTagged:  // Fall through.
-    case kMachineWord32:
-      opcode = kIA32LoadWord32;
+    case kRepWord16:
+      opcode = typ == kTypeInt32 ? kIA32Movsxwl : kIA32Movzxwl;
+      break;
+    case kRepTagged:  // Fall through.
+    case kRepWord32:
+      opcode = kIA32Movl;
       break;
     default:
       UNREACHABLE();
@@ -70,18 +73,19 @@ void InstructionSelector::VisitLoad(Node* node) {
   }
   if (g.CanBeImmediate(base)) {
     if (Int32Matcher(index).Is(0)) {  // load [#base + #0]
-      Emit(opcode | AddressingModeField::encode(kMode_MI), output,
-           g.UseImmediate(base));
+      Emit(opcode | AddressingModeField::encode(kMode_MI),
+           g.DefineAsRegister(node), g.UseImmediate(base));
     } else {  // load [#base + %index]
-      Emit(opcode | AddressingModeField::encode(kMode_MRI), output,
-           g.UseRegister(index), g.UseImmediate(base));
+      Emit(opcode | AddressingModeField::encode(kMode_MRI),
+           g.DefineAsRegister(node), g.UseRegister(index),
+           g.UseImmediate(base));
     }
   } else if (g.CanBeImmediate(index)) {  // load [%base + #index]
-    Emit(opcode | AddressingModeField::encode(kMode_MRI), output,
-         g.UseRegister(base), g.UseImmediate(index));
+    Emit(opcode | AddressingModeField::encode(kMode_MRI),
+         g.DefineAsRegister(node), g.UseRegister(base), g.UseImmediate(index));
   } else {  // load [%base + %index + K]
-    Emit(opcode | AddressingModeField::encode(kMode_MR1I), output,
-         g.UseRegister(base), g.UseRegister(index));
+    Emit(opcode | AddressingModeField::encode(kMode_MR1I),
+         g.DefineAsRegister(node), g.UseRegister(base), g.UseRegister(index));
   }
   // TODO(turbofan): addressing modes [r+r*{2,4,8}+K]
 }
@@ -94,47 +98,45 @@ void InstructionSelector::VisitStore(Node* node) {
   Node* value = node->InputAt(2);
 
   StoreRepresentation store_rep = OpParameter<StoreRepresentation>(node);
-  MachineType rep = store_rep.rep;
-  if (store_rep.write_barrier_kind == kFullWriteBarrier) {
-    DCHECK_EQ(kMachineTagged, rep);
+  MachineType rep = RepresentationOf(store_rep.machine_type());
+  if (store_rep.write_barrier_kind() == kFullWriteBarrier) {
+    DCHECK_EQ(kRepTagged, rep);
     // TODO(dcarney): refactor RecordWrite function to take temp registers
     //                and pass them here instead of using fixed regs
     // TODO(dcarney): handle immediate indices.
     InstructionOperand* temps[] = {g.TempRegister(ecx), g.TempRegister(edx)};
     Emit(kIA32StoreWriteBarrier, NULL, g.UseFixed(base, ebx),
-         g.UseFixed(index, ecx), g.UseFixed(value, edx), ARRAY_SIZE(temps),
+         g.UseFixed(index, ecx), g.UseFixed(value, edx), arraysize(temps),
          temps);
     return;
   }
-  DCHECK_EQ(kNoWriteBarrier, store_rep.write_barrier_kind);
-  bool is_immediate = false;
+  DCHECK_EQ(kNoWriteBarrier, store_rep.write_barrier_kind());
   InstructionOperand* val;
-  if (rep == kMachineFloat64) {
-    val = g.UseDoubleRegister(value);
+  if (g.CanBeImmediate(value)) {
+    val = g.UseImmediate(value);
+  } else if (rep == kRepWord8 || rep == kRepBit) {
+    val = g.UseByteRegister(value);
   } else {
-    is_immediate = g.CanBeImmediate(value);
-    if (is_immediate) {
-      val = g.UseImmediate(value);
-    } else if (rep == kMachineWord8) {
-      val = g.UseByteRegister(value);
-    } else {
-      val = g.UseRegister(value);
-    }
+    val = g.UseRegister(value);
   }
   ArchOpcode opcode;
   switch (rep) {
-    case kMachineFloat64:
-      opcode = kSSEStore;
+    case kRepFloat32:
+      opcode = kIA32Movss;
       break;
-    case kMachineWord8:
-      opcode = is_immediate ? kIA32StoreWord8I : kIA32StoreWord8;
+    case kRepFloat64:
+      opcode = kIA32Movsd;
       break;
-    case kMachineWord16:
-      opcode = is_immediate ? kIA32StoreWord16I : kIA32StoreWord16;
+    case kRepBit:  // Fall through.
+    case kRepWord8:
+      opcode = kIA32Movb;
       break;
-    case kMachineTagged:  // Fall through.
-    case kMachineWord32:
-      opcode = is_immediate ? kIA32StoreWord32I : kIA32StoreWord32;
+    case kRepWord16:
+      opcode = kIA32Movw;
+      break;
+    case kRepTagged:  // Fall through.
+    case kRepWord32:
+      opcode = kIA32Movl;
       break;
     default:
       UNREACHABLE();
@@ -193,8 +195,8 @@ static void VisitBinop(InstructionSelector* selector, Node* node,
 
   DCHECK_NE(0, input_count);
   DCHECK_NE(0, output_count);
-  DCHECK_GE(ARRAY_SIZE(inputs), input_count);
-  DCHECK_GE(ARRAY_SIZE(outputs), output_count);
+  DCHECK_GE(arraysize(inputs), input_count);
+  DCHECK_GE(arraysize(outputs), output_count);
 
   Instruction* instr = selector->Emit(cont->Encode(opcode), output_count,
                                       outputs, input_count, inputs);
@@ -271,6 +273,11 @@ void InstructionSelector::VisitWord32Sar(Node* node) {
 }
 
 
+void InstructionSelector::VisitWord32Ror(Node* node) {
+  VisitShift(this, node, kIA32Ror);
+}
+
+
 void InstructionSelector::VisitInt32Add(Node* node) {
   VisitBinop(this, node, kIA32Add);
 }
@@ -309,7 +316,7 @@ static inline void VisitDiv(InstructionSelector* selector, Node* node,
                             ArchOpcode opcode) {
   IA32OperandGenerator g(selector);
   InstructionOperand* temps[] = {g.TempRegister(edx)};
-  size_t temp_count = ARRAY_SIZE(temps);
+  size_t temp_count = arraysize(temps);
   selector->Emit(opcode, g.DefineAsFixed(node, eax),
                  g.UseFixed(node->InputAt(0), eax),
                  g.UseUnique(node->InputAt(1)), temp_count, temps);
@@ -330,7 +337,7 @@ static inline void VisitMod(InstructionSelector* selector, Node* node,
                             ArchOpcode opcode) {
   IA32OperandGenerator g(selector);
   InstructionOperand* temps[] = {g.TempRegister(eax), g.TempRegister(edx)};
-  size_t temp_count = ARRAY_SIZE(temps);
+  size_t temp_count = arraysize(temps);
   selector->Emit(opcode, g.DefineAsFixed(node, edx),
                  g.UseFixed(node->InputAt(0), eax),
                  g.UseUnique(node->InputAt(1)), temp_count, temps);
@@ -349,15 +356,14 @@ void InstructionSelector::VisitInt32UMod(Node* node) {
 
 void InstructionSelector::VisitChangeInt32ToFloat64(Node* node) {
   IA32OperandGenerator g(this);
-  Emit(kSSEInt32ToFloat64, g.DefineAsDoubleRegister(node),
-       g.Use(node->InputAt(0)));
+  Emit(kSSEInt32ToFloat64, g.DefineAsRegister(node), g.Use(node->InputAt(0)));
 }
 
 
 void InstructionSelector::VisitChangeUint32ToFloat64(Node* node) {
   IA32OperandGenerator g(this);
   // TODO(turbofan): IA32 SSE LoadUint32() should take an operand.
-  Emit(kSSEUint32ToFloat64, g.DefineAsDoubleRegister(node),
+  Emit(kSSEUint32ToFloat64, g.DefineAsRegister(node),
        g.UseRegister(node->InputAt(0)));
 }
 
@@ -372,39 +378,35 @@ void InstructionSelector::VisitChangeFloat64ToUint32(Node* node) {
   IA32OperandGenerator g(this);
   // TODO(turbofan): IA32 SSE subsd() should take an operand.
   Emit(kSSEFloat64ToUint32, g.DefineAsRegister(node),
-       g.UseDoubleRegister(node->InputAt(0)));
+       g.UseRegister(node->InputAt(0)));
 }
 
 
 void InstructionSelector::VisitFloat64Add(Node* node) {
   IA32OperandGenerator g(this);
   Emit(kSSEFloat64Add, g.DefineSameAsFirst(node),
-       g.UseDoubleRegister(node->InputAt(0)),
-       g.UseDoubleRegister(node->InputAt(1)));
+       g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)));
 }
 
 
 void InstructionSelector::VisitFloat64Sub(Node* node) {
   IA32OperandGenerator g(this);
   Emit(kSSEFloat64Sub, g.DefineSameAsFirst(node),
-       g.UseDoubleRegister(node->InputAt(0)),
-       g.UseDoubleRegister(node->InputAt(1)));
+       g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)));
 }
 
 
 void InstructionSelector::VisitFloat64Mul(Node* node) {
   IA32OperandGenerator g(this);
   Emit(kSSEFloat64Mul, g.DefineSameAsFirst(node),
-       g.UseDoubleRegister(node->InputAt(0)),
-       g.UseDoubleRegister(node->InputAt(1)));
+       g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)));
 }
 
 
 void InstructionSelector::VisitFloat64Div(Node* node) {
   IA32OperandGenerator g(this);
   Emit(kSSEFloat64Div, g.DefineSameAsFirst(node),
-       g.UseDoubleRegister(node->InputAt(0)),
-       g.UseDoubleRegister(node->InputAt(1)));
+       g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)));
 }
 
 
@@ -412,8 +414,8 @@ void InstructionSelector::VisitFloat64Mod(Node* node) {
   IA32OperandGenerator g(this);
   InstructionOperand* temps[] = {g.TempRegister(eax)};
   Emit(kSSEFloat64Mod, g.DefineSameAsFirst(node),
-       g.UseDoubleRegister(node->InputAt(0)),
-       g.UseDoubleRegister(node->InputAt(1)), 1, temps);
+       g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)), 1,
+       temps);
 }
 
 
@@ -495,8 +497,7 @@ void InstructionSelector::VisitFloat64Compare(Node* node,
   IA32OperandGenerator g(this);
   Node* left = node->InputAt(0);
   Node* right = node->InputAt(1);
-  VisitCompare(this, kSSEFloat64Cmp, g.UseDoubleRegister(left), g.Use(right),
-               cont);
+  VisitCompare(this, kSSEFloat64Cmp, g.UseRegister(left), g.Use(right), cont);
 }
 
 
@@ -504,42 +505,50 @@ void InstructionSelector::VisitCall(Node* call, BasicBlock* continuation,
                                     BasicBlock* deoptimization) {
   IA32OperandGenerator g(this);
   CallDescriptor* descriptor = OpParameter<CallDescriptor*>(call);
-  CallBuffer buffer(zone(), descriptor);
+
+  FrameStateDescriptor* frame_state_descriptor = NULL;
+
+  if (descriptor->NeedsFrameState()) {
+    frame_state_descriptor =
+        GetFrameStateDescriptor(call->InputAt(descriptor->InputCount()));
+  }
+
+  CallBuffer buffer(zone(), descriptor, frame_state_descriptor);
 
   // Compute InstructionOperands for inputs and outputs.
-  InitializeCallBuffer(call, &buffer, true, true, continuation, deoptimization);
+  InitializeCallBuffer(call, &buffer, true, true);
 
   // Push any stack arguments.
-  for (int i = buffer.pushed_count - 1; i >= 0; --i) {
-    Node* input = buffer.pushed_nodes[i];
+  for (NodeVectorRIter input = buffer.pushed_nodes.rbegin();
+       input != buffer.pushed_nodes.rend(); input++) {
     // TODO(titzer): handle pushing double parameters.
     Emit(kIA32Push, NULL,
-         g.CanBeImmediate(input) ? g.UseImmediate(input) : g.Use(input));
+         g.CanBeImmediate(*input) ? g.UseImmediate(*input) : g.Use(*input));
   }
 
   // Select the appropriate opcode based on the call type.
   InstructionCode opcode;
   switch (descriptor->kind()) {
     case CallDescriptor::kCallCodeObject: {
-      bool lazy_deopt = descriptor->CanLazilyDeoptimize();
-      opcode = kIA32CallCodeObject | MiscField::encode(lazy_deopt ? 1 : 0);
+      opcode = kArchCallCodeObject;
       break;
     }
     case CallDescriptor::kCallAddress:
-      opcode = kIA32CallAddress;
+      opcode = kArchCallAddress;
       break;
     case CallDescriptor::kCallJSFunction:
-      opcode = kIA32CallJSFunction;
+      opcode = kArchCallJSFunction;
       break;
     default:
       UNREACHABLE();
       return;
   }
+  opcode |= MiscField::encode(descriptor->flags());
 
   // Emit the call instruction.
   Instruction* call_instr =
-      Emit(opcode, buffer.output_count, buffer.outputs,
-           buffer.fixed_and_control_count(), buffer.fixed_and_control_args);
+      Emit(opcode, buffer.outputs.size(), &buffer.outputs.front(),
+           buffer.instruction_args.size(), &buffer.instruction_args.front());
 
   call_instr->MarkAsCall();
   if (deoptimization != NULL) {
@@ -549,9 +558,9 @@ void InstructionSelector::VisitCall(Node* call, BasicBlock* continuation,
 
   // Caller clean up of stack for C-style calls.
   if (descriptor->kind() == CallDescriptor::kCallAddress &&
-      buffer.pushed_count > 0) {
+      buffer.pushed_nodes.size() > 0) {
     DCHECK(deoptimization == NULL && continuation == NULL);
-    Emit(kPopStack | MiscField::encode(buffer.pushed_count), NULL);
+    Emit(kArchDrop | MiscField::encode(buffer.pushed_nodes.size()), NULL);
   }
 }
 

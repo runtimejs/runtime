@@ -44,13 +44,12 @@ ScriptData::ScriptData(const byte* data, int length)
 }
 
 
-CompilationInfo::CompilationInfo(Handle<Script> script,
-                                 Zone* zone)
-    : flags_(StrictModeField::encode(SLOPPY)),
+CompilationInfo::CompilationInfo(Handle<Script> script, Zone* zone)
+    : flags_(kThisHasUses),
       script_(script),
+      source_stream_(NULL),
       osr_ast_id_(BailoutId::None()),
       parameter_count_(0),
-      this_has_uses_(true),
       optimization_id_(-1),
       ast_value_factory_(NULL),
       ast_value_factory_owned_(false) {
@@ -59,11 +58,11 @@ CompilationInfo::CompilationInfo(Handle<Script> script,
 
 
 CompilationInfo::CompilationInfo(Isolate* isolate, Zone* zone)
-    : flags_(StrictModeField::encode(SLOPPY)),
+    : flags_(kThisHasUses),
       script_(Handle<Script>::null()),
+      source_stream_(NULL),
       osr_ast_id_(BailoutId::None()),
       parameter_count_(0),
-      this_has_uses_(true),
       optimization_id_(-1),
       ast_value_factory_(NULL),
       ast_value_factory_owned_(false) {
@@ -73,12 +72,12 @@ CompilationInfo::CompilationInfo(Isolate* isolate, Zone* zone)
 
 CompilationInfo::CompilationInfo(Handle<SharedFunctionInfo> shared_info,
                                  Zone* zone)
-    : flags_(StrictModeField::encode(SLOPPY) | IsLazy::encode(true)),
+    : flags_(kLazy | kThisHasUses),
       shared_info_(shared_info),
       script_(Handle<Script>(Script::cast(shared_info->script()))),
+      source_stream_(NULL),
       osr_ast_id_(BailoutId::None()),
       parameter_count_(0),
-      this_has_uses_(true),
       optimization_id_(-1),
       ast_value_factory_(NULL),
       ast_value_factory_owned_(false) {
@@ -86,16 +85,15 @@ CompilationInfo::CompilationInfo(Handle<SharedFunctionInfo> shared_info,
 }
 
 
-CompilationInfo::CompilationInfo(Handle<JSFunction> closure,
-                                 Zone* zone)
-    : flags_(StrictModeField::encode(SLOPPY) | IsLazy::encode(true)),
+CompilationInfo::CompilationInfo(Handle<JSFunction> closure, Zone* zone)
+    : flags_(kLazy | kThisHasUses),
       closure_(closure),
       shared_info_(Handle<SharedFunctionInfo>(closure->shared())),
       script_(Handle<Script>(Script::cast(shared_info_->script()))),
+      source_stream_(NULL),
       context_(closure->context()),
       osr_ast_id_(BailoutId::None()),
       parameter_count_(0),
-      this_has_uses_(true),
       optimization_id_(-1),
       ast_value_factory_(NULL),
       ast_value_factory_owned_(false) {
@@ -103,18 +101,33 @@ CompilationInfo::CompilationInfo(Handle<JSFunction> closure,
 }
 
 
-CompilationInfo::CompilationInfo(HydrogenCodeStub* stub,
-                                 Isolate* isolate,
+CompilationInfo::CompilationInfo(HydrogenCodeStub* stub, Isolate* isolate,
                                  Zone* zone)
-    : flags_(StrictModeField::encode(SLOPPY) | IsLazy::encode(true)),
+    : flags_(kLazy | kThisHasUses),
+      source_stream_(NULL),
       osr_ast_id_(BailoutId::None()),
       parameter_count_(0),
-      this_has_uses_(true),
       optimization_id_(-1),
       ast_value_factory_(NULL),
       ast_value_factory_owned_(false) {
   Initialize(isolate, STUB, zone);
   code_stub_ = stub;
+}
+
+
+CompilationInfo::CompilationInfo(
+    ScriptCompiler::ExternalSourceStream* stream,
+    ScriptCompiler::StreamedSource::Encoding encoding, Isolate* isolate,
+    Zone* zone)
+    : flags_(kThisHasUses),
+      source_stream_(stream),
+      source_stream_encoding_(encoding),
+      osr_ast_id_(BailoutId::None()),
+      parameter_count_(0),
+      optimization_id_(-1),
+      ast_value_factory_(NULL),
+      ast_value_factory_owned_(false) {
+  Initialize(isolate, BASE, zone);
 }
 
 
@@ -144,8 +157,13 @@ void CompilationInfo::Initialize(Isolate* isolate,
   }
   mode_ = mode;
   abort_due_to_dependency_ = false;
-  if (script_->type()->value() == Script::TYPE_NATIVE) MarkAsNative();
+  if (!script_.is_null() && script_->type()->value() == Script::TYPE_NATIVE) {
+    MarkAsNative();
+  }
   if (isolate_->debug()->is_active()) MarkAsDebug();
+  if (FLAG_context_specialization) MarkAsContextSpecializing();
+  if (FLAG_turbo_inlining) MarkAsInliningEnabled();
+  if (FLAG_turbo_types) MarkAsTypingEnabled();
 
   if (!shared_info_.is_null()) {
     DCHECK(strict_mode() == SLOPPY);
@@ -285,7 +303,7 @@ class HOptimizedGraphBuilderWithPositions: public HOptimizedGraphBuilder {
   }
 
 #define DEF_VISIT(type)                                 \
-  virtual void Visit##type(type* node) V8_OVERRIDE {    \
+  virtual void Visit##type(type* node) OVERRIDE {    \
     if (node->position() != RelocInfo::kNoPosition) {   \
       SetSourcePosition(node->position());              \
     }                                                   \
@@ -295,7 +313,7 @@ class HOptimizedGraphBuilderWithPositions: public HOptimizedGraphBuilder {
 #undef DEF_VISIT
 
 #define DEF_VISIT(type)                                          \
-  virtual void Visit##type(type* node) V8_OVERRIDE {             \
+  virtual void Visit##type(type* node) OVERRIDE {             \
     if (node->position() != RelocInfo::kNoPosition) {            \
       SetSourcePosition(node->position());                       \
     }                                                            \
@@ -305,7 +323,7 @@ class HOptimizedGraphBuilderWithPositions: public HOptimizedGraphBuilder {
 #undef DEF_VISIT
 
 #define DEF_VISIT(type)                                            \
-  virtual void Visit##type(type* node) V8_OVERRIDE {               \
+  virtual void Visit##type(type* node) OVERRIDE {               \
     HOptimizedGraphBuilder::Visit##type(node);                     \
   }
   MODULE_NODE_LIST(DEF_VISIT)
@@ -326,11 +344,6 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
   // We should never arrive here if optimization has been disabled on the
   // shared function info.
   DCHECK(!info()->shared_info()->optimization_disabled());
-
-  // Fall back to using the full code generator if it's not possible
-  // to use the Hydrogen-based optimizing compiler. We already have
-  // generated code for this from the shared function object.
-  if (FLAG_always_full_compiler) return AbortOptimization();
 
   // Do not use crankshaft if we need to be able to set break points.
   if (isolate()->DebuggerHasBreakPoints()) {
@@ -412,11 +425,16 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
       // TODO(turbofan): Make try-catch work and remove this bailout.
       info()->function()->dont_optimize_reason() != kTryCatchStatement &&
       info()->function()->dont_optimize_reason() != kTryFinallyStatement &&
+      // TODO(turbofan): Make ES6 for-of work and remove this bailout.
+      info()->function()->dont_optimize_reason() != kForOfStatement &&
       // TODO(turbofan): Make OSR work and remove this bailout.
       !info()->is_osr()) {
     compiler::Pipeline pipeline(info());
     pipeline.GenerateCode();
     if (!info()->code().is_null()) {
+      if (FLAG_turbo_deoptimization) {
+        info()->context()->native_context()->AddOptimizedCode(*info()->code());
+      }
       return SetLastStatus(SUCCEEDED);
     }
   }
@@ -660,8 +678,7 @@ static void SetFunctionInfo(Handle<SharedFunctionInfo> function_info,
   function_info->set_is_function(lit->is_function());
   function_info->set_bailout_reason(lit->dont_optimize_reason());
   function_info->set_dont_cache(lit->flags()->Contains(kDontCache));
-  function_info->set_is_generator(lit->is_generator());
-  function_info->set_is_arrow(lit->is_arrow());
+  function_info->set_kind(lit->kind());
 }
 
 
@@ -813,13 +830,6 @@ void Compiler::CompileForLiveEdit(Handle<Script> script) {
 }
 
 
-static bool DebuggerWantsEagerCompilation(CompilationInfo* info,
-                                          bool allow_lazy_without_ctx = false) {
-  return LiveEditFunctionTracker::IsActive(info->isolate()) ||
-         (info->isolate()->DebuggerHasBreakPoints() && !allow_lazy_without_ctx);
-}
-
-
 static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
   Isolate* isolate = info->isolate();
   PostponeInterruptsScope postpone(isolate);
@@ -834,28 +844,30 @@ static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
 
   DCHECK(info->is_eval() || info->is_global());
 
-  bool parse_allow_lazy =
-      (info->compile_options() == ScriptCompiler::kConsumeParserCache ||
-       String::cast(script->source())->length() > FLAG_min_preparse_length) &&
-      !DebuggerWantsEagerCompilation(info);
-
-  if (!parse_allow_lazy &&
-      (info->compile_options() == ScriptCompiler::kProduceParserCache ||
-       info->compile_options() == ScriptCompiler::kConsumeParserCache)) {
-    // We are going to parse eagerly, but we either 1) have cached data produced
-    // by lazy parsing or 2) are asked to generate cached data. We cannot use
-    // the existing data, since it won't contain all the symbols we need for
-    // eager parsing. In addition, it doesn't make sense to produce the data
-    // when parsing eagerly. That data would contain all symbols, but no
-    // functions, so it cannot be used to aid lazy parsing later.
-    info->SetCachedData(NULL, ScriptCompiler::kNoCompileOptions);
-  }
-
   Handle<SharedFunctionInfo> result;
 
   { VMState<COMPILER> state(info->isolate());
-    if (!Parser::Parse(info, parse_allow_lazy)) {
-      return Handle<SharedFunctionInfo>::null();
+    if (info->function() == NULL) {
+      // Parse the script if needed (if it's already parsed, function() is
+      // non-NULL).
+      bool parse_allow_lazy =
+          (info->compile_options() == ScriptCompiler::kConsumeParserCache ||
+           String::cast(script->source())->length() >
+               FLAG_min_preparse_length) &&
+          !Compiler::DebuggerWantsEagerCompilation(info);
+
+      if (!parse_allow_lazy &&
+          (info->compile_options() == ScriptCompiler::kProduceParserCache ||
+           info->compile_options() == ScriptCompiler::kConsumeParserCache)) {
+        // We are going to parse eagerly, but we either 1) have cached data
+        // produced by lazy parsing or 2) are asked to generate cached data.
+        // Eager parsing cannot benefit from cached data, and producing cached
+        // data while parsing eagerly is not implemented.
+        info->SetCachedData(NULL, ScriptCompiler::kNoCompileOptions);
+      }
+      if (!Parser::Parse(info, parse_allow_lazy)) {
+        return Handle<SharedFunctionInfo>::null();
+      }
     }
 
     FunctionLiteral* lit = info->function();
@@ -877,9 +889,8 @@ static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
     // Allocate function.
     DCHECK(!info->code().is_null());
     result = isolate->factory()->NewSharedFunctionInfo(
-        lit->name(), lit->materialized_literal_count(), lit->is_generator(),
-        lit->is_arrow(), info->code(),
-        ScopeInfo::Create(info->scope(), info->zone()),
+        lit->name(), lit->materialized_literal_count(), lit->kind(),
+        info->code(), ScopeInfo::Create(info->scope(), info->zone()),
         info->feedback_vector());
 
     DCHECK_EQ(RelocInfo::kNoPosition, lit->function_token_position());
@@ -902,7 +913,8 @@ static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
     SetExpectedNofPropertiesFromEstimate(result,
                                          lit->expected_property_count());
 
-    script->set_compilation_state(Script::COMPILATION_STATE_COMPILED);
+    if (!script.is_null())
+      script->set_compilation_state(Script::COMPILATION_STATE_COMPILED);
 
     live_edit_tracker.RecordFunctionInfo(result, lit, info->zone());
   }
@@ -1059,6 +1071,19 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
 }
 
 
+Handle<SharedFunctionInfo> Compiler::CompileStreamedScript(
+    CompilationInfo* info, int source_length) {
+  Isolate* isolate = info->isolate();
+  isolate->counters()->total_load_size()->Increment(source_length);
+  isolate->counters()->total_compile_size()->Increment(source_length);
+
+  if (FLAG_use_strict) info->SetStrictMode(STRICT);
+  // TODO(marja): FLAG_serialize_toplevel is not honoured and won't be; when the
+  // real code caching lands, streaming needs to be adapted to use it.
+  return CompileToplevel(info);
+}
+
+
 Handle<SharedFunctionInfo> Compiler::BuildFunctionInfo(
     FunctionLiteral* literal, Handle<Script> script,
     CompilationInfo* outer_info) {
@@ -1100,9 +1125,8 @@ Handle<SharedFunctionInfo> Compiler::BuildFunctionInfo(
 
   // Create a shared function info object.
   Handle<SharedFunctionInfo> result = factory->NewSharedFunctionInfo(
-      literal->name(), literal->materialized_literal_count(),
-      literal->is_generator(), literal->is_arrow(), info.code(), scope_info,
-      info.feedback_vector());
+      literal->name(), literal->materialized_literal_count(), literal->kind(),
+      info.code(), scope_info, info.feedback_vector());
   SetFunctionInfo(result, literal, false, script);
   RecordFunctionCompilation(Logger::FUNCTION_TAG, &info, result);
   result->set_allows_lazy_compilation(allow_lazy);
@@ -1150,7 +1174,7 @@ static void InsertCodeIntoOptimizedCodeMap(CompilationInfo* info) {
   if (code->kind() != Code::OPTIMIZED_FUNCTION) return;  // Nothing to do.
 
   // Context specialization folds-in the context, so no sharing can occur.
-  if (code->is_turbofanned() && FLAG_context_specialization) return;
+  if (code->is_turbofanned() && info->is_context_specializing()) return;
 
   // Cache optimized code.
   if (FLAG_cache_optimized_code) {
@@ -1249,7 +1273,16 @@ MaybeHandle<Code> Compiler::GetOptimizedCode(Handle<JSFunction> function,
   PostponeInterruptsScope postpone(isolate);
 
   Handle<SharedFunctionInfo> shared = info->shared_info();
-  DCHECK_NE(ScopeInfo::Empty(isolate), shared->scope_info());
+  if (shared->code()->kind() != Code::FUNCTION ||
+      ScopeInfo::Empty(isolate) == shared->scope_info()) {
+    // The function was never compiled. Compile it unoptimized first.
+    CompilationInfoWithZone nested(function);
+    nested.EnableDeoptimizationSupport();
+    if (!GetUnoptimizedCodeCommon(&nested).ToHandle(&current_code)) {
+      return MaybeHandle<Code>();
+    }
+    shared->ReplaceCode(*current_code);
+  }
   int compiled_size = shared->end_position() - shared->start_position();
   isolate->counters()->total_compile_size()->Increment(compiled_size);
   current_code->set_profiler_ticks(0);
@@ -1355,6 +1388,13 @@ void Compiler::RecordFunctionCompilation(Logger::LogEventsAndTags tag,
                  Handle<Script>(info->script()),
                  Handle<Code>(info->code()),
                  info));
+}
+
+
+bool Compiler::DebuggerWantsEagerCompilation(CompilationInfo* info,
+                                             bool allow_lazy_without_ctx) {
+  return LiveEditFunctionTracker::IsActive(info->isolate()) ||
+         (info->isolate()->DebuggerHasBreakPoints() && !allow_lazy_without_ctx);
 }
 
 

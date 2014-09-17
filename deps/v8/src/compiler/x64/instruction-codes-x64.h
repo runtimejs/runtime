@@ -42,38 +42,30 @@ namespace compiler {
   V(X64Shr32)                      \
   V(X64Sar)                        \
   V(X64Sar32)                      \
-  V(X64Push)                       \
-  V(X64PushI)                      \
-  V(X64CallCodeObject)             \
-  V(X64CallAddress)                \
-  V(PopStack)                      \
-  V(X64CallJSFunction)             \
+  V(X64Ror)                        \
+  V(X64Ror32)                      \
   V(SSEFloat64Cmp)                 \
   V(SSEFloat64Add)                 \
   V(SSEFloat64Sub)                 \
   V(SSEFloat64Mul)                 \
   V(SSEFloat64Div)                 \
   V(SSEFloat64Mod)                 \
-  V(X64Int32ToInt64)               \
-  V(X64Int64ToInt32)               \
   V(SSEFloat64ToInt32)             \
   V(SSEFloat64ToUint32)            \
   V(SSEInt32ToFloat64)             \
   V(SSEUint32ToFloat64)            \
-  V(SSELoad)                       \
-  V(SSEStore)                      \
-  V(X64LoadWord8)                  \
-  V(X64StoreWord8)                 \
-  V(X64StoreWord8I)                \
-  V(X64LoadWord16)                 \
-  V(X64StoreWord16)                \
-  V(X64StoreWord16I)               \
-  V(X64LoadWord32)                 \
-  V(X64StoreWord32)                \
-  V(X64StoreWord32I)               \
-  V(X64LoadWord64)                 \
-  V(X64StoreWord64)                \
-  V(X64StoreWord64I)               \
+  V(X64Movsxbl)                    \
+  V(X64Movzxbl)                    \
+  V(X64Movb)                       \
+  V(X64Movsxwl)                    \
+  V(X64Movzxwl)                    \
+  V(X64Movw)                       \
+  V(X64Movl)                       \
+  V(X64Movsxlq)                    \
+  V(X64Movq)                       \
+  V(X64Movsd)                      \
+  V(X64Movss)                      \
+  V(X64Push)                       \
   V(X64StoreWriteBarrier)
 
 

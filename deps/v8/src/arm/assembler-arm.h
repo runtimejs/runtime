@@ -649,7 +649,7 @@ class NeonListOperand BASE_EMBEDDED {
 // Class used to build a constant pool.
 class ConstantPoolBuilder BASE_EMBEDDED {
  public:
-  explicit ConstantPoolBuilder();
+  ConstantPoolBuilder();
   ConstantPoolArray::LayoutSection AddEntry(Assembler* assm,
                                             const RelocInfo& rinfo);
   void Relocate(int pc_delta);
@@ -1449,12 +1449,16 @@ class Assembler : public AssemblerBase {
   static Register GetCmpImmediateRegister(Instr instr);
   static int GetCmpImmediateRawImmediate(Instr instr);
   static bool IsNop(Instr instr, int type = NON_MARKING_NOP);
+  static bool IsMovImmed(Instr instr);
+  static bool IsOrrImmed(Instr instr);
   static bool IsMovT(Instr instr);
   static Instr GetMovTPattern();
   static bool IsMovW(Instr instr);
   static Instr GetMovWPattern();
   static Instr EncodeMovwImmediate(uint32_t immediate);
   static Instr PatchMovwImmediate(Instr instruction, uint32_t immediate);
+  static int DecodeShiftImm(Instr instr);
+  static Instr PatchShiftImm(Instr instr, int immed);
 
   // Constants in pools are accessed via pc relative addressing, which can
   // reach +/-4KB for integer PC-relative loads and +/-1KB for floating-point

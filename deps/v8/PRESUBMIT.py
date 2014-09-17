@@ -41,7 +41,7 @@ def _V8PresubmitChecks(input_api, output_api):
         input_api.PresubmitLocalPath(), 'tools'))
   from presubmit import CppLintProcessor
   from presubmit import SourceProcessor
-  from presubmit import CheckGeneratedRuntimeTests
+  from presubmit import CheckRuntimeVsNativesNameClashes
   from presubmit import CheckExternalReferenceRegistration
 
   results = []
@@ -51,9 +51,9 @@ def _V8PresubmitChecks(input_api, output_api):
     results.append(output_api.PresubmitError(
         "Copyright header, trailing whitespaces and two empty lines " \
         "between declarations check failed"))
-  if not CheckGeneratedRuntimeTests(input_api.PresubmitLocalPath()):
+  if not CheckRuntimeVsNativesNameClashes(input_api.PresubmitLocalPath()):
     results.append(output_api.PresubmitError(
-        "Generated runtime tests check failed"))
+        "Runtime/natives name clash check failed"))
   if not CheckExternalReferenceRegistration(input_api.PresubmitLocalPath()):
     results.append(output_api.PresubmitError(
         "External references registration check failed"))
@@ -180,6 +180,6 @@ def GetPreferredTryMasters(project, change):
       'v8_linux_layout_dbg': set(['defaulttests']),
       'v8_mac_rel': set(['defaulttests']),
       'v8_win_rel': set(['defaulttests']),
-      'v8_win64_rel': set(['defaulttests']),
+      'v8_win64_compile_rel': set(['defaulttests']),
     },
   }

@@ -7,6 +7,7 @@
 
 #include "src/allocation.h"
 #include "src/base/atomicops.h"
+#include "src/base/bits.h"
 #include "src/base/platform/mutex.h"
 #include "src/hashmap.h"
 #include "src/list.h"
@@ -373,12 +374,9 @@ class MemoryChunk {
     EVACUATION_CANDIDATE,
     RESCAN_ON_EVACUATION,
 
-    // Pages swept precisely can be iterated, hitting only the live objects.
-    // Whereas those swept conservatively cannot be iterated over. Both flags
-    // indicate that marking bits have been cleared by the sweeper, otherwise
-    // marking bits are still intact.
-    WAS_SWEPT_PRECISELY,
-    WAS_SWEPT_CONSERVATIVELY,
+    // WAS_SWEPT indicates that marking bits have been cleared by the sweeper,
+    // otherwise marking bits are still intact.
+    WAS_SWEPT,
 
     // Large objects can have a progress bar in their page header. These object
     // are scanned in increments and will be kept black while being scanned.
@@ -765,15 +763,9 @@ class Page : public MemoryChunk {
 
   void InitializeAsAnchor(PagedSpace* owner);
 
-  bool WasSweptPrecisely() { return IsFlagSet(WAS_SWEPT_PRECISELY); }
-  bool WasSweptConservatively() { return IsFlagSet(WAS_SWEPT_CONSERVATIVELY); }
-  bool WasSwept() { return WasSweptPrecisely() || WasSweptConservatively(); }
-
-  void MarkSweptPrecisely() { SetFlag(WAS_SWEPT_PRECISELY); }
-  void MarkSweptConservatively() { SetFlag(WAS_SWEPT_CONSERVATIVELY); }
-
-  void ClearSweptPrecisely() { ClearFlag(WAS_SWEPT_PRECISELY); }
-  void ClearSweptConservatively() { ClearFlag(WAS_SWEPT_CONSERVATIVELY); }
+  bool WasSwept() { return IsFlagSet(WAS_SWEPT); }
+  void SetWasSwept() { SetFlag(WAS_SWEPT); }
+  void ClearWasSwept() { ClearFlag(WAS_SWEPT); }
 
   void ResetFreeListStatistics();
 
@@ -1830,14 +1822,11 @@ class PagedSpace : public Space {
   static void ResetCodeStatistics(Isolate* isolate);
 #endif
 
-  bool swept_precisely() { return swept_precisely_; }
-  void set_swept_precisely(bool b) { swept_precisely_ = b; }
-
   // Evacuation candidates are swept by evacuator.  Needs to return a valid
   // result before _and_ after evacuation has finished.
   static bool ShouldBeSweptBySweeperThreads(Page* p) {
     return !p->IsEvacuationCandidate() &&
-           !p->IsFlagSet(Page::RESCAN_ON_EVACUATION) && !p->WasSweptPrecisely();
+           !p->IsFlagSet(Page::RESCAN_ON_EVACUATION) && !p->WasSwept();
   }
 
   void IncrementUnsweptFreeBytes(intptr_t by) { unswept_free_bytes_ += by; }
@@ -1907,12 +1896,8 @@ class PagedSpace : public Space {
   // Normal allocation information.
   AllocationInfo allocation_info_;
 
-  // This space was swept precisely, hence it is iterable.
-  bool swept_precisely_;
-
   // The number of free bytes which could be reclaimed by advancing the
-  // concurrent sweeper threads.  This is only an estimation because concurrent
-  // sweeping is done conservatively.
+  // concurrent sweeper threads.
   intptr_t unswept_free_bytes_;
 
   // The sweeper threads iterate over the list of pointer and data space pages
@@ -2028,7 +2013,7 @@ class NewSpacePage : public MemoryChunk {
 
   Address address() { return reinterpret_cast<Address>(this); }
 
-  // Finds the NewSpacePage containg the given address.
+  // Finds the NewSpacePage containing the given address.
   static inline NewSpacePage* FromAddress(Address address_in_page) {
     Address page_start =
         reinterpret_cast<Address>(reinterpret_cast<uintptr_t>(address_in_page) &
@@ -2636,7 +2621,7 @@ class MapSpace : public PagedSpace {
   static const int kMaxMapPageIndex = 1 << 16;
 
   virtual int RoundSizeDownToObjectAlignment(int size) {
-    if (IsPowerOf2(Map::kSize)) {
+    if (base::bits::IsPowerOfTwo32(Map::kSize)) {
       return RoundDown(size, Map::kSize);
     } else {
       return (size / Map::kSize) * Map::kSize;
@@ -2671,7 +2656,7 @@ class CellSpace : public PagedSpace {
       : PagedSpace(heap, max_capacity, id, NOT_EXECUTABLE) {}
 
   virtual int RoundSizeDownToObjectAlignment(int size) {
-    if (IsPowerOf2(Cell::kSize)) {
+    if (base::bits::IsPowerOfTwo32(Cell::kSize)) {
       return RoundDown(size, Cell::kSize);
     } else {
       return (size / Cell::kSize) * Cell::kSize;
@@ -2696,7 +2681,7 @@ class PropertyCellSpace : public PagedSpace {
       : PagedSpace(heap, max_capacity, id, NOT_EXECUTABLE) {}
 
   virtual int RoundSizeDownToObjectAlignment(int size) {
-    if (IsPowerOf2(PropertyCell::kSize)) {
+    if (base::bits::IsPowerOfTwo32(PropertyCell::kSize)) {
       return RoundDown(size, PropertyCell::kSize);
     } else {
       return (size / PropertyCell::kSize) * PropertyCell::kSize;

@@ -31,8 +31,7 @@
 #else
 #define V8_TURBOFAN_BACKEND 0
 #endif
-#if V8_TURBOFAN_BACKEND && !V8_TARGET_ARCH_ARM64 && \
-    !(V8_OS_WIN && V8_TARGET_ARCH_X64)
+#if V8_TURBOFAN_BACKEND && !(V8_OS_WIN && V8_TARGET_ARCH_X64)
 #define V8_TURBOFAN_TARGET 1
 #else
 #define V8_TURBOFAN_TARGET 0
@@ -611,8 +610,12 @@ enum CpuFeature {
     MOVW_MOVT_IMMEDIATE_LOADS,
     VFP32DREGS,
     NEON,
-    // MIPS
+    // MIPS, MIPS64
     FPU,
+    FP64FPU,
+    MIPSr1,
+    MIPSr2,
+    MIPSr6,
     // ARM64
     ALWAYS_ALIGN_CSP,
     NUMBER_OF_CPU_FEATURES
@@ -753,6 +756,41 @@ enum MinusZeroMode {
   FAIL_ON_MINUS_ZERO
 };
 
+
+enum FunctionKind {
+  kNormalFunction = 0,
+  kArrowFunction = 1,
+  kGeneratorFunction = 2,
+  kConciseMethod = 4
+};
+
+
+inline bool IsValidFunctionKind(FunctionKind kind) {
+  // At the moment these are mutually exclusive but in the future that wont be
+  // the case since ES6 allows concise generator methods.
+  return kind == FunctionKind::kNormalFunction ||
+         kind == FunctionKind::kArrowFunction ||
+         kind == FunctionKind::kGeneratorFunction ||
+         kind == FunctionKind::kConciseMethod;
+}
+
+
+inline bool IsArrowFunction(FunctionKind kind) {
+  DCHECK(IsValidFunctionKind(kind));
+  return kind & FunctionKind::kArrowFunction;
+}
+
+
+inline bool IsGeneratorFunction(FunctionKind kind) {
+  DCHECK(IsValidFunctionKind(kind));
+  return kind & FunctionKind::kGeneratorFunction;
+}
+
+
+inline bool IsConciseMethod(FunctionKind kind) {
+  DCHECK(IsValidFunctionKind(kind));
+  return kind & FunctionKind::kConciseMethod;
+}
 } }  // namespace v8::internal
 
 namespace i = v8::internal;

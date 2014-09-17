@@ -17,12 +17,14 @@
 # define MEMORY_SANITIZER
 #endif
 
-#if defined(MEMORY_SANITIZER) && !defined(USE_SIMULATOR)
+#if defined(MEMORY_SANITIZER)
 # include <sanitizer/msan_interface.h>  // NOLINT
-// Marks a memory range as fully initialized.
-# define MSAN_MEMORY_IS_INITIALIZED_IN_JIT(p, s) __msan_unpoison((p), (s))
+
+// Marks a memory range as uninitialized, as if it was allocated here.
+# define MSAN_ALLOCATED_UNINITIALIZED_MEMORY(p, s) \
+    __msan_allocated_memory((p), (s))
 #else
-# define MSAN_MEMORY_IS_INITIALIZED_IN_JIT(p, s)
+# define MSAN_ALLOCATED_UNINITIALIZED_MEMORY(p, s)
 #endif
 
 #endif  // V8_MSAN_H_

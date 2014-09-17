@@ -136,6 +136,46 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
   ArmOperandConverter i(this, instr);
 
   switch (ArchOpcodeField::decode(instr->opcode())) {
+    case kArchCallAddress: {
+      DirectCEntryStub stub(isolate());
+      stub.GenerateCall(masm(), i.InputRegister(0));
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
+    case kArchCallCodeObject: {
+      if (instr->InputAt(0)->IsImmediate()) {
+        __ Call(Handle<Code>::cast(i.InputHeapObject(0)),
+                RelocInfo::CODE_TARGET);
+      } else {
+        __ add(ip, i.InputRegister(0),
+               Operand(Code::kHeaderSize - kHeapObjectTag));
+        __ Call(ip);
+      }
+      AddSafepointAndDeopt(instr);
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
+    case kArchCallJSFunction: {
+      Register func = i.InputRegister(0);
+      if (FLAG_debug_code) {
+        // Check the function's context matches the context argument.
+        __ ldr(kScratchReg, FieldMemOperand(func, JSFunction::kContextOffset));
+        __ cmp(cp, kScratchReg);
+        __ Assert(eq, kWrongFunctionContext);
+      }
+      __ ldr(ip, FieldMemOperand(func, JSFunction::kCodeEntryOffset));
+      __ Call(ip);
+      AddSafepointAndDeopt(instr);
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
+    case kArchDrop: {
+      int words = MiscField::decode(instr->opcode());
+      __ Drop(words);
+      DCHECK_LT(0, words);
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
     case kArchJmp:
       __ b(code_->GetLabel(i.InputBlock(0)));
       DCHECK_EQ(LeaveCC, i.OutputSBit());
@@ -148,16 +188,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       AssembleReturn();
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
-    case kArchDeoptimize: {
-      int deoptimization_id = MiscField::decode(instr->opcode());
-      BuildTranslation(instr, deoptimization_id);
-
-      Address deopt_entry = Deoptimizer::GetDeoptimizationEntry(
-          isolate(), deoptimization_id, Deoptimizer::LAZY);
-      __ Call(deopt_entry, RelocInfo::RUNTIME_ENTRY);
+    case kArchTruncateDoubleToI:
+      __ TruncateDoubleToI(i.OutputRegister(), i.InputDoubleRegister(0));
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
-    }
     case kArmAdd:
       __ add(i.OutputRegister(), i.InputRegister(0), i.InputOperand2(1),
              i.OutputSBit());
@@ -198,8 +232,7 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     }
     case kArmMov:
-      __ Move(i.OutputRegister(), i.InputOperand2(0));
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      __ Move(i.OutputRegister(), i.InputOperand2(0), i.OutputSBit());
       break;
     case kArmMvn:
       __ mvn(i.OutputRegister(), i.InputOperand2(0), i.OutputSBit());
@@ -230,57 +263,6 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       CpuFeatureScope scope(masm(), ARMv7);
       __ ubfx(i.OutputRegister(), i.InputRegister(0), i.InputInt8(1),
               i.InputInt8(2));
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
-      break;
-    }
-    case kArmCallCodeObject: {
-      if (instr->InputAt(0)->IsImmediate()) {
-        Handle<Code> code = Handle<Code>::cast(i.InputHeapObject(0));
-        __ Call(code, RelocInfo::CODE_TARGET);
-        RecordSafepoint(instr->pointer_map(), Safepoint::kSimple, 0,
-                        Safepoint::kNoLazyDeopt);
-      } else {
-        Register reg = i.InputRegister(0);
-        int entry = Code::kHeaderSize - kHeapObjectTag;
-        __ ldr(reg, MemOperand(reg, entry));
-        __ Call(reg);
-        RecordSafepoint(instr->pointer_map(), Safepoint::kSimple, 0,
-                        Safepoint::kNoLazyDeopt);
-      }
-      bool lazy_deopt = (MiscField::decode(instr->opcode()) == 1);
-      if (lazy_deopt) {
-        RecordLazyDeoptimizationEntry(instr);
-      }
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
-      break;
-    }
-    case kArmCallJSFunction: {
-      Register func = i.InputRegister(0);
-
-      // TODO(jarin) The load of the context should be separated from the call.
-      __ ldr(cp, FieldMemOperand(func, JSFunction::kContextOffset));
-      __ ldr(ip, FieldMemOperand(func, JSFunction::kCodeEntryOffset));
-      __ Call(ip);
-
-      RecordSafepoint(instr->pointer_map(), Safepoint::kSimple, 0,
-                      Safepoint::kNoLazyDeopt);
-      RecordLazyDeoptimizationEntry(instr);
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
-      break;
-    }
-    case kArmCallAddress: {
-      DirectCEntryStub stub(isolate());
-      stub.GenerateCall(masm(), i.InputRegister(0));
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
-      break;
-    }
-    case kArmPush:
-      __ Push(i.InputRegister(0));
-      DCHECK_EQ(LeaveCC, i.OutputSBit());
-      break;
-    case kArmDrop: {
-      int words = MiscField::decode(instr->opcode());
-      __ Drop(words);
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
@@ -380,48 +362,75 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
-    case kArmLoadWord8:
+    case kArmLdrb:
       __ ldrb(i.OutputRegister(), i.InputOffset());
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
-    case kArmStoreWord8: {
+    case kArmLdrsb:
+      __ ldrsb(i.OutputRegister(), i.InputOffset());
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    case kArmStrb: {
       int index = 0;
       MemOperand operand = i.InputOffset(&index);
       __ strb(i.InputRegister(index), operand);
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
-    case kArmLoadWord16:
+    case kArmLdrh:
       __ ldrh(i.OutputRegister(), i.InputOffset());
       break;
-    case kArmStoreWord16: {
+    case kArmLdrsh:
+      __ ldrsh(i.OutputRegister(), i.InputOffset());
+      break;
+    case kArmStrh: {
       int index = 0;
       MemOperand operand = i.InputOffset(&index);
       __ strh(i.InputRegister(index), operand);
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
-    case kArmLoadWord32:
+    case kArmLdr:
       __ ldr(i.OutputRegister(), i.InputOffset());
       break;
-    case kArmStoreWord32: {
+    case kArmStr: {
       int index = 0;
       MemOperand operand = i.InputOffset(&index);
       __ str(i.InputRegister(index), operand);
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
-    case kArmFloat64Load:
+    case kArmVldr32: {
+      SwVfpRegister scratch = kScratchDoubleReg.low();
+      __ vldr(scratch, i.InputOffset());
+      __ vcvt_f64_f32(i.OutputDoubleRegister(), scratch);
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
+    case kArmVstr32: {
+      int index = 0;
+      SwVfpRegister scratch = kScratchDoubleReg.low();
+      MemOperand operand = i.InputOffset(&index);
+      __ vcvt_f32_f64(scratch, i.InputDoubleRegister(index));
+      __ vstr(scratch, operand);
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
+    }
+    case kArmVldr64:
       __ vldr(i.OutputDoubleRegister(), i.InputOffset());
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
-    case kArmFloat64Store: {
+    case kArmVstr64: {
       int index = 0;
       MemOperand operand = i.InputOffset(&index);
       __ vstr(i.InputDoubleRegister(index), operand);
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;
     }
+    case kArmPush:
+      __ Push(i.InputRegister(0));
+      DCHECK_EQ(LeaveCC, i.OutputSBit());
+      break;
     case kArmStoreWriteBarrier: {
       Register object = i.InputRegister(0);
       Register index = i.InputRegister(1);
@@ -600,14 +609,31 @@ void CodeGenerator::AssembleArchBoolean(Instruction* instr,
 }
 
 
+void CodeGenerator::AssembleDeoptimizerCall(int deoptimization_id) {
+  Address deopt_entry = Deoptimizer::GetDeoptimizationEntry(
+      isolate(), deoptimization_id, Deoptimizer::LAZY);
+  __ Call(deopt_entry, RelocInfo::RUNTIME_ENTRY);
+}
+
+
 void CodeGenerator::AssemblePrologue() {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
   if (descriptor->kind() == CallDescriptor::kCallAddress) {
-    __ Push(lr, fp);
-    __ mov(fp, sp);
+    bool saved_pp;
+    if (FLAG_enable_ool_constant_pool) {
+      __ Push(lr, fp, pp);
+      // Adjust FP to point to saved FP.
+      __ sub(fp, sp, Operand(StandardFrameConstants::kConstantPoolOffset));
+      saved_pp = true;
+    } else {
+      __ Push(lr, fp);
+      __ mov(fp, sp);
+      saved_pp = false;
+    }
     const RegList saves = descriptor->CalleeSavedRegisters();
-    if (saves != 0) {  // Save callee-saved registers.
-      int register_save_area_size = 0;
+    if (saves != 0 || saved_pp) {
+      // Save callee-saved registers.
+      int register_save_area_size = saved_pp ? kPointerSize : 0;
       for (int i = Register::kNumRegisters - 1; i >= 0; i--) {
         if (!((1 << i) & saves)) continue;
         register_save_area_size += kPointerSize;
@@ -665,14 +691,13 @@ void CodeGenerator::AssembleReturn() {
         __ ldm(ia_w, sp, saves);
       }
     }
-    __ mov(sp, fp);
-    __ ldm(ia_w, sp, fp.bit() | lr.bit());
+    __ LeaveFrame(StackFrame::MANUAL);
     __ Ret();
   } else {
-    __ mov(sp, fp);
-    __ ldm(ia_w, sp, fp.bit() | lr.bit());
-    int pop_count =
-        descriptor->IsJSFunctionCall() ? descriptor->ParameterCount() : 0;
+    __ LeaveFrame(StackFrame::MANUAL);
+    int pop_count = descriptor->IsJSFunctionCall()
+                        ? static_cast<int>(descriptor->JSParameterCount())
+                        : 0;
     __ Drop(pop_count);
     __ Ret();
   }
@@ -798,7 +823,7 @@ void CodeGenerator::AssembleSwap(InstructionOperand* source,
       DwVfpRegister dst = g.ToDoubleRegister(destination);
       __ Move(temp, src);
       __ Move(src, dst);
-      __ Move(src, temp);
+      __ Move(dst, temp);
     } else {
       DCHECK(destination->IsDoubleStackSlot());
       MemOperand dst = g.ToMemOperand(destination);
@@ -829,20 +854,10 @@ void CodeGenerator::AssembleSwap(InstructionOperand* source,
 
 void CodeGenerator::AddNopForSmiCodeInlining() {
   // On 32-bit ARM we do not insert nops for inlined Smi code.
-  UNREACHABLE();
 }
-
-#ifdef DEBUG
-
-// Checks whether the code between start_pc and end_pc is a no-op.
-bool CodeGenerator::IsNopForSmiCodeInlining(Handle<Code> code, int start_pc,
-                                            int end_pc) {
-  return false;
-}
-
-#endif  // DEBUG
 
 #undef __
-}
-}
-}  // namespace v8::internal::compiler
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

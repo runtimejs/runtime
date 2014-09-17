@@ -45,6 +45,7 @@
 #include "src/base/cpu.h"
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
+#include "src/base/sys-info.h"
 #include "src/d8-debug.h"
 #include "src/debug.h"
 #include "src/natives.h"
@@ -332,7 +333,6 @@ void Shell::PerformanceNow(const v8::FunctionCallbackInfo<v8::Value>& args) {
     Isolate* v8_isolate = args.GetIsolate();
     i::Heap* heap = reinterpret_cast<i::Isolate*>(v8_isolate)->heap();
     args.GetReturnValue().Set(heap->synthetic_time());
-
   } else {
     base::TimeDelta delta =
         base::TimeTicks::HighResolutionNow() - kInitialTicks;
@@ -1529,13 +1529,13 @@ class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
 
 class MockArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
  public:
-  virtual void* Allocate(size_t) V8_OVERRIDE {
+  virtual void* Allocate(size_t) OVERRIDE {
     return malloc(0);
   }
-  virtual void* AllocateUninitialized(size_t length) V8_OVERRIDE {
+  virtual void* AllocateUninitialized(size_t length) OVERRIDE {
     return malloc(0);
   }
-  virtual void Free(void* p, size_t) V8_OVERRIDE {
+  virtual void Free(void* p, size_t) OVERRIDE {
     free(p);
   }
 };
@@ -1612,27 +1612,26 @@ int Shell::Main(int argc, char* argv[]) {
     v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
   }
   int result = 0;
-  Isolate* isolate = Isolate::New();
-#ifndef V8_SHARED
-  v8::ResourceConstraints constraints;
-  constraints.ConfigureDefaults(base::OS::TotalPhysicalMemory(),
-                                base::OS::MaxVirtualMemory(),
-                                base::OS::NumberOfProcessorsOnline());
-  v8::SetResourceConstraints(isolate, &constraints);
+  Isolate::CreateParams create_params;
+#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
+  if (i::FLAG_gdbjit) {
+    create_params.code_event_handler = i::GDBJITInterface::EventHandler;
+  }
 #endif
+#ifdef ENABLE_VTUNE_JIT_INTERFACE
+  vTune::InitializeVtuneForV8(create_params);
+#endif
+#ifndef V8_SHARED
+  create_params.constraints.ConfigureDefaults(
+      base::SysInfo::AmountOfPhysicalMemory(),
+      base::SysInfo::AmountOfVirtualMemory(),
+      base::SysInfo::NumberOfProcessors());
+#endif
+  Isolate* isolate = Isolate::New(create_params);
   DumbLineEditor dumb_line_editor(isolate);
   {
     Isolate::Scope scope(isolate);
     Initialize(isolate);
-#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
-    if (i::FLAG_gdbjit) {
-      v8::V8::SetJitCodeEventHandler(v8::kJitCodeEventDefault,
-                                     i::GDBJITInterface::EventHandler);
-    }
-#endif
-#ifdef ENABLE_VTUNE_JIT_INTERFACE
-    vTune::InitializeVtuneForV8();
-#endif
     PerIsolateData data(isolate);
     InitializeDebugger(isolate);
 

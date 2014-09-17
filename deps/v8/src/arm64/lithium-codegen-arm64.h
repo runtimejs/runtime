@@ -83,31 +83,17 @@ class LCodeGen: public LCodeGenBase {
 
   enum IntegerSignedness { SIGNED_INT32, UNSIGNED_INT32 };
   // Support for converting LOperands to assembler types.
-  // LOperand must be a register.
   Register ToRegister(LOperand* op) const;
   Register ToRegister32(LOperand* op) const;
   Operand ToOperand(LOperand* op);
-  Operand ToOperand32I(LOperand* op);
-  Operand ToOperand32U(LOperand* op);
+  Operand ToOperand32(LOperand* op);
   enum StackMode { kMustUseFramePointer, kCanUseStackPointer };
   MemOperand ToMemOperand(LOperand* op,
                           StackMode stack_mode = kCanUseStackPointer) const;
   Handle<Object> ToHandle(LConstantOperand* op) const;
 
-  template<class LI>
-  Operand ToShiftedRightOperand32I(LOperand* right,
-                                   LI* shift_info) {
-    return ToShiftedRightOperand32(right, shift_info, SIGNED_INT32);
-  }
-  template<class LI>
-  Operand ToShiftedRightOperand32U(LOperand* right,
-                                   LI* shift_info) {
-    return ToShiftedRightOperand32(right, shift_info, UNSIGNED_INT32);
-  }
-  template<class LI>
-  Operand ToShiftedRightOperand32(LOperand* right,
-                                  LI* shift_info,
-                                  IntegerSignedness signedness);
+  template <class LI>
+  Operand ToShiftedRightOperand32(LOperand* right, LI* shift_info);
 
   int JSShiftAmountFromLConstant(LOperand* constant) {
     return ToInteger32(LConstantOperand::cast(constant)) & 0x1f;
@@ -157,8 +143,6 @@ class LCodeGen: public LCodeGenBase {
                                    Register result,
                                    Register object,
                                    Register index);
-
-  Operand ToOperand32(LOperand* op, IntegerSignedness signedness);
 
   static Condition TokenToCondition(Token::Value op, bool is_unsigned);
   void EmitGoto(int block);
@@ -211,6 +195,9 @@ class LCodeGen: public LCodeGenBase {
                     Register scratch,
                     int* offset,
                     AllocationSiteMode mode);
+
+  template <class T>
+  void EmitVectorLoadICRegisters(T* instr);
 
   // Emits optimized code for %_IsString(x).  Preserves input register.
   // Returns the condition on which a final split to
@@ -286,7 +273,7 @@ class LCodeGen: public LCodeGenBase {
   void RestoreCallerDoubles();
 
   // Code generation steps.  Returns true if code generation should continue.
-  void GenerateBodyInstructionPre(LInstruction* instr) V8_OVERRIDE;
+  void GenerateBodyInstructionPre(LInstruction* instr) OVERRIDE;
   bool GeneratePrologue();
   bool GenerateDeferredCode();
   bool GenerateDeoptJumpTable();
@@ -338,7 +325,7 @@ class LCodeGen: public LCodeGenBase {
                          Register function_reg = NoReg);
 
   // Support for recording safepoint and position information.
-  void RecordAndWritePosition(int position) V8_OVERRIDE;
+  void RecordAndWritePosition(int position) OVERRIDE;
   void RecordSafepoint(LPointerMap* pointers,
                        Safepoint::Kind kind,
                        int arguments,
@@ -351,7 +338,7 @@ class LCodeGen: public LCodeGenBase {
   void RecordSafepointWithLazyDeopt(LInstruction* instr,
                                     SafepointMode safepoint_mode);
 
-  void EnsureSpaceForLazyDeopt(int space_needed) V8_OVERRIDE;
+  void EnsureSpaceForLazyDeopt(int space_needed) OVERRIDE;
 
   ZoneList<LEnvironment*> deoptimizations_;
   ZoneList<Deoptimizer::JumpTableEntry*> deopt_jump_table_;

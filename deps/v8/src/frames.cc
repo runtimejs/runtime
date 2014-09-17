@@ -5,6 +5,7 @@
 #include "src/v8.h"
 
 #include "src/ast.h"
+#include "src/base/bits.h"
 #include "src/deoptimizer.h"
 #include "src/frames-inl.h"
 #include "src/full-codegen.h"
@@ -1500,7 +1501,7 @@ Code* InnerPointerToCodeCache::GcSafeFindCodeForInnerPointer(
 InnerPointerToCodeCache::InnerPointerToCodeCacheEntry*
     InnerPointerToCodeCache::GetCacheEntry(Address inner_pointer) {
   isolate_->counters()->pc_to_code()->Increment();
-  DCHECK(IsPowerOf2(kInnerPointerToCodeCacheSize));
+  DCHECK(base::bits::IsPowerOfTwo32(kInnerPointerToCodeCacheSize));
   uint32_t hash = ComputeIntegerHash(
       static_cast<uint32_t>(reinterpret_cast<uintptr_t>(inner_pointer)),
       v8::internal::kZeroHashSeed);
@@ -1578,9 +1579,7 @@ int StackHandler::Rewind(Isolate* isolate,
 
 // -------------------------------------------------------------------------
 
-int NumRegs(RegList reglist) {
-  return CompilerIntrinsics::CountSetBits(reglist);
-}
+int NumRegs(RegList reglist) { return base::bits::CountPopulation32(reglist); }
 
 
 struct JSCallerSavedCodeData {

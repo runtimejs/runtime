@@ -37,7 +37,7 @@ namespace base {
 // |TryLock()|. The behavior of a program is undefined if a mutex is destroyed
 // while still owned by some thread. The Mutex class is non-copyable.
 
-class Mutex V8_FINAL {
+class Mutex FINAL {
  public:
   Mutex();
   ~Mutex();
@@ -54,7 +54,7 @@ class Mutex V8_FINAL {
 
   // Tries to lock the given mutex. Returns whether the mutex was
   // successfully locked.
-  bool TryLock() V8_WARN_UNUSED_RESULT;
+  bool TryLock() WARN_UNUSED_RESULT;
 
   // The implementation-defined native handle type.
 #if V8_OS_POSIX
@@ -133,7 +133,7 @@ typedef LazyStaticInstance<Mutex, DefaultConstructTrait<Mutex>,
 // The behavior of a program is undefined if a recursive mutex is destroyed
 // while still owned by some thread. The RecursiveMutex class is non-copyable.
 
-class RecursiveMutex V8_FINAL {
+class RecursiveMutex FINAL {
  public:
   RecursiveMutex();
   ~RecursiveMutex();
@@ -155,7 +155,7 @@ class RecursiveMutex V8_FINAL {
 
   // Tries to lock the given mutex. Returns whether the mutex was
   // successfully locked.
-  bool TryLock() V8_WARN_UNUSED_RESULT;
+  bool TryLock() WARN_UNUSED_RESULT;
 
   // The implementation-defined native handle type.
   typedef Mutex::NativeHandle NativeHandle;
@@ -205,7 +205,7 @@ typedef LazyStaticInstance<RecursiveMutex,
 // The LockGuard class is non-copyable.
 
 template <typename Mutex>
-class LockGuard V8_FINAL {
+class LockGuard FINAL {
  public:
   explicit LockGuard(Mutex* mutex) : mutex_(mutex) { mutex_->Lock(); }
   ~LockGuard() { mutex_->Unlock(); }

@@ -35,7 +35,6 @@
 #include "src/compilation-cache.h"
 #include "src/debug.h"
 #include "src/heap/spaces.h"
-#include "src/ic-inl.h"
 #include "src/natives.h"
 #include "src/objects.h"
 #include "src/runtime.h"
@@ -350,7 +349,7 @@ static void SanityCheck() {
   CHECK(isolate->global_object()->IsJSObject());
   CHECK(isolate->native_context()->IsContext());
   CHECK(CcTest::heap()->string_table()->IsStringTable());
-  isolate->factory()->InternalizeOneByteString(STATIC_ASCII_VECTOR("Empty"));
+  isolate->factory()->InternalizeOneByteString(STATIC_CHAR_VECTOR("Empty"));
 }
 
 
