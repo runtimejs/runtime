@@ -23,10 +23,5 @@ function(kernelLoader) {
     kernelLoader.load('/driver/pci.js');
     kernelLoader.load('/driver/pci-drivers.js');
 
-    // Start PCI bus driver
-    // procManager.create(rt.initrdText("/driver/pci.js"), {
-    //     resources: resources,
-    // });
-
     return {};
 });
