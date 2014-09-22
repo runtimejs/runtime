@@ -22,7 +22,7 @@ Technical details
 Kernel architecture http://runtimejs.org/docs/arch.html
 
 - supported x86_64, 64 bit only
-- software isolated applications (processes or JS realms)
+- software isolated applications (isolates)
 - single address space, no hardware context switches
 - does not use cpu protection rings
 - non-blocking asynchronous IPC
