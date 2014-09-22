@@ -19,13 +19,13 @@ Join IRC chatroom #runtimejs on freenode
 Technical details
 ----
 
-Kernel architecture http://runtimejs.org/docs/arch.html
+Kernel [architecture](https://github.com/runtimejs/runtime/wiki/Architecture)
 
 - supported x86_64, 64 bit only
-- software isolated applications (isolates)
+- software isolated applications ([isolates](https://github.com/runtimejs/runtime/wiki/Isolate))
 - single address space, no hardware context switches
 - does not use cpu protection rings
-- non-blocking asynchronous IPC
+- non-blocking asynchronous inter-isolate communication (IIC)
 - drivers and system services are implemented in JavaScript
 - low-level kernel services are written in C++11
 
@@ -34,15 +34,15 @@ Status
 
 ####What's done
 
-- embedded V8 engine
+- V8 isolates
 - multitasking (cooperative only)
-- [RPC](https://github.com/runtimejs/runtime/wiki/RPC)
+- Inter-isolate communication using [RPC](https://github.com/runtimejs/runtime/wiki/RPC)
 - SMP support (currently disabled)
 - embedded ACPICA for ACPI support
 - simple keyboard and VGA display drivers
-- JavaScript REPL application
+- shell and some basic applications
 - PCI bus driver device detection
-- simple virtio-net driver
+- virtio-net driver
 
 
 ####Planned
