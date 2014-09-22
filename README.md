@@ -25,7 +25,7 @@ Kernel [architecture](https://github.com/runtimejs/runtime/wiki/Architecture)
 - software isolated applications ([isolates](https://github.com/runtimejs/runtime/wiki/Isolate))
 - single address space, no hardware context switches
 - does not use cpu protection rings
-- non-blocking asynchronous inter-isolate communication (IIC)
+- non-blocking asynchronous [inter-isolate communication](https://github.com/runtimejs/runtime/wiki/RPC) (IIC)
 - drivers and system services are implemented in JavaScript
 - low-level kernel services are written in C++11
 
