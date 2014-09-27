@@ -77,7 +77,7 @@ To build
 
     scons
     
-####Run using QEMU
+####Run using QEMU (recommended version >= 2.0.0)
 
     ./qemu.sh
     
