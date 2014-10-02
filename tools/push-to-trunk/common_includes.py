@@ -45,14 +45,7 @@ import urllib2
 from git_recipes import GitRecipesMixin
 from git_recipes import GitFailedException
 
-PERSISTFILE_BASENAME = "PERSISTFILE_BASENAME"
-BRANCHNAME = "BRANCHNAME"
-DOT_GIT_LOCATION = "DOT_GIT_LOCATION"
-VERSION_FILE = "VERSION_FILE"
-CHANGELOG_FILE = "CHANGELOG_FILE"
-CHANGELOG_ENTRY_FILE = "CHANGELOG_ENTRY_FILE"
-COMMITMSG_FILE = "COMMITMSG_FILE"
-PATCH_FILE = "PATCH_FILE"
+VERSION_FILE = os.path.join("src", "version.cc")
 
 # V8 base directory.
 DEFAULT_CWD = os.path.dirname(
@@ -262,15 +255,149 @@ class NoRetryException(Exception):
   pass
 
 
+class VCInterface(object):
+  def InjectStep(self, step):
+    self.step=step
+
+  def Pull(self):
+    raise NotImplementedError()
+
+  def Fetch(self):
+    raise NotImplementedError()
+
+  def GetTags(self):
+    raise NotImplementedError()
+
+  def GetBranches(self):
+    raise NotImplementedError()
+
+  def GitSvn(self, hsh, branch=""):
+    raise NotImplementedError()
+
+  def SvnGit(self, rev, branch=""):
+    raise NotImplementedError()
+
+  def RemoteMasterBranch(self):
+    raise NotImplementedError()
+
+  def RemoteCandidateBranch(self):
+    raise NotImplementedError()
+
+  def RemoteBranch(self, name):
+    raise NotImplementedError()
+
+  def Land(self):
+    raise NotImplementedError()
+
+  def CLLand(self):
+    raise NotImplementedError()
+
+  # TODO(machenbach): There is some svn knowledge in this interface. In svn,
+  # tag and commit are different remote commands, while in git we would commit
+  # and tag locally and then push/land in one unique step.
+  def Tag(self, tag, remote):
+    raise NotImplementedError()
+
+
+class GitSvnInterface(VCInterface):
+  def Pull(self):
+    self.step.GitSVNRebase()
+
+  def Fetch(self):
+    self.step.GitSVNFetch()
+
+  def GetTags(self):
+    # Get remote tags.
+    tags = filter(lambda s: re.match(r"^svn/tags/[\d+\.]+$", s),
+                  self.step.GitRemotes())
+
+    # Remove 'svn/tags/' prefix.
+    return map(lambda s: s[9:], tags)
+
+  def GetBranches(self):
+    # Get relevant remote branches, e.g. "svn/3.25".
+    branches = filter(lambda s: re.match(r"^svn/\d+\.\d+$", s),
+                      self.step.GitRemotes())
+    # Remove 'svn/' prefix.
+    return map(lambda s: s[4:], branches)
+
+  def GitSvn(self, hsh, branch=""):
+    return self.step.GitSVNFindSVNRev(hsh, branch)
+
+  def SvnGit(self, rev, branch=""):
+    return self.step.GitSVNFindGitHash(rev, branch)
+
+  def RemoteMasterBranch(self):
+    return "svn/bleeding_edge"
+
+  def RemoteCandidateBranch(self):
+    return "svn/trunk"
+
+  def RemoteBranch(self, name):
+    return "svn/%s" % name
+
+  def Land(self):
+    self.step.GitSVNDCommit()
+
+  def CLLand(self):
+    self.step.GitDCommit()
+
+  def Tag(self, tag, remote):
+    self.step.GitSVNFetch()
+    self.step.Git("rebase %s" % remote)
+    self.step.GitSVNTag(tag)
+
+
+class GitReadOnlyMixin(VCInterface):
+  def Pull(self):
+    self.step.GitPull()
+
+  def Fetch(self):
+    self.step.Git("fetch")
+
+  def GetTags(self):
+     return self.step.Git("tag").strip().splitlines()
+
+  def GetBranches(self):
+    # Get relevant remote branches, e.g. "origin/branch-heads/3.25".
+    branches = filter(
+        lambda s: re.match(r"^origin/branch\-heads/\d+\.\d+$", s),
+        self.step.GitRemotes())
+    # Remove 'origin/branch-heads/' prefix.
+    return map(lambda s: s[20:], branches)
+
+  def RemoteMasterBranch(self):
+    return "origin/master"
+
+  def RemoteCandidateBranch(self):
+    return "origin/candidates"
+
+  def RemoteBranch(self, name):
+    if name in ["candidates", "master"]:
+      return "origin/%s" % name
+    return "origin/branch-heads/%s" % name
+
+
+class GitReadSvnWriteInterface(GitReadOnlyMixin, GitSvnInterface):
+  pass
+
+
+VC_INTERFACES = {
+  "git_svn": GitSvnInterface,
+  "git_read_svn_write": GitReadSvnWriteInterface,
+}
+
+
 class Step(GitRecipesMixin):
-  def __init__(self, text, requires, number, config, state, options, handler):
+  def __init__(self, text, number, config, state, options, handler):
     self._text = text
-    self._requires = requires
     self._number = number
     self._config = config
     self._state = state
     self._options = options
     self._side_effect_handler = handler
+    self.vc = VC_INTERFACES[options.vc_interface]()
+    self.vc.InjectStep(self)
 
     # The testing configuration might set a different default cwd.
     self.default_cwd = self._config.get("DEFAULT_CWD") or DEFAULT_CWD
@@ -295,13 +422,9 @@ class Step(GitRecipesMixin):
 
   def Run(self):
     # Restore state.
-    state_file = "%s-state.json" % self._config[PERSISTFILE_BASENAME]
+    state_file = "%s-state.json" % self._config["PERSISTFILE_BASENAME"]
     if not self._state and os.path.exists(state_file):
       self._state.update(json.loads(FileToText(state_file)))
-
-    # Skip step if requirement is not met.
-    if self._requires and not self._state.get(self._requires):
-      return
 
     print ">>> Step %d: %s" % (self._number, self._text)
     try:
@@ -414,9 +537,9 @@ class Step(GitRecipesMixin):
           msg = "Can't continue. Please delete branch %s and try again." % name
           self.Die(msg)
 
-  def InitialEnvironmentChecks(self):
+  def InitialEnvironmentChecks(self, cwd):
     # Cancel if this is not a git checkout.
-    if not os.path.exists(self._config[DOT_GIT_LOCATION]):  # pragma: no cover
+    if not os.path.exists(os.path.join(cwd, ".git")):  # pragma: no cover
       self.Die("This is not a git checkout, this script won't work for you.")
 
     # Cancel if EDITOR is unset or not executable.
@@ -434,19 +557,19 @@ class Step(GitRecipesMixin):
     self["current_branch"] = self.GitCurrentBranch()
 
     # Fetch unfetched revisions.
-    self.GitSVNFetch()
+    self.vc.Fetch()
 
   def PrepareBranch(self):
     # Delete the branch that will be created later if it exists already.
-    self.DeleteBranch(self._config[BRANCHNAME])
+    self.DeleteBranch(self._config["BRANCHNAME"])
 
   def CommonCleanup(self):
     self.GitCheckout(self["current_branch"])
-    if self._config[BRANCHNAME] != self["current_branch"]:
-      self.GitDeleteBranch(self._config[BRANCHNAME])
+    if self._config["BRANCHNAME"] != self["current_branch"]:
+      self.GitDeleteBranch(self._config["BRANCHNAME"])
 
     # Clean up all temporary files.
-    for f in glob.iglob("%s*" % self._config[PERSISTFILE_BASENAME]):
+    for f in glob.iglob("%s*" % self._config["PERSISTFILE_BASENAME"]):
       if os.path.isfile(f):
         os.remove(f)
       if os.path.isdir(f):
@@ -458,7 +581,7 @@ class Step(GitRecipesMixin):
       if match:
         value = match.group(1)
         self["%s%s" % (prefix, var_name)] = value
-    for line in LinesInFile(self._config[VERSION_FILE]):
+    for line in LinesInFile(os.path.join(self.default_cwd, VERSION_FILE)):
       for (var_name, def_name) in [("major", "MAJOR_VERSION"),
                                    ("minor", "MINOR_VERSION"),
                                    ("build", "BUILD_NUMBER"),
@@ -505,7 +628,7 @@ class Step(GitRecipesMixin):
       # Non-patched versions only have three numbers followed by the "(based
       # on...) comment."
       push_pattern += " (based"
-    branch = "" if parent_hash else branch or "svn/trunk"
+    branch = "" if parent_hash else branch or self.vc.RemoteCandidateBranch()
     return self.GitLog(n=1, format="%H", grep=push_pattern,
                        parent_hash=parent_hash, branch=branch)
 
@@ -531,12 +654,12 @@ class Step(GitRecipesMixin):
 
   def SVNCommit(self, root, commit_message):
     patch = self.GitDiff("HEAD^", "HEAD")
-    TextToFile(patch, self._config[PATCH_FILE])
+    TextToFile(patch, self._config["PATCH_FILE"])
     self.Command("svn", "update", cwd=self._options.svn)
     if self.Command("svn", "status", cwd=self._options.svn) != "":
       self.Die("SVN checkout not clean.")
     if not self.Command("patch", "-d %s -p1 -i %s" %
-                        (root, self._config[PATCH_FILE]),
+                        (root, self._config["PATCH_FILE"]),
                         cwd=self._options.svn):
       self.Die("Could not apply patch.")
     self.Command(
@@ -558,7 +681,8 @@ class UploadStep(Step):
       self.DieNoManualMode("A reviewer must be specified in forced mode.")
       reviewer = self.ReadLine()
     self.GitUpload(reviewer, self._options.author, self._options.force_upload,
-                   bypass_hooks=self._options.bypass_upload_hooks)
+                   bypass_hooks=self._options.bypass_upload_hooks,
+                   cc=self._options.cc)
 
 
 class DetermineV8Sheriff(Step):
@@ -605,21 +729,18 @@ def MakeStep(step_class=Step, number=0, state=None, config=None,
       message = step_class.MESSAGE
     except AttributeError:
       message = step_class.__name__
-    try:
-      requires = step_class.REQUIRES
-    except AttributeError:
-      requires = None
 
-    return step_class(message, requires, number=number, config=config,
+    return step_class(message, number=number, config=config,
                       state=state, options=options,
                       handler=side_effect_handler)
 
 
 class ScriptsBase(object):
-  # TODO(machenbach): Move static config here.
-  def __init__(self, config, side_effect_handler=DEFAULT_SIDE_EFFECT_HANDLER,
+  def __init__(self,
+               config=None,
+               side_effect_handler=DEFAULT_SIDE_EFFECT_HANDLER,
                state=None):
-    self._config = config
+    self._config = config or self._Config()
     self._side_effect_handler = side_effect_handler
     self._state = state if state is not None else {}
 
@@ -634,6 +755,9 @@ class ScriptsBase(object):
 
   def _Steps(self):  # pragma: no cover
     raise Exception("Not implemented.")
+
+  def _Config(self):
+    return {}
 
   def MakeOptions(self, args=None):
     parser = argparse.ArgumentParser(description=self._Description())
@@ -657,6 +781,9 @@ class ScriptsBase(object):
     parser.add_argument("-s", "--step",
         help="Specify the step where to start work. Default: 0.",
         default=0, type=int)
+    parser.add_argument("--vc-interface",
+                        help=("Choose VC interface out of git_svn|"
+                              "git_read_svn_write."))
     self._PrepareOptions(parser)
 
     if args is None:  # pragma: no cover
@@ -693,6 +820,9 @@ class ScriptsBase(object):
     if not self._ProcessOptions(options):
       parser.print_help()
       return None
+
+    if not options.vc_interface:
+      options.vc_interface = "git_svn"
     return options
 
   def RunSteps(self, step_classes, args=None):
@@ -700,7 +830,7 @@ class ScriptsBase(object):
     if not options:
       return 1
 
-    state_file = "%s-state.json" % self._config[PERSISTFILE_BASENAME]
+    state_file = "%s-state.json" % self._config["PERSISTFILE_BASENAME"]
     if options.step == 0 and os.path.exists(state_file):
       os.remove(state_file)
 

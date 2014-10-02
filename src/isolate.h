@@ -20,7 +20,7 @@
 #include "src/heap/heap.h"
 #include "src/optimizing-compiler-thread.h"
 #include "src/regexp-stack.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 #include "src/runtime-profiler.h"
 #include "src/zone.h"
 
@@ -32,6 +32,7 @@ class RandomNumberGenerator;
 
 namespace internal {
 
+class BasicBlockProfiler;
 class Bootstrapper;
 class CallInterfaceDescriptorData;
 class CodeGenerator;
@@ -384,6 +385,7 @@ typedef List<HeapObject*> DebugObjectCache;
   V(uint32_t, per_isolate_assert_data, 0xFFFFFFFFu)                            \
   V(InterruptCallback, api_interrupt_callback, NULL)                           \
   V(void*, api_interrupt_callback_data, NULL)                                  \
+  V(PromiseRejectCallback, promise_reject_callback, NULL)                      \
   ISOLATE_INIT_SIMULATOR_LIST(V)
 
 #define THREAD_LOCAL_TOP_ACCESSOR(type, name)                        \
@@ -466,17 +468,17 @@ class Isolate {
     kIsolateAddressCount
   };
 
+  static void InitializeOncePerProcess();
+
   // Returns the PerIsolateThreadData for the current thread (or NULL if one is
   // not currently set).
   static PerIsolateThreadData* CurrentPerIsolateThreadData() {
-    EnsureInitialized();
     return reinterpret_cast<PerIsolateThreadData*>(
         base::Thread::GetThreadLocal(per_isolate_thread_data_key_));
   }
 
   // Returns the isolate inside which the current thread is running.
   INLINE(static Isolate* Current()) {
-    EnsureInitialized();
     Isolate* isolate = reinterpret_cast<Isolate*>(
         base::Thread::GetExistingThreadLocal(isolate_key_));
     DCHECK(isolate != NULL);
@@ -484,7 +486,6 @@ class Isolate {
   }
 
   INLINE(static Isolate* UncheckedCurrent()) {
-    EnsureInitialized();
     return reinterpret_cast<Isolate*>(
         base::Thread::GetThreadLocal(isolate_key_));
   }
@@ -529,13 +530,11 @@ class Isolate {
   // Used internally for V8 threads that do not execute JavaScript but still
   // are part of the domain of an isolate (like the context switcher).
   static base::Thread::LocalStorageKey isolate_key() {
-    EnsureInitialized();
     return isolate_key_;
   }
 
   // Returns the key used to store process-wide thread IDs.
   static base::Thread::LocalStorageKey thread_id_key() {
-    EnsureInitialized();
     return thread_id_key_;
   }
 
@@ -1062,14 +1061,6 @@ class Isolate {
     return optimizing_compiler_thread_;
   }
 
-  int num_sweeper_threads() const {
-    return num_sweeper_threads_;
-  }
-
-  SweeperThread** sweeper_threads() {
-    return sweeper_thread_;
-  }
-
   int id() const { return static_cast<int>(id_); }
 
   HStatistics* GetHStatistics();
@@ -1104,15 +1095,22 @@ class Isolate {
   void RemoveCallCompletedCallback(CallCompletedCallback callback);
   void FireCallCompletedCallback();
 
+  void SetPromiseRejectCallback(PromiseRejectCallback callback);
+  void ReportPromiseReject(Handle<JSObject> promise, Handle<Object> value,
+                           v8::PromiseRejectEvent event);
+
   void EnqueueMicrotask(Handle<Object> microtask);
   void RunMicrotasks();
 
   void SetUseCounterCallback(v8::Isolate::UseCounterCallback callback);
   void CountUsage(v8::Isolate::UseCounterFeature feature);
 
- private:
-  static void EnsureInitialized();
+  BasicBlockProfiler* GetOrCreateBasicBlockProfiler();
+  BasicBlockProfiler* basic_block_profiler() { return basic_block_profiler_; }
 
+  static Isolate* NewForTesting() { return new Isolate(); }
+
+ private:
   Isolate();
 
   friend struct GlobalState;
@@ -1171,8 +1169,7 @@ class Isolate {
     DISALLOW_COPY_AND_ASSIGN(EntryStackItem);
   };
 
-  // This mutex protects highest_thread_id_ and thread_data_table_.
-  static base::LazyMutex process_wide_mutex_;
+  static base::LazyMutex thread_data_table_mutex_;
 
   static base::Thread::LocalStorageKey per_isolate_thread_data_key_;
   static base::Thread::LocalStorageKey isolate_key_;
@@ -1215,6 +1212,9 @@ class Isolate {
   // If there is no external try-catch or message was successfully propagated,
   // then return true.
   bool PropagatePendingExceptionToExternalTryCatch();
+
+  Handle<JSMessageObject> CreateMessage(Handle<Object> exception,
+                                        MessageLocation* location);
 
   // Traverse prototype chain to find out whether the object is derived from
   // the Error object.
@@ -1319,8 +1319,6 @@ class Isolate {
 
   DeferredHandles* deferred_handles_head_;
   OptimizingCompilerThread* optimizing_compiler_thread_;
-  SweeperThread** sweeper_thread_;
-  int num_sweeper_threads_;
 
   // Counts deopt points if deopt_every_n_times is enabled.
   unsigned int stress_deopt_count_;
@@ -1331,6 +1329,7 @@ class Isolate {
   List<CallCompletedCallback> call_completed_callbacks_;
 
   v8::Isolate::UseCounterCallback use_counter_callback_;
+  BasicBlockProfiler* basic_block_profiler_;
 
   friend class ExecutionAccess;
   friend class HandleScopeImplementer;

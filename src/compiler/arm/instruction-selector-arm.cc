@@ -11,7 +11,7 @@ namespace internal {
 namespace compiler {
 
 // Adds Arm-specific methods for generating InstructionOperands.
-class ArmOperandGenerator FINAL : public OperandGenerator {
+class ArmOperandGenerator : public OperandGenerator {
  public:
   explicit ArmOperandGenerator(InstructionSelector* selector)
       : OperandGenerator(selector) {}
@@ -49,10 +49,10 @@ class ArmOperandGenerator FINAL : public OperandGenerator {
       case kArmRsb:
         return ImmediateFitsAddrMode1Instruction(value);
 
-      case kArmVldr32:
-      case kArmVstr32:
-      case kArmVldr64:
-      case kArmVstr64:
+      case kArmVldrF32:
+      case kArmVstrF32:
+      case kArmVldrF64:
+      case kArmVstrF64:
         return value >= -1020 && value <= 1020 && (value % 4) == 0;
 
       case kArmLdrb:
@@ -68,13 +68,12 @@ class ArmOperandGenerator FINAL : public OperandGenerator {
       case kArmStrh:
         return value >= -255 && value <= 255;
 
-      case kArchCallAddress:
       case kArchCallCodeObject:
       case kArchCallJSFunction:
-      case kArchDrop:
       case kArchJmp:
       case kArchNop:
       case kArchRet:
+      case kArchStackPointer:
       case kArchTruncateDoubleToI:
       case kArmMul:
       case kArmMla:
@@ -92,6 +91,9 @@ class ArmOperandGenerator FINAL : public OperandGenerator {
       case kArmVdivF64:
       case kArmVmodF64:
       case kArmVnegF64:
+      case kArmVsqrtF64:
+      case kArmVcvtF32F64:
+      case kArmVcvtF64F32:
       case kArmVcvtF64S32:
       case kArmVcvtF64U32:
       case kArmVcvtS32F64:
@@ -292,10 +294,10 @@ void InstructionSelector::VisitLoad(Node* node) {
   ArchOpcode opcode;
   switch (rep) {
     case kRepFloat32:
-      opcode = kArmVldr32;
+      opcode = kArmVldrF32;
       break;
     case kRepFloat64:
-      opcode = kArmVldr64;
+      opcode = kArmVldrF64;
       break;
     case kRepBit:  // Fall through.
     case kRepWord8:
@@ -347,10 +349,10 @@ void InstructionSelector::VisitStore(Node* node) {
   ArchOpcode opcode;
   switch (rep) {
     case kRepFloat32:
-      opcode = kArmVstr32;
+      opcode = kArmVstrF32;
       break;
     case kRepFloat64:
-      opcode = kArmVstr64;
+      opcode = kArmVstrF64;
       break;
     case kRepBit:  // Fall through.
     case kRepWord8:
@@ -647,7 +649,7 @@ void InstructionSelector::VisitInt32Div(Node* node) {
 }
 
 
-void InstructionSelector::VisitInt32UDiv(Node* node) {
+void InstructionSelector::VisitUint32Div(Node* node) {
   VisitDiv(this, node, kArmUdiv, kArmVcvtF64U32, kArmVcvtU32F64);
 }
 
@@ -679,8 +681,15 @@ void InstructionSelector::VisitInt32Mod(Node* node) {
 }
 
 
-void InstructionSelector::VisitInt32UMod(Node* node) {
+void InstructionSelector::VisitUint32Mod(Node* node) {
   VisitMod(this, node, kArmUdiv, kArmVcvtF64U32, kArmVcvtU32F64);
+}
+
+
+void InstructionSelector::VisitChangeFloat32ToFloat64(Node* node) {
+  ArmOperandGenerator g(this);
+  Emit(kArmVcvtF64F32, g.DefineAsRegister(node),
+       g.UseRegister(node->InputAt(0)));
 }
 
 
@@ -708,6 +717,13 @@ void InstructionSelector::VisitChangeFloat64ToInt32(Node* node) {
 void InstructionSelector::VisitChangeFloat64ToUint32(Node* node) {
   ArmOperandGenerator g(this);
   Emit(kArmVcvtU32F64, g.DefineAsRegister(node),
+       g.UseRegister(node->InputAt(0)));
+}
+
+
+void InstructionSelector::VisitTruncateFloat64ToFloat32(Node* node) {
+  ArmOperandGenerator g(this);
+  Emit(kArmVcvtF32F64, g.DefineAsRegister(node),
        g.UseRegister(node->InputAt(0)));
 }
 
@@ -770,6 +786,12 @@ void InstructionSelector::VisitFloat64Mod(Node* node) {
 }
 
 
+void InstructionSelector::VisitFloat64Sqrt(Node* node) {
+  ArmOperandGenerator g(this);
+  Emit(kArmVsqrtF64, g.DefineAsRegister(node), g.UseRegister(node->InputAt(0)));
+}
+
+
 void InstructionSelector::VisitCall(Node* call, BasicBlock* continuation,
                                     BasicBlock* deoptimization) {
   ArmOperandGenerator g(this);
@@ -803,9 +825,6 @@ void InstructionSelector::VisitCall(Node* call, BasicBlock* continuation,
       opcode = kArchCallCodeObject;
       break;
     }
-    case CallDescriptor::kCallAddress:
-      opcode = kArchCallAddress;
-      break;
     case CallDescriptor::kCallJSFunction:
       opcode = kArchCallJSFunction;
       break;
@@ -824,13 +843,6 @@ void InstructionSelector::VisitCall(Node* call, BasicBlock* continuation,
   if (deoptimization != NULL) {
     DCHECK(continuation != NULL);
     call_instr->MarkAsControl();
-  }
-
-  // Caller clean up of stack for C-style calls.
-  if (descriptor->kind() == CallDescriptor::kCallAddress &&
-      !buffer.pushed_nodes.empty()) {
-    DCHECK(deoptimization == NULL && continuation == NULL);
-    Emit(kArchDrop | MiscField::encode(buffer.pushed_nodes.size()), NULL);
   }
 }
 

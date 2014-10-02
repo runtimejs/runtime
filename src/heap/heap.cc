@@ -923,9 +923,12 @@ void Heap::ReserveSpace(int* sizes, Address* locations_out) {
   static const int kThreshold = 20;
   while (gc_performed && counter++ < kThreshold) {
     gc_performed = false;
-    DCHECK(NEW_SPACE == FIRST_PAGED_SPACE - 1);
-    for (int space = NEW_SPACE; space <= LAST_PAGED_SPACE; space++) {
-      if (sizes[space] != 0) {
+    for (int space = NEW_SPACE; space < Serializer::kNumberOfSpaces; space++) {
+      if (sizes[space] == 0) continue;
+      bool perform_gc = false;
+      if (space == LO_SPACE) {
+        perform_gc = !lo_space()->CanAllocateSize(sizes[space]);
+      } else {
         AllocationResult allocation;
         if (space == NEW_SPACE) {
           allocation = new_space()->AllocateRaw(sizes[space]);
@@ -933,23 +936,27 @@ void Heap::ReserveSpace(int* sizes, Address* locations_out) {
           allocation = paged_space(space)->AllocateRaw(sizes[space]);
         }
         FreeListNode* node;
-        if (!allocation.To(&node)) {
-          if (space == NEW_SPACE) {
-            Heap::CollectGarbage(NEW_SPACE,
-                                 "failed to reserve space in the new space");
-          } else {
-            AbortIncrementalMarkingAndCollectGarbage(
-                this, static_cast<AllocationSpace>(space),
-                "failed to reserve space in paged space");
-          }
-          gc_performed = true;
-          break;
-        } else {
+        if (allocation.To(&node)) {
           // Mark with a free list node, in case we have a GC before
           // deserializing.
           node->set_size(this, sizes[space]);
+          DCHECK(space < Serializer::kNumberOfPreallocatedSpaces);
           locations_out[space] = node->address();
+        } else {
+          perform_gc = true;
         }
+      }
+      if (perform_gc) {
+        if (space == NEW_SPACE) {
+          Heap::CollectGarbage(NEW_SPACE,
+                               "failed to reserve space in the new space");
+        } else {
+          AbortIncrementalMarkingAndCollectGarbage(
+              this, static_cast<AllocationSpace>(space),
+              "failed to reserve space in paged or large object space");
+        }
+        gc_performed = true;
+        break;  // Abort for-loop over spaces and retry.
       }
     }
   }
@@ -1282,8 +1289,8 @@ static void VerifyNonPointerSpacePointers(Heap* heap) {
 
 
 void Heap::CheckNewSpaceExpansionCriteria() {
-  if (new_space_.Capacity() < new_space_.MaximumCapacity() &&
-      survived_since_last_expansion_ > new_space_.Capacity()) {
+  if (new_space_.TotalCapacity() < new_space_.MaximumCapacity() &&
+      survived_since_last_expansion_ > new_space_.TotalCapacity()) {
     // Grow the size of new space if there is room to grow, enough data
     // has survived scavenge since the last expansion and we are not in
     // high promotion mode.
@@ -2823,6 +2830,15 @@ void Heap::CreateInitialObjects() {
   set_instanceof_cache_map(Smi::FromInt(0));
   set_instanceof_cache_answer(Smi::FromInt(0));
 
+  {
+    HandleScope scope(isolate());
+#define SYMBOL_INIT(name)                               \
+  Handle<Symbol> name = factory->NewPrivateOwnSymbol(); \
+  roots_[k##name##RootIndex] = *name;
+    PRIVATE_SYMBOL_LIST(SYMBOL_INIT)
+#undef SYMBOL_INIT
+  }
+
   CreateFixedStubs();
 
   // Allocate the dictionary of intrinsic function names.
@@ -2860,19 +2876,6 @@ void Heap::CreateInitialObjects() {
   // Microtask queue uses the empty fixed array as a sentinel for "empty".
   // Number of queued microtasks stored in Isolate::pending_microtask_count().
   set_microtask_queue(empty_fixed_array());
-
-  set_detailed_stack_trace_symbol(*factory->NewPrivateSymbol());
-  set_elements_transition_symbol(*factory->NewPrivateSymbol());
-  set_frozen_symbol(*factory->NewPrivateSymbol());
-  set_megamorphic_symbol(*factory->NewPrivateSymbol());
-  set_premonomorphic_symbol(*factory->NewPrivateSymbol());
-  set_generic_symbol(*factory->NewPrivateSymbol());
-  set_nonexistent_symbol(*factory->NewPrivateSymbol());
-  set_normal_ic_symbol(*factory->NewPrivateSymbol());
-  set_observed_symbol(*factory->NewPrivateSymbol());
-  set_stack_trace_symbol(*factory->NewPrivateSymbol());
-  set_uninitialized_symbol(*factory->NewPrivateSymbol());
-  set_home_object_symbol(*factory->NewPrivateOwnSymbol());
 
   Handle<SeededNumberDictionary> slow_element_dictionary =
       SeededNumberDictionary::New(isolate(), 0, TENURED);
@@ -4313,6 +4316,9 @@ bool Heap::IdleNotification(int idle_time_in_ms) {
       static_cast<size_t>(tracer()->ScavengeSpeedInBytesPerMillisecond());
   heap_state.available_new_space_memory = new_space_.Available();
   heap_state.new_space_capacity = new_space_.Capacity();
+  heap_state.new_space_allocation_throughput_in_bytes_per_ms =
+      static_cast<size_t>(
+          tracer()->NewSpaceAllocationThroughputInBytesPerMillisecond());
 
   GCIdleTimeAction action =
       gc_idle_time_handler_.Compute(idle_time_in_ms, heap_state);
@@ -4349,8 +4355,10 @@ bool Heap::IdleNotification(int idle_time_in_ms) {
 
   int actual_time_ms = static_cast<int>(timer.Elapsed().InMilliseconds());
   if (actual_time_ms <= idle_time_in_ms) {
-    isolate()->counters()->gc_idle_time_limit_undershot()->AddSample(
-        idle_time_in_ms - actual_time_ms);
+    if (action.type != DONE && action.type != DO_NOTHING) {
+      isolate()->counters()->gc_idle_time_limit_undershot()->AddSample(
+          idle_time_in_ms - actual_time_ms);
+    }
   } else {
     isolate()->counters()->gc_idle_time_limit_overshot()->AddSample(
         actual_time_ms - idle_time_in_ms);

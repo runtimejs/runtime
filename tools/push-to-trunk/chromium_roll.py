@@ -9,13 +9,6 @@ import sys
 
 from common_includes import *
 
-CHROMIUM = "CHROMIUM"
-
-CONFIG = {
-  PERSISTFILE_BASENAME: "/tmp/v8-chromium-roll-tempfile",
-  DOT_GIT_LOCATION: ".git",
-}
-
 
 class Preparation(Step):
   MESSAGE = "Preparation."
@@ -30,7 +23,7 @@ class DetectLastPush(Step):
 
   def RunStep(self):
     self["last_push"] = self._options.last_push or self.FindLastTrunkPush(
-        branch="origin/master", include_patches=True)
+        branch="origin/candidates", include_patches=True)
     self["trunk_revision"] = self.GetCommitPositionNumber(self["last_push"])
     self["push_title"] = self.GitLog(n=1, format="%s",
                                      git_hash=self["last_push"])
@@ -43,7 +36,7 @@ class SwitchChromium(Step):
     self["v8_path"] = os.getcwd()
     cwd = self._options.chromium
     os.chdir(cwd)
-    self.InitialEnvironmentChecks()
+    self.InitialEnvironmentChecks(cwd)
     # Check for a clean workdir.
     if not self.GitIsWorkdirClean(cwd=cwd):  # pragma: no cover
       self.Die("Workspace is not clean. Please commit or undo your changes.")
@@ -117,7 +110,7 @@ class CleanUp(Step):
           % self["trunk_revision"])
 
     # Clean up all temporary files.
-    Command("rm", "-f %s*" % self._config[PERSISTFILE_BASENAME])
+    Command("rm", "-f %s*" % self._config["PERSISTFILE_BASENAME"])
 
 
 class ChromiumRoll(ScriptsBase):
@@ -141,6 +134,11 @@ class ChromiumRoll(ScriptsBase):
     options.manual = False
     return True
 
+  def _Config(self):
+    return {
+      "PERSISTFILE_BASENAME": "/tmp/v8-chromium-roll-tempfile",
+    }
+
   def _Steps(self):
     return [
       Preparation,
@@ -155,4 +153,4 @@ class ChromiumRoll(ScriptsBase):
 
 
 if __name__ == "__main__":  # pragma: no cover
-  sys.exit(ChromiumRoll(CONFIG).Run())
+  sys.exit(ChromiumRoll().Run())

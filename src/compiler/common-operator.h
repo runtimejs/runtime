@@ -6,16 +6,13 @@
 #define V8_COMPILER_COMMON_OPERATOR_H_
 
 #include "src/compiler/machine-type.h"
+#include "src/unique.h"
 
 namespace v8 {
 namespace internal {
 
 // Forward declarations.
 class ExternalReference;
-class OStream;
-template <typename>
-class Unique;
-class Zone;
 
 
 namespace compiler {
@@ -28,24 +25,60 @@ class Operator;
 
 // Flag that describes how to combine the current environment with
 // the output of a node to obtain a framestate for lazy bailout.
-enum OutputFrameStateCombine {
-  kPushOutput,   // Push the output on the expression stack.
-  kIgnoreOutput  // Use the frame state as-is.
+class OutputFrameStateCombine {
+ public:
+  enum CombineKind {
+    kPushOutput,  // Push the output on the expression stack.
+    kPokeAt       // Poke at the given environment location,
+                  // counting from the top of the stack.
+  };
+
+  static OutputFrameStateCombine Ignore();
+  static OutputFrameStateCombine Push(size_t count = 1);
+  static OutputFrameStateCombine PokeAt(size_t index);
+
+  CombineKind kind();
+  size_t GetPushCount();
+  size_t GetOffsetToPokeAt();
+
+  bool IsOutputIgnored();
+
+ private:
+  OutputFrameStateCombine(CombineKind kind, size_t parameter);
+
+  CombineKind kind_;
+  size_t parameter_;
+};
+
+
+// The type of stack frame that a FrameState node represents.
+enum FrameStateType {
+  JS_FRAME,          // Represents an unoptimized JavaScriptFrame.
+  ARGUMENTS_ADAPTOR  // Represents an ArgumentsAdaptorFrame.
 };
 
 
 class FrameStateCallInfo FINAL {
  public:
-  FrameStateCallInfo(BailoutId bailout_id,
-                     OutputFrameStateCombine state_combine)
-      : bailout_id_(bailout_id), frame_state_combine_(state_combine) {}
+  FrameStateCallInfo(
+      FrameStateType type, BailoutId bailout_id,
+      OutputFrameStateCombine state_combine,
+      MaybeHandle<JSFunction> jsfunction = MaybeHandle<JSFunction>())
+      : type_(type),
+        bailout_id_(bailout_id),
+        frame_state_combine_(state_combine),
+        jsfunction_(jsfunction) {}
 
+  FrameStateType type() const { return type_; }
   BailoutId bailout_id() const { return bailout_id_; }
   OutputFrameStateCombine state_combine() const { return frame_state_combine_; }
+  MaybeHandle<JSFunction> jsfunction() const { return jsfunction_; }
 
  private:
+  FrameStateType type_;
   BailoutId bailout_id_;
   OutputFrameStateCombine frame_state_combine_;
+  MaybeHandle<JSFunction> jsfunction_;
 };
 
 
@@ -70,6 +103,7 @@ class CommonOperatorBuilder FINAL {
 
   const Operator* Int32Constant(int32_t);
   const Operator* Int64Constant(int64_t);
+  const Operator* Float32Constant(volatile float);
   const Operator* Float64Constant(volatile double);
   const Operator* ExternalConstant(const ExternalReference&);
   const Operator* NumberConstant(volatile double);
@@ -77,12 +111,13 @@ class CommonOperatorBuilder FINAL {
 
   const Operator* Phi(MachineType type, int arguments);
   const Operator* EffectPhi(int arguments);
-  const Operator* ControlEffect();
   const Operator* ValueEffect(int arguments);
   const Operator* Finish(int arguments);
   const Operator* StateValues(int arguments);
-  const Operator* FrameState(BailoutId bailout_id,
-                             OutputFrameStateCombine combine);
+  const Operator* FrameState(
+      FrameStateType type, BailoutId bailout_id,
+      OutputFrameStateCombine state_combine,
+      MaybeHandle<JSFunction> jsfunction = MaybeHandle<JSFunction>());
   const Operator* Call(const CallDescriptor* descriptor);
   const Operator* Projection(size_t index);
 

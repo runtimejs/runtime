@@ -66,7 +66,23 @@ namespace internal {
 #endif
 
 // Determine whether the architecture uses an out-of-line constant pool.
+#if V8_TARGET_ARCH_ARM
+#define V8_OOL_CONSTANT_POOL 1
+#else
 #define V8_OOL_CONSTANT_POOL 0
+#endif
+
+#ifdef V8_TARGET_ARCH_ARM
+// Set stack limit lower for ARM than for other architectures because
+// stack allocating MacroAssembler takes 120K bytes.
+// See issue crbug.com/405338
+#define V8_DEFAULT_STACK_SIZE_KB 864
+#else
+// Slightly less than 1MB, since Windows' default stack size for
+// the main execution thread is 1MB for both 32 and 64-bit.
+#define V8_DEFAULT_STACK_SIZE_KB 984
+#endif
+
 
 // Support for alternative bool type. This is only enabled if the code is
 // compiled with USE_MYBOOL defined. This catches some nasty type bugs.
@@ -131,6 +147,13 @@ const intptr_t kIntptrSignBit = V8_INT64_C(0x8000000000000000);
 const uintptr_t kUintptrAllBitsSet = V8_UINT64_C(0xFFFFFFFFFFFFFFFF);
 const bool kRequiresCodeRange = true;
 const size_t kMaximalCodeRangeSize = 512 * MB;
+#if V8_OS_WIN
+const size_t kMinimumCodeRangeSize = 2 * MB;
+const size_t kReservedCodeRangePages = 1;
+#else
+const size_t kMinimumCodeRangeSize = 1 * MB;
+const size_t kReservedCodeRangePages = 0;
+#endif
 #else
 const int kPointerSizeLog2 = 2;
 const intptr_t kIntptrSignBit = 0x80000000;
@@ -139,9 +162,13 @@ const uintptr_t kUintptrAllBitsSet = 0xFFFFFFFFu;
 // x32 port also requires code range.
 const bool kRequiresCodeRange = true;
 const size_t kMaximalCodeRangeSize = 256 * MB;
+const size_t kMinimumCodeRangeSize = 1 * MB;
+const size_t kReservedCodeRangePages = 0;
 #else
 const bool kRequiresCodeRange = false;
 const size_t kMaximalCodeRangeSize = 0 * MB;
+const size_t kMinimumCodeRangeSize = 0 * MB;
+const size_t kReservedCodeRangePages = 0;
 #endif
 #endif
 
@@ -535,22 +562,6 @@ struct AccessorDescriptor {
 };
 
 
-// Logging and profiling.  A StateTag represents a possible state of
-// the VM. The logger maintains a stack of these. Creating a VMState
-// object enters a state by pushing on the stack, and destroying a
-// VMState object leaves a state by popping the current state from the
-// stack.
-
-enum StateTag {
-  JS,
-  GC,
-  COMPILER,
-  OTHER,
-  EXTERNAL,
-  IDLE
-};
-
-
 // -----------------------------------------------------------------------------
 // Macros
 
@@ -757,21 +768,24 @@ enum MinusZeroMode {
 };
 
 
+enum Signedness { kSigned, kUnsigned };
+
+
 enum FunctionKind {
   kNormalFunction = 0,
   kArrowFunction = 1,
   kGeneratorFunction = 2,
-  kConciseMethod = 4
+  kConciseMethod = 4,
+  kConciseGeneratorMethod = kGeneratorFunction | kConciseMethod
 };
 
 
 inline bool IsValidFunctionKind(FunctionKind kind) {
-  // At the moment these are mutually exclusive but in the future that wont be
-  // the case since ES6 allows concise generator methods.
   return kind == FunctionKind::kNormalFunction ||
          kind == FunctionKind::kArrowFunction ||
          kind == FunctionKind::kGeneratorFunction ||
-         kind == FunctionKind::kConciseMethod;
+         kind == FunctionKind::kConciseMethod ||
+         kind == FunctionKind::kConciseGeneratorMethod;
 }
 
 

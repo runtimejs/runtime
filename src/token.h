@@ -6,6 +6,7 @@
 #define V8_TOKEN_H_
 
 #include "src/base/logging.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -148,10 +149,13 @@ namespace internal {
   /* Future reserved words (ECMA-262, section 7.6.1.2). */           \
   T(FUTURE_RESERVED_WORD, NULL, 0)                                   \
   T(FUTURE_STRICT_RESERVED_WORD, NULL, 0)                            \
+  K(CLASS, "class", 0)                                               \
   K(CONST, "const", 0)                                               \
   K(EXPORT, "export", 0)                                             \
+  K(EXTENDS, "extends", 0)                                           \
   K(IMPORT, "import", 0)                                             \
   K(LET, "let", 0)                                                   \
+  K(STATIC, "static", 0)                                             \
   K(YIELD, "yield", 0)                                               \
   K(SUPER, "super", 0)                                               \
                                                                      \
@@ -182,6 +186,24 @@ class Token {
   // Predicates
   static bool IsKeyword(Value tok) {
     return token_type[tok] == 'K';
+  }
+
+  static bool IsIdentifier(Value tok, StrictMode strict_mode,
+                           bool is_generator) {
+    switch (tok) {
+      case IDENTIFIER:
+        return true;
+      case FUTURE_STRICT_RESERVED_WORD:
+      case LET:
+      case STATIC:
+        return strict_mode == SLOPPY;
+      case YIELD:
+        return !is_generator && strict_mode == SLOPPY;
+      default:
+        return false;
+    }
+    UNREACHABLE();
+    return false;
   }
 
   static bool IsAssignmentOp(Value tok) {

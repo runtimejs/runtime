@@ -10,6 +10,7 @@
 #include "src/accessors.h"
 #include "src/allocation.h"
 #include "src/ast.h"
+#include "src/bailout-reason.h"
 #include "src/compiler.h"
 #include "src/hydrogen-instructions.h"
 #include "src/scopes.h"
@@ -214,7 +215,7 @@ class HBasicBlock FINAL : public ZoneObject {
 };
 
 
-OStream& operator<<(OStream& os, const HBasicBlock& b);
+std::ostream& operator<<(std::ostream& os, const HBasicBlock& b);
 
 
 class HPredecessorIterator FINAL BASE_EMBEDDED {
@@ -742,7 +743,7 @@ class HEnvironment FINAL : public ZoneObject {
 };
 
 
-OStream& operator<<(OStream& os, const HEnvironment& env);
+std::ostream& operator<<(std::ostream& os, const HEnvironment& env);
 
 
 class HOptimizedGraphBuilder;
@@ -1728,27 +1729,6 @@ class HGraphBuilder {
     bool finished_;
   };
 
-  template <class A, class P1>
-  void DeoptimizeIf(P1 p1, char* const reason) {
-    IfBuilder builder(this);
-    builder.If<A>(p1);
-    builder.ThenDeopt(reason);
-  }
-
-  template <class A, class P1, class P2>
-  void DeoptimizeIf(P1 p1, P2 p2, const char* reason) {
-    IfBuilder builder(this);
-    builder.If<A>(p1, p2);
-    builder.ThenDeopt(reason);
-  }
-
-  template <class A, class P1, class P2, class P3>
-  void DeoptimizeIf(P1 p1, P2 p2, P3 p3, const char* reason) {
-    IfBuilder builder(this);
-    builder.If<A>(p1, p2, p3);
-    builder.ThenDeopt(reason);
-  }
-
   HValue* BuildNewElementsCapacity(HValue* old_capacity);
 
   class JSArrayBuilder FINAL {
@@ -1825,8 +1805,9 @@ class HGraphBuilder {
                                      ElementsKind kind,
                                      HValue* capacity);
 
-  HValue* BuildAllocateElementsAndInitializeElementsHeader(ElementsKind kind,
-                                                           HValue* capacity);
+  // Build allocation and header initialization code for respective successor
+  // of FixedArrayBase.
+  HValue* BuildAllocateAndInitializeArray(ElementsKind kind, HValue* capacity);
 
   // |array| must have been allocated with enough room for
   // 1) the JSArray and 2) an AllocationMemento if mode requires it.
@@ -1857,6 +1838,9 @@ class HGraphBuilder {
                                  ElementsKind elements_kind,
                                  HValue* from,
                                  HValue* to);
+
+  void BuildCopyProperties(HValue* from_properties, HValue* to_properties,
+                           HValue* length, HValue* capacity);
 
   void BuildCopyElements(HValue* from_elements,
                          ElementsKind from_elements_kind,
@@ -2129,8 +2113,6 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   // Simple accessors.
   BreakAndContinueScope* break_scope() const { return break_scope_; }
   void set_break_scope(BreakAndContinueScope* head) { break_scope_ = head; }
-
-  bool inline_bailout() { return inline_bailout_; }
 
   HValue* context() { return environment()->context(); }
 
@@ -2647,10 +2629,9 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                                          KeyedAccessStoreMode store_mode,
                                          bool* has_side_effects);
 
-  HValue* HandleKeyedElementAccess(HValue* obj,
-                                   HValue* key,
-                                   HValue* val,
-                                   Expression* expr,
+  HValue* HandleKeyedElementAccess(HValue* obj, HValue* key, HValue* val,
+                                   Expression* expr, BailoutId ast_id,
+                                   BailoutId return_id,
                                    PropertyAccessType access_type,
                                    bool* has_side_effects);
 

@@ -5,8 +5,11 @@
 #ifndef V8_OBJECTS_H_
 #define V8_OBJECTS_H_
 
+#include <iosfwd>
+
 #include "src/allocation.h"
 #include "src/assert-scope.h"
+#include "src/bailout-reason.h"
 #include "src/base/bits.h"
 #include "src/builtins.h"
 #include "src/checks.h"
@@ -79,6 +82,7 @@
 //           - OrderedHashSet
 //           - OrderedHashMap
 //         - Context
+//         - TypeFeedbackVector
 //         - JSFunctionResultCache
 //         - ScopeInfo
 //         - TransitionArray
@@ -145,8 +149,6 @@
 
 namespace v8 {
 namespace internal {
-
-class OStream;
 
 enum KeyedAccessStoreMode {
   STANDARD_STORE,
@@ -850,6 +852,7 @@ class GlobalObject;
 class ObjectVisitor;
 class LookupIterator;
 class StringStream;
+class TypeFeedbackVector;
 // We cannot just say "class HeapType;" if it is created from a template... =8-?
 template<class> class TypeImpl;
 struct HeapTypeConfig;
@@ -866,7 +869,7 @@ template <class C> inline bool Is(Object* obj);
 #endif
 
 #ifdef OBJECT_PRINT
-#define DECLARE_PRINTER(Name) void Name##Print(OStream& os);  // NOLINT
+#define DECLARE_PRINTER(Name) void Name##Print(std::ostream& os);  // NOLINT
 #else
 #define DECLARE_PRINTER(Name)
 #endif
@@ -924,6 +927,7 @@ template <class C> inline bool Is(Object* obj);
   V(Map)                           \
   V(DescriptorArray)               \
   V(TransitionArray)               \
+  V(TypeFeedbackVector)            \
   V(DeoptimizationInputData)       \
   V(DeoptimizationOutputData)      \
   V(DependentCode)                 \
@@ -980,337 +984,6 @@ template <class C> inline bool Is(Object* obj);
   V(WeakHashTable)                 \
   V(OrderedHashTable)
 
-
-#define ERROR_MESSAGES_LIST(V)                                                 \
-  V(kNoReason, "no reason")                                                    \
-                                                                               \
-  V(k32BitValueInRegisterIsNotZeroExtended,                                    \
-    "32 bit value in register is not zero-extended")                           \
-  V(kAlignmentMarkerExpected, "Alignment marker expected")                     \
-  V(kAllocationIsNotDoubleAligned, "Allocation is not double aligned")         \
-  V(kAPICallReturnedInvalidObject, "API call returned invalid object")         \
-  V(kArgumentsObjectValueInATestContext,                                       \
-    "Arguments object value in a test context")                                \
-  V(kArrayBoilerplateCreationFailed, "Array boilerplate creation failed")      \
-  V(kArrayIndexConstantValueTooBig, "Array index constant value too big")      \
-  V(kAssignmentToArguments, "Assignment to arguments")                         \
-  V(kAssignmentToLetVariableBeforeInitialization,                              \
-    "Assignment to let variable before initialization")                        \
-  V(kAssignmentToLOOKUPVariable, "Assignment to LOOKUP variable")              \
-  V(kAssignmentToParameterFunctionUsesArgumentsObject,                         \
-    "Assignment to parameter, function uses arguments object")                 \
-  V(kAssignmentToParameterInArgumentsObject,                                   \
-    "Assignment to parameter in arguments object")                             \
-  V(kAttemptToUseUndefinedCache, "Attempt to use undefined cache")             \
-  V(kBadValueContextForArgumentsObjectValue,                                   \
-    "Bad value context for arguments object value")                            \
-  V(kBadValueContextForArgumentsValue,                                         \
-    "Bad value context for arguments value")                                   \
-  V(kBailedOutDueToDependencyChange, "Bailed out due to dependency change")    \
-  V(kBailoutWasNotPrepared, "Bailout was not prepared")                        \
-  V(kBinaryStubGenerateFloatingPointCode,                                      \
-    "BinaryStub_GenerateFloatingPointCode")                                    \
-  V(kBothRegistersWereSmisInSelectNonSmi,                                      \
-    "Both registers were smis in SelectNonSmi")                                \
-  V(kCallToAJavaScriptRuntimeFunction,                                         \
-    "Call to a JavaScript runtime function")                                   \
-  V(kCannotTranslatePositionInChangedArea,                                     \
-    "Cannot translate position in changed area")                               \
-  V(kCodeGenerationFailed, "Code generation failed")                           \
-  V(kCodeObjectNotProperlyPatched, "Code object not properly patched")         \
-  V(kCompoundAssignmentToLookupSlot, "Compound assignment to lookup slot")     \
-  V(kContextAllocatedArguments, "Context-allocated arguments")                 \
-  V(kCopyBuffersOverlap, "Copy buffers overlap")                               \
-  V(kCouldNotGenerateZero, "Could not generate +0.0")                          \
-  V(kCouldNotGenerateNegativeZero, "Could not generate -0.0")                  \
-  V(kDebuggerHasBreakPoints, "Debugger has break points")                      \
-  V(kDebuggerStatement, "DebuggerStatement")                                   \
-  V(kDeclarationInCatchContext, "Declaration in catch context")                \
-  V(kDeclarationInWithContext, "Declaration in with context")                  \
-  V(kDefaultNaNModeNotSet, "Default NaN mode not set")                         \
-  V(kDeleteWithGlobalVariable, "Delete with global variable")                  \
-  V(kDeleteWithNonGlobalVariable, "Delete with non-global variable")           \
-  V(kDestinationOfCopyNotAligned, "Destination of copy not aligned")           \
-  V(kDontDeleteCellsCannotContainTheHole,                                      \
-    "DontDelete cells can't contain the hole")                                 \
-  V(kDoPushArgumentNotImplementedForDoubleType,                                \
-    "DoPushArgument not implemented for double type")                          \
-  V(kEliminatedBoundsCheckFailed, "Eliminated bounds check failed")            \
-  V(kEmitLoadRegisterUnsupportedDoubleImmediate,                               \
-    "EmitLoadRegister: Unsupported double immediate")                          \
-  V(kEval, "eval")                                                             \
-  V(kExpected0AsASmiSentinel, "Expected 0 as a Smi sentinel")                  \
-  V(kExpectedAlignmentMarker, "Expected alignment marker")                     \
-  V(kExpectedAllocationSite, "Expected allocation site")                       \
-  V(kExpectedFunctionObject, "Expected function object in register")           \
-  V(kExpectedHeapNumber, "Expected HeapNumber")                                \
-  V(kExpectedNativeContext, "Expected native context")                         \
-  V(kExpectedNonIdenticalObjects, "Expected non-identical objects")            \
-  V(kExpectedNonNullContext, "Expected non-null context")                      \
-  V(kExpectedPositiveZero, "Expected +0.0")                                    \
-  V(kExpectedAllocationSiteInCell, "Expected AllocationSite in property cell") \
-  V(kExpectedFixedArrayInFeedbackVector,                                       \
-    "Expected fixed array in feedback vector")                                 \
-  V(kExpectedFixedArrayInRegisterA2, "Expected fixed array in register a2")    \
-  V(kExpectedFixedArrayInRegisterEbx, "Expected fixed array in register ebx")  \
-  V(kExpectedFixedArrayInRegisterR2, "Expected fixed array in register r2")    \
-  V(kExpectedFixedArrayInRegisterRbx, "Expected fixed array in register rbx")  \
-  V(kExpectedNewSpaceObject, "Expected new space object")                      \
-  V(kExpectedSmiOrHeapNumber, "Expected smi or HeapNumber")                    \
-  V(kExpectedUndefinedOrCell, "Expected undefined or cell in register")        \
-  V(kExpectingAlignmentForCopyBytes, "Expecting alignment for CopyBytes")      \
-  V(kExportDeclaration, "Export declaration")                                  \
-  V(kExternalStringExpectedButNotFound,                                        \
-    "External string expected, but not found")                                 \
-  V(kFailedBailedOutLastTime, "Failed/bailed out last time")                   \
-  V(kForInStatementIsNotFastCase, "ForInStatement is not fast case")           \
-  V(kForInStatementOptimizationIsDisabled,                                     \
-    "ForInStatement optimization is disabled")                                 \
-  V(kForInStatementWithNonLocalEachVariable,                                   \
-    "ForInStatement with non-local each variable")                             \
-  V(kForOfStatement, "ForOfStatement")                                         \
-  V(kFrameIsExpectedToBeAligned, "Frame is expected to be aligned")            \
-  V(kFunctionCallsEval, "Function calls eval")                                 \
-  V(kFunctionIsAGenerator, "Function is a generator")                          \
-  V(kFunctionWithIllegalRedeclaration, "Function with illegal redeclaration")  \
-  V(kGeneratedCodeIsTooLarge, "Generated code is too large")                   \
-  V(kGeneratorFailedToResume, "Generator failed to resume")                    \
-  V(kGenerator, "Generator")                                                   \
-  V(kGlobalFunctionsMustHaveInitialMap,                                        \
-    "Global functions must have initial map")                                  \
-  V(kHeapNumberMapRegisterClobbered, "HeapNumberMap register clobbered")       \
-  V(kHydrogenFilter, "Optimization disabled by filter")                        \
-  V(kImportDeclaration, "Import declaration")                                  \
-  V(kImproperObjectOnPrototypeChainForStore,                                   \
-    "Improper object on prototype chain for store")                            \
-  V(kIndexIsNegative, "Index is negative")                                     \
-  V(kIndexIsTooLarge, "Index is too large")                                    \
-  V(kInlinedRuntimeFunctionClassOf, "Inlined runtime function: ClassOf")       \
-  V(kInlinedRuntimeFunctionFastOneByteArrayJoin,                               \
-    "Inlined runtime function: FastOneByteArrayJoin")                          \
-  V(kInlinedRuntimeFunctionGeneratorNext,                                      \
-    "Inlined runtime function: GeneratorNext")                                 \
-  V(kInlinedRuntimeFunctionGeneratorThrow,                                     \
-    "Inlined runtime function: GeneratorThrow")                                \
-  V(kInlinedRuntimeFunctionGetFromCache,                                       \
-    "Inlined runtime function: GetFromCache")                                  \
-  V(kInlinedRuntimeFunctionIsNonNegativeSmi,                                   \
-    "Inlined runtime function: IsNonNegativeSmi")                              \
-  V(kInlinedRuntimeFunctionIsStringWrapperSafeForDefaultValueOf,               \
-    "Inlined runtime function: IsStringWrapperSafeForDefaultValueOf")          \
-  V(kInliningBailedOut, "Inlining bailed out")                                 \
-  V(kInputGPRIsExpectedToHaveUpper32Cleared,                                   \
-    "Input GPR is expected to have upper32 cleared")                           \
-  V(kInputStringTooLong, "Input string too long")                              \
-  V(kInstanceofStubUnexpectedCallSiteCacheCheck,                               \
-    "InstanceofStub unexpected call site cache (check)")                       \
-  V(kInstanceofStubUnexpectedCallSiteCacheCmp1,                                \
-    "InstanceofStub unexpected call site cache (cmp 1)")                       \
-  V(kInstanceofStubUnexpectedCallSiteCacheCmp2,                                \
-    "InstanceofStub unexpected call site cache (cmp 2)")                       \
-  V(kInstanceofStubUnexpectedCallSiteCacheMov,                                 \
-    "InstanceofStub unexpected call site cache (mov)")                         \
-  V(kInteger32ToSmiFieldWritingToNonSmiLocation,                               \
-    "Integer32ToSmiField writing to non-smi location")                         \
-  V(kInvalidCaptureReferenced, "Invalid capture referenced")                   \
-  V(kInvalidElementsKindForInternalArrayOrInternalPackedArray,                 \
-    "Invalid ElementsKind for InternalArray or InternalPackedArray")           \
-  V(kInvalidFullCodegenState, "invalid full-codegen state")                    \
-  V(kInvalidHandleScopeLevel, "Invalid HandleScope level")                     \
-  V(kInvalidLeftHandSideInAssignment, "Invalid left-hand side in assignment")  \
-  V(kInvalidLhsInCompoundAssignment, "Invalid lhs in compound assignment")     \
-  V(kInvalidLhsInCountOperation, "Invalid lhs in count operation")             \
-  V(kInvalidMinLength, "Invalid min_length")                                   \
-  V(kJSGlobalObjectNativeContextShouldBeANativeContext,                        \
-    "JSGlobalObject::native_context should be a native context")               \
-  V(kJSGlobalProxyContextShouldNotBeNull,                                      \
-    "JSGlobalProxy::context() should not be null")                             \
-  V(kJSObjectWithFastElementsMapHasSlowElements,                               \
-    "JSObject with fast elements map has slow elements")                       \
-  V(kLetBindingReInitialization, "Let binding re-initialization")              \
-  V(kLhsHasBeenClobbered, "lhs has been clobbered")                            \
-  V(kLiveBytesCountOverflowChunkSize, "Live Bytes Count overflow chunk size")  \
-  V(kLiveEdit, "LiveEdit")                                                     \
-  V(kLookupVariableInCountOperation, "Lookup variable in count operation")     \
-  V(kMapBecameDeprecated, "Map became deprecated")                             \
-  V(kMapBecameUnstable, "Map became unstable")                                 \
-  V(kMapIsNoLongerInEax, "Map is no longer in eax")                            \
-  V(kModuleDeclaration, "Module declaration")                                  \
-  V(kModuleLiteral, "Module literal")                                          \
-  V(kModulePath, "Module path")                                                \
-  V(kModuleStatement, "Module statement")                                      \
-  V(kModuleVariable, "Module variable")                                        \
-  V(kModuleUrl, "Module url")                                                  \
-  V(kNativeFunctionLiteral, "Native function literal")                         \
-  V(kSuperReference, "Super reference")                                        \
-  V(kNeedSmiLiteral, "Need a Smi literal here")                                \
-  V(kNoCasesLeft, "No cases left")                                             \
-  V(kNoEmptyArraysHereInEmitFastOneByteArrayJoin,                              \
-    "No empty arrays here in EmitFastOneByteArrayJoin")                        \
-  V(kNonInitializerAssignmentToConst, "Non-initializer assignment to const")   \
-  V(kNonSmiIndex, "Non-smi index")                                             \
-  V(kNonSmiKeyInArrayLiteral, "Non-smi key in array literal")                  \
-  V(kNonSmiValue, "Non-smi value")                                             \
-  V(kNonObject, "Non-object value")                                            \
-  V(kNotEnoughVirtualRegistersForValues,                                       \
-    "Not enough virtual registers for values")                                 \
-  V(kNotEnoughSpillSlotsForOsr, "Not enough spill slots for OSR")              \
-  V(kNotEnoughVirtualRegistersRegalloc,                                        \
-    "Not enough virtual registers (regalloc)")                                 \
-  V(kObjectFoundInSmiOnlyArray, "Object found in smi-only array")              \
-  V(kObjectLiteralWithComplexProperty, "Object literal with complex property") \
-  V(kOddballInStringTableIsNotUndefinedOrTheHole,                              \
-    "Oddball in string table is not undefined or the hole")                    \
-  V(kOffsetOutOfRange, "Offset out of range")                                  \
-  V(kOperandIsASmiAndNotAName, "Operand is a smi and not a name")              \
-  V(kOperandIsASmiAndNotAString, "Operand is a smi and not a string")          \
-  V(kOperandIsASmi, "Operand is a smi")                                        \
-  V(kOperandIsNotAName, "Operand is not a name")                               \
-  V(kOperandIsNotANumber, "Operand is not a number")                           \
-  V(kOperandIsNotASmi, "Operand is not a smi")                                 \
-  V(kOperandIsNotAString, "Operand is not a string")                           \
-  V(kOperandIsNotSmi, "Operand is not smi")                                    \
-  V(kOperandNotANumber, "Operand not a number")                                \
-  V(kObjectTagged, "The object is tagged")                                     \
-  V(kObjectNotTagged, "The object is not tagged")                              \
-  V(kOptimizationDisabled, "Optimization is disabled")                         \
-  V(kOptimizedTooManyTimes, "Optimized too many times")                        \
-  V(kOutOfVirtualRegistersWhileTryingToAllocateTempRegister,                   \
-    "Out of virtual registers while trying to allocate temp register")         \
-  V(kParseScopeError, "Parse/scope error")                                     \
-  V(kPossibleDirectCallToEval, "Possible direct call to eval")                 \
-  V(kPreconditionsWereNotMet, "Preconditions were not met")                    \
-  V(kPropertyAllocationCountFailed, "Property allocation count failed")        \
-  V(kReceivedInvalidReturnAddress, "Received invalid return address")          \
-  V(kReferenceToAVariableWhichRequiresDynamicLookup,                           \
-    "Reference to a variable which requires dynamic lookup")                   \
-  V(kReferenceToGlobalLexicalVariable, "Reference to global lexical variable") \
-  V(kReferenceToUninitializedVariable, "Reference to uninitialized variable")  \
-  V(kRegisterDidNotMatchExpectedRoot, "Register did not match expected root")  \
-  V(kRegisterWasClobbered, "Register was clobbered")                           \
-  V(kRememberedSetPointerInNewSpace, "Remembered set pointer is in new space") \
-  V(kReturnAddressNotFoundInFrame, "Return address not found in frame")        \
-  V(kRhsHasBeenClobbered, "Rhs has been clobbered")                            \
-  V(kScopedBlock, "ScopedBlock")                                               \
-  V(kSmiAdditionOverflow, "Smi addition overflow")                             \
-  V(kSmiSubtractionOverflow, "Smi subtraction overflow")                       \
-  V(kStackAccessBelowStackPointer, "Stack access below stack pointer")         \
-  V(kStackFrameTypesMustMatch, "Stack frame types must match")                 \
-  V(kSwitchStatementMixedOrNonLiteralSwitchLabels,                             \
-    "SwitchStatement: mixed or non-literal switch labels")                     \
-  V(kSwitchStatementTooManyClauses, "SwitchStatement: too many clauses")       \
-  V(kTheCurrentStackPointerIsBelowCsp,                                         \
-    "The current stack pointer is below csp")                                  \
-  V(kTheInstructionShouldBeALui, "The instruction should be a lui")            \
-  V(kTheInstructionShouldBeAnOri, "The instruction should be an ori")          \
-  V(kTheInstructionToPatchShouldBeALoadFromConstantPool,                       \
-    "The instruction to patch should be a load from the constant pool")        \
-  V(kTheInstructionToPatchShouldBeAnLdrLiteral,                                \
-    "The instruction to patch should be a ldr literal")                        \
-  V(kTheInstructionToPatchShouldBeALui,                                        \
-    "The instruction to patch should be a lui")                                \
-  V(kTheInstructionToPatchShouldBeAnOri,                                       \
-    "The instruction to patch should be an ori")                               \
-  V(kTheSourceAndDestinationAreTheSame,                                        \
-    "The source and destination are the same")                                 \
-  V(kTheStackPointerIsNotAligned, "The stack pointer is not aligned.")         \
-  V(kTheStackWasCorruptedByMacroAssemblerCall,                                 \
-    "The stack was corrupted by MacroAssembler::Call()")                       \
-  V(kTooManyParametersLocals, "Too many parameters/locals")                    \
-  V(kTooManyParameters, "Too many parameters")                                 \
-  V(kTooManySpillSlotsNeededForOSR, "Too many spill slots needed for OSR")     \
-  V(kToOperand32UnsupportedImmediate, "ToOperand32 unsupported immediate.")    \
-  V(kToOperandIsDoubleRegisterUnimplemented,                                   \
-    "ToOperand IsDoubleRegister unimplemented")                                \
-  V(kToOperandUnsupportedDoubleImmediate,                                      \
-    "ToOperand Unsupported double immediate")                                  \
-  V(kTryCatchStatement, "TryCatchStatement")                                   \
-  V(kTryFinallyStatement, "TryFinallyStatement")                               \
-  V(kUnableToEncodeValueAsSmi, "Unable to encode value as smi")                \
-  V(kUnalignedAllocationInNewSpace, "Unaligned allocation in new space")       \
-  V(kUnalignedCellInWriteBarrier, "Unaligned cell in write barrier")           \
-  V(kUndefinedValueNotLoaded, "Undefined value not loaded")                    \
-  V(kUndoAllocationOfNonAllocatedMemory,                                       \
-    "Undo allocation of non allocated memory")                                 \
-  V(kUnexpectedAllocationTop, "Unexpected allocation top")                     \
-  V(kUnexpectedColorFound, "Unexpected color bit pattern found")               \
-  V(kUnexpectedElementsKindInArrayConstructor,                                 \
-    "Unexpected ElementsKind in array constructor")                            \
-  V(kUnexpectedFallthroughFromCharCodeAtSlowCase,                              \
-    "Unexpected fallthrough from CharCodeAt slow case")                        \
-  V(kUnexpectedFallthroughFromCharFromCodeSlowCase,                            \
-    "Unexpected fallthrough from CharFromCode slow case")                      \
-  V(kUnexpectedFallThroughFromStringComparison,                                \
-    "Unexpected fall-through from string comparison")                          \
-  V(kUnexpectedFallThroughInBinaryStubGenerateFloatingPointCode,               \
-    "Unexpected fall-through in BinaryStub_GenerateFloatingPointCode")         \
-  V(kUnexpectedFallthroughToCharCodeAtSlowCase,                                \
-    "Unexpected fallthrough to CharCodeAt slow case")                          \
-  V(kUnexpectedFallthroughToCharFromCodeSlowCase,                              \
-    "Unexpected fallthrough to CharFromCode slow case")                        \
-  V(kUnexpectedFPUStackDepthAfterInstruction,                                  \
-    "Unexpected FPU stack depth after instruction")                            \
-  V(kUnexpectedInitialMapForArrayFunction1,                                    \
-    "Unexpected initial map for Array function (1)")                           \
-  V(kUnexpectedInitialMapForArrayFunction2,                                    \
-    "Unexpected initial map for Array function (2)")                           \
-  V(kUnexpectedInitialMapForArrayFunction,                                     \
-    "Unexpected initial map for Array function")                               \
-  V(kUnexpectedInitialMapForInternalArrayFunction,                             \
-    "Unexpected initial map for InternalArray function")                       \
-  V(kUnexpectedLevelAfterReturnFromApiCall,                                    \
-    "Unexpected level after return from api call")                             \
-  V(kUnexpectedNegativeValue, "Unexpected negative value")                     \
-  V(kUnexpectedNumberOfPreAllocatedPropertyFields,                             \
-    "Unexpected number of pre-allocated property fields")                      \
-  V(kUnexpectedFPCRMode, "Unexpected FPCR mode.")                              \
-  V(kUnexpectedSmi, "Unexpected smi value")                                    \
-  V(kUnexpectedStringFunction, "Unexpected String function")                   \
-  V(kUnexpectedStringType, "Unexpected string type")                           \
-  V(kUnexpectedStringWrapperInstanceSize,                                      \
-    "Unexpected string wrapper instance size")                                 \
-  V(kUnexpectedTypeForRegExpDataFixedArrayExpected,                            \
-    "Unexpected type for RegExp data, FixedArray expected")                    \
-  V(kUnexpectedValue, "Unexpected value")                                      \
-  V(kUnexpectedUnusedPropertiesOfStringWrapper,                                \
-    "Unexpected unused properties of string wrapper")                          \
-  V(kUnimplemented, "unimplemented")                                           \
-  V(kUninitializedKSmiConstantRegister, "Uninitialized kSmiConstantRegister")  \
-  V(kUnknown, "Unknown")                                                       \
-  V(kUnsupportedConstCompoundAssignment,                                       \
-    "Unsupported const compound assignment")                                   \
-  V(kUnsupportedCountOperationWithConst,                                       \
-    "Unsupported count operation with const")                                  \
-  V(kUnsupportedDoubleImmediate, "Unsupported double immediate")               \
-  V(kUnsupportedLetCompoundAssignment, "Unsupported let compound assignment")  \
-  V(kUnsupportedLookupSlotInDeclaration,                                       \
-    "Unsupported lookup slot in declaration")                                  \
-  V(kUnsupportedNonPrimitiveCompare, "Unsupported non-primitive compare")      \
-  V(kUnsupportedPhiUseOfArguments, "Unsupported phi use of arguments")         \
-  V(kUnsupportedPhiUseOfConstVariable,                                         \
-    "Unsupported phi use of const variable")                                   \
-  V(kUnsupportedTaggedImmediate, "Unsupported tagged immediate")               \
-  V(kVariableResolvedToWithContext, "Variable resolved to with context")       \
-  V(kWeShouldNotHaveAnEmptyLexicalContext,                                     \
-    "We should not have an empty lexical context")                             \
-  V(kWithStatement, "WithStatement")                                           \
-  V(kWrongFunctionContext, "Wrong context passed to function")                 \
-  V(kWrongAddressOrValuePassedToRecordWrite,                                   \
-    "Wrong address or value passed to RecordWrite")                            \
-  V(kYield, "Yield")
-
-
-#define ERROR_MESSAGES_CONSTANTS(C, T) C,
-enum BailoutReason {
-  ERROR_MESSAGES_LIST(ERROR_MESSAGES_CONSTANTS)
-  kLastErrorMessage
-};
-#undef ERROR_MESSAGES_CONSTANTS
-
-
-const char* GetBailoutReason(BailoutReason reason);
-
-
 // Object is the abstract superclass for all classes in the
 // object hierarchy.
 // Object does not use any virtual functions to avoid the
@@ -1333,6 +1006,8 @@ class Object {
     MAY_BE_STORE_FROM_KEYED,
     CERTAINLY_NOT_STORE_FROM_KEYED
   };
+
+  enum StorePropertyMode { NORMAL_PROPERTY, SUPER_PROPERTY };
 
   INLINE(bool IsFixedArrayBase() const);
   INLINE(bool IsExternal() const);
@@ -1443,7 +1118,8 @@ class Object {
 
   MUST_USE_RESULT static MaybeHandle<Object> SetProperty(
       LookupIterator* it, Handle<Object> value, StrictMode strict_mode,
-      StoreFromKeyed store_mode);
+      StoreFromKeyed store_mode,
+      StorePropertyMode data_store_mode = NORMAL_PROPERTY);
   MUST_USE_RESULT static MaybeHandle<Object> WriteToReadOnlyProperty(
       LookupIterator* it, Handle<Object> value, StrictMode strict_mode);
   static Handle<Object> SetDataProperty(LookupIterator* it,
@@ -1490,6 +1166,9 @@ class Object {
       Handle<Object> object,
       Handle<Object> receiver,
       uint32_t index);
+
+  static inline Handle<Object> GetPrototypeSkipHiddenPrototypes(
+      Isolate* isolate, Handle<Object> receiver);
 
   // Returns the permanent hash code associated with this object. May return
   // undefined if not yet created.
@@ -1543,7 +1222,7 @@ class Object {
   void Print();
 
   // Prints this object with details.
-  void Print(OStream& os);  // NOLINT
+  void Print(std::ostream& os);  // NOLINT
 #endif
 
  private:
@@ -1563,7 +1242,7 @@ struct Brief {
 };
 
 
-OStream& operator<<(OStream& os, const Brief& v);
+std::ostream& operator<<(std::ostream& os, const Brief& v);
 
 
 // Smi represents integer Numbers that can be stored in 31 bits.
@@ -1588,7 +1267,7 @@ class Smi: public Object {
   DECLARE_CAST(Smi)
 
   // Dispatched behavior.
-  void SmiPrint(OStream& os) const;  // NOLINT
+  void SmiPrint(std::ostream& os) const;  // NOLINT
   DECLARE_VERIFIER(Smi)
 
   static const int kMinValue =
@@ -1731,9 +1410,9 @@ class HeapObject: public Object {
       const DisallowHeapAllocation& promise);
 
   // Dispatched behavior.
-  void HeapObjectShortPrint(OStream& os);  // NOLINT
+  void HeapObjectShortPrint(std::ostream& os);  // NOLINT
 #ifdef OBJECT_PRINT
-  void PrintHeader(OStream& os, const char* id);  // NOLINT
+  void PrintHeader(std::ostream& os, const char* id);  // NOLINT
 #endif
   DECLARE_PRINTER(HeapObject)
   DECLARE_VERIFIER(HeapObject)
@@ -1820,7 +1499,7 @@ class HeapNumber: public HeapObject {
   // Dispatched behavior.
   bool HeapNumberBooleanValue();
 
-  void HeapNumberPrint(OStream& os);  // NOLINT
+  void HeapNumberPrint(std::ostream& os);  // NOLINT
   DECLARE_VERIFIER(HeapNumber)
 
   inline int get_exponent();
@@ -2437,9 +2116,9 @@ class JSObject: public JSReceiver {
   DECLARE_PRINTER(JSObject)
   DECLARE_VERIFIER(JSObject)
 #ifdef OBJECT_PRINT
-  void PrintProperties(OStream& os);   // NOLINT
-  void PrintElements(OStream& os);     // NOLINT
-  void PrintTransitions(OStream& os);  // NOLINT
+  void PrintProperties(std::ostream& os);   // NOLINT
+  void PrintElements(std::ostream& os);     // NOLINT
+  void PrintTransitions(std::ostream& os);  // NOLINT
 #endif
 
   static void PrintElementsTransition(
@@ -2532,10 +2211,6 @@ class JSObject: public JSReceiver {
                                   const char* type,
                                   Handle<Name> name,
                                   Handle<Object> old_value);
-
-  static void MigrateToNewProperty(Handle<JSObject> object,
-                                   Handle<Map> transition,
-                                   Handle<Object> value);
 
  private:
   friend class DictionaryElementsAccessor;
@@ -3168,13 +2843,13 @@ class ConstantPoolArray: public HeapObject {
   // get_extended_section_header_offset().
   static const int kExtendedInt64CountOffset = 0;
   static const int kExtendedCodePtrCountOffset =
-      kExtendedInt64CountOffset + kPointerSize;
+      kExtendedInt64CountOffset + kInt32Size;
   static const int kExtendedHeapPtrCountOffset =
-      kExtendedCodePtrCountOffset + kPointerSize;
+      kExtendedCodePtrCountOffset + kInt32Size;
   static const int kExtendedInt32CountOffset =
-      kExtendedHeapPtrCountOffset + kPointerSize;
+      kExtendedHeapPtrCountOffset + kInt32Size;
   static const int kExtendedFirstOffset =
-      kExtendedInt32CountOffset + kPointerSize;
+      kExtendedInt32CountOffset + kInt32Size;
 
   // Dispatched behavior.
   void ConstantPoolIterateBody(ObjectVisitor* v);
@@ -3363,7 +3038,7 @@ class DescriptorArray: public FixedArray {
 
 #ifdef OBJECT_PRINT
   // Print all the descriptors.
-  void PrintDescriptors(OStream& os);  // NOLINT
+  void PrintDescriptors(std::ostream& os);  // NOLINT
 #endif
 
 #ifdef DEBUG
@@ -3887,7 +3562,7 @@ class Dictionary: public HashTable<Derived, Shape, Key> {
   static Handle<Derived> EnsureCapacity(Handle<Derived> obj, int n, Key key);
 
 #ifdef OBJECT_PRINT
-  void Print(OStream& os);  // NOLINT
+  void Print(std::ostream& os);  // NOLINT
 #endif
   // Returns the key (slow).
   Object* SlowReverseLookup(Object* value);
@@ -4467,6 +4142,12 @@ class ScopeInfo : public FixedArray {
   // Return if contexts are allocated for this scope.
   bool HasContext();
 
+  // Return if this is a function scope with "use asm".
+  bool IsAsmModule() { return AsmModuleField::decode(Flags()); }
+
+  // Return if this is a nested function within an asm module scope.
+  bool IsAsmFunction() { return AsmFunctionField::decode(Flags()); }
+
   // Return the function_name if present.
   String* FunctionName();
 
@@ -4621,6 +4302,8 @@ class ScopeInfo : public FixedArray {
   class StrictModeField:       public BitField<StrictMode,           4, 1> {};
   class FunctionVariableField: public BitField<FunctionVariableInfo, 5, 2> {};
   class FunctionVariableMode:  public BitField<VariableMode,         7, 3> {};
+  class AsmModuleField : public BitField<bool, 10, 1> {};
+  class AsmFunctionField : public BitField<bool, 11, 1> {};
 
   // BitFields representing the encoded information for context locals in the
   // ContextLocalInfoEntries part.
@@ -5181,7 +4864,7 @@ class DeoptimizationInputData: public FixedArray {
   DECLARE_CAST(DeoptimizationInputData)
 
 #ifdef ENABLE_DISASSEMBLER
-  void DeoptimizationInputDataPrint(OStream& os);  // NOLINT
+  void DeoptimizationInputDataPrint(std::ostream& os);  // NOLINT
 #endif
 
  private:
@@ -5226,7 +4909,7 @@ class DeoptimizationOutputData: public FixedArray {
   DECLARE_CAST(DeoptimizationOutputData)
 
 #if defined(OBJECT_PRINT) || defined(ENABLE_DISASSEMBLER)
-  void DeoptimizationOutputDataPrint(OStream& os);  // NOLINT
+  void DeoptimizationOutputDataPrint(std::ostream& os);  // NOLINT
 #endif
 };
 
@@ -5292,9 +4975,9 @@ class Code: public HeapObject {
   // Printing
   static const char* ICState2String(InlineCacheState state);
   static const char* StubType2String(StubType type);
-  static void PrintExtraICState(OStream& os,  // NOLINT
+  static void PrintExtraICState(std::ostream& os,  // NOLINT
                                 Kind kind, ExtraICState extra);
-  void Disassemble(const char* name, OStream& os);  // NOLINT
+  void Disassemble(const char* name, std::ostream& os);  // NOLINT
 #endif  // ENABLE_DISASSEMBLER
 
   // [instruction_size]: Size of the native instructions
@@ -5682,7 +5365,7 @@ class Code: public HeapObject {
   static const int kPrologueOffset = kKindSpecificFlags2Offset + kIntSize;
   static const int kConstantPoolOffset = kPrologueOffset + kPointerSize;
 
-  static const int kHeaderPaddingStart = kConstantPoolOffset + kIntSize;
+  static const int kHeaderPaddingStart = kConstantPoolOffset + kPointerSize;
 
   // Add padding to align the instruction start following right after
   // the Code object header.
@@ -6367,8 +6050,7 @@ class Map: public HeapObject {
   // Returns a copy of the map, with all transitions dropped from the
   // instance descriptors.
   static Handle<Map> Copy(Handle<Map> map);
-  static Handle<Map> Create(Handle<JSFunction> constructor,
-                            int extra_inobject_properties);
+  static Handle<Map> Create(Isolate* isolate, int inobject_properties);
 
   // Returns the next free property index (only valid for FAST MODE).
   int NextFreePropertyIndex();
@@ -6974,9 +6656,8 @@ class SharedFunctionInfo: public HeapObject {
 
   // [feedback_vector] - accumulates ast node feedback from full-codegen and
   // (increasingly) from crankshafted code where sufficient feedback isn't
-  // available. Currently the field is duplicated in
-  // TypeFeedbackInfo::feedback_vector, but the allocation is done here.
-  DECL_ACCESSORS(feedback_vector, FixedArray)
+  // available.
+  DECL_ACCESSORS(feedback_vector, TypeFeedbackVector)
 
   // [instance class name]: class name for instances.
   DECL_ACCESSORS(instance_class_name, Object)
@@ -7124,6 +6805,9 @@ class SharedFunctionInfo: public HeapObject {
   // Indicates that this function is a concise method.
   DECL_BOOLEAN_ACCESSORS(is_concise_method)
 
+  // Indicates that this function is an asm function.
+  DECL_BOOLEAN_ACCESSORS(asm_function)
+
   inline FunctionKind kind();
   inline void set_kind(FunctionKind kind);
 
@@ -7252,10 +6936,11 @@ class SharedFunctionInfo: public HeapObject {
   // garbage collections.
   // To avoid wasting space on 64-bit architectures we use
   // the following trick: we group integer fields into pairs
-  // First integer in each pair is shifted left by 1.
-  // By doing this we guarantee that LSB of each kPointerSize aligned
-  // word is not set and thus this word cannot be treated as pointer
-  // to HeapObject during old space traversal.
+// The least significant integer in each pair is shifted left by 1.
+// By doing this we guarantee that LSB of each kPointerSize aligned
+// word is not set and thus this word cannot be treated as pointer
+// to HeapObject during old space traversal.
+#if V8_TARGET_LITTLE_ENDIAN
   static const int kLengthOffset =
       kFeedbackVectorOffset + kPointerSize;
   static const int kFormalParameterCountOffset =
@@ -7289,7 +6974,37 @@ class SharedFunctionInfo: public HeapObject {
   // Total size.
   static const int kSize = kProfilerTicksOffset + kIntSize;
 
-#endif
+#elif V8_TARGET_BIG_ENDIAN
+  static const int kFormalParameterCountOffset =
+      kFeedbackVectorOffset + kPointerSize;
+  static const int kLengthOffset = kFormalParameterCountOffset + kIntSize;
+
+  static const int kNumLiteralsOffset = kLengthOffset + kIntSize;
+  static const int kExpectedNofPropertiesOffset = kNumLiteralsOffset + kIntSize;
+
+  static const int kStartPositionAndTypeOffset =
+      kExpectedNofPropertiesOffset + kIntSize;
+  static const int kEndPositionOffset = kStartPositionAndTypeOffset + kIntSize;
+
+  static const int kCompilerHintsOffset = kEndPositionOffset + kIntSize;
+  static const int kFunctionTokenPositionOffset =
+      kCompilerHintsOffset + kIntSize;
+
+  static const int kCountersOffset = kFunctionTokenPositionOffset + kIntSize;
+  static const int kOptCountAndBailoutReasonOffset = kCountersOffset + kIntSize;
+
+  static const int kProfilerTicksOffset =
+      kOptCountAndBailoutReasonOffset + kIntSize;
+  static const int kAstNodeCountOffset = kProfilerTicksOffset + kIntSize;
+
+  // Total size.
+  static const int kSize = kAstNodeCountOffset + kIntSize;
+
+#else
+#error Unknown byte ordering
+#endif  // Big endian
+#endif  // 64-bit
+
 
   static const int kAlignedSize = POINTER_SIZE_ALIGN(kSize);
 
@@ -7324,6 +7039,7 @@ class SharedFunctionInfo: public HeapObject {
     kIsArrow,
     kIsGenerator,
     kIsConciseMethod,
+    kIsAsmFunction,
     kCompilerHintsCount  // Pseudo entry
   };
 
@@ -7390,7 +7106,7 @@ struct SourceCodeOf {
 };
 
 
-OStream& operator<<(OStream& os, const SourceCodeOf& v);
+std::ostream& operator<<(std::ostream& os, const SourceCodeOf& v);
 
 
 class JSGeneratorObject: public JSObject {
@@ -8031,7 +7747,13 @@ class JSRegExp: public JSObject {
   // IRREGEXP: Compiled with Irregexp.
   // IRREGEXP_NATIVE: Compiled to native code with Irregexp.
   enum Type { NOT_COMPILED, ATOM, IRREGEXP };
-  enum Flag { NONE = 0, GLOBAL = 1, IGNORE_CASE = 2, MULTILINE = 4 };
+  enum Flag {
+    NONE = 0,
+    GLOBAL = 1,
+    IGNORE_CASE = 2,
+    MULTILINE = 4,
+    STICKY = 8
+  };
 
   class Flags {
    public:
@@ -8039,6 +7761,7 @@ class JSRegExp: public JSObject {
     bool is_global() { return (value_ & GLOBAL) != 0; }
     bool is_ignore_case() { return (value_ & IGNORE_CASE) != 0; }
     bool is_multiline() { return (value_ & MULTILINE) != 0; }
+    bool is_sticky() { return (value_ & STICKY) != 0; }
     uint32_t value() { return value_; }
    private:
     uint32_t value_;
@@ -8368,28 +8091,6 @@ class TypeFeedbackInfo: public Struct {
   static const int kStorage2Offset = kStorage1Offset + kPointerSize;
   static const int kStorage3Offset = kStorage2Offset + kPointerSize;
   static const int kSize = kStorage3Offset + kPointerSize;
-
-  // TODO(mvstanton): move these sentinel declarations to shared function info.
-  // The object that indicates an uninitialized cache.
-  static inline Handle<Object> UninitializedSentinel(Isolate* isolate);
-
-  // The object that indicates a megamorphic state.
-  static inline Handle<Object> MegamorphicSentinel(Isolate* isolate);
-
-  // The object that indicates a premonomorphic state.
-  static inline Handle<Object> PremonomorphicSentinel(Isolate* isolate);
-
-  // The object that indicates a generic state.
-  static inline Handle<Object> GenericSentinel(Isolate* isolate);
-
-  // The object that indicates a monomorphic state of Array with
-  // ElementsKind
-  static inline Handle<Object> MonomorphicArraySentinel(Isolate* isolate,
-      ElementsKind elements_kind);
-
-  // A raw version of the uninitialized sentinel that's safe to read during
-  // garbage collection (e.g., for patching the cache).
-  static inline Object* RawUninitializedSentinel(Heap* heap);
 
  private:
   static const int kTypeChangeChecksumBits = 7;
@@ -8812,8 +8513,13 @@ class Name: public HeapObject {
   DECLARE_PRINTER(Name)
 
   // Layout description.
-  static const int kHashFieldOffset = HeapObject::kHeaderSize;
-  static const int kSize = kHashFieldOffset + kPointerSize;
+  static const int kHashFieldSlot = HeapObject::kHeaderSize;
+#if V8_TARGET_LITTLE_ENDIAN || !V8_HOST_ARCH_64_BIT
+  static const int kHashFieldOffset = kHashFieldSlot;
+#else
+  static const int kHashFieldOffset = kHashFieldSlot + kIntSize;
+#endif
+  static const int kSize = kHashFieldSlot + kPointerSize;
 
   // Mask constant for checking if a name has a computed hash code
   // and if it is a string that is an array index.  The least significant bit
@@ -9118,7 +8824,7 @@ class String: public Name {
 
   // Dispatched behavior.
   void StringShortPrint(StringStream* accumulator);
-  void PrintUC16(OStream& os, int start = 0, int end = -1);  // NOLINT
+  void PrintUC16(std::ostream& os, int start = 0, int end = -1);  // NOLINT
 #ifdef OBJECT_PRINT
   char* ToAsciiArray();
 #endif
@@ -10043,7 +9749,7 @@ class OrderedHashTableIterator: public JSObject {
   DECL_ACCESSORS(kind, Object)
 
 #ifdef OBJECT_PRINT
-  void OrderedHashTableIteratorPrint(OStream& os);  // NOLINT
+  void OrderedHashTableIteratorPrint(std::ostream& os);  // NOLINT
 #endif
 
   static const int kTableOffset = JSObject::kHeaderSize;

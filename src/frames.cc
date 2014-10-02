@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/frames.h"
+
+#include <sstream>
+
 #include "src/v8.h"
 
 #include "src/ast.h"
@@ -932,9 +936,9 @@ void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
   DCHECK(frames->length() == 0);
   DCHECK(is_optimized());
 
-  // Delegate to JS frame in absence of inlining.
-  // TODO(turbofan): Revisit once we support inlining.
-  if (LookupCode()->is_turbofanned()) {
+  // Delegate to JS frame in absence of turbofan deoptimization.
+  // TODO(turbofan): Revisit once we support deoptimization across the board.
+  if (LookupCode()->is_turbofanned() && !FLAG_turbo_deoptimization) {
     return JavaScriptFrame::Summarize(frames);
   }
 
@@ -1059,9 +1063,9 @@ DeoptimizationInputData* OptimizedFrame::GetDeoptimizationData(
 int OptimizedFrame::GetInlineCount() {
   DCHECK(is_optimized());
 
-  // Delegate to JS frame in absence of inlining.
-  // TODO(turbofan): Revisit once we support inlining.
-  if (LookupCode()->is_turbofanned()) {
+  // Delegate to JS frame in absence of turbofan deoptimization.
+  // TODO(turbofan): Revisit once we support deoptimization across the board.
+  if (LookupCode()->is_turbofanned() && !FLAG_turbo_deoptimization) {
     return JavaScriptFrame::GetInlineCount();
   }
 
@@ -1083,9 +1087,9 @@ void OptimizedFrame::GetFunctions(List<JSFunction*>* functions) {
   DCHECK(functions->length() == 0);
   DCHECK(is_optimized());
 
-  // Delegate to JS frame in absence of inlining.
-  // TODO(turbofan): Revisit once we support inlining.
-  if (LookupCode()->is_turbofanned()) {
+  // Delegate to JS frame in absence of turbofan deoptimization.
+  // TODO(turbofan): Revisit once we support deoptimization across the board.
+  if (LookupCode()->is_turbofanned() && !FLAG_turbo_deoptimization) {
     return JavaScriptFrame::GetFunctions(functions);
   }
 
@@ -1288,12 +1292,12 @@ void JavaScriptFrame::Print(StringStream* accumulator,
 
   // Print details about the function.
   if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
-    OStringStream os;
+    std::ostringstream os;
     SharedFunctionInfo* shared = function->shared();
     os << "--------- s o u r c e   c o d e ---------\n"
        << SourceCodeOf(shared, FLAG_max_stack_trace_source_length)
        << "\n-----------------------------------------\n";
-    accumulator->Add(os.c_str());
+    accumulator->Add(os.str().c_str());
   }
 
   accumulator->Add("}\n\n");

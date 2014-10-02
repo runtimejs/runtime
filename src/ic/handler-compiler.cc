@@ -309,7 +309,7 @@ Handle<Code> NamedLoadHandlerCompiler::CompileLoadViaGetter(
 // TODO(verwaest): Cleanup. holder() is actually the receiver.
 Handle<Code> NamedStoreHandlerCompiler::CompileStoreTransition(
     Handle<Map> transition, Handle<Name> name) {
-  Label miss, slow;
+  Label miss;
 
   // Ensure no transitions to deprecated maps are followed.
   __ CheckMapDeprecated(transition, scratch1(), &miss);
@@ -331,21 +331,55 @@ Handle<Code> NamedStoreHandlerCompiler::CompileStoreTransition(
     DCHECK(holder()->HasFastProperties());
   }
 
-  GenerateStoreTransition(transition, name, receiver(), this->name(), value(),
-                          scratch1(), scratch2(), scratch3(), &miss, &slow);
+  int descriptor = transition->LastAdded();
+  DescriptorArray* descriptors = transition->instance_descriptors();
+  PropertyDetails details = descriptors->GetDetails(descriptor);
+  Representation representation = details.representation();
+  DCHECK(!representation.IsNone());
+
+  // Stub is never generated for objects that require access checks.
+  DCHECK(!transition->is_access_check_needed());
+
+  // Call to respective StoreTransitionStub.
+  if (details.type() == CONSTANT) {
+    GenerateConstantCheck(descriptors->GetValue(descriptor), value(), &miss);
+
+    GenerateRestoreNameAndMap(name, transition);
+    StoreTransitionStub stub(isolate());
+    GenerateTailCall(masm(), stub.GetCode());
+
+  } else {
+    if (representation.IsHeapObject()) {
+      GenerateFieldTypeChecks(descriptors->GetFieldType(descriptor), value(),
+                              &miss);
+    }
+    StoreTransitionStub::StoreMode store_mode =
+        Map::cast(transition->GetBackPointer())->unused_property_fields() == 0
+            ? StoreTransitionStub::ExtendStorageAndStoreMapAndValue
+            : StoreTransitionStub::StoreMapAndValue;
+
+    GenerateRestoreNameAndMap(name, transition);
+    StoreTransitionStub stub(isolate(),
+                             FieldIndex::ForDescriptor(*transition, descriptor),
+                             representation, store_mode);
+    GenerateTailCall(masm(), stub.GetCode());
+  }
 
   GenerateRestoreName(&miss, name);
   TailCallBuiltin(masm(), MissBuiltin(kind()));
 
-  GenerateRestoreName(&slow, name);
-  TailCallBuiltin(masm(), SlowBuiltin(kind()));
   return GetCode(kind(), Code::FAST, name);
 }
 
 
 Handle<Code> NamedStoreHandlerCompiler::CompileStoreField(LookupIterator* it) {
   Label miss;
-  GenerateStoreField(it, value(), &miss);
+  DCHECK(it->representation().IsHeapObject());
+
+  GenerateFieldTypeChecks(*it->GetFieldType(), value(), &miss);
+  StoreFieldStub stub(isolate(), it->GetFieldIndex(), it->representation());
+  GenerateTailCall(masm(), stub.GetCode());
+
   __ bind(&miss);
   TailCallBuiltin(masm(), MissBuiltin(kind()));
   return GetCode(kind(), Code::FAST, it->name());
@@ -388,14 +422,15 @@ void ElementHandlerCompiler::CompileElementHandlers(
     } else {
       bool is_js_array = receiver_map->instance_type() == JS_ARRAY_TYPE;
       ElementsKind elements_kind = receiver_map->elements_kind();
-
-      if (IsFastElementsKind(elements_kind) ||
-          IsExternalArrayElementsKind(elements_kind) ||
-          IsFixedTypedArrayElementsKind(elements_kind)) {
+      if (receiver_map->has_indexed_interceptor()) {
+        cached_stub = LoadIndexedInterceptorStub(isolate()).GetCode();
+      } else if (IsSloppyArgumentsElements(elements_kind)) {
+        cached_stub = KeyedLoadSloppyArgumentsStub(isolate()).GetCode();
+      } else if (IsFastElementsKind(elements_kind) ||
+                 IsExternalArrayElementsKind(elements_kind) ||
+                 IsFixedTypedArrayElementsKind(elements_kind)) {
         cached_stub = LoadFastElementStub(isolate(), is_js_array, elements_kind)
                           .GetCode();
-      } else if (elements_kind == SLOPPY_ARGUMENTS_ELEMENTS) {
-        cached_stub = isolate()->builtins()->KeyedLoadIC_SloppyArguments();
       } else {
         DCHECK(elements_kind == DICTIONARY_ELEMENTS);
         cached_stub = LoadDictionaryElementStub(isolate()).GetCode();

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <sstream>
+
 #include "src/v8.h"
 
 #include "src/accessors.h"
@@ -909,13 +911,13 @@ void Object::ShortPrint(FILE* out) {
 
 
 void Object::ShortPrint(StringStream* accumulator) {
-  OStringStream os;
+  std::ostringstream os;
   os << Brief(this);
-  accumulator->Add(os.c_str());
+  accumulator->Add(os.str().c_str());
 }
 
 
-OStream& operator<<(OStream& os, const Brief& v) {
+std::ostream& operator<<(std::ostream& os, const Brief& v) {
   if (v.value->IsSmi()) {
     Smi::cast(v.value)->SmiPrint(os);
   } else {
@@ -927,7 +929,7 @@ OStream& operator<<(OStream& os, const Brief& v) {
 }
 
 
-void Smi::SmiPrint(OStream& os) const {  // NOLINT
+void Smi::SmiPrint(std::ostream& os) const {  // NOLINT
   os << value();
 }
 
@@ -1172,7 +1174,7 @@ void String::StringShortPrint(StringStream* accumulator) {
 }
 
 
-void String::PrintUC16(OStream& os, int start, int end) {  // NOLINT
+void String::PrintUC16(std::ostream& os, int start, int end) {  // NOLINT
   if (end < 0) end = length();
   ConsStringIteratorOp op;
   StringCharacterStream stream(this, &op, start);
@@ -1371,7 +1373,7 @@ void JSObject::PrintInstanceMigration(FILE* file,
 }
 
 
-void HeapObject::HeapObjectShortPrint(OStream& os) {  // NOLINT
+void HeapObject::HeapObjectShortPrint(std::ostream& os) {  // NOLINT
   Heap* heap = GetHeap();
   if (!heap->Contains(this)) {
     os << "!!!INVALID POINTER!!!";
@@ -1668,7 +1670,7 @@ bool HeapNumber::HeapNumberBooleanValue() {
 }
 
 
-void HeapNumber::HeapNumberPrint(OStream& os) {  // NOLINT
+void HeapNumber::HeapNumberPrint(std::ostream& os) {  // NOLINT
   os << value();
 }
 
@@ -1946,18 +1948,29 @@ void JSObject::MigrateFastToFast(Handle<JSObject> object, Handle<Map> new_map) {
   int total_size = number_of_fields + unused;
   int external = total_size - inobject;
 
-  if ((old_map->unused_property_fields() == 0) &&
-      (number_of_fields != old_number_of_fields) &&
-      (new_map->GetBackPointer() == *old_map)) {
+  if (number_of_fields != old_number_of_fields &&
+      new_map->GetBackPointer() == *old_map) {
+    PropertyDetails details = new_map->GetLastDescriptorDetails();
+
+    if (old_map->unused_property_fields() > 0) {
+      if (details.representation().IsDouble()) {
+        Handle<Object> value = isolate->factory()->NewHeapNumber(0, MUTABLE);
+        FieldIndex index =
+            FieldIndex::ForDescriptor(*new_map, new_map->LastAdded());
+        object->FastPropertyAtPut(index, *value);
+      }
+      object->synchronized_set_map(*new_map);
+      return;
+    }
+
     DCHECK(number_of_fields == old_number_of_fields + 1);
-    // This migration is a transition from a map that has run out out property
+    // This migration is a transition from a map that has run out of property
     // space. Therefore it could be done by extending the backing store.
     Handle<FixedArray> old_storage = handle(object->properties(), isolate);
     Handle<FixedArray> new_storage =
         FixedArray::CopySize(old_storage, external);
 
     // Properly initialize newly added property.
-    PropertyDetails details = new_map->GetLastDescriptorDetails();
     Handle<Object> value;
     if (details.representation().IsDouble()) {
       value = isolate->factory()->NewHeapNumber(0, MUTABLE);
@@ -2796,7 +2809,8 @@ MaybeHandle<Object> Object::SetProperty(Handle<Object> object,
 MaybeHandle<Object> Object::SetProperty(LookupIterator* it,
                                         Handle<Object> value,
                                         StrictMode strict_mode,
-                                        StoreFromKeyed store_mode) {
+                                        StoreFromKeyed store_mode,
+                                        StorePropertyMode data_store_mode) {
   // Make sure that the top context does not change when doing callbacks or
   // interceptor calls.
   AssertNoContextChange ncc(it->isolate());
@@ -2889,6 +2903,14 @@ MaybeHandle<Object> Object::SetProperty(LookupIterator* it,
     THROW_NEW_ERROR(it->isolate(),
                     NewReferenceError("not_defined", HandleVector(args, 1)),
                     Object);
+  }
+
+  if (data_store_mode == SUPER_PROPERTY) {
+    LookupIterator own_lookup(it->GetReceiver(), it->name(),
+                              LookupIterator::OWN);
+
+    return JSObject::SetProperty(&own_lookup, value, strict_mode, store_mode,
+                                 NORMAL_PROPERTY);
   }
 
   return AddDataProperty(it, value, NONE, strict_mode, store_mode);
@@ -3728,15 +3750,6 @@ bool JSObject::TryMigrateInstance(Handle<JSObject> object) {
     object->PrintInstanceMigration(stdout, *original_map, object->map());
   }
   return true;
-}
-
-
-void JSObject::MigrateToNewProperty(Handle<JSObject> object,
-                                    Handle<Map> map,
-                                    Handle<Object> value) {
-  JSObject::MigrateToMap(object, map);
-  if (map->GetLastDescriptorDetails().type() != FIELD) return;
-  object->WriteToField(map->LastAdded(), *value);
 }
 
 
@@ -6649,30 +6662,26 @@ Handle<Map> Map::Copy(Handle<Map> map) {
 }
 
 
-Handle<Map> Map::Create(Handle<JSFunction> constructor,
-                        int extra_inobject_properties) {
-  Handle<Map> copy = Copy(handle(constructor->initial_map()));
+Handle<Map> Map::Create(Isolate* isolate, int inobject_properties) {
+  Handle<Map> copy = Copy(handle(isolate->object_function()->initial_map()));
 
-  // Check that we do not overflow the instance size when adding the
-  // extra inobject properties.
-  int instance_size_delta = extra_inobject_properties * kPointerSize;
-  int max_instance_size_delta =
-      JSObject::kMaxInstanceSize - copy->instance_size();
-  int max_extra_properties = max_instance_size_delta >> kPointerSizeLog2;
+  // Check that we do not overflow the instance size when adding the extra
+  // inobject properties. If the instance size overflows, we allocate as many
+  // properties as we can as inobject properties.
+  int max_extra_properties =
+      (JSObject::kMaxInstanceSize - JSObject::kHeaderSize) >> kPointerSizeLog2;
 
-  // If the instance size overflows, we allocate as many properties as we can as
-  // inobject properties.
-  if (extra_inobject_properties > max_extra_properties) {
-    instance_size_delta = max_instance_size_delta;
-    extra_inobject_properties = max_extra_properties;
+  if (inobject_properties > max_extra_properties) {
+    inobject_properties = max_extra_properties;
   }
 
+  int new_instance_size =
+      JSObject::kHeaderSize + kPointerSize * inobject_properties;
+
   // Adjust the map with the extra inobject properties.
-  int inobject_properties =
-      copy->inobject_properties() + extra_inobject_properties;
   copy->set_inobject_properties(inobject_properties);
   copy->set_unused_property_fields(inobject_properties);
-  copy->set_instance_size(copy->instance_size() + instance_size_delta);
+  copy->set_instance_size(new_instance_size);
   copy->set_visitor_id(StaticVisitorBase::GetVisitorId(*copy));
   return copy;
 }
@@ -8992,19 +9001,25 @@ void String::PrintOn(FILE* file) {
 }
 
 
+inline static uint32_t ObjectAddressForHashing(Object* object) {
+  uint32_t value = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(object));
+  return value & MemoryChunk::kAlignmentMask;
+}
+
+
 int Map::Hash() {
   // For performance reasons we only hash the 3 most variable fields of a map:
-  // constructor, prototype and bit_field2.
+  // constructor, prototype and bit_field2. For predictability reasons we
+  // use objects' offsets in respective pages for hashing instead of raw
+  // addresses.
 
   // Shift away the tag.
-  int hash = (static_cast<uint32_t>(
-        reinterpret_cast<uintptr_t>(constructor())) >> 2);
+  int hash = ObjectAddressForHashing(constructor()) >> 2;
 
   // XOR-ing the prototype and constructor directly yields too many zero bits
   // when the two pointers are close (which is fairly common).
-  // To avoid this we shift the prototype 4 bits relatively to the constructor.
-  hash ^= (static_cast<uint32_t>(
-        reinterpret_cast<uintptr_t>(prototype())) << 2);
+  // To avoid this we shift the prototype bits relatively to the constructor.
+  hash ^= ObjectAddressForHashing(prototype()) << (32 - kPageSizeBits);
 
   return hash ^ (hash >> 16) ^ bit_field2();
 }
@@ -9106,7 +9121,7 @@ void JSFunction::MarkForConcurrentOptimization() {
   DCHECK(GetIsolate()->concurrent_recompilation_enabled());
   if (FLAG_trace_concurrent_recompilation) {
     PrintF("  ** Marking ");
-    PrintName();
+    ShortPrint();
     PrintF(" for concurrent recompilation.\n");
   }
   set_code_no_write_barrier(
@@ -9124,7 +9139,7 @@ void JSFunction::MarkInOptimizationQueue() {
   DCHECK(GetIsolate()->concurrent_recompilation_enabled());
   if (FLAG_trace_concurrent_recompilation) {
     PrintF("  ** Queueing ");
-    PrintName();
+    ShortPrint();
     PrintF(" for concurrent recompilation.\n");
   }
   set_code_no_write_barrier(
@@ -9795,7 +9810,7 @@ int SharedFunctionInfo::CalculateInObjectProperties() {
 
 
 // Output the source code without any allocation in the heap.
-OStream& operator<<(OStream& os, const SourceCodeOf& v) {
+std::ostream& operator<<(std::ostream& os, const SourceCodeOf& v) {
   const SharedFunctionInfo* s = v.value;
   // For some native functions there is no source.
   if (!s->HasSourceCode()) return os << "<No Source>";
@@ -10378,7 +10393,7 @@ void Code::ClearInlineCaches(Code::Kind* kind) {
 
 
 void SharedFunctionInfo::ClearTypeFeedbackInfo() {
-  FixedArray* vector = feedback_vector();
+  TypeFeedbackVector* vector = feedback_vector();
   Heap* heap = GetHeap();
   int length = vector->length();
 
@@ -10394,7 +10409,7 @@ void SharedFunctionInfo::ClearTypeFeedbackInfo() {
           break;
           // Fall through...
         default:
-          vector->set(i, TypeFeedbackInfo::RawUninitializedSentinel(heap),
+          vector->set(i, TypeFeedbackVector::RawUninitializedSentinel(heap),
                       SKIP_WRITE_BARRIER);
       }
     }
@@ -10615,7 +10630,7 @@ const char* Code::Kind2String(Kind kind) {
 #ifdef ENABLE_DISASSEMBLER
 
 void DeoptimizationInputData::DeoptimizationInputDataPrint(
-    OStream& os) {  // NOLINT
+    std::ostream& os) {  // NOLINT
   disasm::NameConverter converter;
   int deopt_count = DeoptCount();
   os << "Deoptimization Input Data (deopt points = " << deopt_count << ")\n";
@@ -10776,7 +10791,7 @@ void DeoptimizationInputData::DeoptimizationInputDataPrint(
 
 
 void DeoptimizationOutputData::DeoptimizationOutputDataPrint(
-    OStream& os) {  // NOLINT
+    std::ostream& os) {  // NOLINT
   os << "Deoptimization Output Data (deopt points = " << this->DeoptPoints()
      << ")\n";
   if (this->DeoptPoints() == 0) return;
@@ -10824,7 +10839,7 @@ const char* Code::StubType2String(StubType type) {
 }
 
 
-void Code::PrintExtraICState(OStream& os,  // NOLINT
+void Code::PrintExtraICState(std::ostream& os,  // NOLINT
                              Kind kind, ExtraICState extra) {
   os << "extra_ic_state = ";
   if ((kind == STORE_IC || kind == KEYED_STORE_IC) && (extra == STRICT)) {
@@ -10835,7 +10850,7 @@ void Code::PrintExtraICState(OStream& os,  // NOLINT
 }
 
 
-void Code::Disassemble(const char* name, OStream& os) {  // NOLINT
+void Code::Disassemble(const char* name, std::ostream& os) {  // NOLINT
   os << "kind = " << Kind2String(kind()) << "\n";
   if (IsCodeStubOrIC()) {
     const char* n = CodeStub::MajorName(CodeStub::GetMajorKey(this), true);
@@ -10864,10 +10879,19 @@ void Code::Disassemble(const char* name, OStream& os) {  // NOLINT
   }
 
   os << "Instructions (size = " << instruction_size() << ")\n";
-  // TODO(svenpanne) The Disassembler should use streams, too!
   {
-    CodeTracer::Scope trace_scope(GetIsolate()->GetCodeTracer());
-    Disassembler::Decode(trace_scope.file(), this);
+    Isolate* isolate = GetIsolate();
+    int decode_size = is_crankshafted()
+                          ? static_cast<int>(safepoint_table_offset())
+                          : instruction_size();
+    // If there might be a back edge table, stop before reaching it.
+    if (kind() == Code::FUNCTION) {
+      decode_size =
+          Min(decode_size, static_cast<int>(back_edge_table_offset()));
+    }
+    byte* begin = instruction_start();
+    byte* end = begin + decode_size;
+    Disassembler::Decode(isolate, &os, begin, end, this);
   }
   os << "\n";
 
@@ -10887,7 +10911,7 @@ void Code::Disassemble(const char* name, OStream& os) {  // NOLINT
     os << "Safepoints (size = " << table.size() << ")\n";
     for (unsigned i = 0; i < table.length(); i++) {
       unsigned pc_offset = table.GetPcOffset(i);
-      os << (instruction_start() + pc_offset) << "  ";
+      os << static_cast<const void*>(instruction_start() + pc_offset) << "  ";
       // TODO(svenpanne) Add some basic formatting to our streams.
       Vector<char> buf1 = Vector<char>::New(30);
       SNPrintF(buf1, "%4d", pc_offset);
@@ -10942,6 +10966,17 @@ void Code::Disassemble(const char* name, OStream& os) {  // NOLINT
     it.rinfo()->Print(GetIsolate(), os);
   }
   os << "\n";
+
+#ifdef OBJECT_PRINT
+  if (FLAG_enable_ool_constant_pool) {
+    ConstantPoolArray* pool = constant_pool();
+    if (pool->length()) {
+      os << "Constant Pool\n";
+      pool->Print(os);
+      os << "\n";
+    }
+  }
+#endif
 }
 #endif  // ENABLE_DISASSEMBLER
 
@@ -13032,7 +13067,7 @@ bool JSObject::ShouldConvertToFastDoubleElements(
 // we keep it here instead to satisfy certain compilers.
 #ifdef OBJECT_PRINT
 template <typename Derived, typename Shape, typename Key>
-void Dictionary<Derived, Shape, Key>::Print(OStream& os) {  // NOLINT
+void Dictionary<Derived, Shape, Key>::Print(std::ostream& os) {  // NOLINT
   int capacity = DerivedHashTable::Capacity();
   for (int i = 0; i < capacity; i++) {
     Object* k = DerivedHashTable::KeyAt(i);
@@ -16352,17 +16387,5 @@ void PropertyCell::AddDependentCompilationInfo(Handle<PropertyCell> cell,
   info->dependencies(DependentCode::kPropertyCellChangedGroup)->Add(
       cell, info->zone());
 }
-
-
-const char* GetBailoutReason(BailoutReason reason) {
-  DCHECK(reason < kLastErrorMessage);
-#define ERROR_MESSAGES_TEXTS(C, T) T,
-  static const char* error_messages_[] = {
-      ERROR_MESSAGES_LIST(ERROR_MESSAGES_TEXTS)
-  };
-#undef ERROR_MESSAGES_TEXTS
-  return error_messages_[reason];
-}
-
 
 } }  // namespace v8::internal

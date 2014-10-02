@@ -21,7 +21,8 @@ CodeGenerator::CodeGenerator(InstructionSequence* code)
       safepoints_(code->zone()),
       deoptimization_states_(code->zone()),
       deoptimization_literals_(code->zone()),
-      translations_(code->zone()) {}
+      translations_(code->zone()),
+      last_lazy_deopt_pc_(0) {}
 
 
 Handle<Code> CodeGenerator::GenerateCode() {
@@ -106,7 +107,7 @@ void CodeGenerator::AssembleInstruction(Instruction* instr) {
     if (FLAG_code_comments) {
       // TODO(titzer): these code comments are a giant memory leak.
       Vector<char> buffer = Vector<char>::New(32);
-      SNPrintF(buffer, "-- B%d start --", block_start->block()->id());
+      SNPrintF(buffer, "-- B%d start --", block_start->block()->id().ToInt());
       masm()->RecordComment(buffer.start());
     }
     masm()->bind(block_start->label());
@@ -242,11 +243,12 @@ void CodeGenerator::AddSafepointAndDeopt(Instruction* instr) {
   }
 
   if (needs_frame_state) {
+    MarkLazyDeoptSite();
     // If the frame state is present, it starts at argument 1
     // (just after the code address).
     InstructionOperandConverter converter(this, instr);
     // Deoptimization info starts at argument 1
-    int frame_state_offset = 1;
+    size_t frame_state_offset = 1;
     FrameStateDescriptor* descriptor =
         GetFrameStateDescriptor(instr, frame_state_offset);
     int pc_offset = masm()->pc_offset();
@@ -258,15 +260,15 @@ void CodeGenerator::AddSafepointAndDeopt(Instruction* instr) {
     // because it is only used to get locals and arguments (by the debugger and
     // f.arguments), and those are the same in the pre-call and post-call
     // states.
-    if (descriptor->state_combine() != kIgnoreOutput) {
-      deopt_state_id =
-          BuildTranslation(instr, -1, frame_state_offset, kIgnoreOutput);
+    if (!descriptor->state_combine().IsOutputIgnored()) {
+      deopt_state_id = BuildTranslation(instr, -1, frame_state_offset,
+                                        OutputFrameStateCombine::Ignore());
     }
 #if DEBUG
     // Make sure all the values live in stack slots or they are immediates.
     // (The values should not live in register because registers are clobbered
     // by calls.)
-    for (int i = 0; i < descriptor->size(); i++) {
+    for (size_t i = 0; i < descriptor->GetSize(); i++) {
       InstructionOperand* op = instr->InputAt(frame_state_offset + 1 + i);
       CHECK(op->IsStackSlot() || op->IsImmediate());
     }
@@ -287,62 +289,90 @@ int CodeGenerator::DefineDeoptimizationLiteral(Handle<Object> literal) {
 
 
 FrameStateDescriptor* CodeGenerator::GetFrameStateDescriptor(
-    Instruction* instr, int frame_state_offset) {
+    Instruction* instr, size_t frame_state_offset) {
   InstructionOperandConverter i(this, instr);
-  InstructionSequence::StateId state_id =
-      InstructionSequence::StateId::FromInt(i.InputInt32(frame_state_offset));
+  InstructionSequence::StateId state_id = InstructionSequence::StateId::FromInt(
+      i.InputInt32(static_cast<int>(frame_state_offset)));
   return code()->GetFrameStateDescriptor(state_id);
+}
+
+static InstructionOperand* OperandForFrameState(
+    FrameStateDescriptor* descriptor, Instruction* instr,
+    size_t frame_state_offset, size_t index, OutputFrameStateCombine combine) {
+  DCHECK(index < descriptor->GetSize(combine));
+  switch (combine.kind()) {
+    case OutputFrameStateCombine::kPushOutput: {
+      DCHECK(combine.GetPushCount() <= instr->OutputCount());
+      size_t size_without_output =
+          descriptor->GetSize(OutputFrameStateCombine::Ignore());
+      // If the index is past the existing stack items, return the output.
+      if (index >= size_without_output) {
+        return instr->OutputAt(index - size_without_output);
+      }
+      break;
+    }
+    case OutputFrameStateCombine::kPokeAt:
+      size_t index_from_top =
+          descriptor->GetSize(combine) - 1 - combine.GetOffsetToPokeAt();
+      if (index >= index_from_top &&
+          index < index_from_top + instr->OutputCount()) {
+        return instr->OutputAt(index - index_from_top);
+      }
+      break;
+  }
+  return instr->InputAt(frame_state_offset + index);
 }
 
 
 void CodeGenerator::BuildTranslationForFrameStateDescriptor(
     FrameStateDescriptor* descriptor, Instruction* instr,
-    Translation* translation, int frame_state_offset,
+    Translation* translation, size_t frame_state_offset,
     OutputFrameStateCombine state_combine) {
   // Outer-most state must be added to translation first.
   if (descriptor->outer_state() != NULL) {
-    BuildTranslationForFrameStateDescriptor(
-        descriptor->outer_state(), instr, translation,
-        frame_state_offset + descriptor->size(), kIgnoreOutput);
+    BuildTranslationForFrameStateDescriptor(descriptor->outer_state(), instr,
+                                            translation, frame_state_offset,
+                                            OutputFrameStateCombine::Ignore());
   }
 
-  int height = descriptor->size() - descriptor->parameters_count();
-  switch (state_combine) {
-    case kPushOutput:
-      height++;
+  int id = Translation::kSelfLiteralId;
+  if (!descriptor->jsfunction().is_null()) {
+    id = DefineDeoptimizationLiteral(
+        Handle<Object>::cast(descriptor->jsfunction().ToHandleChecked()));
+  }
+
+  switch (descriptor->type()) {
+    case JS_FRAME:
+      translation->BeginJSFrame(
+          descriptor->bailout_id(), id,
+          static_cast<unsigned int>(descriptor->GetSize(state_combine) -
+                                    descriptor->parameters_count()));
       break;
-    case kIgnoreOutput:
+    case ARGUMENTS_ADAPTOR:
+      translation->BeginArgumentsAdaptorFrame(
+          id, static_cast<unsigned int>(descriptor->parameters_count()));
       break;
   }
 
-  translation->BeginJSFrame(descriptor->bailout_id(),
-                            Translation::kSelfLiteralId, height);
-
-  for (int i = 0; i < descriptor->size(); i++) {
-    AddTranslationForOperand(translation, instr,
-                             instr->InputAt(i + frame_state_offset));
-  }
-
-  switch (state_combine) {
-    case kPushOutput:
-      DCHECK(instr->OutputCount() == 1);
-      AddTranslationForOperand(translation, instr, instr->OutputAt(0));
-      break;
-    case kIgnoreOutput:
-      break;
+  frame_state_offset += descriptor->outer_state()->GetTotalSize();
+  for (size_t i = 0; i < descriptor->GetSize(state_combine); i++) {
+    InstructionOperand* op = OperandForFrameState(
+        descriptor, instr, frame_state_offset, i, state_combine);
+    AddTranslationForOperand(translation, instr, op);
   }
 }
 
 
 int CodeGenerator::BuildTranslation(Instruction* instr, int pc_offset,
-                                    int frame_state_offset,
+                                    size_t frame_state_offset,
                                     OutputFrameStateCombine state_combine) {
   FrameStateDescriptor* descriptor =
       GetFrameStateDescriptor(instr, frame_state_offset);
   frame_state_offset++;
 
-  int frame_count = descriptor->GetFrameCount();
-  Translation translation(&translations_, frame_count, frame_count, zone());
+  Translation translation(
+      &translations_, static_cast<int>(descriptor->GetFrameCount()),
+      static_cast<int>(descriptor->GetJSFrameCount()), zone());
   BuildTranslationForFrameStateDescriptor(descriptor, instr, &translation,
                                           frame_state_offset, state_combine);
 
@@ -378,8 +408,7 @@ void CodeGenerator::AddTranslationForOperand(Translation* translation,
             isolate()->factory()->NewNumberFromInt(constant.ToInt32());
         break;
       case Constant::kFloat64:
-        constant_object =
-            isolate()->factory()->NewHeapNumber(constant.ToFloat64());
+        constant_object = isolate()->factory()->NewNumber(constant.ToFloat64());
         break;
       case Constant::kHeapObject:
         constant_object = constant.ToHeapObject();
@@ -392,6 +421,11 @@ void CodeGenerator::AddTranslationForOperand(Translation* translation,
   } else {
     UNREACHABLE();
   }
+}
+
+
+void CodeGenerator::MarkLazyDeoptSite() {
+  last_lazy_deopt_pc_ = masm()->pc_offset();
 }
 
 #if !V8_TURBOFAN_BACKEND

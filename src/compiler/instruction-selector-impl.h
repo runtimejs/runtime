@@ -5,6 +5,7 @@
 #ifndef V8_COMPILER_INSTRUCTION_SELECTOR_IMPL_H_
 #define V8_COMPILER_INSTRUCTION_SELECTOR_IMPL_H_
 
+#include "src/compiler/generic-node-inl.h"
 #include "src/compiler/instruction.h"
 #include "src/compiler/instruction-selector.h"
 #include "src/compiler/linkage.h"
@@ -129,7 +130,7 @@ class OperandGenerator {
 
   InstructionOperand* Label(BasicBlock* block) {
     // TODO(bmeurer): We misuse ImmediateOperand here.
-    return TempImmediate(block->id());
+    return TempImmediate(block->id().ToInt());
   }
 
  protected:
@@ -146,8 +147,10 @@ class OperandGenerator {
         return Constant(OpParameter<int32_t>(node));
       case IrOpcode::kInt64Constant:
         return Constant(OpParameter<int64_t>(node));
-      case IrOpcode::kNumberConstant:
+      case IrOpcode::kFloat32Constant:
+        return Constant(OpParameter<float>(node));
       case IrOpcode::kFloat64Constant:
+      case IrOpcode::kNumberConstant:
         return Constant(OpParameter<double>(node));
       case IrOpcode::kExternalConstant:
         return Constant(OpParameter<ExternalReference>(node));
@@ -348,7 +351,7 @@ struct CallBuffer {
   size_t frame_state_value_count() const {
     return (frame_state_descriptor == NULL)
                ? 0
-               : (frame_state_descriptor->total_size() +
+               : (frame_state_descriptor->GetTotalSize() +
                   1);  // Include deopt id.
   }
 };

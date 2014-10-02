@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #include "src/lithium-codegen.h"
+
+#include <sstream>
+
+#include "src/v8.h"
 
 #if V8_TARGET_ARCH_IA32
 #include "src/ia32/lithium-ia32.h"  // NOLINT
@@ -147,6 +149,15 @@ void LCodeGenBase::Comment(const char* format, ...) {
 }
 
 
+void LCodeGenBase::DeoptComment(const Deoptimizer::Reason& reason) {
+  std::ostringstream os;
+  os << ";;; deoptimize at " << HSourcePosition(reason.raw_position) << " "
+     << reason.mnemonic;
+  if (reason.detail != NULL) os << ": " << reason.detail;
+  Comment("%s", os.str().c_str());
+}
+
+
 int LCodeGenBase::GetNextEmittedBlock() const {
   for (int i = current_block_ + 1; i < graph()->blocks()->length(); ++i) {
     if (!graph()->blocks()->at(i)->IsReachable()) continue;
@@ -217,19 +228,25 @@ void LCodeGenBase::RegisterWeakObjectsInOptimizedCode(Handle<Code> code) {
 
 
 void LCodeGenBase::Abort(BailoutReason reason) {
-  info()->set_bailout_reason(reason);
+  info()->AbortOptimization(reason);
+  status_ = ABORTED;
+}
+
+
+void LCodeGenBase::Retry(BailoutReason reason) {
+  info()->RetryOptimization(reason);
   status_ = ABORTED;
 }
 
 
 void LCodeGenBase::AddDeprecationDependency(Handle<Map> map) {
-  if (map->is_deprecated()) return Abort(kMapBecameDeprecated);
+  if (map->is_deprecated()) return Retry(kMapBecameDeprecated);
   chunk_->AddDeprecationDependency(map);
 }
 
 
 void LCodeGenBase::AddStabilityDependency(Handle<Map> map) {
-  if (!map->is_stable()) return Abort(kMapBecameUnstable);
+  if (!map->is_stable()) return Retry(kMapBecameUnstable);
   chunk_->AddStabilityDependency(map);
 }
 

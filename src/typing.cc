@@ -56,7 +56,7 @@ void AstTyper::Run(CompilationInfo* info) {
     var->name()->Print(os);
     os << " : " << Brief(value) << " -> ";
     type->PrintTo(os);
-    os << endl;
+    os << std::endl;
   }
 #endif  // OBJECT_PRINT
 
@@ -350,6 +350,9 @@ void AstTyper::VisitDebuggerStatement(DebuggerStatement* stmt) {
 void AstTyper::VisitFunctionLiteral(FunctionLiteral* expr) {
   expr->InitializeSharedInfo(Handle<Code>(info_->closure()->shared()->code()));
 }
+
+
+void AstTyper::VisitClassLiteral(ClassLiteral* expr) {}
 
 
 void AstTyper::VisitNativeFunctionLiteral(NativeFunctionLiteral* expr) {

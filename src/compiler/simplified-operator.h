@@ -5,6 +5,8 @@
 #ifndef V8_COMPILER_SIMPLIFIED_OPERATOR_H_
 #define V8_COMPILER_SIMPLIFIED_OPERATOR_H_
 
+#include <iosfwd>
+
 #include "src/compiler/machine-type.h"
 #include "src/handles.h"
 
@@ -28,6 +30,8 @@ struct SimplifiedOperatorBuilderImpl;
 
 enum BaseTaggedness { kUntaggedBase, kTaggedBase };
 
+std::ostream& operator<<(std::ostream&, BaseTaggedness);
+
 // An access descriptor for loads/stores of fixed structures like field
 // accesses of heap objects. Accesses from either tagged or untagged base
 // pointers are supported; untagging is done automatically during lowering.
@@ -42,11 +46,17 @@ struct FieldAccess {
 };
 
 
+enum BoundsCheckMode { kNoBoundsCheck, kTypedArrayBoundsCheck };
+
+std::ostream& operator<<(std::ostream&, BoundsCheckMode);
+
+
 // An access descriptor for loads/stores of indexed structures like characters
 // in strings or off-heap backing stores. Accesses from either tagged or
 // untagged base pointers are supported; untagging is done automatically during
 // lowering.
 struct ElementAccess {
+  BoundsCheckMode bounds_check;   // specifies the bounds checking mode.
   BaseTaggedness base_is_tagged;  // specifies if the base pointer is tagged.
   int header_size;                // size of the header, without tag.
   Type* type;                     // type of the element.
@@ -54,6 +64,11 @@ struct ElementAccess {
 
   int tag() const { return base_is_tagged == kTaggedBase ? kHeapObjectTag : 0; }
 };
+
+bool operator==(ElementAccess const& lhs, ElementAccess const& rhs);
+bool operator!=(ElementAccess const& lhs, ElementAccess const& rhs);
+
+std::ostream& operator<<(std::ostream&, ElementAccess const&);
 
 
 // If the accessed object is not a heap object, add this to the header_size.
@@ -91,6 +106,7 @@ class SimplifiedOperatorBuilder FINAL {
   explicit SimplifiedOperatorBuilder(Zone* zone);
 
   const Operator* BooleanNot();
+  const Operator* BooleanToNumber();
 
   const Operator* NumberEqual();
   const Operator* NumberLessThan();
@@ -121,8 +137,12 @@ class SimplifiedOperatorBuilder FINAL {
 
   const Operator* LoadField(const FieldAccess&);
   const Operator* StoreField(const FieldAccess&);
-  const Operator* LoadElement(const ElementAccess&);
-  const Operator* StoreElement(const ElementAccess&);
+
+  // load-element [base + index], length
+  const Operator* LoadElement(ElementAccess const&);
+
+  // store-element [base + index], length, value
+  const Operator* StoreElement(ElementAccess const&);
 
  private:
   Zone* zone() const { return zone_; }
