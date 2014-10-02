@@ -7,6 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "__config"
+#ifndef _LIBCPP_HAS_NO_THREADS
+
 #include "thread"
 #include "exception"
 #include "vector"
@@ -121,7 +124,9 @@ sleep_for(const chrono::nanoseconds& ns)
             ts.tv_sec = ts_sec_max;
             ts.tv_nsec = giga::num - 1;
         }
-        nanosleep(&ts, 0);
+
+        while (nanosleep(&ts, &ts) == -1 && errno == EINTR)
+            ;
     }
 }
 
@@ -223,3 +228,5 @@ __thread_struct::__make_ready_at_thread_exit(__assoc_sub_state* __s)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // !_LIBCPP_HAS_NO_THREADS

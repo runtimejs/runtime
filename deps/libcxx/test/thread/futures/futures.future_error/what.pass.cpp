@@ -6,13 +6,15 @@
 // Source Licenses. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// UNSUPPORTED: libcpp-has-no-threads
 
 // LWG 2056 changed the values of future_errc, so if we're using new headers
 // with an old library we'll get incorrect messages.
 //
-// XFAIL: x86_64-apple-darwin11
-// XFAIL: x86_64-apple-darwin12
-// XFAIL: x86_64-apple-darwin13
+// XFAIL: with_system_lib=x86_64-apple-darwin11
+// XFAIL: with_system_lib=x86_64-apple-darwin12
+// XFAIL: with_system_lib=x86_64-apple-darwin13
 
 // <future>
 

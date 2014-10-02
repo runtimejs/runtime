@@ -6,6 +6,9 @@
 // Source Licenses. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// UNSUPPORTED: libcpp-has-no-threads
+//  ... test crashes clang
 
 // <atomic>
 
@@ -79,7 +82,7 @@ struct A
 {
     int i;
 
-    explicit A(int d = 0) : i(d) {}
+    explicit A(int d = 0) noexcept {i=d;}
     A(const A& a) : i(a.i) {}
     A(const volatile A& a) : i(a.i) {}
 

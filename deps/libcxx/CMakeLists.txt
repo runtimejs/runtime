@@ -40,14 +40,27 @@ option(LIBCXX_ENABLE_RTTI "Use run time type information." ON)
 option(LIBCXX_ENABLE_ASSERTIONS "Enable assertions independent of build mode." ON)
 option(LIBCXX_ENABLE_PEDANTIC "Compile with pedantic enabled." ON)
 option(LIBCXX_ENABLE_WERROR "Fail and stop if a warning is triggered." OFF)
-option(LIBCXX_ENABLE_CXX0X "Enable -std=c++0x and use of c++0x language features if the compiler supports it." ON)
+option(LIBCXX_ENABLE_CXX1Y "Enable -std=c++1y and use of c++1y language features if the compiler supports it." OFF)
 option(LIBCXX_ENABLE_SHARED "Build libc++ as a shared library." ON)
 option(LIBCXX_INSTALL_SUPPORT_HEADERS "Install libc++ support headers." ON)
+if (LIBCXX_BUILT_STANDALONE)
+  set(LLVM_USE_SANITIZER "" CACHE STRING
+      "Define the sanitizer used to build the library and tests")
+endif()
 
 set(CXXABIS none libcxxabi libcxxrt libstdc++ libsupc++)
-if (NOT DEFINED LIBCXX_CXX_ABI)
-  set(LIBCXX_CXX_ABI "none")
-endif()
+if (NOT LIBCXX_CXX_ABI)
+  if (NOT DEFINED LIBCXX_BUILT_STANDALONE AND
+      IS_DIRECTORY "${CMAKE_SOURCE_DIR}/projects/libcxxabi")
+    set(LIBCXX_CXX_ABI_LIBNAME "libcxxabi")
+    set(LIBCXX_LIBCXXABI_INCLUDE_PATHS "${CMAKE_SOURCE_DIR}/projects/libcxxabi/include")
+    set(LIBCXX_CXX_ABI_INTREE 1)
+  else ()
+    set(LIBCXX_CXX_ABI_LIBNAME "none")
+  endif ()
+else ()
+  set(LIBCXX_CXX_ABI_LIBNAME "${LIBCXX_CXX_ABI}")
+endif ()
 set(LIBCXX_CXX_ABI "${LIBCXX_CXX_ABI}" CACHE STRING
     "Specify C++ ABI library to use." FORCE)
 set_property(CACHE LIBCXX_CXX_ABI PROPERTY STRINGS ;${CXXABIS})
@@ -90,16 +103,17 @@ set(LIBCXX_TARGET_TRIPLE ${LIBCXX_TARGET_TRIPLE} CACHE STRING "Target triple.")
 macro(setup_abi_lib abipathvar abidefines abilibs abifiles abidirs)
   list(APPEND LIBCXX_CXX_FEATURE_FLAGS ${abidefines})
   set(${abipathvar} "${${abipathvar}}"
-    CACHE STRINGS
-    "Paths to ABI include directories separate by ';'."
+    CACHE PATH
+    "Paths to C++ ABI header directories separated by ';'." FORCE
     )
   set(LIBCXX_CXX_ABI_LIBRARIES ${abilibs})
   set(LIBCXX_ABILIB_FILES ${abifiles})
+
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include")
   foreach(_d ${abidirs})
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/${_d}")
   endforeach()
-  set(LIBCXX_ABILIB_FILE_PATHS)
+
   foreach(fpath ${LIBCXX_ABILIB_FILES})
     set(found FALSE)
     foreach(incpath ${${abipathvar}})
@@ -107,39 +121,33 @@ macro(setup_abi_lib abipathvar abidefines abilibs abifiles abidirs)
         set(found TRUE)
         get_filename_component(dstdir ${fpath} PATH)
         get_filename_component(ifile ${fpath} NAME)
-        add_custom_command(
-          OUTPUT "${CMAKE_BINARY_DIR}/include/${dstdir}/${ifile}"
-          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${incpath}/${fpath}"
-            "${CMAKE_BINARY_DIR}/include/${dstdir}"
-          MAIN_DEPENDENCY "${incpath}/${fpath}"
+        file(COPY "${incpath}/${fpath}"
+          DESTINATION "${CMAKE_BINARY_DIR}/include/${dstdir}"
           )
-        list(APPEND LIBCXX_CXX_ABI_DEPS
-          "${CMAKE_BINARY_DIR}/include/${dstdir}/${ifile}"
+        install(FILES "${CMAKE_BINARY_DIR}/include/${fpath}"
+          DESTINATION include/c++/v1/${dstdir}
+          PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
           )
+        list(APPEND abilib_headers "${CMAKE_BINARY_DIR}/include/${fpath}")
       endif()
     endforeach()
     if (NOT found)
       message(FATAL_ERROR "Failed to find ${fpath}")
     endif()
   endforeach()
-  add_custom_target(abilib_headers DEPENDS ${LIBCXX_CXX_ABI_DEPS})
-  set(LIBCXX_CXX_ABI_DEPS abilib_headers)
+
+  add_custom_target(LIBCXX_CXX_ABI_DEPS DEPENDS ${abilib_headers})
   include_directories("${CMAKE_BINARY_DIR}/include")
-  install(DIRECTORY "${CMAKE_BINARY_DIR}/include/"
-    DESTINATION include/c++/v1
-    FILES_MATCHING
-    PATTERN "*"
-    )
+
 endmacro()
 
-if ("${LIBCXX_CXX_ABI}" STREQUAL "libstdc++" OR
-    "${LIBCXX_CXX_ABI}" STREQUAL "libsupc++")
+if ("${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "libstdc++" OR
+    "${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "libsupc++")
   set(_LIBSUPCXX_INCLUDE_FILES
     cxxabi.h bits/c++config.h bits/os_defines.h bits/cpu_defines.h
     bits/cxxabi_tweaks.h bits/cxxabi_forced.h
     )
-  if ("${LIBCXX_CXX_ABI}" STREQUAL "libstdc++")
+  if ("${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "libstdc++")
     set(_LIBSUPCXX_DEFINES "-DLIBSTDCXX")
     set(_LIBSUPCXX_LIBNAME stdc++)
   else()
@@ -150,15 +158,22 @@ if ("${LIBCXX_CXX_ABI}" STREQUAL "libstdc++" OR
     "-D__GLIBCXX__ ${_LIBSUPCXX_DEFINES}"
     "${_LIBSUPCXX_LIBNAME}" "${_LIBSUPCXX_INCLUDE_FILES}" "bits"
     )
-elseif ("${LIBCXX_CXX_ABI}" STREQUAL "libcxxabi")
+elseif ("${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "libcxxabi")
+  if (LIBCXX_CXX_ABI_INTREE)
+    # Link against just-built "cxxabi" target.
+    set(CXXABI_LIBNAME cxxabi)
+  else()
+    # Assume c++abi is installed in the system, rely on -lc++abi link flag.
+    set(CXXABI_LIBNAME "c++abi")
+  endif()
   setup_abi_lib("LIBCXX_LIBCXXABI_INCLUDE_PATHS" ""
-    "c++abi" "cxxabi.h" ""
+    ${CXXABI_LIBNAME} "cxxabi.h" ""
     )
-elseif ("${LIBCXX_CXX_ABI}" STREQUAL "libcxxrt")
+elseif ("${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "libcxxrt")
   setup_abi_lib("LIBCXX_LIBCXXRT_INCLUDE_PATHS" "-DLIBCXXRT"
     "cxxrt" "cxxabi.h;unwind.h;unwind-arm.h;unwind-itanium.h" ""
     )
-elseif (NOT "${LIBCXX_CXX_ABI}" STREQUAL "none")
+elseif (NOT "${LIBCXX_CXX_ABI_LIBNAME}" STREQUAL "none")
   message(FATAL_ERROR
     "Currently libstdc++, libsupc++, libcxxabi, libcxxrt and none are "
     "supported for c++ abi."
@@ -181,10 +196,25 @@ if (MSVC)
 else()
   if (LIBCXX_HAS_NOSTDINCXX_FLAG)
     list(APPEND LIBCXX_CXX_REQUIRED_FLAGS -nostdinc++)
+    string(REPLACE "-stdlib=libc++" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
   endif()
-  if (LIBCXX_ENABLE_CXX0X AND LIBCXX_HAS_STDCXX0X_FLAG)
-    list(APPEND LIBCXX_CXX_REQUIRED_FLAGS -std=c++0x)
+  # If c++1y has been enabled then attempt to use it. Fail if it is no supported
+  # by the compiler. Otherwise choose c++11 and ensure the compiler supports it.
+  if (LIBCXX_ENABLE_CXX1Y)
+    if (LIBCXX_HAS_STDCXX1Y_FLAG)
+      set(LIBCXX_STD_VERSION c++1y)
+    else()
+      message(FATAL_ERROR "c++1y was enabled but the compiler does not support it.")
+    endif()
+  else()
+    if (LIBCXX_HAS_STDCXX11_FLAG)
+      set(LIBCXX_STD_VERSION c++11)
+    else()
+      message(FATAL_ERROR "c++11 is required by libc++ but is not supported by the compiler")
+    endif()
   endif()
+  # LIBCXX_STD_VERSION should always be set at this point.
+  list(APPEND LIBCXX_CXX_REQUIRED_FLAGS "-std=${LIBCXX_STD_VERSION}")
 endif()
 
 macro(append_if list condition var)
@@ -257,6 +287,29 @@ endif()
 # This is the _ONLY_ place where add_definitions is called.
 if (MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+
+# Configure for sanitizers. If LIBCXX_BUILT_STANDALONE then we have to do
+# the flag translation ourselves. Othewise LLVM's CMakeList.txt will handle it.
+if (LIBCXX_BUILT_STANDALONE)
+  # NOTE: LLVM_USE_SANITIZER checks for a UNIX like system instead of MSVC.
+  # But we don't have LLVM_ON_UNIX so checking for MSVC is the best we can do.
+  if (LLVM_USE_SANITIZER AND NOT MSVC)
+    append_if(LIBCXX_CXX_FEATURE_FLAGS LIBCXX_HAS_NO_OMIT_FRAME_POINTER_FLAG
+            "-fno-omit-frame-pointer")
+    if (LLVM_USE_SANITIZER STREQUAL "Address")
+      list(APPEND LIBCXX_CXX_FEATURE_FLAGS "-fsanitize=address")
+    elseif (LLVM_USE_SANITIZER MATCHES "Memory(WithOrigins)?")
+      list(APPEND LIBCXX_CXX_FEATURE_FLAGS "-fsanitize=memory")
+      if (LLVM_USE_SANITIZER STREQUAL "MemoryWithOrigins")
+        list(APPEND LIBCXX_CXX_FEATURE_FLAGS "-fsanitize-memory-track-origins")
+      endif()
+    else()
+      message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
+    endif()
+  elseif(MSVC)
+    message(WARNING "LLVM_USE_SANITIZER is not supported with MSVC")
+  endif()
 endif()
 
 string(REPLACE ";" " " LIBCXX_CXX_REQUIRED_FLAGS "${LIBCXX_CXX_REQUIRED_FLAGS}")

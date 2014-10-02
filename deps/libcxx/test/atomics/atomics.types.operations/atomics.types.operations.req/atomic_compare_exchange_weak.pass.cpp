@@ -6,6 +6,9 @@
 // Source Licenses. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// UNSUPPORTED: libcpp-has-no-threads
+//  ... assertion fails line 34
 
 // <atomic>
 
@@ -21,6 +24,8 @@
 #include <type_traits>
 #include <cassert>
 
+#include <cmpxchg_loop.h>
+
 template <class T>
 void
 test()
@@ -30,7 +35,7 @@ test()
         A a;
         T t(T(1));
         std::atomic_init(&a, t);
-        assert(std::atomic_compare_exchange_weak(&a, &t, T(2)) == true);
+        assert(c_cmpxchg_weak_loop(&a, &t, T(2)) == true);
         assert(a == T(2));
         assert(t == T(1));
         assert(std::atomic_compare_exchange_weak(&a, &t, T(3)) == false);
@@ -42,7 +47,7 @@ test()
         volatile A a;
         T t(T(1));
         std::atomic_init(&a, t);
-        assert(std::atomic_compare_exchange_weak(&a, &t, T(2)) == true);
+        assert(c_cmpxchg_weak_loop(&a, &t, T(2)) == true);
         assert(a == T(2));
         assert(t == T(1));
         assert(std::atomic_compare_exchange_weak(&a, &t, T(3)) == false);
@@ -55,7 +60,7 @@ struct A
 {
     int i;
 
-    explicit A(int d = 0) : i(d) {}
+    explicit A(int d = 0) noexcept {i=d;}
 
     friend bool operator==(const A& x, const A& y)
         {return x.i == y.i;}
