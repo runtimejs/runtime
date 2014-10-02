@@ -15,17 +15,20 @@
 
 // default unique_ptr ctor should require default Deleter ctor
 
+// USE_VERIFY
+
 #include <memory>
 
 class Deleter
 {
-
-    Deleter() {}
+    // expected-error@memory:* {{base class 'Deleter' has private default constructor}}
+    // expected-note@memory:* + {{in instantiation of member function}}
+    Deleter() {} // expected-note {{implicitly declared private here}}
 
 public:
 
     Deleter(Deleter&) {}
-    Deleter& operator=(Deleter&) {}
+    Deleter& operator=(Deleter&) { return *this; }
 
     void operator()(void*) const {}
 };

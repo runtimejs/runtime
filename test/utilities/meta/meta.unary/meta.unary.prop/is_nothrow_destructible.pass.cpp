@@ -23,7 +23,7 @@ void test_is_nothrow_destructible()
 }
 
 template <class T>
-void test_has_not_nothrow_destructor()
+void test_is_not_nothrow_destructible()
 {
     static_assert(!std::is_nothrow_destructible<T>::value, "");
     static_assert(!std::is_nothrow_destructible<const T>::value, "");
@@ -49,7 +49,12 @@ struct bit_zero
 
 class Abstract
 {
-    virtual ~Abstract() = 0;
+    virtual void foo() = 0;
+};
+
+class AbstractDestructor
+{
+    virtual ~AbstractDestructor() = 0;
 };
 
 struct A
@@ -59,9 +64,10 @@ struct A
 
 int main()
 {
-    test_has_not_nothrow_destructor<void>();
-    test_has_not_nothrow_destructor<Abstract>();
-    test_has_not_nothrow_destructor<NotEmpty>();
+    test_is_not_nothrow_destructible<void>();
+    test_is_not_nothrow_destructible<AbstractDestructor>();
+    test_is_not_nothrow_destructible<NotEmpty>();
+    test_is_not_nothrow_destructible<char[]>();
 
 #if __has_feature(cxx_noexcept)
     test_is_nothrow_destructible<A>();
@@ -78,7 +84,7 @@ int main()
     test_is_nothrow_destructible<int*>();
     test_is_nothrow_destructible<const int*>();
     test_is_nothrow_destructible<char[3]>();
-    test_is_nothrow_destructible<char[3]>();
+    test_is_nothrow_destructible<Abstract>();
 #if __has_feature(cxx_noexcept)
     test_is_nothrow_destructible<bit_zero>();
 #endif

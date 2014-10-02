@@ -32,7 +32,7 @@ else()
 endif()
 
 if (DEFINED LIBCXX_CXX_ABI_DEPS)
-  add_dependencies(cxx ${LIBCXX_CXX_ABI_DEPS})
+  add_dependencies(cxx LIBCXX_CXX_ABI_DEPS)
 endif()
 
 # Generate library list.
@@ -54,7 +54,7 @@ if ( APPLE )
     list(APPEND compile_flags "-U__STRICT_ANSI__")
     list(APPEND link_flags
       "-compatibility_version 1"
-      "-current_version ${LIBCXX_VERSION}"
+      "-current_version 1"
       "-install_name /usr/lib/libc++.1.dylib"
       "-Wl,-reexport_library,/usr/lib/libc++abi.dylib"
       "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/libc++unexp.exp"
@@ -84,6 +84,7 @@ if ( APPLE )
   endif()
 endif()
 
+string(REPLACE ";" " " compile_flags "${compile_flags}")
 string(REPLACE ";" " " link_flags "${link_flags}")
 
 set_target_properties(cxx
@@ -96,6 +97,6 @@ set_target_properties(cxx
   )
 
 install(TARGETS cxx
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+  ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
   )
