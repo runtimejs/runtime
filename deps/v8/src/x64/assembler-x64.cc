@@ -942,6 +942,20 @@ void Assembler::emit_imul(Register dst, Register src, Immediate imm, int size) {
 }
 
 
+void Assembler::emit_imul(Register dst, const Operand& src, Immediate imm,
+                          int size) {
+  EnsureSpace ensure_space(this);
+  emit_rex(dst, src, size);
+  if (is_int8(imm.value_)) {
+    emit(0x6B);
+  } else {
+    emit(0x69);
+  }
+  emit_operand(dst, src);
+  emit(imm.value_);
+}
+
+
 void Assembler::emit_inc(Register dst, int size) {
   EnsureSpace ensure_space(this);
   emit_rex(dst, size);
@@ -2629,6 +2643,16 @@ void Assembler::cvttsd2siq(Register dst, XMMRegister src) {
 }
 
 
+void Assembler::cvttsd2siq(Register dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  emit(0xF2);
+  emit_rex_64(dst, src);
+  emit(0x0F);
+  emit(0x2C);
+  emit_sse_operand(dst, src);
+}
+
+
 void Assembler::cvtlsi2sd(XMMRegister dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   emit(0xF2);
@@ -2653,6 +2677,16 @@ void Assembler::cvtlsi2ss(XMMRegister dst, Register src) {
   EnsureSpace ensure_space(this);
   emit(0xF3);
   emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x2A);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::cvtqsi2sd(XMMRegister dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  emit(0xF2);
+  emit_rex_64(dst, src);
   emit(0x0F);
   emit(0x2A);
   emit_sse_operand(dst, src);
@@ -2896,6 +2930,12 @@ void Assembler::movmskps(Register dst, XMMRegister src) {
 
 void Assembler::emit_sse_operand(XMMRegister reg, const Operand& adr) {
   Register ireg = { reg.code() };
+  emit_operand(ireg, adr);
+}
+
+
+void Assembler::emit_sse_operand(Register reg, const Operand& adr) {
+  Register ireg = {reg.code()};
   emit_operand(ireg, adr);
 }
 

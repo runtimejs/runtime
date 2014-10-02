@@ -14,7 +14,7 @@
 #include "src/isolate.h"
 #include "src/jsregexp.h"
 #include "src/regexp-macro-assembler.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 
 namespace v8 {
 namespace internal {
@@ -1894,6 +1894,32 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 }
 
 
+void LoadIndexedInterceptorStub::Generate(MacroAssembler* masm) {
+  // Return address is in ra.
+  Label slow;
+
+  Register receiver = LoadDescriptor::ReceiverRegister();
+  Register key = LoadDescriptor::NameRegister();
+
+  // Check that the key is an array index, that is Uint32.
+  __ And(t0, key, Operand(kSmiTagMask | kSmiSignMask));
+  __ Branch(&slow, ne, t0, Operand(zero_reg));
+
+  // Everything is fine, call runtime.
+  __ Push(receiver, key);  // Receiver, key.
+
+  // Perform tail call to the entry.
+  __ TailCallExternalReference(
+      ExternalReference(IC_Utility(IC::kLoadElementWithInterceptor),
+                        masm->isolate()),
+      2, 1);
+
+  __ bind(&slow);
+  PropertyAccessCompiler::TailCallBuiltin(
+      masm, PropertyAccessCompiler::MissBuiltin(Code::KEYED_LOAD_IC));
+}
+
+
 void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   // sp[0] : number of parameters
   // sp[4] : receiver displacement
@@ -2480,9 +2506,9 @@ static void GenerateRecordCallTarget(MacroAssembler* masm) {
   // a3 : slot in feedback vector (Smi)
   Label initialize, done, miss, megamorphic, not_array_function;
 
-  DCHECK_EQ(*TypeFeedbackInfo::MegamorphicSentinel(masm->isolate()),
+  DCHECK_EQ(*TypeFeedbackVector::MegamorphicSentinel(masm->isolate()),
             masm->isolate()->heap()->megamorphic_symbol());
-  DCHECK_EQ(*TypeFeedbackInfo::UninitializedSentinel(masm->isolate()),
+  DCHECK_EQ(*TypeFeedbackVector::UninitializedSentinel(masm->isolate()),
             masm->isolate()->heap()->uninitialized_symbol());
 
   // Load the cache state into a4.
@@ -2513,14 +2539,14 @@ static void GenerateRecordCallTarget(MacroAssembler* masm) {
 
   // A monomorphic miss (i.e, here the cache is not uninitialized) goes
   // megamorphic.
-  __ LoadRoot(at, Heap::kUninitializedSymbolRootIndex);
+  __ LoadRoot(at, Heap::kuninitialized_symbolRootIndex);
   __ Branch(&initialize, eq, a4, Operand(at));
   // MegamorphicSentinel is an immortal immovable object (undefined) so no
   // write-barrier is needed.
   __ bind(&megamorphic);
   __ dsrl(a4, a3, 32- kPointerSizeLog2);
   __ Daddu(a4, a2, Operand(a4));
-  __ LoadRoot(at, Heap::kMegamorphicSymbolRootIndex);
+  __ LoadRoot(at, Heap::kmegamorphic_symbolRootIndex);
   __ sd(at, FieldMemOperand(a4, FixedArray::kHeaderSize));
   __ jmp(&done);
 
@@ -2878,9 +2904,9 @@ void CallICStub::Generate(MacroAssembler* masm) {
   __ bind(&extra_checks_or_miss);
   Label miss;
 
-  __ LoadRoot(at, Heap::kMegamorphicSymbolRootIndex);
+  __ LoadRoot(at, Heap::kmegamorphic_symbolRootIndex);
   __ Branch(&slow_start, eq, a4, Operand(at));
-  __ LoadRoot(at, Heap::kUninitializedSymbolRootIndex);
+  __ LoadRoot(at, Heap::kuninitialized_symbolRootIndex);
   __ Branch(&miss, eq, a4, Operand(at));
 
   if (!FLAG_trace_ic) {
@@ -2891,7 +2917,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
     __ Branch(&miss, ne, a5, Operand(JS_FUNCTION_TYPE));
     __ dsrl(a4, a3, 32 - kPointerSizeLog2);
     __ Daddu(a4, a2, Operand(a4));
-    __ LoadRoot(at, Heap::kMegamorphicSymbolRootIndex);
+    __ LoadRoot(at, Heap::kmegamorphic_symbolRootIndex);
     __ sd(at, FieldMemOperand(a4, FixedArray::kHeaderSize));
     __ Branch(&slow_start);
   }
@@ -3655,8 +3681,8 @@ void CompareICStub::GenerateUniqueNames(MacroAssembler* masm) {
   __ lbu(tmp1, FieldMemOperand(tmp1, Map::kInstanceTypeOffset));
   __ lbu(tmp2, FieldMemOperand(tmp2, Map::kInstanceTypeOffset));
 
-  __ JumpIfNotUniqueName(tmp1, &miss);
-  __ JumpIfNotUniqueName(tmp2, &miss);
+  __ JumpIfNotUniqueNameInstanceType(tmp1, &miss);
+  __ JumpIfNotUniqueNameInstanceType(tmp2, &miss);
 
   // Use a0 as result
   __ mov(v0, a0);
@@ -3911,7 +3937,7 @@ void NameDictionaryLookupStub::GenerateNegativeLookup(MacroAssembler* masm,
     __ ld(entity_name, FieldMemOperand(entity_name, HeapObject::kMapOffset));
     __ lbu(entity_name,
            FieldMemOperand(entity_name, Map::kInstanceTypeOffset));
-    __ JumpIfNotUniqueName(entity_name, miss);
+    __ JumpIfNotUniqueNameInstanceType(entity_name, miss);
     __ bind(&good);
 
     // Restore the properties.
@@ -4088,7 +4114,7 @@ void NameDictionaryLookupStub::Generate(MacroAssembler* masm) {
       __ ld(entry_key, FieldMemOperand(entry_key, HeapObject::kMapOffset));
       __ lbu(entry_key,
              FieldMemOperand(entry_key, Map::kInstanceTypeOffset));
-      __ JumpIfNotUniqueName(entry_key, &maybe_in_dictionary);
+      __ JumpIfNotUniqueNameInstanceType(entry_key, &maybe_in_dictionary);
     }
   }
 

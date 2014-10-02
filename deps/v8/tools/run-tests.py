@@ -51,9 +51,8 @@ from testrunner.objects import context
 
 
 ARCH_GUESS = utils.DefaultArch()
-DEFAULT_TESTS = ["mjsunit", "fuzz-natives", "base-unittests",
-                 "cctest", "compiler-unittests", "heap-unittests",
-                 "libplatform-unittests", "message", "preparser"]
+DEFAULT_TESTS = ["mjsunit", "fuzz-natives", "unittests",
+                 "cctest", "message", "preparser"]
 
 # Map of test name synonyms to lists of test suites. Should be ordered by
 # expected runtimes (suites with slow test cases first). These groups are
@@ -72,10 +71,7 @@ TEST_MAP = {
     "webkit",
   ],
   "unittests": [
-    "compiler-unittests",
-    "heap-unittests",
-    "base-unittests",
-    "libplatform-unittests",
+    "unittests",
   ],
 }
 
@@ -87,7 +83,7 @@ TIMEOUT_SCALEFACTOR = {"debug"   : 4,
 VARIANT_FLAGS = {
     "default": [],
     "stress": ["--stress-opt", "--always-opt"],
-    "turbofan": ["--turbo-filter=*", "--always-opt"],
+    "turbofan": ["--turbo-asm", "--turbo-filter=*", "--always-opt"],
     "nocrankshaft": ["--nocrankshaft"]}
 
 VARIANTS = ["default", "stress", "turbofan", "nocrankshaft"]

@@ -41,7 +41,7 @@
 #include "src/builtins.h"
 #include "src/gdb-jit.h"
 #include "src/isolate.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 #include "src/token.h"
 
 namespace v8 {
@@ -578,7 +578,7 @@ class RelocInfo {
 #ifdef ENABLE_DISASSEMBLER
   // Printing
   static const char* RelocModeName(Mode rmode);
-  void Print(Isolate* isolate, OStream& os);  // NOLINT
+  void Print(Isolate* isolate, std::ostream& os);  // NOLINT
 #endif  // ENABLE_DISASSEMBLER
 #ifdef VERIFY_HEAP
   void Verify(Isolate* isolate);

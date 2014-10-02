@@ -7,6 +7,7 @@
 
 #include "src/allocation.h"
 #include "src/ast.h"
+#include "src/bailout-reason.h"
 #include "src/zone.h"
 
 namespace v8 {
@@ -82,7 +83,9 @@ class CompilationInfo {
     kSerializing = 1 << 15,
     kContextSpecializing = 1 << 16,
     kInliningEnabled = 1 << 17,
-    kTypingEnabled = 1 << 18
+    kTypingEnabled = 1 << 18,
+    kDisableFutureOptimization = 1 << 19,
+    kToplevel = 1 << 20
   };
 
   CompilationInfo(Handle<JSFunction> closure, Zone* zone);
@@ -197,11 +200,17 @@ class CompilationInfo {
 
   void MarkAsInliningEnabled() { SetFlag(kInliningEnabled); }
 
+  void MarkAsInliningDisabled() { SetFlag(kInliningEnabled, false); }
+
   bool is_inlining_enabled() const { return GetFlag(kInliningEnabled); }
 
   void MarkAsTypingEnabled() { SetFlag(kTypingEnabled); }
 
   bool is_typing_enabled() const { return GetFlag(kTypingEnabled); }
+
+  void MarkAsToplevel() { SetFlag(kToplevel); }
+
+  bool is_toplevel() const { return GetFlag(kToplevel); }
 
   bool IsCodePreAgingActive() const {
     return FLAG_optimize_for_size && FLAG_age_code && !will_serialize() &&
@@ -226,7 +235,7 @@ class CompilationInfo {
     DCHECK(global_scope_ == NULL);
     global_scope_ = global_scope;
   }
-  Handle<FixedArray> feedback_vector() const {
+  Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
   void SetCode(Handle<Code> code) { code_ = code; }
@@ -279,7 +288,6 @@ class CompilationInfo {
     unoptimized_code_ = unoptimized;
     optimization_id_ = isolate()->NextOptimizationId();
   }
-  void DisableOptimization();
 
   // Deoptimization support.
   bool HasDeoptimizationSupport() const {
@@ -318,8 +326,16 @@ class CompilationInfo {
     SaveHandle(&unoptimized_code_);
   }
 
+  void AbortOptimization(BailoutReason reason) {
+    if (bailout_reason_ != kNoReason) bailout_reason_ = reason;
+    SetFlag(kDisableFutureOptimization);
+  }
+
+  void RetryOptimization(BailoutReason reason) {
+    if (bailout_reason_ != kNoReason) bailout_reason_ = reason;
+  }
+
   BailoutReason bailout_reason() const { return bailout_reason_; }
-  void set_bailout_reason(BailoutReason reason) { bailout_reason_ = reason; }
 
   int prologue_offset() const {
     DCHECK_NE(Code::kPrologueOffsetNotSet, prologue_offset_);
@@ -354,12 +370,12 @@ class CompilationInfo {
 
   void AbortDueToDependencyChange() {
     DCHECK(!OptimizingCompilerThread::IsOptimizerThread(isolate()));
-    abort_due_to_dependency_ = true;
+    aborted_due_to_dependency_change_ = true;
   }
 
-  bool HasAbortedDueToDependencyChange() {
+  bool HasAbortedDueToDependencyChange() const {
     DCHECK(!OptimizingCompilerThread::IsOptimizerThread(isolate()));
-    return abort_due_to_dependency_;
+    return aborted_due_to_dependency_change_;
   }
 
   bool HasSameOsrEntry(Handle<JSFunction> function, BailoutId osr_ast_id) {
@@ -451,7 +467,7 @@ class CompilationInfo {
   Handle<Context> context_;
 
   // Used by codegen, ultimately kept rooted by the SharedFunctionInfo.
-  Handle<FixedArray> feedback_vector_;
+  Handle<TypeFeedbackVector> feedback_vector_;
 
   // Compilation mode flag and whether deoptimization is allowed.
   Mode mode_;
@@ -460,9 +476,6 @@ class CompilationInfo {
   // afterwards, since we may need to compile it again to include deoptimization
   // data.  Keep track which code we patched.
   Handle<Code> unoptimized_code_;
-
-  // Flag whether compilation needs to be aborted due to dependency change.
-  bool abort_due_to_dependency_;
 
   // The zone from which the compilation pipeline working on this
   // CompilationInfo allocates.
@@ -500,6 +513,10 @@ class CompilationInfo {
   AstValueFactory* ast_value_factory_;
   bool ast_value_factory_owned_;
   AstNode::IdGen ast_node_id_gen_;
+
+  // This flag is used by the main thread to track whether this compilation
+  // should be abandoned due to dependency change.
+  bool aborted_due_to_dependency_change_;
 
   DISALLOW_COPY_AND_ASSIGN(CompilationInfo);
 };
@@ -587,18 +604,13 @@ class OptimizedCompileJob: public ZoneObject {
   CompilationInfo* info() const { return info_; }
   Isolate* isolate() const { return info()->isolate(); }
 
-  MUST_USE_RESULT Status AbortOptimization(
-      BailoutReason reason = kNoReason) {
-    if (reason != kNoReason) info_->set_bailout_reason(reason);
+  Status RetryOptimization(BailoutReason reason) {
+    info_->RetryOptimization(reason);
     return SetLastStatus(BAILED_OUT);
   }
 
-  MUST_USE_RESULT Status AbortAndDisableOptimization(
-      BailoutReason reason = kNoReason) {
-    if (reason != kNoReason) info_->set_bailout_reason(reason);
-    // Reference to shared function info does not change between phases.
-    AllowDeferredHandleDereference allow_handle_dereference;
-    info_->shared_info()->DisableOptimization(info_->bailout_reason());
+  Status AbortOptimization(BailoutReason reason) {
+    info_->AbortOptimization(reason);
     return SetLastStatus(BAILED_OUT);
   }
 
@@ -659,12 +671,17 @@ class Compiler : public AllStatic {
  public:
   MUST_USE_RESULT static MaybeHandle<Code> GetUnoptimizedCode(
       Handle<JSFunction> function);
+  MUST_USE_RESULT static MaybeHandle<Code> GetLazyCode(
+      Handle<JSFunction> function);
   MUST_USE_RESULT static MaybeHandle<Code> GetUnoptimizedCode(
       Handle<SharedFunctionInfo> shared);
+  MUST_USE_RESULT static MaybeHandle<Code> GetDebugCode(
+      Handle<JSFunction> function);
+
   static bool EnsureCompiled(Handle<JSFunction> function,
                              ClearExceptionFlag flag);
-  MUST_USE_RESULT static MaybeHandle<Code> GetCodeForDebugging(
-      Handle<JSFunction> function);
+
+  static bool EnsureDeoptimizationSupport(CompilationInfo* info);
 
   static void CompileForLiveEdit(Handle<Script> script);
 
@@ -706,10 +723,6 @@ class Compiler : public AllStatic {
   // Generate and return code from previously queued optimization job.
   // On failure, return the empty handle.
   static Handle<Code> GetConcurrentlyOptimizedCode(OptimizedCompileJob* job);
-
-  static void RecordFunctionCompilation(Logger::LogEventsAndTags tag,
-                                        CompilationInfo* info,
-                                        Handle<SharedFunctionInfo> shared);
 
   static bool DebuggerWantsEagerCompilation(
       CompilationInfo* info, bool allow_lazy_without_ctx = false);

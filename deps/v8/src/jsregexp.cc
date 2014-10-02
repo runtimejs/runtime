@@ -18,7 +18,7 @@
 #include "src/regexp-macro-assembler-irregexp.h"
 #include "src/regexp-macro-assembler-tracer.h"
 #include "src/regexp-stack.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 #include "src/string-search.h"
 
 #ifndef V8_INTERPRETED_REGEXP
@@ -69,6 +69,9 @@ static JSRegExp::Flags RegExpFlagsFromString(Handle<String> str) {
         break;
       case 'm':
         flags |= JSRegExp::MULTILINE;
+        break;
+      case 'y':
+        if (FLAG_harmony_regexps) flags |= JSRegExp::STICKY;
         break;
     }
   }
@@ -185,12 +188,14 @@ MaybeHandle<Object> RegExpImpl::Compile(Handle<JSRegExp> re,
 
   if (parse_result.simple &&
       !flags.is_ignore_case() &&
+      !flags.is_sticky() &&
       !HasFewDifferentCharacters(pattern)) {
     // Parse-tree is a single atom that is equal to the pattern.
     AtomCompile(re, pattern, flags, pattern);
     has_been_compiled = true;
   } else if (parse_result.tree->IsAtom() &&
       !flags.is_ignore_case() &&
+      !flags.is_sticky() &&
       parse_result.capture_count == 0) {
     RegExpAtom* atom = parse_result.tree->AsAtom();
     Vector<const uc16> atom_pattern = atom->data();
@@ -430,7 +435,8 @@ bool RegExpImpl::CompileIrregexp(Handle<JSRegExp> re,
   }
   RegExpEngine::CompilationResult result = RegExpEngine::Compile(
       &compile_data, flags.is_ignore_case(), flags.is_global(),
-      flags.is_multiline(), pattern, sample_subject, is_one_byte, &zone);
+      flags.is_multiline(), flags.is_sticky(), pattern, sample_subject,
+      is_one_byte, &zone);
   if (result.error_message != NULL) {
     // Unable to compile regexp.
     Handle<String> error_message = isolate->factory()->NewStringFromUtf8(
@@ -4380,7 +4386,7 @@ void BackReferenceNode::Emit(RegExpCompiler* compiler, Trace* trace) {
 
 class DotPrinter: public NodeVisitor {
  public:
-  DotPrinter(OStream& os, bool ignore_case)  // NOLINT
+  DotPrinter(std::ostream& os, bool ignore_case)  // NOLINT
       : os_(os),
         ignore_case_(ignore_case) {}
   void PrintNode(const char* label, RegExpNode* node);
@@ -4392,7 +4398,7 @@ class DotPrinter: public NodeVisitor {
 FOR_EACH_NODE_TYPE(DECLARE_VISIT)
 #undef DECLARE_VISIT
  private:
-  OStream& os_;
+  std::ostream& os_;
   bool ignore_case_;
 };
 
@@ -4414,7 +4420,7 @@ void DotPrinter::PrintNode(const char* label, RegExpNode* node) {
   }
   os_ << "\"];\n";
   Visit(node);
-  os_ << "}" << endl;
+  os_ << "}" << std::endl;
 }
 
 
@@ -4433,7 +4439,7 @@ void DotPrinter::PrintOnFailure(RegExpNode* from, RegExpNode* on_failure) {
 
 class TableEntryBodyPrinter {
  public:
-  TableEntryBodyPrinter(OStream& os, ChoiceNode* choice)  // NOLINT
+  TableEntryBodyPrinter(std::ostream& os, ChoiceNode* choice)  // NOLINT
       : os_(os),
         choice_(choice) {}
   void Call(uc16 from, DispatchTable::Entry entry) {
@@ -4447,14 +4453,14 @@ class TableEntryBodyPrinter {
   }
  private:
   ChoiceNode* choice() { return choice_; }
-  OStream& os_;
+  std::ostream& os_;
   ChoiceNode* choice_;
 };
 
 
 class TableEntryHeaderPrinter {
  public:
-  explicit TableEntryHeaderPrinter(OStream& os)  // NOLINT
+  explicit TableEntryHeaderPrinter(std::ostream& os)  // NOLINT
       : first_(true),
         os_(os) {}
   void Call(uc16 from, DispatchTable::Entry entry) {
@@ -4478,13 +4484,13 @@ class TableEntryHeaderPrinter {
 
  private:
   bool first_;
-  OStream& os_;
+  std::ostream& os_;
 };
 
 
 class AttributePrinter {
  public:
-  explicit AttributePrinter(OStream& os)  // NOLINT
+  explicit AttributePrinter(std::ostream& os)  // NOLINT
       : os_(os),
         first_(true) {}
   void PrintSeparator() {
@@ -4506,7 +4512,7 @@ class AttributePrinter {
   }
 
  private:
-  OStream& os_;
+  std::ostream& os_;
   bool first_;
 };
 
@@ -4675,10 +4681,10 @@ void DotPrinter::VisitAction(ActionNode* that) {
 
 class DispatchTableDumper {
  public:
-  explicit DispatchTableDumper(OStream& os) : os_(os) {}
+  explicit DispatchTableDumper(std::ostream& os) : os_(os) {}
   void Call(uc16 key, DispatchTable::Entry entry);
  private:
-  OStream& os_;
+  std::ostream& os_;
 };
 
 
@@ -6027,8 +6033,8 @@ void DispatchTableConstructor::VisitAction(ActionNode* that) {
 
 RegExpEngine::CompilationResult RegExpEngine::Compile(
     RegExpCompileData* data, bool ignore_case, bool is_global,
-    bool is_multiline, Handle<String> pattern, Handle<String> sample_subject,
-    bool is_one_byte, Zone* zone) {
+    bool is_multiline, bool is_sticky, Handle<String> pattern,
+    Handle<String> sample_subject, bool is_one_byte, Zone* zone) {
   if ((data->capture_count + 1) * 2 - 1 > RegExpMacroAssembler::kMaxRegister) {
     return IrregexpRegExpTooBig(zone->isolate());
   }
@@ -6055,9 +6061,9 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
   bool is_end_anchored = data->tree->IsAnchoredAtEnd();
   bool is_start_anchored = data->tree->IsAnchoredAtStart();
   int max_length = data->tree->max_match();
-  if (!is_start_anchored) {
+  if (!is_start_anchored && !is_sticky) {
     // Add a .*? at the beginning, outside the body capture, unless
-    // this expression is anchored at the beginning.
+    // this expression is anchored at the beginning or sticky.
     RegExpNode* loop_node =
         RegExpQuantifier::ToNode(0,
                                  RegExpTree::kInfinity,

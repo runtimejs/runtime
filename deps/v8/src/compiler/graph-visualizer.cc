@@ -4,6 +4,9 @@
 
 #include "src/compiler/graph-visualizer.h"
 
+#include <sstream>
+#include <string>
+
 #include "src/compiler/generic-algorithm.h"
 #include "src/compiler/generic-node.h"
 #include "src/compiler/generic-node-inl.h"
@@ -22,9 +25,148 @@ namespace compiler {
 
 #define DEAD_COLOR "#999999"
 
+class Escaped {
+ public:
+  explicit Escaped(const std::ostringstream& os,
+                   const char* escaped_chars = "<>|{}")
+      : str_(os.str()), escaped_chars_(escaped_chars) {}
+
+  friend std::ostream& operator<<(std::ostream& os, const Escaped& e) {
+    for (std::string::const_iterator i = e.str_.begin(); i != e.str_.end();
+         ++i) {
+      if (e.needs_escape(*i)) os << "\\";
+      os << *i;
+    }
+    return os;
+  }
+
+ private:
+  bool needs_escape(char ch) const {
+    for (size_t i = 0; i < strlen(escaped_chars_); ++i) {
+      if (ch == escaped_chars_[i]) return true;
+    }
+    return false;
+  }
+
+  const std::string str_;
+  const char* const escaped_chars_;
+};
+
+class JSONGraphNodeWriter : public NullNodeVisitor {
+ public:
+  JSONGraphNodeWriter(std::ostream& os, Zone* zone,
+                      const Graph* graph)  // NOLINT
+      : os_(os),
+        graph_(graph),
+        first_node_(true) {}
+
+  void Print() { const_cast<Graph*>(graph_)->VisitNodeInputsFromEnd(this); }
+
+  GenericGraphVisit::Control Pre(Node* node);
+
+ private:
+  std::ostream& os_;
+  const Graph* const graph_;
+  bool first_node_;
+
+  DISALLOW_COPY_AND_ASSIGN(JSONGraphNodeWriter);
+};
+
+
+GenericGraphVisit::Control JSONGraphNodeWriter::Pre(Node* node) {
+  if (first_node_) {
+    first_node_ = false;
+  } else {
+    os_ << ",";
+  }
+  std::ostringstream label;
+  label << *node->op();
+  os_ << "{\"id\":" << node->id() << ",\"label\":\"" << Escaped(label, "\"")
+      << "\"";
+  IrOpcode::Value opcode = node->opcode();
+  if (opcode == IrOpcode::kPhi || opcode == IrOpcode::kEffectPhi) {
+    os_ << ",\"rankInputs\":[0," << NodeProperties::FirstControlIndex(node)
+        << "]";
+    os_ << ",\"rankWithInput\":[" << NodeProperties::FirstControlIndex(node)
+        << "]";
+  } else if (opcode == IrOpcode::kIfTrue || opcode == IrOpcode::kIfFalse ||
+             opcode == IrOpcode::kLoop) {
+    os_ << ",\"rankInputs\":[" << NodeProperties::FirstControlIndex(node)
+        << "]";
+  }
+  if (opcode == IrOpcode::kBranch) {
+    os_ << ",\"rankInputs\":[0]";
+  }
+  os_ << ",\"opcode\":\"" << IrOpcode::Mnemonic(node->opcode()) << "\"";
+  os_ << ",\"control\":" << (NodeProperties::IsControl(node) ? "true"
+                                                             : "false");
+  os_ << "}";
+  return GenericGraphVisit::CONTINUE;
+}
+
+
+class JSONGraphEdgeWriter : public NullNodeVisitor {
+ public:
+  JSONGraphEdgeWriter(std::ostream& os, Zone* zone,
+                      const Graph* graph)  // NOLINT
+      : os_(os),
+        graph_(graph),
+        first_edge_(true) {}
+
+  void Print() { const_cast<Graph*>(graph_)->VisitNodeInputsFromEnd(this); }
+
+  GenericGraphVisit::Control PreEdge(Node* from, int index, Node* to);
+
+ private:
+  std::ostream& os_;
+  const Graph* const graph_;
+  bool first_edge_;
+
+  DISALLOW_COPY_AND_ASSIGN(JSONGraphEdgeWriter);
+};
+
+
+GenericGraphVisit::Control JSONGraphEdgeWriter::PreEdge(Node* from, int index,
+                                                        Node* to) {
+  if (first_edge_) {
+    first_edge_ = false;
+  } else {
+    os_ << ",";
+  }
+  const char* edge_type = NULL;
+  if (index < NodeProperties::FirstValueIndex(from)) {
+    edge_type = "unknown";
+  } else if (index < NodeProperties::FirstContextIndex(from)) {
+    edge_type = "value";
+  } else if (index < NodeProperties::FirstFrameStateIndex(from)) {
+    edge_type = "context";
+  } else if (index < NodeProperties::FirstEffectIndex(from)) {
+    edge_type = "frame-state";
+  } else if (index < NodeProperties::FirstControlIndex(from)) {
+    edge_type = "effect";
+  } else {
+    edge_type = "control";
+  }
+  os_ << "{\"source\":" << to->id() << ",\"target\":" << from->id()
+      << ",\"index\":" << index << ",\"type\":\"" << edge_type << "\"}";
+  return GenericGraphVisit::CONTINUE;
+}
+
+
+std::ostream& operator<<(std::ostream& os, const AsJSON& ad) {
+  Zone tmp_zone(ad.graph.zone()->isolate());
+  os << "{\"nodes\":[";
+  JSONGraphNodeWriter(os, &tmp_zone, &ad.graph).Print();
+  os << "],\"edges\":[";
+  JSONGraphEdgeWriter(os, &tmp_zone, &ad.graph).Print();
+  os << "]}";
+  return os;
+}
+
+
 class GraphVisualizer : public NullNodeVisitor {
  public:
-  GraphVisualizer(OStream& os, Zone* zone, const Graph* graph);  // NOLINT
+  GraphVisualizer(std::ostream& os, Zone* zone, const Graph* graph);  // NOLINT
 
   void Print();
 
@@ -39,7 +181,7 @@ class GraphVisualizer : public NullNodeVisitor {
   NodeSet all_nodes_;
   NodeSet white_nodes_;
   bool use_to_def_;
-  OStream& os_;
+  std::ostream& os_;
   const Graph* const graph_;
 
   DISALLOW_COPY_AND_ASSIGN(GraphVisualizer);
@@ -87,36 +229,6 @@ GenericGraphVisit::Control GraphVisualizer::PreEdge(Node* from, int index,
 }
 
 
-class Escaped {
- public:
-  explicit Escaped(const OStringStream& os) : str_(os.c_str()) {}
-
-  friend OStream& operator<<(OStream& os, const Escaped& e) {
-    for (const char* s = e.str_; *s != '\0'; ++s) {
-      if (needs_escape(*s)) os << "\\";
-      os << *s;
-    }
-    return os;
-  }
-
- private:
-  static bool needs_escape(char ch) {
-    switch (ch) {
-      case '>':
-      case '<':
-      case '|':
-      case '}':
-      case '{':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  const char* const str_;
-};
-
-
 static bool IsLikelyBackEdge(Node* from, int index, Node* to) {
   if (from->opcode() == IrOpcode::kPhi ||
       from->opcode() == IrOpcode::kEffectPhi) {
@@ -153,7 +265,7 @@ void GraphVisualizer::AnnotateNode(Node* node) {
       break;
   }
 
-  OStringStream label;
+  std::ostringstream label;
   label << *node->op();
   os_ << "    label=\"{{#" << node->id() << ":" << Escaped(label);
 
@@ -186,9 +298,9 @@ void GraphVisualizer::AnnotateNode(Node* node) {
 
   if (FLAG_trace_turbo_types && !NodeProperties::IsControl(node)) {
     Bounds bounds = NodeProperties::GetBounds(node);
-    OStringStream upper;
+    std::ostringstream upper;
     bounds.upper->PrintTo(upper);
-    OStringStream lower;
+    std::ostringstream lower;
     bounds.lower->PrintTo(lower);
     os_ << "|" << Escaped(upper) << "|" << Escaped(lower);
   }
@@ -262,7 +374,7 @@ void GraphVisualizer::Print() {
 }
 
 
-GraphVisualizer::GraphVisualizer(OStream& os, Zone* zone,
+GraphVisualizer::GraphVisualizer(std::ostream& os, Zone* zone,
                                  const Graph* graph)  // NOLINT
     : zone_(zone),
       all_nodes_(NodeSet::key_compare(), NodeSet::allocator_type(zone)),
@@ -272,7 +384,7 @@ GraphVisualizer::GraphVisualizer(OStream& os, Zone* zone,
       graph_(graph) {}
 
 
-OStream& operator<<(OStream& os, const AsDOT& ad) {
+std::ostream& operator<<(std::ostream& os, const AsDOT& ad) {
   Zone tmp_zone(ad.graph.zone()->isolate());
   GraphVisualizer(os, &tmp_zone, &ad.graph).Print();
   return os;

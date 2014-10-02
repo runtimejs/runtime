@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <sstream>
+
 #include "src/v8.h"
 
 #include "src/arm64/lithium-codegen-arm64.h"
@@ -282,9 +284,9 @@ void LStoreKeyedGeneric::PrintDataTo(StringStream* stream) {
 
 void LStoreNamedField::PrintDataTo(StringStream* stream) {
   object()->PrintTo(stream);
-  OStringStream os;
+  std::ostringstream os;
   os << hydrogen()->access();
-  stream->Add(os.c_str());
+  stream->Add(os.str().c_str());
   stream->Add(" <- ");
   value()->PrintTo(stream);
 }
@@ -351,12 +353,6 @@ const char* LArithmeticT::Mnemonic() const {
       UNREACHABLE();
       return NULL;
   }
-}
-
-
-void LChunkBuilder::Abort(BailoutReason reason) {
-  info()->set_bailout_reason(reason);
-  status_ = ABORTED;
 }
 
 
@@ -1252,7 +1248,6 @@ LInstruction* LChunkBuilder::DoClampToUint8(HClampToUint8* instr) {
     DCHECK(input_rep.IsSmiOrTagged());
     return AssignEnvironment(
         DefineAsRegister(new(zone()) LClampTToUint8(reg,
-                                                    TempRegister(),
                                                     TempDoubleRegister())));
   }
 }
@@ -2689,7 +2684,7 @@ LInstruction* LChunkBuilder::DoUnknownOSRValue(HUnknownOSRValue* instr) {
   } else {
     spill_index = env_index - instr->environment()->first_local_index();
     if (spill_index > LUnallocated::kMaxFixedSlotIndex) {
-      Abort(kTooManySpillSlotsNeededForOSR);
+      Retry(kTooManySpillSlotsNeededForOSR);
       spill_index = 0;
     }
   }

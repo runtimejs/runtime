@@ -5,6 +5,7 @@
 #include "test/cctest/cctest.h"
 
 #include "src/base/utils/random-number-generator.h"
+#include "src/codegen.h"
 #include "src/compiler/graph-inl.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/machine-operator-reducer.h"
@@ -476,9 +477,9 @@ TEST(ReduceInt32Div) {
 }
 
 
-TEST(ReduceInt32UDiv) {
+TEST(ReduceUint32Div) {
   ReducerTester R;
-  R.binop = R.machine.Int32UDiv();
+  R.binop = R.machine.Uint32Div();
 
   FOR_UINT32_INPUTS(pl) {
     FOR_UINT32_INPUTS(pr) {
@@ -529,9 +530,9 @@ TEST(ReduceInt32Mod) {
 }
 
 
-TEST(ReduceInt32UMod) {
+TEST(ReduceUint32Mod) {
   ReducerTester R;
-  R.binop = R.machine.Int32UMod();
+  R.binop = R.machine.Uint32Mod();
 
   FOR_INT32_INPUTS(pl) {
     FOR_INT32_INPUTS(pr) {
@@ -687,9 +688,9 @@ static void CheckNans(ReducerTester* R) {
          pr != nans.end(); ++pr) {
       Node* nan1 = R->Constant<double>(*pl);
       Node* nan2 = R->Constant<double>(*pr);
-      R->CheckBinop(nan1, x, nan1);     // x % NaN => NaN
-      R->CheckBinop(nan1, nan1, x);     // NaN % x => NaN
-      R->CheckBinop(nan1, nan2, nan1);  // NaN % NaN => NaN
+      R->CheckBinop(nan1, x, nan1);     // x op NaN => NaN
+      R->CheckBinop(nan1, nan1, x);     // NaN op x => NaN
+      R->CheckBinop(nan1, nan2, nan1);  // NaN op NaN => NaN
     }
   }
 }
@@ -706,8 +707,15 @@ TEST(ReduceFloat64Add) {
     }
   }
 
-  FOR_FLOAT64_INPUTS(i) { R.CheckPutConstantOnRight(*i); }
-  // TODO(titzer): CheckNans(&R);
+  FOR_FLOAT64_INPUTS(i) {
+    Double tmp(*i);
+    if (!tmp.IsSpecial() || tmp.IsInfinite()) {
+      // Don't check NaNs as they are reduced more.
+      R.CheckPutConstantOnRight(*i);
+    }
+  }
+
+  CheckNans(&R);
 }
 
 
@@ -721,7 +729,13 @@ TEST(ReduceFloat64Sub) {
       R.CheckFoldBinop<double>(x - y, x, y);
     }
   }
-  // TODO(titzer): CheckNans(&R);
+
+  Node* zero = R.Constant<double>(0.0);
+  Node* x = R.Parameter();
+
+  R.CheckBinop(x, x, zero);  // x - 0.0 => x
+
+  CheckNans(&R);
 }
 
 
@@ -783,6 +797,11 @@ TEST(ReduceFloat64Mod) {
     }
   }
 
+  Node* x = R.Parameter();
+  Node* zero = R.Constant<double>(0.0);
+
+  R.CheckFoldBinop<double>(v8::base::OS::nan_value(), x, zero);
+
   CheckNans(&R);
 }
 
@@ -800,9 +819,9 @@ TEST(ReduceFloat64Mod) {
 // TODO(titzer): test MachineOperatorReducer for Int64Mul
 // TODO(titzer): test MachineOperatorReducer for Int64UMul
 // TODO(titzer): test MachineOperatorReducer for Int64Div
-// TODO(titzer): test MachineOperatorReducer for Int64UDiv
+// TODO(titzer): test MachineOperatorReducer for Uint64Div
 // TODO(titzer): test MachineOperatorReducer for Int64Mod
-// TODO(titzer): test MachineOperatorReducer for Int64UMod
+// TODO(titzer): test MachineOperatorReducer for Uint64Mod
 // TODO(titzer): test MachineOperatorReducer for Int64Neg
 // TODO(titzer): test MachineOperatorReducer for ChangeInt32ToFloat64
 // TODO(titzer): test MachineOperatorReducer for ChangeFloat64ToInt32

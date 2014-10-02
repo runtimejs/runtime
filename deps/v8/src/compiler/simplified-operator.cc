@@ -4,6 +4,8 @@
 
 #include "src/compiler/simplified-operator.h"
 
+#include <ostream>  // NOLINT(readability/streams)
+
 #include "src/base/lazy-instance.h"
 #include "src/compiler/opcodes.h"
 #include "src/compiler/operator.h"
@@ -12,6 +14,50 @@
 namespace v8 {
 namespace internal {
 namespace compiler {
+
+std::ostream& operator<<(std::ostream& os, BaseTaggedness base_taggedness) {
+  switch (base_taggedness) {
+    case kUntaggedBase:
+      return os << "untagged base";
+    case kTaggedBase:
+      return os << "tagged base";
+  }
+  UNREACHABLE();
+  return os;
+}
+
+
+std::ostream& operator<<(std::ostream& os, BoundsCheckMode bounds_check_mode) {
+  switch (bounds_check_mode) {
+    case kNoBoundsCheck:
+      return os << "no bounds check";
+    case kTypedArrayBoundsCheck:
+      return os << "ignore out of bounds";
+  }
+  UNREACHABLE();
+  return os;
+}
+
+
+bool operator==(ElementAccess const& lhs, ElementAccess const& rhs) {
+  return lhs.base_is_tagged == rhs.base_is_tagged &&
+         lhs.header_size == rhs.header_size && lhs.type == rhs.type &&
+         lhs.machine_type == rhs.machine_type;
+}
+
+
+bool operator!=(ElementAccess const& lhs, ElementAccess const& rhs) {
+  return !(lhs == rhs);
+}
+
+
+std::ostream& operator<<(std::ostream& os, ElementAccess const& access) {
+  os << "[" << access.base_is_tagged << ", " << access.header_size << ", ";
+  access.type->PrintTo(os);
+  os << ", " << access.machine_type << ", " << access.bounds_check << "]";
+  return os;
+}
+
 
 const FieldAccess& FieldAccessOf(const Operator* op) {
   DCHECK_NOT_NULL(op);
@@ -32,7 +78,7 @@ const ElementAccess& ElementAccessOf(const Operator* op) {
 // Specialization for static parameters of type {FieldAccess}.
 template <>
 struct StaticParameterTraits<FieldAccess> {
-  static OStream& PrintTo(OStream& os, const FieldAccess& val) {
+  static std::ostream& PrintTo(std::ostream& os, const FieldAccess& val) {
     return os << val.offset;
   }
   static int HashCode(const FieldAccess& val) {
@@ -49,11 +95,11 @@ struct StaticParameterTraits<FieldAccess> {
 // Specialization for static parameters of type {ElementAccess}.
 template <>
 struct StaticParameterTraits<ElementAccess> {
-  static OStream& PrintTo(OStream& os, const ElementAccess& val) {
-    return os << val.header_size;
+  static std::ostream& PrintTo(std::ostream& os, const ElementAccess& access) {
+    return os << access;
   }
-  static int HashCode(const ElementAccess& val) {
-    return (val.header_size < 16) | (val.machine_type & 0xffff);
+  static int HashCode(const ElementAccess& access) {
+    return (access.header_size < 16) | (access.machine_type & 0xffff);
   }
   static bool Equals(const ElementAccess& lhs, const ElementAccess& rhs) {
     return lhs.base_is_tagged == rhs.base_is_tagged &&
@@ -65,6 +111,7 @@ struct StaticParameterTraits<ElementAccess> {
 
 #define PURE_OP_LIST(V)                                \
   V(BooleanNot, Operator::kNoProperties, 1)            \
+  V(BooleanToNumber, Operator::kNoProperties, 1)       \
   V(NumberEqual, Operator::kCommutative, 2)            \
   V(NumberLessThan, Operator::kNoProperties, 2)        \
   V(NumberLessThanOrEqual, Operator::kNoProperties, 2) \
@@ -92,8 +139,8 @@ struct StaticParameterTraits<ElementAccess> {
 #define ACCESS_OP_LIST(V)                                 \
   V(LoadField, FieldAccess, Operator::kNoWrite, 1, 1)     \
   V(StoreField, FieldAccess, Operator::kNoRead, 2, 0)     \
-  V(LoadElement, ElementAccess, Operator::kNoWrite, 2, 1) \
-  V(StoreElement, ElementAccess, Operator::kNoRead, 3, 0)
+  V(LoadElement, ElementAccess, Operator::kNoWrite, 3, 1) \
+  V(StoreElement, ElementAccess, Operator::kNoRead, 4, 0)
 
 
 struct SimplifiedOperatorBuilderImpl FINAL {

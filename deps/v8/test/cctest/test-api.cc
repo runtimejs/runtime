@@ -742,6 +742,53 @@ THREADED_TEST(UsingExternalOneByteString) {
 }
 
 
+class DummyResource : public v8::String::ExternalStringResource {
+ public:
+  virtual const uint16_t* data() const { return string_; }
+  virtual size_t length() const { return 1 << 30; }
+
+ private:
+  uint16_t string_[10];
+};
+
+
+class DummyOneByteResource : public v8::String::ExternalOneByteStringResource {
+ public:
+  virtual const char* data() const { return string_; }
+  virtual size_t length() const { return 1 << 30; }
+
+ private:
+  char string_[10];
+};
+
+
+THREADED_TEST(NewExternalForVeryLongString) {
+  {
+    LocalContext env;
+    v8::HandleScope scope(env->GetIsolate());
+    v8::TryCatch try_catch;
+    DummyOneByteResource r;
+    v8::Local<v8::String> str = v8::String::NewExternal(CcTest::isolate(), &r);
+    CHECK(str.IsEmpty());
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value(try_catch.Exception());
+    CHECK_EQ("RangeError: Invalid string length", *exception_value);
+  }
+
+  {
+    LocalContext env;
+    v8::HandleScope scope(env->GetIsolate());
+    v8::TryCatch try_catch;
+    DummyResource r;
+    v8::Local<v8::String> str = v8::String::NewExternal(CcTest::isolate(), &r);
+    CHECK(str.IsEmpty());
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value(try_catch.Exception());
+    CHECK_EQ("RangeError: Invalid string length", *exception_value);
+  }
+}
+
+
 THREADED_TEST(ScavengeExternalString) {
   i::FLAG_stress_compaction = false;
   i::FLAG_gc_global = false;
@@ -934,7 +981,7 @@ static void CheckReturnValue(const T& t, i::Address callback) {
   // If CPU profiler is active check that when API callback is invoked
   // VMState is set to EXTERNAL.
   if (isolate->cpu_profiler()->is_profiling()) {
-    CHECK_EQ(i::EXTERNAL, isolate->current_vm_state());
+    CHECK_EQ(v8::EXTERNAL, isolate->current_vm_state());
     CHECK(isolate->external_callback_scope());
     CHECK_EQ(callback, isolate->external_callback_scope()->callback());
   }
@@ -1539,6 +1586,34 @@ THREADED_TEST(IsNativeError) {
   CHECK(!not_error->IsNativeError());
   v8::Handle<Value> not_object = CompileRun("42");
   CHECK(!not_object->IsNativeError());
+}
+
+
+THREADED_TEST(IsGeneratorFunctionOrObject) {
+  LocalContext env;
+  v8::HandleScope scope(env->GetIsolate());
+
+  CompileRun("function *gen() { yield 1; }\nfunction func() {}");
+  v8::Handle<Value> gen = CompileRun("gen");
+  v8::Handle<Value> genObj = CompileRun("gen()");
+  v8::Handle<Value> object = CompileRun("{a:42}");
+  v8::Handle<Value> func = CompileRun("func");
+
+  CHECK(gen->IsGeneratorFunction());
+  CHECK(gen->IsFunction());
+  CHECK(!gen->IsGeneratorObject());
+
+  CHECK(!genObj->IsGeneratorFunction());
+  CHECK(!genObj->IsFunction());
+  CHECK(genObj->IsGeneratorObject());
+
+  CHECK(!object->IsGeneratorFunction());
+  CHECK(!object->IsFunction());
+  CHECK(!object->IsGeneratorObject());
+
+  CHECK(!func->IsGeneratorFunction());
+  CHECK(func->IsFunction());
+  CHECK(!func->IsGeneratorObject());
 }
 
 
@@ -9543,18 +9618,14 @@ TEST(AccessControlES5) {
 }
 
 
-static bool GetOwnPropertyNamesNamedBlocker(Local<v8::Object> global,
-                                            Local<Value> name,
-                                            v8::AccessType type,
-                                            Local<Value> data) {
+static bool BlockEverythingNamed(Local<v8::Object> object, Local<Value> name,
+                                 v8::AccessType type, Local<Value> data) {
   return false;
 }
 
 
-static bool GetOwnPropertyNamesIndexedBlocker(Local<v8::Object> global,
-                                              uint32_t key,
-                                              v8::AccessType type,
-                                              Local<Value> data) {
+static bool BlockEverythingIndexed(Local<v8::Object> object, uint32_t key,
+                                   v8::AccessType type, Local<Value> data) {
   return false;
 }
 
@@ -9566,8 +9637,8 @@ THREADED_TEST(AccessControlGetOwnPropertyNames) {
       v8::ObjectTemplate::New(isolate);
 
   obj_template->Set(v8_str("x"), v8::Integer::New(isolate, 42));
-  obj_template->SetAccessCheckCallbacks(GetOwnPropertyNamesNamedBlocker,
-                                        GetOwnPropertyNamesIndexedBlocker);
+  obj_template->SetAccessCheckCallbacks(BlockEverythingNamed,
+                                        BlockEverythingIndexed);
 
   // Create an environment
   v8::Local<Context> context0 = Context::New(isolate, NULL, obj_template);
@@ -9599,6 +9670,50 @@ THREADED_TEST(AccessControlGetOwnPropertyNames) {
 
   context1->Exit();
   context0->Exit();
+}
+
+
+TEST(SuperAccessControl) {
+  i::FLAG_harmony_classes = true;
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope handle_scope(isolate);
+  v8::Handle<v8::ObjectTemplate> obj_template =
+      v8::ObjectTemplate::New(isolate);
+  obj_template->SetAccessCheckCallbacks(BlockEverythingNamed,
+                                        BlockEverythingIndexed);
+  LocalContext env;
+  env->Global()->Set(v8_str("prohibited"), obj_template->NewInstance());
+
+  {
+    v8::TryCatch try_catch;
+    CompileRun(
+        "function f() { return super.hasOwnProperty; };"
+        "var m = f.toMethod(prohibited);"
+        "m();");
+    CHECK(try_catch.HasCaught());
+  }
+
+  {
+    v8::TryCatch try_catch;
+    CompileRun(
+        "function f() { super.hasOwnProperty = function () {}; };"
+        "var m = f.toMethod(prohibited);"
+        "m();");
+    CHECK(try_catch.HasCaught());
+  }
+
+  {
+    v8::TryCatch try_catch;
+    CompileRun(
+        "Object.defineProperty(Object.prototype, 'x', { set : function(){}});"
+        "function f() { "
+        "     'use strict';"
+        "     super.x = function () {}; "
+        "};"
+        "var m = f.toMethod(prohibited);"
+        "m();");
+    CHECK(try_catch.HasCaught());
+  }
 }
 
 
@@ -17503,6 +17618,249 @@ TEST(RethrowBogusErrorStackTrace) {
 }
 
 
+v8::PromiseRejectEvent reject_event = v8::kPromiseRejectWithNoHandler;
+int promise_reject_counter = 0;
+int promise_revoke_counter = 0;
+
+void PromiseRejectCallback(v8::Handle<v8::Promise> promise,
+                           v8::Handle<v8::Value> value,
+                           v8::PromiseRejectEvent event) {
+  if (event == v8::kPromiseRejectWithNoHandler) {
+    promise_reject_counter++;
+    CcTest::global()->Set(v8_str("rejected"), promise);
+    CcTest::global()->Set(v8_str("value"), value);
+  } else {
+    promise_revoke_counter++;
+    CcTest::global()->Set(v8_str("revoked"), promise);
+    CHECK(value.IsEmpty());
+  }
+}
+
+
+v8::Handle<v8::Promise> GetPromise(const char* name) {
+  return v8::Handle<v8::Promise>::Cast(CcTest::global()->Get(v8_str(name)));
+}
+
+
+v8::Handle<v8::Value> RejectValue() {
+  return CcTest::global()->Get(v8_str("value"));
+}
+
+
+void ResetPromiseStates() {
+  promise_reject_counter = 0;
+  promise_revoke_counter = 0;
+  CcTest::global()->Set(v8_str("rejected"), v8_str(""));
+  CcTest::global()->Set(v8_str("value"), v8_str(""));
+  CcTest::global()->Set(v8_str("revoked"), v8_str(""));
+}
+
+
+TEST(PromiseRejectCallback) {
+  LocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+
+  isolate->SetPromiseRejectCallback(PromiseRejectCallback);
+
+  ResetPromiseStates();
+
+  // Create promise p0.
+  CompileRun(
+      "var reject;            \n"
+      "var p0 = new Promise(   \n"
+      "  function(res, rej) { \n"
+      "    reject = rej;      \n"
+      "  }                    \n"
+      ");                     \n");
+  CHECK(!GetPromise("p0")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Add resolve handler (and default reject handler) to p0.
+  CompileRun("var p1 = p0.then(function(){});");
+  CHECK(GetPromise("p0")->HasHandler());
+  CHECK(!GetPromise("p1")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Reject p0.
+  CompileRun("reject('ppp');");
+  CHECK(GetPromise("p0")->HasHandler());
+  CHECK(!GetPromise("p1")->HasHandler());
+  CHECK_EQ(1, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+  CHECK_EQ(v8::kPromiseRejectWithNoHandler, reject_event);
+  CHECK(GetPromise("rejected")->Equals(GetPromise("p1")));
+  CHECK(RejectValue()->Equals(v8_str("ppp")));
+
+  // Reject p0 again. Callback is not triggered again.
+  CompileRun("reject();");
+  CHECK(GetPromise("p0")->HasHandler());
+  CHECK(!GetPromise("p1")->HasHandler());
+  CHECK_EQ(1, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Add resolve handler to p1.
+  CompileRun("var p2 = p1.then(function(){});");
+  CHECK(GetPromise("p0")->HasHandler());
+  CHECK(GetPromise("p1")->HasHandler());
+  CHECK(!GetPromise("p2")->HasHandler());
+  CHECK_EQ(2, promise_reject_counter);
+  CHECK_EQ(1, promise_revoke_counter);
+  CHECK(GetPromise("rejected")->Equals(GetPromise("p2")));
+  CHECK(RejectValue()->Equals(v8_str("ppp")));
+  CHECK(GetPromise("revoked")->Equals(GetPromise("p1")));
+
+  ResetPromiseStates();
+
+  // Create promise q0.
+  CompileRun(
+      "var q0 = new Promise(   \n"
+      "  function(res, rej) { \n"
+      "    reject = rej;      \n"
+      "  }                    \n"
+      ");                     \n");
+  CHECK(!GetPromise("q0")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Add reject handler to q0.
+  CompileRun("var q1 = q0.catch(function() {});");
+  CHECK(GetPromise("q0")->HasHandler());
+  CHECK(!GetPromise("q1")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Reject q0.
+  CompileRun("reject('qq')");
+  CHECK(GetPromise("q0")->HasHandler());
+  CHECK(!GetPromise("q1")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Add a new reject handler, which rejects by returning Promise.reject().
+  // The returned promise q_ triggers a reject callback at first, only to
+  // revoke it when returning it causes q2 to be rejected.
+  CompileRun(
+      "var q_;"
+      "var q2 = q0.catch(               \n"
+      "   function() {                  \n"
+      "     q_ = Promise.reject('qqq'); \n"
+      "     return q_;                  \n"
+      "   }                             \n"
+      ");                               \n");
+  CHECK(GetPromise("q0")->HasHandler());
+  CHECK(!GetPromise("q1")->HasHandler());
+  CHECK(!GetPromise("q2")->HasHandler());
+  CHECK(GetPromise("q_")->HasHandler());
+  CHECK_EQ(2, promise_reject_counter);
+  CHECK_EQ(1, promise_revoke_counter);
+  CHECK(GetPromise("rejected")->Equals(GetPromise("q2")));
+  CHECK(GetPromise("revoked")->Equals(GetPromise("q_")));
+  CHECK(RejectValue()->Equals(v8_str("qqq")));
+
+  // Add a reject handler to the resolved q1, which rejects by throwing.
+  CompileRun(
+      "var q3 = q1.then( \n"
+      "   function() {    \n"
+      "     throw 'qqqq'; \n"
+      "   }               \n"
+      ");                 \n");
+  CHECK(GetPromise("q0")->HasHandler());
+  CHECK(GetPromise("q1")->HasHandler());
+  CHECK(!GetPromise("q2")->HasHandler());
+  CHECK(!GetPromise("q3")->HasHandler());
+  CHECK_EQ(3, promise_reject_counter);
+  CHECK_EQ(1, promise_revoke_counter);
+  CHECK(GetPromise("rejected")->Equals(GetPromise("q3")));
+  CHECK(RejectValue()->Equals(v8_str("qqqq")));
+
+  ResetPromiseStates();
+
+  // Create promise r0, which has three handlers, two of which handle rejects.
+  CompileRun(
+      "var r0 = new Promise(             \n"
+      "  function(res, rej) {            \n"
+      "    reject = rej;                 \n"
+      "  }                               \n"
+      ");                                \n"
+      "var r1 = r0.catch(function() {}); \n"
+      "var r2 = r0.then(function() {});  \n"
+      "var r3 = r0.then(function() {},   \n"
+      "                 function() {});  \n");
+  CHECK(GetPromise("r0")->HasHandler());
+  CHECK(!GetPromise("r1")->HasHandler());
+  CHECK(!GetPromise("r2")->HasHandler());
+  CHECK(!GetPromise("r3")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Reject r0.
+  CompileRun("reject('rrr')");
+  CHECK(GetPromise("r0")->HasHandler());
+  CHECK(!GetPromise("r1")->HasHandler());
+  CHECK(!GetPromise("r2")->HasHandler());
+  CHECK(!GetPromise("r3")->HasHandler());
+  CHECK_EQ(1, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+  CHECK(GetPromise("rejected")->Equals(GetPromise("r2")));
+  CHECK(RejectValue()->Equals(v8_str("rrr")));
+
+  // Add reject handler to r2.
+  CompileRun("var r4 = r2.catch(function() {});");
+  CHECK(GetPromise("r0")->HasHandler());
+  CHECK(!GetPromise("r1")->HasHandler());
+  CHECK(GetPromise("r2")->HasHandler());
+  CHECK(!GetPromise("r3")->HasHandler());
+  CHECK(!GetPromise("r4")->HasHandler());
+  CHECK_EQ(1, promise_reject_counter);
+  CHECK_EQ(1, promise_revoke_counter);
+  CHECK(GetPromise("revoked")->Equals(GetPromise("r2")));
+  CHECK(RejectValue()->Equals(v8_str("rrr")));
+
+  // Add reject handlers to r4.
+  CompileRun("var r5 = r4.then(function() {}, function() {});");
+  CHECK(GetPromise("r0")->HasHandler());
+  CHECK(!GetPromise("r1")->HasHandler());
+  CHECK(GetPromise("r2")->HasHandler());
+  CHECK(!GetPromise("r3")->HasHandler());
+  CHECK(GetPromise("r4")->HasHandler());
+  CHECK(!GetPromise("r5")->HasHandler());
+  CHECK_EQ(1, promise_reject_counter);
+  CHECK_EQ(1, promise_revoke_counter);
+
+  ResetPromiseStates();
+
+  // Create promise s0, which has three handlers, none of which handle rejects.
+  CompileRun(
+      "var s0 = new Promise(            \n"
+      "  function(res, rej) {           \n"
+      "    reject = rej;                \n"
+      "  }                              \n"
+      ");                               \n"
+      "var s1 = s0.then(function() {}); \n"
+      "var s2 = s0.then(function() {}); \n"
+      "var s3 = s0.then(function() {}); \n");
+  CHECK(GetPromise("s0")->HasHandler());
+  CHECK(!GetPromise("s1")->HasHandler());
+  CHECK(!GetPromise("s2")->HasHandler());
+  CHECK(!GetPromise("s3")->HasHandler());
+  CHECK_EQ(0, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+
+  // Reject s0.
+  CompileRun("reject('sss')");
+  CHECK(GetPromise("s0")->HasHandler());
+  CHECK(!GetPromise("s1")->HasHandler());
+  CHECK(!GetPromise("s2")->HasHandler());
+  CHECK(!GetPromise("s3")->HasHandler());
+  CHECK_EQ(3, promise_reject_counter);
+  CHECK_EQ(0, promise_revoke_counter);
+  CHECK(RejectValue()->Equals(v8_str("sss")));
+}
+
+
 void AnalyzeStackOfEvalWithSourceURL(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::HandleScope scope(args.GetIsolate());
@@ -19486,31 +19844,26 @@ static int CalcFibonacci(v8::Isolate* isolate, int limit) {
 
 class IsolateThread : public v8::base::Thread {
  public:
-  IsolateThread(v8::Isolate* isolate, int fib_limit)
-      : Thread(Options("IsolateThread")),
-        isolate_(isolate),
-        fib_limit_(fib_limit),
-        result_(0) {}
+  explicit IsolateThread(int fib_limit)
+      : Thread(Options("IsolateThread")), fib_limit_(fib_limit), result_(0) {}
 
   void Run() {
-    result_ = CalcFibonacci(isolate_, fib_limit_);
+    v8::Isolate* isolate = v8::Isolate::New();
+    result_ = CalcFibonacci(isolate, fib_limit_);
+    isolate->Dispose();
   }
 
   int result() { return result_; }
 
  private:
-  v8::Isolate* isolate_;
   int fib_limit_;
   int result_;
 };
 
 
 TEST(MultipleIsolatesOnIndividualThreads) {
-  v8::Isolate* isolate1 = v8::Isolate::New();
-  v8::Isolate* isolate2 = v8::Isolate::New();
-
-  IsolateThread thread1(isolate1, 21);
-  IsolateThread thread2(isolate2, 12);
+  IsolateThread thread1(21);
+  IsolateThread thread2(12);
 
   // Compute some fibonacci numbers on 3 threads in 3 isolates.
   thread1.Start();
@@ -19528,9 +19881,6 @@ TEST(MultipleIsolatesOnIndividualThreads) {
   CHECK_EQ(result2, 144);
   CHECK_EQ(result1, thread1.result());
   CHECK_EQ(result2, thread2.result());
-
-  isolate1->Dispose();
-  isolate2->Dispose();
 }
 
 
@@ -22860,32 +23210,6 @@ TEST(ScriptNameAndLineNumber) {
 }
 
 
-Local<v8::Context> call_eval_context;
-Local<v8::Function> call_eval_bound_function;
-static void CallEval(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Context::Scope scope(call_eval_context);
-  args.GetReturnValue().Set(
-      call_eval_bound_function->Call(call_eval_context->Global(), 0, NULL));
-}
-
-
-TEST(CrossActivationEval) {
-  LocalContext env;
-  v8::Isolate* isolate = env->GetIsolate();
-  v8::HandleScope scope(isolate);
-  {
-    call_eval_context = v8::Context::New(isolate);
-    v8::Context::Scope scope(call_eval_context);
-    call_eval_bound_function =
-        Local<Function>::Cast(CompileRun("eval.bind(this, '1')"));
-  }
-  env->Global()->Set(v8_str("CallEval"),
-      v8::FunctionTemplate::New(isolate, CallEval)->GetFunction());
-  Local<Value> result = CompileRun("CallEval();");
-  CHECK_EQ(result, v8::Integer::New(isolate, 1));
-}
-
-
 void SourceURLHelper(const char* source, const char* expected_source_url,
                      const char* expected_source_mapping_url) {
   Local<Script> script = v8_compile(source);
@@ -23351,4 +23675,24 @@ TEST(StreamingProducesParserCache) {
   CHECK(cached_data != NULL);
   CHECK(cached_data->data != NULL);
   CHECK_GT(cached_data->length, 0);
+}
+
+
+TEST(StreamingScriptWithInvalidUtf8) {
+  // Regression test for a crash: test that invalid UTF-8 bytes in the end of a
+  // chunk don't produce a crash.
+  const char* reference = "\xeb\x91\x80\x80\x80";
+  char chunk1[] =
+      "function foo() {\n"
+      "  // This function will contain an UTF-8 character which is not in\n"
+      "  // ASCII.\n"
+      "  var foobXXXXX";  // Too many bytes which look like incomplete chars!
+  char chunk2[] =
+      "r = 13;\n"
+      "  return foob\xeb\x91\x80\x80\x80r;\n"
+      "}\n";
+  for (int i = 0; i < 5; ++i) chunk1[strlen(chunk1) - 5 + i] = reference[i];
+
+  const char* chunks[] = {chunk1, chunk2, "foo();", NULL};
+  RunStreamingTest(chunks, v8::ScriptCompiler::StreamedSource::UTF8, false);
 }

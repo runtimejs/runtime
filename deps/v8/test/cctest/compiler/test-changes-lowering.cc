@@ -55,8 +55,6 @@ class ChangesLoweringTester : public GraphBuilderTester<ReturnType> {
               "(function() { 'use strict'; return 2.7123; })")));
       CompilationInfoWithZone info(function);
       CHECK(Parser::Parse(&info));
-      StrictMode strict_mode = info.function()->strict_mode();
-      info.SetStrictMode(strict_mode);
       info.SetOptimizing(BailoutId::None(), Handle<Code>(function->code()));
       CHECK(Rewriter::Rewrite(&info));
       CHECK(Scope::Analyze(&info));
@@ -134,9 +132,9 @@ class ChangesLoweringTester : public GraphBuilderTester<ReturnType> {
                          void* location) {
     // We build a graph by hand here, because the raw machine assembler
     // does not add the correct control and effect nodes.
-    Node* load =
-        this->graph()->NewNode(load_op, this->PointerConstant(location),
-                               this->Int32Constant(0), this->start());
+    Node* load = this->graph()->NewNode(
+        load_op, this->PointerConstant(location), this->Int32Constant(0),
+        this->start(), this->start());
     Node* change = this->graph()->NewNode(op, load);
     Node* ret = this->graph()->NewNode(this->common()->Return(), change,
                                        this->start(), this->start());

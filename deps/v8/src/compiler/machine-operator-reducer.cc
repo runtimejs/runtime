@@ -5,6 +5,7 @@
 #include "src/compiler/machine-operator-reducer.h"
 
 #include "src/base/bits.h"
+#include "src/codegen.h"
 #include "src/compiler/generic-node-inl.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-graph.h"
@@ -19,6 +20,11 @@ MachineOperatorReducer::MachineOperatorReducer(JSGraph* jsgraph)
 
 
 MachineOperatorReducer::~MachineOperatorReducer() {}
+
+
+Node* MachineOperatorReducer::Float32Constant(volatile float value) {
+  return graph()->NewNode(common()->Float32Constant(value));
+}
 
 
 Node* MachineOperatorReducer::Float64Constant(volatile double value) {
@@ -126,6 +132,20 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       if (m.IsFoldable()) {                                  // K << K => K
         return ReplaceInt32(m.left().Value() << m.right().Value());
       }
+      if (m.right().IsInRange(1, 31)) {
+        // (x >>> K) << K => x & ~(2^K - 1)
+        // (x >> K) << K => x & ~(2^K - 1)
+        if (m.left().IsWord32Sar() || m.left().IsWord32Shr()) {
+          Int32BinopMatcher mleft(m.left().node());
+          if (mleft.right().Is(m.right().Value())) {
+            node->set_op(machine()->Word32And());
+            node->ReplaceInput(0, mleft.left().node());
+            node->ReplaceInput(
+                1, Uint32Constant(~((1U << m.right().Value()) - 1U)));
+            return Changed(node);
+          }
+        }
+      }
       break;
     }
     case IrOpcode::kWord32Shr: {
@@ -226,7 +246,7 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       }
       break;
     }
-    case IrOpcode::kInt32UDiv: {
+    case IrOpcode::kUint32Div: {
       Uint32BinopMatcher m(node);
       if (m.right().Is(1)) return Replace(m.left().node());  // x / 1 => x
       // TODO(turbofan): if (m.left().Is(0))
@@ -255,7 +275,7 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       }
       break;
     }
-    case IrOpcode::kInt32UMod: {
+    case IrOpcode::kUint32Mod: {
       Uint32BinopMatcher m(node);
       if (m.right().Is(1)) return ReplaceInt32(0);  // x % 1 => 0
       // TODO(turbofan): if (m.left().Is(0))
@@ -333,6 +353,9 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     }
     case IrOpcode::kFloat64Add: {
       Float64BinopMatcher m(node);
+      if (m.right().IsNaN()) {  // x + NaN => NaN
+        return Replace(m.right().node());
+      }
       if (m.IsFoldable()) {  // K + K => K
         return ReplaceFloat64(m.left().Value() + m.right().Value());
       }
@@ -340,6 +363,15 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     }
     case IrOpcode::kFloat64Sub: {
       Float64BinopMatcher m(node);
+      if (m.right().Is(0) && (Double(m.right().Value()).Sign() > 0)) {
+        return Replace(m.left().node());  // x - 0 => x
+      }
+      if (m.right().IsNaN()) {  // x - NaN => NaN
+        return Replace(m.right().node());
+      }
+      if (m.left().IsNaN()) {  // NaN - x => NaN
+        return Replace(m.left().node());
+      }
       if (m.IsFoldable()) {  // K - K => K
         return ReplaceFloat64(m.left().Value() - m.right().Value());
       }
@@ -372,6 +404,9 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     }
     case IrOpcode::kFloat64Mod: {
       Float64BinopMatcher m(node);
+      if (m.right().Is(0)) {  // x % 0 => NaN
+        return ReplaceFloat64(base::OS::nan_value());
+      }
       if (m.right().IsNaN()) {  // x % NaN => NaN
         return Replace(m.right().node());
       }
@@ -381,6 +416,11 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       if (m.IsFoldable()) {  // K % K => K
         return ReplaceFloat64(modulo(m.left().Value(), m.right().Value()));
       }
+      break;
+    }
+    case IrOpcode::kChangeFloat32ToFloat64: {
+      Float32Matcher m(node->InputAt(0));
+      if (m.HasValue()) return ReplaceFloat64(m.Value());
       break;
     }
     case IrOpcode::kChangeFloat64ToInt32: {
@@ -427,7 +467,12 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       if (m.IsChangeInt32ToInt64()) return Replace(m.node()->InputAt(0));
       break;
     }
-    // TODO(turbofan): strength-reduce and fold floating point operations.
+    case IrOpcode::kTruncateFloat64ToFloat32: {
+      Float64Matcher m(node->InputAt(0));
+      if (m.HasValue()) return ReplaceFloat32(DoubleToFloat32(m.Value()));
+      if (m.IsChangeFloat32ToFloat64()) return Replace(m.node()->InputAt(0));
+      break;
+    }
     default:
       break;
   }

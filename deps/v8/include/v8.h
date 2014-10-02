@@ -85,6 +85,7 @@ class ObjectOperationDescriptor;
 class ObjectTemplate;
 class Platform;
 class Primitive;
+class Promise;
 class RawOperationDescriptor;
 class Script;
 class Signature;
@@ -1415,6 +1416,27 @@ class V8_EXPORT StackFrame {
 };
 
 
+// A StateTag represents a possible state of the VM.
+enum StateTag { JS, GC, COMPILER, OTHER, EXTERNAL, IDLE };
+
+
+// A RegisterState represents the current state of registers used
+// by the sampling profiler API.
+struct RegisterState {
+  RegisterState() : pc(NULL), sp(NULL), fp(NULL) {}
+  void* pc;  // Instruction pointer.
+  void* sp;  // Stack pointer.
+  void* fp;  // Frame pointer.
+};
+
+
+// The output structure filled up by GetStackSample API function.
+struct SampleInfo {
+  size_t frames_count;
+  StateTag vm_state;
+};
+
+
 /**
  * A JSON Parser.
  */
@@ -1559,6 +1581,18 @@ class V8_EXPORT Value : public Data {
    * Returns true if this value is a RegExp.
    */
   bool IsRegExp() const;
+
+  /**
+   * Returns true if this value is a Generator function.
+   * This is an experimental feature.
+   */
+  bool IsGeneratorFunction() const;
+
+  /**
+   * Returns true if this value is a Generator object (iterator).
+   * This is an experimental feature.
+   */
+  bool IsGeneratorObject() const;
 
   /**
    * Returns true if this value is a Promise.
@@ -2817,6 +2851,12 @@ class V8_EXPORT Promise : public Object {
   Local<Promise> Chain(Handle<Function> handler);
   Local<Promise> Catch(Handle<Function> handler);
   Local<Promise> Then(Handle<Function> handler);
+
+  /**
+   * Returns true if the promise has at least one derived promise, and
+   * therefore resolve/reject handlers (including default handler).
+   */
+  bool HasHandler();
 
   V8_INLINE static Promise* Cast(Value* obj);
 
@@ -4109,16 +4149,6 @@ class V8_EXPORT ResourceConstraints {
 };
 
 
-/**
- * Sets the given ResourceConstraints on the given Isolate.
- *
- * Deprecated, will be removed. Pass constraints via Isolate::New or modify
- * the stack limit via Isolate::SetStackLimit.
- */
-bool V8_EXPORT SetResourceConstraints(Isolate* isolate,
-                                      ResourceConstraints* constraints);
-
-
 // --- Exceptions ---
 
 
@@ -4182,6 +4212,16 @@ typedef void (*MemoryAllocationCallback)(ObjectSpace space,
 
 // --- Leave Script Callback ---
 typedef void (*CallCompletedCallback)();
+
+// --- Promise Reject Callback ---
+enum PromiseRejectEvent {
+  kPromiseRejectWithNoHandler = 0,
+  kPromiseHandlerAddedAfterReject = 1
+};
+
+typedef void (*PromiseRejectCallback)(Handle<Promise> promise,
+                                      Handle<Value> value,
+                                      PromiseRejectEvent event);
 
 // --- Microtask Callback ---
 typedef void (*MicrotaskCallback)(void* data);
@@ -4354,13 +4394,12 @@ typedef void (*JitCodeEventHandler)(const JitCodeEvent* event);
 
 
 /**
- * Isolate represents an isolated instance of the V8 engine.  V8
- * isolates have completely separate states.  Objects from one isolate
- * must not be used in other isolates.  When V8 is initialized a
- * default isolate is implicitly created and entered.  The embedder
- * can create additional isolates and use them in parallel in multiple
- * threads.  An isolate can be entered by at most one thread at any
- * given time.  The Locker/Unlocker API must be used to synchronize.
+ * Isolate represents an isolated instance of the V8 engine.  V8 isolates have
+ * completely separate states.  Objects from one isolate must not be used in
+ * other isolates.  The embedder can create multiple isolates and use them in
+ * parallel in multiple threads.  An isolate can be entered by at most one
+ * thread at any given time.  The Locker/Unlocker API must be used to
+ * synchronize.
  */
 class V8_EXPORT Isolate {
  public:
@@ -4368,7 +4407,10 @@ class V8_EXPORT Isolate {
    * Initial configuration parameters for a new Isolate.
    */
   struct CreateParams {
-    CreateParams() : entry_hook(NULL), code_event_handler(NULL) {}
+    CreateParams()
+        : entry_hook(NULL),
+          code_event_handler(NULL),
+          enable_serializer(false) {}
 
     /**
      * The optional entry_hook allows the host application to provide the
@@ -4389,6 +4431,11 @@ class V8_EXPORT Isolate {
      * ResourceConstraints to use for the new Isolate.
      */
     ResourceConstraints constraints;
+
+    /**
+     * This flag currently renders the Isolate unusable.
+     */
+    bool enable_serializer;
   };
 
 
@@ -4499,6 +4546,8 @@ class V8_EXPORT Isolate {
    *
    * When an isolate is no longer used its resources should be freed
    * by calling Dispose().  Using the delete operator is not allowed.
+   *
+   * V8::Initialize() must have run prior to this.
    */
   static Isolate* New(const CreateParams& params = CreateParams());
 
@@ -4557,6 +4606,21 @@ class V8_EXPORT Isolate {
    * Get statistics about the heap memory usage.
    */
   void GetHeapStatistics(HeapStatistics* heap_statistics);
+
+  /**
+   * Get a call stack sample from the isolate.
+   * \param state Execution state.
+   * \param frames Caller allocated buffer to store stack frames.
+   * \param frames_limit Maximum number of frames to capture. The buffer must
+   *                     be large enough to hold the number of frames.
+   * \param sample_info The sample info is filled up by the function
+   *                    provides number of actual captured stack frames and
+   *                    the current VM state.
+   * \note GetStackSample should only be called when the JS thread is paused or
+   *       interrupted. Otherwise the behavior is undefined.
+   */
+  void GetStackSample(const RegisterState& state, void** frames,
+                      size_t frames_limit, SampleInfo* sample_info);
 
   /**
    * Adjusts the amount of registered external memory. Used to give V8 an
@@ -4734,6 +4798,13 @@ class V8_EXPORT Isolate {
    */
   void RemoveCallCompletedCallback(CallCompletedCallback callback);
 
+
+  /**
+   * Set callback to notify about promise reject with no handler, or
+   * revocation of such a previous notification once the handler is added.
+   */
+  void SetPromiseRejectCallback(PromiseRejectCallback callback);
+
   /**
    * Experimental: Runs the Microtask Work Queue until empty
    * Any exceptions thrown by microtask callbacks are swallowed.
@@ -4845,6 +4916,18 @@ class V8_EXPORT Isolate {
    *     limit separately for each thread.
    */
   void SetStackLimit(uintptr_t stack_limit);
+
+  /**
+   * Returns a memory range that can potentially contain jitted code.
+   *
+   * On Win64, embedders are advised to install function table callbacks for
+   * these ranges, as default SEH won't be able to unwind through jitted code.
+   *
+   * Might be empty on other platforms.
+   *
+   * https://code.google.com/p/v8/issues/detail?id=3598
+   */
+  void GetCodeRange(void** start, size_t* length_in_bytes);
 
  private:
   template<class K, class V, class Traits> friend class PersistentValueMap;
@@ -5112,9 +5195,8 @@ class V8_EXPORT V8 {
   static void RemoveMemoryAllocationCallback(MemoryAllocationCallback callback);
 
   /**
-   * Initializes from snapshot if possible. Otherwise, attempts to
-   * initialize from scratch.  This function is called implicitly if
-   * you use the API without calling it first.
+   * Initializes V8. This function needs to be called before the first Isolate
+   * is created. It always returns true.
    */
   static bool Initialize();
 
@@ -5130,50 +5212,6 @@ class V8_EXPORT V8 {
    */
   static void SetReturnAddressLocationResolver(
       ReturnAddressLocationResolver return_address_resolver);
-
-  /**
-   * Allows the host application to provide the address of a function that's
-   * invoked on entry to every V8-generated function.
-   * Note that \p entry_hook is invoked at the very start of each
-   * generated function.
-   *
-   * \param isolate the isolate to operate on.
-   * \param entry_hook a function that will be invoked on entry to every
-   *   V8-generated function.
-   * \returns true on success on supported platforms, false on failure.
-   * \note Setting an entry hook can only be done very early in an isolates
-   *   lifetime, and once set, the entry hook cannot be revoked.
-   *
-   * Deprecated, will be removed. Use Isolate::New(entry_hook) instead.
-   */
-  static bool SetFunctionEntryHook(Isolate* isolate,
-                                   FunctionEntryHook entry_hook);
-
-  /**
-   * Allows the host application to provide the address of a function that is
-   * notified each time code is added, moved or removed.
-   *
-   * \param options options for the JIT code event handler.
-   * \param event_handler the JIT code event handler, which will be invoked
-   *     each time code is added, moved or removed.
-   * \note \p event_handler won't get notified of existent code.
-   * \note since code removal notifications are not currently issued, the
-   *     \p event_handler may get notifications of code that overlaps earlier
-   *     code notifications. This happens when code areas are reused, and the
-   *     earlier overlapping code areas should therefore be discarded.
-   * \note the events passed to \p event_handler and the strings they point to
-   *     are not guaranteed to live past each call. The \p event_handler must
-   *     copy strings and other parameters it needs to keep around.
-   * \note the set of events declared in JitCodeEvent::EventType is expected to
-   *     grow over time, and the JitCodeEvent structure is expected to accrue
-   *     new members. The \p event_handler function must ignore event codes
-   *     it does not recognize to maintain future compatibility.
-   *
-   * Deprecated, will be removed. Use Isolate::SetJitCodeEventHandler or
-   * Isolate::CreateParams instead.
-   */
-  static void SetJitCodeEventHandler(JitCodeEventOptions options,
-                                     JitCodeEventHandler event_handler);
 
   /**
    * Forcefully terminate the current thread of JavaScript execution
@@ -5876,7 +5914,7 @@ class Internals {
   static const int kNullValueRootIndex = 7;
   static const int kTrueValueRootIndex = 8;
   static const int kFalseValueRootIndex = 9;
-  static const int kEmptyStringRootIndex = 164;
+  static const int kEmptyStringRootIndex = 152;
 
   // The external allocation limit should be below 256 MB on all architectures
   // to avoid that resource-constrained embedders run low on memory.

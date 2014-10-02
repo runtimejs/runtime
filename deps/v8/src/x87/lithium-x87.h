@@ -413,6 +413,7 @@ class LGoto FINAL : public LTemplateInstruction<0, 0, 0> {
   }
 
   bool jumps_to_join() const { return block_->predecessors()->length() > 1; }
+  HBasicBlock* block() const { return block_; }
 
  private:
   HBasicBlock* block_;
@@ -972,27 +973,29 @@ class LMathExp FINAL : public LTemplateInstruction<1, 1, 2> {
 };
 
 
-class LMathSqrt FINAL : public LTemplateInstruction<1, 1, 0> {
+class LMathSqrt FINAL : public LTemplateInstruction<1, 1, 2> {
  public:
-  explicit LMathSqrt(LOperand* value) {
+  explicit LMathSqrt(LOperand* value,
+                     LOperand* temp1,
+                     LOperand* temp2) {
     inputs_[0] = value;
+    temps_[0] = temp1;
+    temps_[1] = temp2;
   }
 
   LOperand* value() { return inputs_[0]; }
+  LOperand* temp1() { return temps_[0]; }
+  LOperand* temp2() { return temps_[1]; }
 
   DECLARE_CONCRETE_INSTRUCTION(MathSqrt, "math-sqrt")
 };
 
 
-class LMathPowHalf FINAL : public LTemplateInstruction<1, 1, 1> {
+class LMathPowHalf FINAL : public LTemplateInstruction<1, 1, 0> {
  public:
-  LMathPowHalf(LOperand* value, LOperand* temp) {
-    inputs_[0] = value;
-    temps_[0] = temp;
-  }
+  explicit LMathPowHalf(LOperand* value) { inputs_[0] = value; }
 
   LOperand* value() { return inputs_[0]; }
-  LOperand* temp() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(MathPowHalf, "math-pow-half")
 };
@@ -1025,15 +1028,11 @@ class LCmpHoleAndBranch FINAL : public LControlInstruction<1, 0> {
 };
 
 
-class LCompareMinusZeroAndBranch FINAL : public LControlInstruction<1, 1> {
+class LCompareMinusZeroAndBranch FINAL : public LControlInstruction<1, 0> {
  public:
-  LCompareMinusZeroAndBranch(LOperand* value, LOperand* temp) {
-    inputs_[0] = value;
-    temps_[0] = temp;
-  }
+  explicit LCompareMinusZeroAndBranch(LOperand* value) { inputs_[0] = value; }
 
   LOperand* value() { return inputs_[0]; }
-  LOperand* temp() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(CompareMinusZeroAndBranch,
                                "cmp-minus-zero-and-branch")
@@ -1508,15 +1507,17 @@ class LAddI FINAL : public LTemplateInstruction<1, 2, 0> {
 };
 
 
-class LMathMinMax FINAL : public LTemplateInstruction<1, 2, 0> {
+class LMathMinMax FINAL : public LTemplateInstruction<1, 2, 1> {
  public:
-  LMathMinMax(LOperand* left, LOperand* right) {
+  LMathMinMax(LOperand* left, LOperand* right, LOperand* temp) {
     inputs_[0] = left;
     inputs_[1] = right;
+    temps_[0] = temp;
   }
 
   LOperand* left() { return inputs_[0]; }
   LOperand* right() { return inputs_[1]; }
+  LOperand* temp() { return temps_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(MathMinMax, "math-min-max")
   DECLARE_HYDROGEN_ACCESSOR(MathMinMax)
@@ -2037,11 +2038,12 @@ class LCallRuntime FINAL : public LTemplateInstruction<1, 1, 0> {
   DECLARE_HYDROGEN_ACCESSOR(CallRuntime)
 
   virtual bool ClobbersDoubleRegisters(Isolate* isolate) const OVERRIDE {
-    return true;
+    return save_doubles() == kDontSaveFPRegs;
   }
 
   const Runtime::Function* function() const { return hydrogen()->function(); }
   int arity() const { return hydrogen()->argument_count(); }
+  SaveFPRegsMode save_doubles() const { return hydrogen()->save_doubles(); }
 };
 
 
@@ -2764,17 +2766,11 @@ class LPlatformChunk FINAL : public LChunk {
 class LChunkBuilder FINAL : public LChunkBuilderBase {
  public:
   LChunkBuilder(CompilationInfo* info, HGraph* graph, LAllocator* allocator)
-      : LChunkBuilderBase(graph->zone()),
-        chunk_(NULL),
-        info_(info),
-        graph_(graph),
-        status_(UNUSED),
+      : LChunkBuilderBase(info, graph),
         current_instruction_(NULL),
         current_block_(NULL),
         next_block_(NULL),
-        allocator_(allocator) { }
-
-  Isolate* isolate() const { return graph_->isolate(); }
+        allocator_(allocator) {}
 
   // Build the sequence for the graph.
   LPlatformChunk* Build();
@@ -2804,24 +2800,6 @@ class LChunkBuilder FINAL : public LChunkBuilderBase {
   LInstruction* DoFlooringDivI(HMathFloorOfDiv* instr);
 
  private:
-  enum Status {
-    UNUSED,
-    BUILDING,
-    DONE,
-    ABORTED
-  };
-
-  LPlatformChunk* chunk() const { return chunk_; }
-  CompilationInfo* info() const { return info_; }
-  HGraph* graph() const { return graph_; }
-
-  bool is_unused() const { return status_ == UNUSED; }
-  bool is_building() const { return status_ == BUILDING; }
-  bool is_done() const { return status_ == DONE; }
-  bool is_aborted() const { return status_ == ABORTED; }
-
-  void Abort(BailoutReason reason);
-
   // Methods for getting operands for Use / Define / Temp.
   LUnallocated* ToUnallocated(Register reg);
   LUnallocated* ToUnallocated(X87Register reg);
@@ -2881,6 +2859,8 @@ class LChunkBuilder FINAL : public LChunkBuilderBase {
   LInstruction* DefineSameAsFirst(LTemplateResultInstruction<1>* instr);
   LInstruction* DefineFixed(LTemplateResultInstruction<1>* instr,
                             Register reg);
+  LInstruction* DefineFixed(LTemplateResultInstruction<1>* instr,
+                            X87Register reg);
   LInstruction* DefineX87TOS(LTemplateResultInstruction<1>* instr);
   // Assigns an environment to an instruction.  An instruction which can
   // deoptimize must have an environment.
@@ -2913,10 +2893,6 @@ class LChunkBuilder FINAL : public LChunkBuilderBase {
 
   LOperand* GetStoreKeyedValueOperand(HStoreKeyed* instr);
 
-  LPlatformChunk* chunk_;
-  CompilationInfo* info_;
-  HGraph* const graph_;
-  Status status_;
   HInstruction* current_instruction_;
   HBasicBlock* current_block_;
   HBasicBlock* next_block_;

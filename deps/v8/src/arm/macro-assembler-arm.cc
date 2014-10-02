@@ -15,7 +15,7 @@
 #include "src/cpu-profiler.h"
 #include "src/debug.h"
 #include "src/isolate-inl.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 
 namespace v8 {
 namespace internal {
@@ -3199,8 +3199,8 @@ void MacroAssembler::JumpIfNotBothSequentialOneByteStrings(Register first,
 }
 
 
-void MacroAssembler::JumpIfNotUniqueName(Register reg,
-                                         Label* not_unique_name) {
+void MacroAssembler::JumpIfNotUniqueNameInstanceType(Register reg,
+                                                     Label* not_unique_name) {
   STATIC_ASSERT(kInternalizedTag == 0 && kStringTag == 0);
   Label succeed;
   tst(reg, Operand(kIsNotStringMask | kIsNotInternalizedMask));

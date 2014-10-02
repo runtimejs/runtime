@@ -19,142 +19,109 @@ namespace compiler {
 #define __ masm()->
 
 
-// TODO(turbofan): Cleanup these hacks.
-enum Immediate64Type { kImm64Value, kImm64Handle, kImm64Reference };
-
-
-struct Immediate64 {
-  uint64_t value;
-  Handle<Object> handle;
-  ExternalReference reference;
-  Immediate64Type type;
-};
-
-
-enum RegisterOrOperandType { kRegister, kDoubleRegister, kOperand };
-
-
-struct RegisterOrOperand {
-  RegisterOrOperand() : operand(no_reg, 0) {}
-  Register reg;
-  DoubleRegister double_reg;
-  Operand operand;
-  RegisterOrOperandType type;
-};
-
-
 // Adds X64 specific methods for decoding operands.
 class X64OperandConverter : public InstructionOperandConverter {
  public:
   X64OperandConverter(CodeGenerator* gen, Instruction* instr)
       : InstructionOperandConverter(gen, instr) {}
 
-  RegisterOrOperand InputRegisterOrOperand(int index) {
-    return ToRegisterOrOperand(instr_->InputAt(index));
-  }
-
   Immediate InputImmediate(int index) {
     return ToImmediate(instr_->InputAt(index));
   }
 
-  RegisterOrOperand OutputRegisterOrOperand() {
-    return ToRegisterOrOperand(instr_->Output());
-  }
+  Operand InputOperand(int index) { return ToOperand(instr_->InputAt(index)); }
 
-  Immediate64 InputImmediate64(int index) {
-    return ToImmediate64(instr_->InputAt(index));
-  }
-
-  Immediate64 ToImmediate64(InstructionOperand* operand) {
-    Constant constant = ToConstant(operand);
-    Immediate64 immediate;
-    immediate.value = 0xbeefdeaddeefbeed;
-    immediate.type = kImm64Value;
-    switch (constant.type()) {
-      case Constant::kInt32:
-      case Constant::kInt64:
-        immediate.value = constant.ToInt64();
-        return immediate;
-      case Constant::kFloat64:
-        immediate.type = kImm64Handle;
-        immediate.handle =
-            isolate()->factory()->NewNumber(constant.ToFloat64(), TENURED);
-        return immediate;
-      case Constant::kExternalReference:
-        immediate.type = kImm64Reference;
-        immediate.reference = constant.ToExternalReference();
-        return immediate;
-      case Constant::kHeapObject:
-        immediate.type = kImm64Handle;
-        immediate.handle = constant.ToHeapObject();
-        return immediate;
-    }
-    UNREACHABLE();
-    return immediate;
-  }
+  Operand OutputOperand() { return ToOperand(instr_->Output()); }
 
   Immediate ToImmediate(InstructionOperand* operand) {
     Constant constant = ToConstant(operand);
-    switch (constant.type()) {
-      case Constant::kInt32:
-        return Immediate(constant.ToInt32());
-      case Constant::kInt64:
-      case Constant::kFloat64:
-      case Constant::kExternalReference:
-      case Constant::kHeapObject:
-        break;
+    if (constant.type() == Constant::kInt32) {
+      return Immediate(constant.ToInt32());
     }
     UNREACHABLE();
     return Immediate(-1);
   }
 
   Operand ToOperand(InstructionOperand* op, int extra = 0) {
-    RegisterOrOperand result = ToRegisterOrOperand(op, extra);
-    DCHECK_EQ(kOperand, result.type);
-    return result.operand;
-  }
-
-  RegisterOrOperand ToRegisterOrOperand(InstructionOperand* op, int extra = 0) {
-    RegisterOrOperand result;
-    if (op->IsRegister()) {
-      DCHECK(extra == 0);
-      result.type = kRegister;
-      result.reg = ToRegister(op);
-      return result;
-    } else if (op->IsDoubleRegister()) {
-      DCHECK(extra == 0);
-      DCHECK(extra == 0);
-      result.type = kDoubleRegister;
-      result.double_reg = ToDoubleRegister(op);
-      return result;
-    }
-
     DCHECK(op->IsStackSlot() || op->IsDoubleStackSlot());
-
-    result.type = kOperand;
     // The linkage computes where all spill slots are located.
     FrameOffset offset = linkage()->GetFrameOffset(op->index(), frame(), extra);
-    result.operand =
-        Operand(offset.from_stack_pointer() ? rsp : rbp, offset.offset());
-    return result;
+    return Operand(offset.from_stack_pointer() ? rsp : rbp, offset.offset());
   }
 
-  Operand MemoryOperand(int* first_input) {
-    const int offset = *first_input;
-    switch (AddressingModeField::decode(instr_->opcode())) {
-      case kMode_MR1I: {
-        *first_input += 2;
-        Register index = InputRegister(offset + 1);
-        return Operand(InputRegister(offset + 0), index, times_1,
-                       0);  // TODO(dcarney): K != 0
+  static int NextOffset(int* offset) {
+    int i = *offset;
+    (*offset)++;
+    return i;
+  }
+
+  static ScaleFactor ScaleFor(AddressingMode one, AddressingMode mode) {
+    STATIC_ASSERT(0 == static_cast<int>(times_1));
+    STATIC_ASSERT(1 == static_cast<int>(times_2));
+    STATIC_ASSERT(2 == static_cast<int>(times_4));
+    STATIC_ASSERT(3 == static_cast<int>(times_8));
+    int scale = static_cast<int>(mode - one);
+    DCHECK(scale >= 0 && scale < 4);
+    return static_cast<ScaleFactor>(scale);
+  }
+
+  Operand MemoryOperand(int* offset) {
+    AddressingMode mode = AddressingModeField::decode(instr_->opcode());
+    switch (mode) {
+      case kMode_MR: {
+        Register base = InputRegister(NextOffset(offset));
+        int32_t disp = 0;
+        return Operand(base, disp);
       }
-      case kMode_MRI:
-        *first_input += 2;
-        return Operand(InputRegister(offset + 0), InputInt32(offset + 1));
-      default:
+      case kMode_MRI: {
+        Register base = InputRegister(NextOffset(offset));
+        int32_t disp = InputInt32(NextOffset(offset));
+        return Operand(base, disp);
+      }
+      case kMode_MR1:
+      case kMode_MR2:
+      case kMode_MR4:
+      case kMode_MR8: {
+        Register base = InputRegister(NextOffset(offset));
+        Register index = InputRegister(NextOffset(offset));
+        ScaleFactor scale = ScaleFor(kMode_MR1, mode);
+        int32_t disp = 0;
+        return Operand(base, index, scale, disp);
+      }
+      case kMode_MR1I:
+      case kMode_MR2I:
+      case kMode_MR4I:
+      case kMode_MR8I: {
+        Register base = InputRegister(NextOffset(offset));
+        Register index = InputRegister(NextOffset(offset));
+        ScaleFactor scale = ScaleFor(kMode_MR1I, mode);
+        int32_t disp = InputInt32(NextOffset(offset));
+        return Operand(base, index, scale, disp);
+      }
+      case kMode_M1:
+      case kMode_M2:
+      case kMode_M4:
+      case kMode_M8: {
+        Register index = InputRegister(NextOffset(offset));
+        ScaleFactor scale = ScaleFor(kMode_M1, mode);
+        int32_t disp = 0;
+        return Operand(index, scale, disp);
+      }
+      case kMode_M1I:
+      case kMode_M2I:
+      case kMode_M4I:
+      case kMode_M8I: {
+        Register index = InputRegister(NextOffset(offset));
+        ScaleFactor scale = ScaleFor(kMode_M1I, mode);
+        int32_t disp = InputInt32(NextOffset(offset));
+        return Operand(index, scale, disp);
+      }
+      case kMode_None:
         UNREACHABLE();
         return Operand(no_reg, 0);
     }
+    UNREACHABLE();
+    return Operand(no_reg, 0);
   }
 
   Operand MemoryOperand() {
@@ -169,23 +136,51 @@ static bool HasImmediateInput(Instruction* instr, int index) {
 }
 
 
-#define ASSEMBLE_BINOP(asm_instr)                            \
-  do {                                                       \
-    if (HasImmediateInput(instr, 1)) {                       \
-      RegisterOrOperand input = i.InputRegisterOrOperand(0); \
-      if (input.type == kRegister) {                         \
-        __ asm_instr(input.reg, i.InputImmediate(1));        \
-      } else {                                               \
-        __ asm_instr(input.operand, i.InputImmediate(1));    \
-      }                                                      \
-    } else {                                                 \
-      RegisterOrOperand input = i.InputRegisterOrOperand(1); \
-      if (input.type == kRegister) {                         \
-        __ asm_instr(i.InputRegister(0), input.reg);         \
-      } else {                                               \
-        __ asm_instr(i.InputRegister(0), input.operand);     \
-      }                                                      \
-    }                                                        \
+#define ASSEMBLE_UNOP(asm_instr)         \
+  do {                                   \
+    if (instr->Output()->IsRegister()) { \
+      __ asm_instr(i.OutputRegister());  \
+    } else {                             \
+      __ asm_instr(i.OutputOperand());   \
+    }                                    \
+  } while (0)
+
+
+#define ASSEMBLE_BINOP(asm_instr)                              \
+  do {                                                         \
+    if (HasImmediateInput(instr, 1)) {                         \
+      if (instr->InputAt(0)->IsRegister()) {                   \
+        __ asm_instr(i.InputRegister(0), i.InputImmediate(1)); \
+      } else {                                                 \
+        __ asm_instr(i.InputOperand(0), i.InputImmediate(1));  \
+      }                                                        \
+    } else {                                                   \
+      if (instr->InputAt(1)->IsRegister()) {                   \
+        __ asm_instr(i.InputRegister(0), i.InputRegister(1));  \
+      } else {                                                 \
+        __ asm_instr(i.InputRegister(0), i.InputOperand(1));   \
+      }                                                        \
+    }                                                          \
+  } while (0)
+
+
+#define ASSEMBLE_MULT(asm_instr)                              \
+  do {                                                        \
+    if (HasImmediateInput(instr, 1)) {                        \
+      if (instr->InputAt(0)->IsRegister()) {                  \
+        __ asm_instr(i.OutputRegister(), i.InputRegister(0),  \
+                     i.InputImmediate(1));                    \
+      } else {                                                \
+        __ asm_instr(i.OutputRegister(), i.InputOperand(0),   \
+                     i.InputImmediate(1));                    \
+      }                                                       \
+    } else {                                                  \
+      if (instr->InputAt(1)->IsRegister()) {                  \
+        __ asm_instr(i.OutputRegister(), i.InputRegister(1)); \
+      } else {                                                \
+        __ asm_instr(i.OutputRegister(), i.InputOperand(1));  \
+      }                                                       \
+    }                                                         \
   } while (0)
 
 
@@ -205,6 +200,7 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
 
   switch (ArchOpcodeField::decode(instr->opcode())) {
     case kArchCallCodeObject: {
+      EnsureSpaceForLazyDeopt();
       if (HasImmediateInput(instr, 0)) {
         Handle<Code> code = Handle<Code>::cast(i.InputHeapObject(0));
         __ Call(code, RelocInfo::CODE_TARGET);
@@ -216,16 +212,8 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       AddSafepointAndDeopt(instr);
       break;
     }
-    case kArchCallAddress:
-      if (HasImmediateInput(instr, 0)) {
-        Immediate64 imm = i.InputImmediate64(0);
-        DCHECK_EQ(kImm64Value, imm.type);
-        __ Call(reinterpret_cast<byte*>(imm.value), RelocInfo::NONE64);
-      } else {
-        __ call(i.InputRegister(0));
-      }
-      break;
     case kArchCallJSFunction: {
+      EnsureSpaceForLazyDeopt();
       Register func = i.InputRegister(0);
       if (FLAG_debug_code) {
         // Check the function's context matches the context argument.
@@ -236,11 +224,6 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       AddSafepointAndDeopt(instr);
       break;
     }
-    case kArchDrop: {
-      int words = MiscField::decode(instr->opcode());
-      __ addq(rsp, Immediate(kPointerSize * words));
-      break;
-    }
     case kArchJmp:
       __ jmp(code_->GetLabel(i.InputBlock(0)));
       break;
@@ -249,6 +232,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     case kArchRet:
       AssembleReturn();
+      break;
+    case kArchStackPointer:
+      __ movq(i.OutputRegister(), rsp);
       break;
     case kArchTruncateDoubleToI:
       __ TruncateDoubleToI(i.OutputRegister(), i.InputDoubleRegister(0));
@@ -284,40 +270,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       ASSEMBLE_BINOP(testq);
       break;
     case kX64Imul32:
-      if (HasImmediateInput(instr, 1)) {
-        RegisterOrOperand input = i.InputRegisterOrOperand(0);
-        if (input.type == kRegister) {
-          __ imull(i.OutputRegister(), input.reg, i.InputImmediate(1));
-        } else {
-          __ movq(kScratchRegister, input.operand);
-          __ imull(i.OutputRegister(), kScratchRegister, i.InputImmediate(1));
-        }
-      } else {
-        RegisterOrOperand input = i.InputRegisterOrOperand(1);
-        if (input.type == kRegister) {
-          __ imull(i.OutputRegister(), input.reg);
-        } else {
-          __ imull(i.OutputRegister(), input.operand);
-        }
-      }
+      ASSEMBLE_MULT(imull);
       break;
     case kX64Imul:
-      if (HasImmediateInput(instr, 1)) {
-        RegisterOrOperand input = i.InputRegisterOrOperand(0);
-        if (input.type == kRegister) {
-          __ imulq(i.OutputRegister(), input.reg, i.InputImmediate(1));
-        } else {
-          __ movq(kScratchRegister, input.operand);
-          __ imulq(i.OutputRegister(), kScratchRegister, i.InputImmediate(1));
-        }
-      } else {
-        RegisterOrOperand input = i.InputRegisterOrOperand(1);
-        if (input.type == kRegister) {
-          __ imulq(i.OutputRegister(), input.reg);
-        } else {
-          __ imulq(i.OutputRegister(), input.operand);
-        }
-      }
+      ASSEMBLE_MULT(imulq);
       break;
     case kX64Idiv32:
       __ cdq();
@@ -335,42 +291,18 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ xorq(rdx, rdx);
       __ divq(i.InputRegister(1));
       break;
-    case kX64Not: {
-      RegisterOrOperand output = i.OutputRegisterOrOperand();
-      if (output.type == kRegister) {
-        __ notq(output.reg);
-      } else {
-        __ notq(output.operand);
-      }
+    case kX64Not:
+      ASSEMBLE_UNOP(notq);
       break;
-    }
-    case kX64Not32: {
-      RegisterOrOperand output = i.OutputRegisterOrOperand();
-      if (output.type == kRegister) {
-        __ notl(output.reg);
-      } else {
-        __ notl(output.operand);
-      }
+    case kX64Not32:
+      ASSEMBLE_UNOP(notl);
       break;
-    }
-    case kX64Neg: {
-      RegisterOrOperand output = i.OutputRegisterOrOperand();
-      if (output.type == kRegister) {
-        __ negq(output.reg);
-      } else {
-        __ negq(output.operand);
-      }
+    case kX64Neg:
+      ASSEMBLE_UNOP(negq);
       break;
-    }
-    case kX64Neg32: {
-      RegisterOrOperand output = i.OutputRegisterOrOperand();
-      if (output.type == kRegister) {
-        __ negl(output.reg);
-      } else {
-        __ negl(output.operand);
-      }
+    case kX64Neg32:
+      ASSEMBLE_UNOP(negl);
       break;
-    }
     case kX64Or32:
       ASSEMBLE_BINOP(orl);
       break;
@@ -407,15 +339,13 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kX64Ror:
       ASSEMBLE_SHIFT(rorq, 6);
       break;
-    case kSSEFloat64Cmp: {
-      RegisterOrOperand input = i.InputRegisterOrOperand(1);
-      if (input.type == kDoubleRegister) {
-        __ ucomisd(i.InputDoubleRegister(0), input.double_reg);
+    case kSSEFloat64Cmp:
+      if (instr->InputAt(1)->IsDoubleRegister()) {
+        __ ucomisd(i.InputDoubleRegister(0), i.InputDoubleRegister(1));
       } else {
-        __ ucomisd(i.InputDoubleRegister(0), input.operand);
+        __ ucomisd(i.InputDoubleRegister(0), i.InputOperand(1));
       }
       break;
-    }
     case kSSEFloat64Add:
       __ addsd(i.InputDoubleRegister(0), i.InputDoubleRegister(1));
       break;
@@ -459,37 +389,50 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ addq(rsp, Immediate(kDoubleSize));
       break;
     }
-    case kSSEFloat64ToInt32: {
-      RegisterOrOperand input = i.InputRegisterOrOperand(0);
-      if (input.type == kDoubleRegister) {
-        __ cvttsd2si(i.OutputRegister(), input.double_reg);
+    case kSSEFloat64Sqrt:
+      if (instr->InputAt(0)->IsDoubleRegister()) {
+        __ sqrtsd(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
       } else {
-        __ cvttsd2si(i.OutputRegister(), input.operand);
+        __ sqrtsd(i.OutputDoubleRegister(), i.InputOperand(0));
       }
       break;
-    }
-    case kSSEFloat64ToUint32: {
-      // TODO(turbofan): X64 SSE cvttsd2siq should support operands.
-      __ cvttsd2siq(i.OutputRegister(), i.InputDoubleRegister(0));
+    case kSSECvtss2sd:
+      __ cvtss2sd(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
+      break;
+    case kSSECvtsd2ss:
+      __ cvtsd2ss(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
+      break;
+    case kSSEFloat64ToInt32:
+      if (instr->InputAt(0)->IsDoubleRegister()) {
+        __ cvttsd2si(i.OutputRegister(), i.InputDoubleRegister(0));
+      } else {
+        __ cvttsd2si(i.OutputRegister(), i.InputOperand(0));
+      }
+      break;
+    case kSSEFloat64ToUint32:
+      if (instr->InputAt(0)->IsDoubleRegister()) {
+        __ cvttsd2siq(i.OutputRegister(), i.InputDoubleRegister(0));
+      } else {
+        __ cvttsd2siq(i.OutputRegister(), i.InputOperand(0));
+      }
       __ andl(i.OutputRegister(), i.OutputRegister());  // clear upper bits.
       // TODO(turbofan): generated code should not look at the upper 32 bits
       // of the result, but those bits could escape to the outside world.
       break;
-    }
-    case kSSEInt32ToFloat64: {
-      RegisterOrOperand input = i.InputRegisterOrOperand(0);
-      if (input.type == kRegister) {
-        __ cvtlsi2sd(i.OutputDoubleRegister(), input.reg);
+    case kSSEInt32ToFloat64:
+      if (instr->InputAt(0)->IsRegister()) {
+        __ cvtlsi2sd(i.OutputDoubleRegister(), i.InputRegister(0));
       } else {
-        __ cvtlsi2sd(i.OutputDoubleRegister(), input.operand);
+        __ cvtlsi2sd(i.OutputDoubleRegister(), i.InputOperand(0));
       }
       break;
-    }
-    case kSSEUint32ToFloat64: {
-      // TODO(turbofan): X64 SSE cvtqsi2sd should support operands.
-      __ cvtqsi2sd(i.OutputDoubleRegister(), i.InputRegister(0));
+    case kSSEUint32ToFloat64:
+      if (instr->InputAt(0)->IsRegister()) {
+        __ cvtqsi2sd(i.OutputDoubleRegister(), i.InputRegister(0));
+      } else {
+        __ cvtqsi2sd(i.OutputDoubleRegister(), i.InputOperand(0));
+      }
       break;
-    }
     case kX64Movsxbl:
       __ movsxbl(i.OutputRegister(), i.MemoryOperand());
       break;
@@ -525,11 +468,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kX64Movl:
       if (instr->HasOutput()) {
         if (instr->addressing_mode() == kMode_None) {
-          RegisterOrOperand input = i.InputRegisterOrOperand(0);
-          if (input.type == kRegister) {
-            __ movl(i.OutputRegister(), input.reg);
+          if (instr->InputAt(0)->IsRegister()) {
+            __ movl(i.OutputRegister(), i.InputRegister(0));
           } else {
-            __ movl(i.OutputRegister(), input.operand);
+            __ movl(i.OutputRegister(), i.InputOperand(0));
           }
         } else {
           __ movl(i.OutputRegister(), i.MemoryOperand());
@@ -545,11 +487,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       }
       break;
     case kX64Movsxlq: {
-      RegisterOrOperand input = i.InputRegisterOrOperand(0);
-      if (input.type == kRegister) {
-        __ movsxlq(i.OutputRegister(), input.reg);
+      if (instr->InputAt(0)->IsRegister()) {
+        __ movsxlq(i.OutputRegister(), i.InputRegister(0));
       } else {
-        __ movsxlq(i.OutputRegister(), input.operand);
+        __ movsxlq(i.OutputRegister(), i.InputOperand(0));
       }
       break;
     }
@@ -569,12 +510,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kX64Movss:
       if (instr->HasOutput()) {
         __ movss(i.OutputDoubleRegister(), i.MemoryOperand());
-        __ cvtss2sd(i.OutputDoubleRegister(), i.OutputDoubleRegister());
       } else {
         int index = 0;
         Operand operand = i.MemoryOperand(&index);
-        __ cvtsd2ss(xmm0, i.InputDoubleRegister(index));
-        __ movss(operand, xmm0);
+        __ movss(operand, i.InputDoubleRegister(index));
       }
       break;
     case kX64Movsd:
@@ -586,15 +525,20 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
         __ movsd(operand, i.InputDoubleRegister(index));
       }
       break;
+    case kX64Lea32:
+      __ leal(i.OutputRegister(), i.MemoryOperand());
+      break;
+    case kX64Lea:
+      __ leaq(i.OutputRegister(), i.MemoryOperand());
+      break;
     case kX64Push:
       if (HasImmediateInput(instr, 0)) {
         __ pushq(i.InputImmediate(0));
       } else {
-        RegisterOrOperand input = i.InputRegisterOrOperand(0);
-        if (input.type == kRegister) {
-          __ pushq(input.reg);
+        if (instr->InputAt(0)->IsRegister()) {
+          __ pushq(i.InputRegister(0));
         } else {
-          __ pushq(input.operand);
+          __ pushq(i.InputOperand(0));
         }
       }
       break;
@@ -898,27 +842,50 @@ void CodeGenerator::AssembleMove(InstructionOperand* source,
     }
   } else if (source->IsConstant()) {
     ConstantOperand* constant_source = ConstantOperand::cast(source);
+    Constant src = g.ToConstant(constant_source);
     if (destination->IsRegister() || destination->IsStackSlot()) {
       Register dst = destination->IsRegister() ? g.ToRegister(destination)
                                                : kScratchRegister;
-      Immediate64 imm = g.ToImmediate64(constant_source);
-      switch (imm.type) {
-        case kImm64Value:
-          __ Set(dst, imm.value);
+      switch (src.type()) {
+        case Constant::kInt32:
+          // TODO(dcarney): don't need scratch in this case.
+          __ movq(dst, Immediate(src.ToInt32()));
           break;
-        case kImm64Reference:
-          __ Move(dst, imm.reference);
+        case Constant::kInt64:
+          __ Set(dst, src.ToInt64());
           break;
-        case kImm64Handle:
-          __ Move(dst, imm.handle);
+        case Constant::kFloat32:
+          __ Move(dst,
+                  isolate()->factory()->NewNumber(src.ToFloat32(), TENURED));
+          break;
+        case Constant::kFloat64:
+          __ Move(dst,
+                  isolate()->factory()->NewNumber(src.ToFloat64(), TENURED));
+          break;
+        case Constant::kExternalReference:
+          __ Move(dst, src.ToExternalReference());
+          break;
+        case Constant::kHeapObject:
+          __ Move(dst, src.ToHeapObject());
           break;
       }
       if (destination->IsStackSlot()) {
         __ movq(g.ToOperand(destination), kScratchRegister);
       }
+    } else if (src.type() == Constant::kFloat32) {
+      // TODO(turbofan): Can we do better here?
+      __ movl(kScratchRegister, Immediate(bit_cast<int32_t>(src.ToFloat32())));
+      if (destination->IsDoubleRegister()) {
+        XMMRegister dst = g.ToDoubleRegister(destination);
+        __ movq(dst, kScratchRegister);
+      } else {
+        DCHECK(destination->IsDoubleStackSlot());
+        Operand dst = g.ToOperand(destination);
+        __ movl(dst, kScratchRegister);
+      }
     } else {
-      __ movq(kScratchRegister,
-              bit_cast<uint64_t, double>(g.ToDouble(constant_source)));
+      DCHECK_EQ(Constant::kFloat64, src.type());
+      __ movq(kScratchRegister, bit_cast<int64_t>(src.ToFloat64()));
       if (destination->IsDoubleRegister()) {
         __ movq(g.ToDoubleRegister(destination), kScratchRegister);
       } else {
@@ -1000,6 +967,21 @@ void CodeGenerator::AssembleSwap(InstructionOperand* source,
 
 
 void CodeGenerator::AddNopForSmiCodeInlining() { __ nop(); }
+
+
+void CodeGenerator::EnsureSpaceForLazyDeopt() {
+  int space_needed = Deoptimizer::patch_size();
+  if (!linkage()->info()->IsStub()) {
+    // Ensure that we have enough space after the previous lazy-bailout
+    // instruction for patching the code here.
+    int current_pc = masm()->pc_offset();
+    if (current_pc < last_lazy_deopt_pc_ + space_needed) {
+      int padding_size = last_lazy_deopt_pc_ + space_needed - current_pc;
+      __ Nop(padding_size);
+    }
+  }
+  MarkLazyDeoptSite();
+}
 
 #undef __
 

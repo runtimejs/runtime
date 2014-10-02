@@ -14,7 +14,7 @@
 #include "src/isolate.h"
 #include "src/jsregexp.h"
 #include "src/regexp-macro-assembler.h"
-#include "src/runtime.h"
+#include "src/runtime/runtime.h"
 
 namespace v8 {
 namespace internal {
@@ -223,30 +223,30 @@ static void EmitIdenticalObjectComparison(MacroAssembler* masm,
   if ((cond == lt) || (cond == gt)) {
     __ JumpIfObjectType(right, scratch, scratch, FIRST_SPEC_OBJECT_TYPE, slow,
                         ge);
+  } else if (cond == eq) {
+    __ JumpIfHeapNumber(right, &heap_number);
   } else {
     Register right_type = scratch;
     __ JumpIfObjectType(right, right_type, right_type, HEAP_NUMBER_TYPE,
                         &heap_number);
     // Comparing JS objects with <=, >= is complicated.
-    if (cond != eq) {
-      __ Cmp(right_type, FIRST_SPEC_OBJECT_TYPE);
-      __ B(ge, slow);
-      // Normally here we fall through to return_equal, but undefined is
-      // special: (undefined == undefined) == true, but
-      // (undefined <= undefined) == false!  See ECMAScript 11.8.5.
-      if ((cond == le) || (cond == ge)) {
-        __ Cmp(right_type, ODDBALL_TYPE);
-        __ B(ne, &return_equal);
-        __ JumpIfNotRoot(right, Heap::kUndefinedValueRootIndex, &return_equal);
-        if (cond == le) {
-          // undefined <= undefined should fail.
-          __ Mov(result, GREATER);
-        } else  {
-          // undefined >= undefined should fail.
-          __ Mov(result, LESS);
-        }
-        __ Ret();
+    __ Cmp(right_type, FIRST_SPEC_OBJECT_TYPE);
+    __ B(ge, slow);
+    // Normally here we fall through to return_equal, but undefined is
+    // special: (undefined == undefined) == true, but
+    // (undefined <= undefined) == false!  See ECMAScript 11.8.5.
+    if ((cond == le) || (cond == ge)) {
+      __ Cmp(right_type, ODDBALL_TYPE);
+      __ B(ne, &return_equal);
+      __ JumpIfNotRoot(right, Heap::kUndefinedValueRootIndex, &return_equal);
+      if (cond == le) {
+        // undefined <= undefined should fail.
+        __ Mov(result, GREATER);
+      } else {
+        // undefined >= undefined should fail.
+        __ Mov(result, LESS);
       }
+      __ Ret();
     }
   }
 
@@ -350,10 +350,8 @@ static void EmitSmiNonsmiComparison(MacroAssembler* masm,
                                     Register right,
                                     FPRegister left_d,
                                     FPRegister right_d,
-                                    Register scratch,
                                     Label* slow,
                                     bool strict) {
-  DCHECK(!AreAliased(left, right, scratch));
   DCHECK(!AreAliased(left_d, right_d));
   DCHECK((left.is(x0) && right.is(x1)) ||
          (right.is(x0) && left.is(x1)));
@@ -367,8 +365,7 @@ static void EmitSmiNonsmiComparison(MacroAssembler* masm,
     // If right is not a number and left is a smi, then strict equality cannot
     // succeed. Return non-equal.
     Label is_heap_number;
-    __ JumpIfObjectType(right, scratch, scratch, HEAP_NUMBER_TYPE,
-                        &is_heap_number);
+    __ JumpIfHeapNumber(right, &is_heap_number);
     // Register right is a non-zero pointer, which is a valid NOT_EQUAL result.
     if (!right.is(result)) {
       __ Mov(result, NOT_EQUAL);
@@ -378,7 +375,7 @@ static void EmitSmiNonsmiComparison(MacroAssembler* masm,
   } else {
     // Smi compared non-strictly with a non-smi, non-heap-number. Call the
     // runtime.
-    __ JumpIfNotObjectType(right, scratch, scratch, HEAP_NUMBER_TYPE, slow);
+    __ JumpIfNotHeapNumber(right, slow);
   }
 
   // Left is the smi. Right is a heap number. Load right value into right_d, and
@@ -393,8 +390,7 @@ static void EmitSmiNonsmiComparison(MacroAssembler* masm,
     // If left is not a number and right is a smi then strict equality cannot
     // succeed. Return non-equal.
     Label is_heap_number;
-    __ JumpIfObjectType(left, scratch, scratch, HEAP_NUMBER_TYPE,
-                        &is_heap_number);
+    __ JumpIfHeapNumber(left, &is_heap_number);
     // Register left is a non-zero pointer, which is a valid NOT_EQUAL result.
     if (!left.is(result)) {
       __ Mov(result, NOT_EQUAL);
@@ -404,7 +400,7 @@ static void EmitSmiNonsmiComparison(MacroAssembler* masm,
   } else {
     // Smi compared non-strictly with a non-smi, non-heap-number. Call the
     // runtime.
-    __ JumpIfNotObjectType(left, scratch, scratch, HEAP_NUMBER_TYPE, slow);
+    __ JumpIfNotHeapNumber(left, slow);
   }
 
   // Right is the smi. Left is a heap number. Load left value into left_d, and
@@ -472,7 +468,6 @@ static void EmitCheckForInternalizedStringsOrObjects(MacroAssembler* masm,
 
 
 static void CompareICStub_CheckInputType(MacroAssembler* masm, Register input,
-                                         Register scratch,
                                          CompareICState::State expected,
                                          Label* fail) {
   Label ok;
@@ -480,8 +475,7 @@ static void CompareICStub_CheckInputType(MacroAssembler* masm, Register input,
     __ JumpIfNotSmi(input, fail);
   } else if (expected == CompareICState::NUMBER) {
     __ JumpIfSmi(input, &ok);
-    __ CheckMap(input, scratch, Heap::kHeapNumberMapRootIndex, fail,
-                DONT_DO_SMI_CHECK);
+    __ JumpIfNotHeapNumber(input, fail);
   }
   // We could be strict about internalized/non-internalized here, but as long as
   // hydrogen doesn't care, the stub doesn't have to care either.
@@ -496,8 +490,8 @@ void CompareICStub::GenerateGeneric(MacroAssembler* masm) {
   Condition cond = GetCondition();
 
   Label miss;
-  CompareICStub_CheckInputType(masm, lhs, x2, left(), &miss);
-  CompareICStub_CheckInputType(masm, rhs, x3, right(), &miss);
+  CompareICStub_CheckInputType(masm, lhs, left(), &miss);
+  CompareICStub_CheckInputType(masm, rhs, right(), &miss);
 
   Label slow;  // Call builtin.
   Label not_smis, both_loaded_as_doubles;
@@ -530,7 +524,7 @@ void CompareICStub::GenerateGeneric(MacroAssembler* masm) {
   // rhs_d, left into lhs_d.
   FPRegister rhs_d = d0;
   FPRegister lhs_d = d1;
-  EmitSmiNonsmiComparison(masm, lhs, rhs, lhs_d, rhs_d, x10, &slow, strict());
+  EmitSmiNonsmiComparison(masm, lhs, rhs, lhs_d, rhs_d, &slow, strict());
 
   __ Bind(&both_loaded_as_doubles);
   // The arguments have been converted to doubles and stored in rhs_d and
@@ -1961,6 +1955,29 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 }
 
 
+void LoadIndexedInterceptorStub::Generate(MacroAssembler* masm) {
+  // Return address is in lr.
+  Label slow;
+
+  Register receiver = LoadDescriptor::ReceiverRegister();
+  Register key = LoadDescriptor::NameRegister();
+
+  // Check that the key is an array index, that is Uint32.
+  __ TestAndBranchIfAnySet(key, kSmiTagMask | kSmiSignMask, &slow);
+
+  // Everything is fine, call runtime.
+  __ Push(receiver, key);
+  __ TailCallExternalReference(
+      ExternalReference(IC_Utility(IC::kLoadElementWithInterceptor),
+                        masm->isolate()),
+      2, 1);
+
+  __ Bind(&slow);
+  PropertyAccessCompiler::TailCallBuiltin(
+      masm, PropertyAccessCompiler::MissBuiltin(Code::KEYED_LOAD_IC));
+}
+
+
 void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   // Stack layout on entry.
   //  jssp[0]:  number of parameters (tagged)
@@ -2632,9 +2649,9 @@ static void GenerateRecordCallTarget(MacroAssembler* masm,
   //  index :           slot in feedback vector (smi)
   Label initialize, done, miss, megamorphic, not_array_function;
 
-  DCHECK_EQ(*TypeFeedbackInfo::MegamorphicSentinel(masm->isolate()),
+  DCHECK_EQ(*TypeFeedbackVector::MegamorphicSentinel(masm->isolate()),
             masm->isolate()->heap()->megamorphic_symbol());
-  DCHECK_EQ(*TypeFeedbackInfo::UninitializedSentinel(masm->isolate()),
+  DCHECK_EQ(*TypeFeedbackVector::UninitializedSentinel(masm->isolate()),
             masm->isolate()->heap()->uninitialized_symbol());
 
   // Load the cache state.
@@ -2666,13 +2683,13 @@ static void GenerateRecordCallTarget(MacroAssembler* masm,
 
   // A monomorphic miss (i.e, here the cache is not uninitialized) goes
   // megamorphic.
-  __ JumpIfRoot(scratch1, Heap::kUninitializedSymbolRootIndex, &initialize);
+  __ JumpIfRoot(scratch1, Heap::kuninitialized_symbolRootIndex, &initialize);
   // MegamorphicSentinel is an immortal immovable object (undefined) so no
   // write-barrier is needed.
   __ Bind(&megamorphic);
   __ Add(scratch1, feedback_vector,
          Operand::UntagSmiAndScale(index, kPointerSizeLog2));
-  __ LoadRoot(scratch2, Heap::kMegamorphicSymbolRootIndex);
+  __ LoadRoot(scratch2, Heap::kmegamorphic_symbolRootIndex);
   __ Str(scratch2, FieldMemOperand(scratch1, FixedArray::kHeaderSize));
   __ B(&done);
 
@@ -3021,8 +3038,8 @@ void CallICStub::Generate(MacroAssembler* masm) {
   __ bind(&extra_checks_or_miss);
   Label miss;
 
-  __ JumpIfRoot(x4, Heap::kMegamorphicSymbolRootIndex, &slow_start);
-  __ JumpIfRoot(x4, Heap::kUninitializedSymbolRootIndex, &miss);
+  __ JumpIfRoot(x4, Heap::kmegamorphic_symbolRootIndex, &slow_start);
+  __ JumpIfRoot(x4, Heap::kuninitialized_symbolRootIndex, &miss);
 
   if (!FLAG_trace_ic) {
     // We are going megamorphic. If the feedback is a JSFunction, it is fine
@@ -3031,7 +3048,7 @@ void CallICStub::Generate(MacroAssembler* masm) {
     __ JumpIfNotObjectType(x4, x5, x5, JS_FUNCTION_TYPE, &miss);
     __ Add(x4, feedback_vector,
            Operand::UntagSmiAndScale(index, kPointerSizeLog2));
-    __ LoadRoot(x5, Heap::kMegamorphicSymbolRootIndex);
+    __ LoadRoot(x5, Heap::kmegamorphic_symbolRootIndex);
     __ Str(x5, FieldMemOperand(x4, FixedArray::kHeaderSize));
     __ B(&slow_start);
   }
@@ -3117,11 +3134,7 @@ void StringCharCodeAtGenerator::GenerateSlow(
 
   __ Bind(&index_not_smi_);
   // If index is a heap number, try converting it to an integer.
-  __ CheckMap(index_,
-              result_,
-              Heap::kHeapNumberMapRootIndex,
-              index_not_number_,
-              DONT_DO_SMI_CHECK);
+  __ JumpIfNotHeapNumber(index_, index_not_number_);
   call_helper.BeforeCall(masm);
   // Save object_ on the stack and pass index_ as argument for runtime call.
   __ Push(object_, index_);
@@ -3242,15 +3255,13 @@ void CompareICStub::GenerateNumbers(MacroAssembler* masm) {
 
   // Load rhs if it's a heap number.
   __ JumpIfSmi(rhs, &handle_lhs);
-  __ CheckMap(rhs, x10, Heap::kHeapNumberMapRootIndex, &maybe_undefined1,
-              DONT_DO_SMI_CHECK);
+  __ JumpIfNotHeapNumber(rhs, &maybe_undefined1);
   __ Ldr(rhs_d, FieldMemOperand(rhs, HeapNumber::kValueOffset));
 
   // Load lhs if it's a heap number.
   __ Bind(&handle_lhs);
   __ JumpIfSmi(lhs, &values_in_d_regs);
-  __ CheckMap(lhs, x10, Heap::kHeapNumberMapRootIndex, &maybe_undefined2,
-              DONT_DO_SMI_CHECK);
+  __ JumpIfNotHeapNumber(lhs, &maybe_undefined2);
   __ Ldr(lhs_d, FieldMemOperand(lhs, HeapNumber::kValueOffset));
 
   __ Bind(&values_in_d_regs);
@@ -3270,7 +3281,7 @@ void CompareICStub::GenerateNumbers(MacroAssembler* masm) {
   if (Token::IsOrderedRelationalCompareOp(op())) {
     __ JumpIfNotRoot(rhs, Heap::kUndefinedValueRootIndex, &miss);
     __ JumpIfSmi(lhs, &unordered);
-    __ JumpIfNotObjectType(lhs, x10, x10, HEAP_NUMBER_TYPE, &maybe_undefined2);
+    __ JumpIfNotHeapNumber(lhs, &maybe_undefined2);
     __ B(&unordered);
   }
 
@@ -3347,8 +3358,8 @@ void CompareICStub::GenerateUniqueNames(MacroAssembler* masm) {
 
   // To avoid a miss, each instance type should be either SYMBOL_TYPE or it
   // should have kInternalizedTag set.
-  __ JumpIfNotUniqueName(lhs_instance_type, &miss);
-  __ JumpIfNotUniqueName(rhs_instance_type, &miss);
+  __ JumpIfNotUniqueNameInstanceType(lhs_instance_type, &miss);
+  __ JumpIfNotUniqueNameInstanceType(rhs_instance_type, &miss);
 
   // Unique names are compared by identity.
   STATIC_ASSERT(EQUAL == 0);
@@ -4465,7 +4476,7 @@ void NameDictionaryLookupStub::GenerateNegativeLookup(MacroAssembler* masm,
     __ Ldr(entity_name, FieldMemOperand(entity_name, HeapObject::kMapOffset));
     __ Ldrb(entity_name,
             FieldMemOperand(entity_name, Map::kInstanceTypeOffset));
-    __ JumpIfNotUniqueName(entity_name, miss);
+    __ JumpIfNotUniqueNameInstanceType(entity_name, miss);
     __ Bind(&good);
   }
 
@@ -4552,7 +4563,7 @@ void NameDictionaryLookupStub::Generate(MacroAssembler* masm) {
       // Check if the entry name is not a unique name.
       __ Ldr(entry_key, FieldMemOperand(entry_key, HeapObject::kMapOffset));
       __ Ldrb(entry_key, FieldMemOperand(entry_key, Map::kInstanceTypeOffset));
-      __ JumpIfNotUniqueName(entry_key, &maybe_in_dictionary);
+      __ JumpIfNotUniqueNameInstanceType(entry_key, &maybe_in_dictionary);
     }
   }
 

@@ -61,7 +61,7 @@ class Node FINAL : public GenericNode<NodeData, Node> {
   Node* FindProjection(size_t projection_index);
 };
 
-OStream& operator<<(OStream& os, const Node& n);
+std::ostream& operator<<(std::ostream& os, const Node& n);
 
 typedef GenericGraphVisit::NullNodeVisitor<NodeData, Node> NullNodeVisitor;
 
@@ -71,6 +71,7 @@ typedef NodeSet::reverse_iterator NodeSetRIter;
 
 typedef ZoneVector<Node*> NodeVector;
 typedef NodeVector::iterator NodeVectorIter;
+typedef NodeVector::const_iterator NodeVectorConstIter;
 typedef NodeVector::reverse_iterator NodeVectorRIter;
 
 typedef ZoneVector<NodeVector> NodeVectorVector;

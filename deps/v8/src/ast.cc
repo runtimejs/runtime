@@ -173,10 +173,12 @@ void FunctionLiteral::InitializeSharedInfo(
 
 ObjectLiteralProperty::ObjectLiteralProperty(Zone* zone,
                                              AstValueFactory* ast_value_factory,
-                                             Literal* key, Expression* value) {
+                                             Literal* key, Expression* value,
+                                             bool is_static) {
   emit_store_ = true;
   key_ = key;
   value_ = value;
+  is_static_ = is_static;
   if (key->raw_value()->EqualsString(ast_value_factory->proto_string())) {
     kind_ = PROTOTYPE;
   } else if (value_->AsMaterializedLiteral() != NULL) {
@@ -189,11 +191,13 @@ ObjectLiteralProperty::ObjectLiteralProperty(Zone* zone,
 }
 
 
-ObjectLiteralProperty::ObjectLiteralProperty(
-    Zone* zone, bool is_getter, FunctionLiteral* value) {
+ObjectLiteralProperty::ObjectLiteralProperty(Zone* zone, bool is_getter,
+                                             FunctionLiteral* value,
+                                             bool is_static) {
   emit_store_ = true;
   value_ = value;
   kind_ = is_getter ? GETTER : SETTER;
+  is_static_ = is_static;
 }
 
 
@@ -611,9 +615,6 @@ void CallNew::RecordTypeFeedback(TypeFeedbackOracle* oracle) {
   is_monomorphic_ = oracle->CallNewIsMonomorphic(CallNewFeedbackSlot());
   if (is_monomorphic_) {
     target_ = oracle->GetCallNewTarget(CallNewFeedbackSlot());
-    if (!allocation_site_.is_null()) {
-      elements_kind_ = allocation_site_->GetElementsKind();
-    }
   }
 }
 
@@ -793,14 +794,14 @@ bool RegExpCapture::IsAnchoredAtEnd() {
 // output formats are alike.
 class RegExpUnparser FINAL : public RegExpVisitor {
  public:
-  RegExpUnparser(OStream& os, Zone* zone) : os_(os), zone_(zone) {}
+  RegExpUnparser(std::ostream& os, Zone* zone) : os_(os), zone_(zone) {}
   void VisitCharacterRange(CharacterRange that);
 #define MAKE_CASE(Name) virtual void* Visit##Name(RegExp##Name*,          \
                                                   void* data) OVERRIDE;
   FOR_EACH_REG_EXP_TREE_TYPE(MAKE_CASE)
 #undef MAKE_CASE
  private:
-  OStream& os_;
+  std::ostream& os_;
   Zone* zone_;
 };
 
@@ -943,7 +944,7 @@ void* RegExpUnparser::VisitEmpty(RegExpEmpty* that, void* data) {
 }
 
 
-OStream& RegExpTree::Print(OStream& os, Zone* zone) {  // NOLINT
+std::ostream& RegExpTree::Print(std::ostream& os, Zone* zone) {  // NOLINT
   RegExpUnparser unparser(os, zone);
   Accept(&unparser, NULL);
   return os;
@@ -1090,6 +1091,7 @@ DONT_OPTIMIZE_NODE(ModuleUrl)
 DONT_OPTIMIZE_NODE(ModuleStatement)
 DONT_OPTIMIZE_NODE(WithStatement)
 DONT_OPTIMIZE_NODE(DebuggerStatement)
+DONT_OPTIMIZE_NODE(ClassLiteral)
 DONT_OPTIMIZE_NODE(NativeFunctionLiteral)
 DONT_OPTIMIZE_NODE(SuperReference)
 

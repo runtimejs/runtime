@@ -10,6 +10,7 @@
 #include "src/base/platform/platform.h"
 #include "src/base/sys-info.h"
 #include "src/base/utils/random-number-generator.h"
+#include "src/basic-block-profiler.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
 #include "src/compilation-cache.h"
@@ -17,7 +18,6 @@
 #include "src/debug.h"
 #include "src/deoptimizer.h"
 #include "src/heap/spaces.h"
-#include "src/heap/sweeper-thread.h"
 #include "src/heap-profiler.h"
 #include "src/hydrogen.h"
 #include "src/ic/stub-cache.h"
@@ -48,7 +48,6 @@ int ThreadId::AllocateThreadId() {
 
 
 int ThreadId::GetCurrentThreadId() {
-  Isolate::EnsureInitialized();
   int thread_id = base::Thread::GetThreadLocalInt(Isolate::thread_id_key_);
   if (thread_id == 0) {
     thread_id = AllocateThreadId();
@@ -111,20 +110,16 @@ void ThreadLocalTop::Free() {
 base::Thread::LocalStorageKey Isolate::isolate_key_;
 base::Thread::LocalStorageKey Isolate::thread_id_key_;
 base::Thread::LocalStorageKey Isolate::per_isolate_thread_data_key_;
-#ifdef DEBUG
-base::Thread::LocalStorageKey PerThreadAssertScopeBase::thread_local_key;
-#endif  // DEBUG
-base::LazyMutex Isolate::process_wide_mutex_ = LAZY_MUTEX_INITIALIZER;
+base::LazyMutex Isolate::thread_data_table_mutex_ = LAZY_MUTEX_INITIALIZER;
 Isolate::ThreadDataTable* Isolate::thread_data_table_ = NULL;
 base::Atomic32 Isolate::isolate_counter_ = 0;
 
 Isolate::PerIsolateThreadData*
     Isolate::FindOrAllocatePerThreadDataForThisThread() {
-  EnsureInitialized();
   ThreadId thread_id = ThreadId::Current();
   PerIsolateThreadData* per_thread = NULL;
   {
-    base::LockGuard<base::Mutex> lock_guard(process_wide_mutex_.Pointer());
+    base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
     per_thread = thread_data_table_->Lookup(this, thread_id);
     if (per_thread == NULL) {
       per_thread = new PerIsolateThreadData(this, thread_id);
@@ -144,28 +139,22 @@ Isolate::PerIsolateThreadData* Isolate::FindPerThreadDataForThisThread() {
 
 Isolate::PerIsolateThreadData* Isolate::FindPerThreadDataForThread(
     ThreadId thread_id) {
-  EnsureInitialized();
   PerIsolateThreadData* per_thread = NULL;
   {
-    base::LockGuard<base::Mutex> lock_guard(process_wide_mutex_.Pointer());
+    base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
     per_thread = thread_data_table_->Lookup(this, thread_id);
   }
   return per_thread;
 }
 
 
-void Isolate::EnsureInitialized() {
-  base::LockGuard<base::Mutex> lock_guard(process_wide_mutex_.Pointer());
-  if (thread_data_table_ == NULL) {
-    isolate_key_ = base::Thread::CreateThreadLocalKey();
-    thread_id_key_ = base::Thread::CreateThreadLocalKey();
-    per_isolate_thread_data_key_ = base::Thread::CreateThreadLocalKey();
-#ifdef DEBUG
-    PerThreadAssertScopeBase::thread_local_key =
-        base::Thread::CreateThreadLocalKey();
-#endif  // DEBUG
-    thread_data_table_ = new Isolate::ThreadDataTable();
-  }
+void Isolate::InitializeOncePerProcess() {
+  base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
+  CHECK(thread_data_table_ == NULL);
+  isolate_key_ = base::Thread::CreateThreadLocalKey();
+  thread_id_key_ = base::Thread::CreateThreadLocalKey();
+  per_isolate_thread_data_key_ = base::Thread::CreateThreadLocalKey();
+  thread_data_table_ = new Isolate::ThreadDataTable();
 }
 
 
@@ -988,6 +977,8 @@ bool Isolate::ShouldReportException(bool* can_be_caught_externally,
 }
 
 
+// Traverse prototype chain to find out whether the object is derived from
+// the Error object.
 bool Isolate::IsErrorObject(Handle<Object> obj) {
   if (!obj->IsJSObject()) return false;
 
@@ -1010,6 +1001,96 @@ bool Isolate::IsErrorObject(Handle<Object> obj) {
 
 static int fatal_exception_depth = 0;
 
+
+Handle<JSMessageObject> Isolate::CreateMessage(Handle<Object> exception,
+                                               MessageLocation* location) {
+  Handle<JSArray> stack_trace_object;
+  if (capture_stack_trace_for_uncaught_exceptions_) {
+    if (IsErrorObject(exception)) {
+      // We fetch the stack trace that corresponds to this error object.
+      Handle<Name> key = factory()->detailed_stack_trace_symbol();
+      // Look up as own property.  If the lookup fails, the exception is
+      // probably not a valid Error object.  In that case, we fall through
+      // and capture the stack trace at this throw site.
+      LookupIterator lookup(exception, key,
+                            LookupIterator::OWN_SKIP_INTERCEPTOR);
+      Handle<Object> stack_trace_property;
+      if (Object::GetProperty(&lookup).ToHandle(&stack_trace_property) &&
+          stack_trace_property->IsJSArray()) {
+        stack_trace_object = Handle<JSArray>::cast(stack_trace_property);
+      }
+    }
+    if (stack_trace_object.is_null()) {
+      // Not an error object, we capture at throw site.
+      stack_trace_object = CaptureCurrentStackTrace(
+          stack_trace_for_uncaught_exceptions_frame_limit_,
+          stack_trace_for_uncaught_exceptions_options_);
+    }
+  }
+
+  // If the exception argument is a custom object, turn it into a string
+  // before throwing as uncaught exception.  Note that the pending
+  // exception object to be set later must not be turned into a string.
+  if (exception->IsJSObject() && !IsErrorObject(exception)) {
+    MaybeHandle<Object> maybe_exception =
+        Execution::ToDetailString(this, exception);
+    if (!maybe_exception.ToHandle(&exception)) {
+      exception =
+          factory()->InternalizeOneByteString(STATIC_CHAR_VECTOR("exception"));
+    }
+  }
+  return MessageHandler::MakeMessageObject(this, "uncaught_exception", location,
+                                           HandleVector<Object>(&exception, 1),
+                                           stack_trace_object);
+}
+
+
+void ReportBootstrappingException(Handle<Object> exception,
+                                  MessageLocation* location) {
+  base::OS::PrintError("Exception thrown during bootstrapping\n");
+  if (location == NULL || location->script().is_null()) return;
+  // We are bootstrapping and caught an error where the location is set
+  // and we have a script for the location.
+  // In this case we could have an extension (or an internal error
+  // somewhere) and we print out the line number at which the error occured
+  // to the console for easier debugging.
+  int line_number =
+      location->script()->GetLineNumber(location->start_pos()) + 1;
+  if (exception->IsString() && location->script()->name()->IsString()) {
+    base::OS::PrintError(
+        "Extension or internal compilation error: %s in %s at line %d.\n",
+        String::cast(*exception)->ToCString().get(),
+        String::cast(location->script()->name())->ToCString().get(),
+        line_number);
+  } else if (location->script()->name()->IsString()) {
+    base::OS::PrintError(
+        "Extension or internal compilation error in %s at line %d.\n",
+        String::cast(location->script()->name())->ToCString().get(),
+        line_number);
+  } else {
+    base::OS::PrintError("Extension or internal compilation error.\n");
+  }
+#ifdef OBJECT_PRINT
+  // Since comments and empty lines have been stripped from the source of
+  // builtins, print the actual source here so that line numbers match.
+  if (location->script()->source()->IsString()) {
+    Handle<String> src(String::cast(location->script()->source()));
+    PrintF("Failing script:\n");
+    int len = src->length();
+    int line_number = 1;
+    PrintF("%5d: ", line_number);
+    for (int i = 0; i < len; i++) {
+      uint16_t character = src->Get(i);
+      PrintF("%c", character);
+      if (character == '\n' && i < len - 2) {
+        PrintF("%5d: ", ++line_number);
+      }
+    }
+  }
+#endif
+}
+
+
 void Isolate::DoThrow(Object* exception, MessageLocation* location) {
   DCHECK(!has_pending_exception());
 
@@ -1023,9 +1104,8 @@ void Isolate::DoThrow(Object* exception, MessageLocation* location) {
       ShouldReportException(&can_be_caught_externally, catchable_by_javascript);
   bool report_exception = catchable_by_javascript && should_report_exception;
   bool try_catch_needs_message =
-      can_be_caught_externally && try_catch_handler()->capture_message_ &&
-      !thread_local_top()->rethrowing_message_;
-  bool bootstrapping = bootstrapper()->IsActive();
+      can_be_caught_externally && try_catch_handler()->capture_message_;
+  bool rethrowing_message = thread_local_top()->rethrowing_message_;
 
   thread_local_top()->rethrowing_message_ = false;
 
@@ -1035,59 +1115,22 @@ void Isolate::DoThrow(Object* exception, MessageLocation* location) {
   }
 
   // Generate the message if required.
-  if (report_exception || try_catch_needs_message) {
+  if (!rethrowing_message && (report_exception || try_catch_needs_message)) {
     MessageLocation potential_computed_location;
     if (location == NULL) {
       // If no location was specified we use a computed one instead.
       ComputeLocation(&potential_computed_location);
       location = &potential_computed_location;
     }
-    // It's not safe to try to make message objects or collect stack traces
-    // while the bootstrapper is active since the infrastructure may not have
-    // been properly initialized.
-    if (!bootstrapping) {
-      Handle<JSArray> stack_trace_object;
-      if (capture_stack_trace_for_uncaught_exceptions_) {
-        if (IsErrorObject(exception_handle)) {
-          // We fetch the stack trace that corresponds to this error object.
-          Handle<Name> key = factory()->detailed_stack_trace_symbol();
-          // Look up as own property.  If the lookup fails, the exception is
-          // probably not a valid Error object.  In that case, we fall through
-          // and capture the stack trace at this throw site.
-          LookupIterator lookup(exception_handle, key,
-                                LookupIterator::OWN_SKIP_INTERCEPTOR);
-          Handle<Object> stack_trace_property;
-          if (Object::GetProperty(&lookup).ToHandle(&stack_trace_property) &&
-              stack_trace_property->IsJSArray()) {
-            stack_trace_object = Handle<JSArray>::cast(stack_trace_property);
-          }
-        }
-        if (stack_trace_object.is_null()) {
-          // Not an error object, we capture at throw site.
-          stack_trace_object = CaptureCurrentStackTrace(
-              stack_trace_for_uncaught_exceptions_frame_limit_,
-              stack_trace_for_uncaught_exceptions_options_);
-        }
-      }
 
-      Handle<Object> exception_arg = exception_handle;
-      // If the exception argument is a custom object, turn it into a string
-      // before throwing as uncaught exception.  Note that the pending
-      // exception object to be set later must not be turned into a string.
-      if (exception_arg->IsJSObject() && !IsErrorObject(exception_arg)) {
-        MaybeHandle<Object> maybe_exception =
-            Execution::ToDetailString(this, exception_arg);
-        if (!maybe_exception.ToHandle(&exception_arg)) {
-          exception_arg = factory()->InternalizeOneByteString(
-              STATIC_CHAR_VECTOR("exception"));
-        }
-      }
-      Handle<Object> message_obj = MessageHandler::MakeMessageObject(
-          this,
-          "uncaught_exception",
-          location,
-          HandleVector<Object>(&exception_arg, 1),
-          stack_trace_object);
+    if (bootstrapper()->IsActive()) {
+      // It's not safe to try to make message objects or collect stack traces
+      // while the bootstrapper is active since the infrastructure may not have
+      // been properly initialized.
+      ReportBootstrappingException(exception_handle, location);
+    } else {
+      Handle<Object> message_obj = CreateMessage(exception_handle, location);
+
       thread_local_top()->pending_message_obj_ = *message_obj;
       if (location != NULL) {
         thread_local_top()->pending_message_script_ = *location->script();
@@ -1099,56 +1142,14 @@ void Isolate::DoThrow(Object* exception, MessageLocation* location) {
       // exception not caught by JavaScript, even when an external handler is
       // present.  This flag is intended for use by JavaScript developers, so
       // print a user-friendly stack trace (not an internal one).
-      if (fatal_exception_depth == 0 &&
-          FLAG_abort_on_uncaught_exception &&
+      if (fatal_exception_depth == 0 && FLAG_abort_on_uncaught_exception &&
           (report_exception || can_be_caught_externally)) {
         fatal_exception_depth++;
-        PrintF(stderr,
-               "%s\n\nFROM\n",
+        PrintF(stderr, "%s\n\nFROM\n",
                MessageHandler::GetLocalizedMessage(this, message_obj).get());
         PrintCurrentStackTrace(stderr);
         base::OS::Abort();
       }
-    } else if (location != NULL && !location->script().is_null()) {
-      // We are bootstrapping and caught an error where the location is set
-      // and we have a script for the location.
-      // In this case we could have an extension (or an internal error
-      // somewhere) and we print out the line number at which the error occured
-      // to the console for easier debugging.
-      int line_number =
-          location->script()->GetLineNumber(location->start_pos()) + 1;
-      if (exception->IsString() && location->script()->name()->IsString()) {
-        base::OS::PrintError(
-            "Extension or internal compilation error: %s in %s at line %d.\n",
-            String::cast(exception)->ToCString().get(),
-            String::cast(location->script()->name())->ToCString().get(),
-            line_number);
-      } else if (location->script()->name()->IsString()) {
-        base::OS::PrintError(
-            "Extension or internal compilation error in %s at line %d.\n",
-            String::cast(location->script()->name())->ToCString().get(),
-            line_number);
-      } else {
-        base::OS::PrintError("Extension or internal compilation error.\n");
-      }
-#ifdef OBJECT_PRINT
-      // Since comments and empty lines have been stripped from the source of
-      // builtins, print the actual source here so that line numbers match.
-      if (location->script()->source()->IsString()) {
-        Handle<String> src(String::cast(location->script()->source()));
-        PrintF("Failing script:\n");
-        int len = src->length();
-        int line_number = 1;
-        PrintF("%5d: ", line_number);
-        for (int i = 0; i < len; i++) {
-          uint16_t character = src->Get(i);
-          PrintF("%c", character);
-          if (character == '\n' && i < len - 2) {
-            PrintF("%5d: ", ++line_number);
-          }
-        }
-      }
-#endif
     }
   }
 
@@ -1324,8 +1325,6 @@ Handle<Object> Isolate::GetPromiseOnStackOnThrow() {
   StackHandler* handler = StackHandler::FromAddress(Isolate::handler(tltop));
   do {
     if (handler == promise_try) {
-      // Mark the pushed try-catch handler to prevent a later duplicate event
-      // triggered with the following reject.
       return tltop->promise_on_stack_->promise();
     }
     handler = handler->next();
@@ -1516,11 +1515,14 @@ Isolate::Isolate()
       function_entry_hook_(NULL),
       deferred_handles_head_(NULL),
       optimizing_compiler_thread_(NULL),
-      sweeper_thread_(NULL),
-      num_sweeper_threads_(0),
       stress_deopt_count_(0),
       next_optimization_id_(0),
-      use_counter_callback_(NULL) {
+      use_counter_callback_(NULL),
+      basic_block_profiler_(NULL) {
+  {
+    base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
+    CHECK(thread_data_table_);
+  }
   id_ = base::NoBarrier_AtomicIncrement(&isolate_counter_, 1);
   TRACE_ISOLATE(constructor);
 
@@ -1571,7 +1573,7 @@ void Isolate::TearDown() {
   Deinit();
 
   {
-    base::LockGuard<base::Mutex> lock_guard(process_wide_mutex_.Pointer());
+    base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
     thread_data_table_->RemoveAllThreads(this);
   }
 
@@ -1607,16 +1609,7 @@ void Isolate::Deinit() {
       optimizing_compiler_thread_ = NULL;
     }
 
-    for (int i = 0; i < num_sweeper_threads_; i++) {
-      sweeper_thread_[i]->Stop();
-      delete sweeper_thread_[i];
-      sweeper_thread_[i] = NULL;
-    }
-    delete[] sweeper_thread_;
-    sweeper_thread_ = NULL;
-
-    if (FLAG_job_based_sweeping &&
-        heap_.mark_compact_collector()->sweeping_in_progress()) {
+    if (heap_.mark_compact_collector()->sweeping_in_progress()) {
       heap_.mark_compact_collector()->EnsureSweepingCompleted();
     }
 
@@ -1640,6 +1633,10 @@ void Isolate::Deinit() {
       delete runtime_profiler_;
       runtime_profiler_ = NULL;
     }
+
+    delete basic_block_profiler_;
+    basic_block_profiler_ = NULL;
+
     heap_.TearDown();
     logger_->TearDown();
 
@@ -1676,7 +1673,6 @@ void Isolate::PushToPartialSnapshotCache(Object* obj) {
 
 void Isolate::SetIsolateThreadLocals(Isolate* isolate,
                                      PerIsolateThreadData* data) {
-  EnsureInitialized();
   base::Thread::SetThreadLocal(isolate_key_, isolate);
   base::Thread::SetThreadLocal(per_isolate_thread_data_key_, data);
 }
@@ -1942,24 +1938,11 @@ bool Isolate::Init(Deserializer* des) {
         Max(Min(base::SysInfo::NumberOfProcessors(), 4), 1);
   }
 
-  if (!FLAG_job_based_sweeping) {
-    num_sweeper_threads_ =
-        SweeperThread::NumberOfThreads(max_available_threads_);
-  }
-
   if (FLAG_trace_hydrogen || FLAG_trace_hydrogen_stubs) {
     PrintF("Concurrent recompilation has been disabled for tracing.\n");
   } else if (OptimizingCompilerThread::Enabled(max_available_threads_)) {
     optimizing_compiler_thread_ = new OptimizingCompilerThread(this);
     optimizing_compiler_thread_->Start();
-  }
-
-  if (num_sweeper_threads_ > 0) {
-    sweeper_thread_ = new SweeperThread*[num_sweeper_threads_];
-    for (int i = 0; i < num_sweeper_threads_; i++) {
-      sweeper_thread_[i] = new SweeperThread(this);
-      sweeper_thread_[i]->Start();
-    }
   }
 
   // If we are deserializing, read the state into the now-empty heap.
@@ -2280,6 +2263,20 @@ void Isolate::FireCallCompletedCallback() {
 }
 
 
+void Isolate::SetPromiseRejectCallback(PromiseRejectCallback callback) {
+  promise_reject_callback_ = callback;
+}
+
+
+void Isolate::ReportPromiseReject(Handle<JSObject> promise,
+                                  Handle<Object> value,
+                                  v8::PromiseRejectEvent event) {
+  if (promise_reject_callback_ == NULL) return;
+  promise_reject_callback_(v8::Utils::PromiseToLocal(promise),
+                           v8::Utils::ToLocal(value), event);
+}
+
+
 void Isolate::EnqueueMicrotask(Handle<Object> microtask) {
   DCHECK(microtask->IsJSFunction() || microtask->IsCallHandlerInfo());
   Handle<FixedArray> queue(heap()->microtask_queue(), this);
@@ -2361,6 +2358,14 @@ void Isolate::CountUsage(v8::Isolate::UseCounterFeature feature) {
   if (use_counter_callback_) {
     use_counter_callback_(reinterpret_cast<v8::Isolate*>(this), feature);
   }
+}
+
+
+BasicBlockProfiler* Isolate::GetOrCreateBasicBlockProfiler() {
+  if (basic_block_profiler_ == NULL) {
+    basic_block_profiler_ = new BasicBlockProfiler();
+  }
+  return basic_block_profiler_;
 }
 
 

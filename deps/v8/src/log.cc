@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <stdarg.h>
+#include "src/log.h"
+
+#include <cstdarg>
+#include <sstream>
 
 #include "src/v8.h"
 
+#include "src/bailout-reason.h"
 #include "src/base/platform/platform.h"
 #include "src/bootstrapper.h"
 #include "src/code-stubs.h"
 #include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/global-handles.h"
-#include "src/log.h"
 #include "src/log-utils.h"
 #include "src/macro-assembler.h"
 #include "src/perf-jit.h"
@@ -1221,8 +1224,7 @@ void Logger::CodeCreateEvent(LogEventsAndTags tag,
   CALL_LISTENERS(CodeCreateEvent(tag, code, shared, info, name));
 
   if (!FLAG_log_code || !log_->IsEnabled()) return;
-  if (code == isolate_->builtins()->builtin(Builtins::kCompileUnoptimized))
-    return;
+  if (code == isolate_->builtins()->builtin(Builtins::kCompileLazy)) return;
 
   Log::MessageBuilder msg(log_);
   AppendCodeCreateHeader(&msg, tag, code);
@@ -1755,8 +1757,7 @@ void Logger::LogCompiledFunctions() {
   // During iteration, there can be heap allocation due to
   // GetScriptLineNumber call.
   for (int i = 0; i < compiled_funcs_count; ++i) {
-    if (code_objects[i].is_identical_to(
-            isolate_->builtins()->CompileUnoptimized()))
+    if (code_objects[i].is_identical_to(isolate_->builtins()->CompileLazy()))
       continue;
     LogExistingFunction(sfis[i], code_objects[i]);
   }
@@ -1786,13 +1787,13 @@ void Logger::LogAccessorCallbacks() {
 }
 
 
-static void AddIsolateIdIfNeeded(OStream& os,  // NOLINT
+static void AddIsolateIdIfNeeded(std::ostream& os,  // NOLINT
                                  Isolate* isolate) {
   if (FLAG_logfile_per_isolate) os << "isolate-" << isolate << "-";
 }
 
 
-static void PrepareLogFileName(OStream& os,  // NOLINT
+static void PrepareLogFileName(std::ostream& os,  // NOLINT
                                Isolate* isolate, const char* file_name) {
   AddIsolateIdIfNeeded(os, isolate);
   for (const char* p = file_name; *p; p++) {
@@ -1837,9 +1838,9 @@ bool Logger::SetUp(Isolate* isolate) {
     FLAG_log_snapshot_positions = true;
   }
 
-  OStringStream log_file_name;
+  std::ostringstream log_file_name;
   PrepareLogFileName(log_file_name, isolate, FLAG_logfile);
-  log_->Initialize(log_file_name.c_str());
+  log_->Initialize(log_file_name.str().c_str());
 
 
   if (FLAG_perf_basic_prof) {
@@ -1853,7 +1854,7 @@ bool Logger::SetUp(Isolate* isolate) {
   }
 
   if (FLAG_ll_prof) {
-    ll_logger_ = new LowLevelLogger(log_file_name.c_str());
+    ll_logger_ = new LowLevelLogger(log_file_name.str().c_str());
     addCodeEventListener(ll_logger_);
   }
 
