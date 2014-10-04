@@ -14,4 +14,9 @@ namespace std {
     {
       return "std::exception";
     }
+
+    bool uncaught_exception() _NOEXCEPT
+    {
+      ::abort();
+    }
 }

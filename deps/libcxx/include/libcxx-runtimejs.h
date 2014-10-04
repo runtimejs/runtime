@@ -14,6 +14,21 @@ extern "C" {
 typedef struct __locale_struct* locale_t;
 locale_t __cloc(void);
 
+static inline locale_t duplocale(locale_t) {
+  return NULL;
+}
+
+static inline void freelocale(locale_t) {
+}
+
+static inline locale_t newlocale(int, const char *, locale_t) {
+  return NULL;
+}
+
+static inline locale_t uselocale(locale_t) {
+  return NULL;
+}
+
 // Use linux as platform
 #ifndef __linux__
 #define __linux__
@@ -23,6 +38,10 @@ locale_t __cloc(void);
 #ifndef _LIBCPP_NO_EXCEPTIONS
 #define _LIBCPP_NO_EXCEPTIONS
 #endif
+
+#define _LIBCPP_HAS_NO_THREADS
+#define _LIBCPP_BUILD_STATIC
+#define _LIBCPP_NO_RTTI
 
 // These are quick-and-dirty hacks to make things pretend to work
 // We should not use locale functions in kernel
