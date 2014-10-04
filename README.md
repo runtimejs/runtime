@@ -59,6 +59,8 @@ Build
 - fasm
 - scons
 
+*Warning: gcc 4.9.0 is not supported because of libc++ compile bug (use 4.9.1 or newer)*
+
 ####Using Docker
 
 Easiest way to setup developer environment is to use Docker https://www.docker.io/
