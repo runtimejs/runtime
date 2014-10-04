@@ -6055,19 +6055,6 @@ Local<ArrayBuffer> v8::ArrayBuffer::New(Isolate* isolate, void* data,
 }
 
 
-Local<ArrayBuffer> v8::ArrayBuffer::NewNonExternal(Isolate* isolate, void* data,
-                                        size_t byte_length) {
-  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
-  EnsureInitializedForIsolate(i_isolate, "v8::ArrayBuffer::New(void*, size_t)");
-  LOG_API(i_isolate, "v8::ArrayBuffer::New(void*, size_t)");
-  ENTER_V8(i_isolate);
-  i::Handle<i::JSArrayBuffer> obj =
-      i_isolate->factory()->NewJSArrayBuffer();
-  i::Runtime::SetupArrayBuffer(i_isolate, obj, false, data, byte_length);
-  return Utils::ToLocal(obj);
-}
-
-
 Local<ArrayBuffer> v8::ArrayBufferView::Buffer() {
   i::Handle<i::JSArrayBufferView> obj = Utils::OpenHandle(this);
   i::Handle<i::JSArrayBuffer> buffer;
