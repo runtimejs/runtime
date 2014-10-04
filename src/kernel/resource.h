@@ -19,9 +19,7 @@
 #include <kernel/allocator.h>
 #include <kernel/string.h>
 #include <common/utils.h>
-#include <EASTL/vector.h>
 #include <kernel/vector.h>
-#include <EASTL/string.h>
 #include <kernel/spinlock.h>
 #include <v8.h>
 

@@ -13,17 +13,7 @@
 // limitations under the License.
 
 #include "v8utils.h"
-#include <EASTL/string.h>
 
 namespace rt {
-
-SharedString V8Utils::ToSharedString(const v8::Local<v8::String> str) {
-    RT_ASSERT(!str.IsEmpty());
-    RT_ASSERT(str->IsString());
-    v8::String::Utf8Value data_value(str);
-    const char* cdata = *data_value;
-    RT_ASSERT(cdata);
-    return SharedString(cdata);
-}
 
 } // namespace rt

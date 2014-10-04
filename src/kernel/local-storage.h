@@ -15,8 +15,8 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <EASTL/fixed_vector.h>
 #include <kernel/allocator.h>
+#include <array>
 
 namespace rt {
 
@@ -28,7 +28,9 @@ class LocalStorage
 public:
     LocalStorage()
         :	next_index_(1) {
-        storage_.resize(kMaxSlots, nullptr);
+        for (uint32_t i = 0; i < kMaxSlots; ++i) {
+            storage_[i] = nullptr;
+        }
     }
 
     inline void* Get(uint64_t keyid) {
@@ -44,7 +46,7 @@ public:
     DELETE_COPY_AND_ASSIGN(LocalStorage);
 private:
     static const size_t kMaxSlots = 16;
-    eastl::fixed_vector<void*, kMaxSlots, false> storage_;
+    std::array<void*, kMaxSlots> storage_;
     uint64_t next_index_;
 };
 

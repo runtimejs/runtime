@@ -34,13 +34,6 @@ namespace rt {
     class Trace;
     class Irqs;
 
-    class DefaultEASTLAlloc;
-
-    template<typename T>
-    using SharedVector = eastl::vector<T, DefaultEASTLAlloc>;
-
-    using SharedString = eastl::basic_string<char, DefaultEASTLAlloc>;
-
     class TraceScope
     {
     public:

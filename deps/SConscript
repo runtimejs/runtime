@@ -307,25 +307,6 @@ libs_config = {
             'libcxx/src/libcxx-runtimejs.cpp',
         ],
     },
-    "eastl": {
-        "include": [
-            'musl/src/internal',
-            'musl/include',
-            'musl/arch/x86_64',
-            'musl/arch/x86_64/bits',
-            'eastl/include',
-            'libcxx/include',
-            '../src',
-        ],
-        "source": [
-            'eastl/src/allocator.cpp',
-            'eastl/src/assert.cpp',
-            'eastl/src/fixed_pool.cpp',
-            'eastl/src/hashtable.cpp',
-            'eastl/src/red_black_tree.cpp',
-            'eastl/src/string.cpp',
-        ],
-    },
     "acpica": {
         "include": [
             'musl/src/internal',

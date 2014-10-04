@@ -22,7 +22,6 @@
 #include <kernel/engine.h>
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
-#include <EASTL/vector.h>
 #include <kernel/v8platform.h>
 #include <include/libplatform/libplatform.h>
 
@@ -246,8 +245,8 @@ public:
     DELETE_COPY_AND_ASSIGN(Engines);
 private:
     uint32_t cpu_count_;
-    SharedVector<Engine*> engines_;
-    SharedVector<Engine*> engines_execution_;
+    SharedSTLVector<Engine*> engines_;
+    SharedSTLVector<Engine*> engines_execution_;
     AcpiManager* _acpi_manager;
     volatile uint64_t _non_isolate_ticks;
 

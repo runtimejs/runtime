@@ -100,8 +100,6 @@ public:
         return s;
     }
 
-    static SharedString ToSharedString(const v8::Local<v8::String> str);
-
     inline static v8::Local<v8::String> FromString(v8::Isolate* iv8, String str) {
         v8::EscapableHandleScope scope(iv8);
         return scope.Escape(v8::String::NewFromUtf8(iv8, str.Data(),

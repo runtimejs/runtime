@@ -87,7 +87,7 @@ private:
 class EngineThread : public Resource {
     friend class ThreadManager;
 public:
-    typedef SharedVector<ThreadMessage*> ThreadMessagesVector;
+    typedef SharedSTLVector<ThreadMessage*> ThreadMessagesVector;
     enum class Status {
         EMPTY,
         NOT_STARTED,
@@ -207,8 +207,8 @@ public:
             return th;
         }
 
-        SharedVector<ResourceHandle<EngineThread>> TakeNewThreads() {
-            SharedVector<ResourceHandle<EngineThread>> transport;
+        SharedSTLVector<ResourceHandle<EngineThread>> TakeNewThreads() {
+            SharedSTLVector<ResourceHandle<EngineThread>> transport;
 
             { 	ScopedLock lock(datalocker_);
                 if (0 == threads_.size()) return transport;
@@ -220,8 +220,8 @@ public:
 
     private:
         Engine* engine_;
-        SharedVector<EngineThread*> threads_;
-        SharedVector<ResourceHandle<EngineThread>> new_threads_;
+        SharedSTLVector<EngineThread*> threads_;
+        SharedSTLVector<ResourceHandle<EngineThread>> new_threads_;
         Locker datalocker_;
     };
 

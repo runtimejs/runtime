@@ -117,7 +117,6 @@ config = {
         'deps/musl/arch/x86_64',
         'deps/musl/arch/x86_64/bits',
         'deps/libcxx/include',
-        'deps/eastl/include',
         'deps/v8/include',
         'deps/v8',
         'deps/acpica/source/include',
@@ -128,7 +127,6 @@ config = {
     "libs": [
         'v8',
         'cxx',
-        'eastl',
         'acpica',
         'printf',
         'musl',
