@@ -28,10 +28,6 @@ void abort() {
     GLOBAL_boot_services()->FatalError("abort() requested");
 }
 
-locale_t uselocale(locale_t l) {
-    GLOBAL_boot_services()->FatalError("locale api requested");
-}
-
 size_t __stdio_read(FILE *f, unsigned char *buf, size_t len) {
     GLOBAL_boot_services()->FatalError("stdio read requested");
 }
@@ -80,6 +76,10 @@ char *fgets(char* s, int n, FILE* f) {
 
 size_t fwrite(const void* src, size_t size, size_t nmemb, FILE* f) {
     return GLOBAL_boot_services()->fileio()->FWrite(src, size, nmemb, f);
+}
+
+int fputc(int c, FILE *f) {
+    return GLOBAL_boot_services()->fileio()->FPutc(c, f);
 }
 
 size_t fread(void* destv, size_t size, size_t nmemb, FILE* f) {

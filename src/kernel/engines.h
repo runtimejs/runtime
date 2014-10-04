@@ -23,6 +23,7 @@
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <EASTL/vector.h>
+#include <kernel/v8platform.h>
 #include <include/libplatform/libplatform.h>
 
 namespace rt {
@@ -71,9 +72,10 @@ public:
 
         v8::V8::InitializeICU();
         RT_ASSERT(!v8_platform_);
-        v8_platform_ = v8::platform::CreateDefaultPlatform();
+        v8_platform_ = new V8Platform();
         RT_ASSERT(v8_platform_);
         v8::V8::InitializePlatform(v8_platform_);
+        v8::V8::Initialize();
 
         RT_ASSERT(!arraybuffer_allocator_);
         arraybuffer_allocator_ = new MallocArrayBufferAllocator();

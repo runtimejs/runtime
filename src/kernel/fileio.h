@@ -61,6 +61,13 @@ public:
         return nullptr;
     }
 
+    int FPutc(int c, FILE* f) {
+        RT_ASSERT(f);
+        FileIoFile* file = reinterpret_cast<FileIoFile*>(f);
+        file->WriteByte(static_cast<char>(c));
+        return c;
+    }
+
     size_t FWrite(const void* src, size_t size, size_t nmemb, FILE* f) {
         RT_ASSERT(f);
         size_t result = 0;
