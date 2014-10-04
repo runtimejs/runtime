@@ -1,3 +1,8 @@
+### 0.1.4 (2014-10-04)
+
+  - V8 version update to 3.30.2
+  - libc++ update
+
 ### 0.1.3 (2014-09-07)
 
   - Halt system when there is nothing to do
