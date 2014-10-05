@@ -306,6 +306,7 @@ private:
         BOOL_FALSE,
         ARRAYBUFFER,
         ARRAY,
+        EMPTY_ARRAY,
         HASHMAP,
         FUNCTION,
         NATIVE_OBJECT,

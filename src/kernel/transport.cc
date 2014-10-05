@@ -45,8 +45,13 @@ TransportData::SerializeError TransportData::MoveArgs(Thread* exporter,
     thread_ = exporter;
     allow_ref_ = recv == exporter;
 
-    AppendType(Type::ARRAY);
     uint32_t len = args.Length();
+    if (0 == len) {
+        AppendType(Type::EMPTY_ARRAY);
+        return SerializeError::NONE;
+    }
+
+    AppendType(Type::ARRAY);
     stream_.AppendValue<uint32_t>(len);
 
     for (uint32_t i = 0; i < len; ++i) {
@@ -105,6 +110,29 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         return SerializeError::NONE;
     }
 
+    if (value->IsArrayBuffer()) {
+        // Neuter this array buffer and take its contents
+        AppendType(Type::ARRAYBUFFER);
+        RT_ASSERT(thread_);
+        RT_ASSERT(thread_->IsolateV8());
+        v8::Isolate* iv8 { thread_->IsolateV8() };
+        v8::Local<v8::ArrayBuffer> b { v8::Local<v8::ArrayBuffer>::Cast(value) };
+        if (0 == b->ByteLength()) {
+            return SerializeError::EMPTY_BUFFER;
+        }
+
+        auto ab = ArrayBuffer::FromInstance(iv8, b);
+        stream_.AppendValue<void*>(ab->data());
+        stream_.AppendValue<size_t>(ab->size());
+
+        // Make sure ArrayBuffer wrapper instance is aware
+        // that buffer is neutered here
+        ab->Neuter();
+        RT_ASSERT(0 == ab->size());
+        RT_ASSERT(0 == b->ByteLength());
+        return SerializeError::NONE;
+    }
+
     if (value->IsInt32()) {
         AppendType(Type::INT32);
         stream_.AppendValue<int32_t>(value->Int32Value());
@@ -140,29 +168,6 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
             }
         }
 
-        return SerializeError::NONE;
-    }
-
-    if (value->IsArrayBuffer()) {
-        // Neuter this array buffer and take its contents
-        AppendType(Type::ARRAYBUFFER);
-        RT_ASSERT(thread_);
-        RT_ASSERT(thread_->IsolateV8());
-        v8::Isolate* iv8 { thread_->IsolateV8() };
-        v8::Local<v8::ArrayBuffer> b { v8::Local<v8::ArrayBuffer>::Cast(value) };
-        if (0 == b->ByteLength()) {
-            return SerializeError::EMPTY_BUFFER;
-        }
-
-        auto ab = ArrayBuffer::FromInstance(iv8, b);
-        stream_.AppendValue<void*>(ab->data());
-        stream_.AppendValue<size_t>(ab->size());
-
-        // Make sure ArrayBuffer wrapper instance is aware
-        // that buffer is neutered here
-        ab->Neuter();
-        RT_ASSERT(0 == ab->size());
-        RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
 
@@ -302,10 +307,10 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         return scope.Escape<v8::Primitive>(v8::Int32::New(iv8,
             reader.ReadValue<int32_t>()));
     case Type::UINT32:
-        return scope.Escape<v8::Primitive>(v8::Int32::New(iv8,
+        return scope.Escape<v8::Primitive>(v8::Uint32::New(iv8,
             reader.ReadValue<uint32_t>()));
     case Type::DOUBLE:
-        return scope.Escape<v8::Primitive>(v8::Int32::New(iv8,
+        return scope.Escape<v8::Primitive>(v8::Number::New(iv8,
             reader.ReadValue<double>()));
     case Type::BOOL_TRUE:
         return scope.Escape<v8::Primitive>(v8::True(iv8));
@@ -316,6 +321,8 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         size_t len = reader.ReadValue<size_t>();
         return scope.Escape(ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance());
     }
+    case Type::EMPTY_ARRAY:
+        return scope.Escape(v8::Array::New(iv8, 0));
     case Type::ARRAY: {
         uint32_t len = reader.ReadValue<uint32_t>();
         v8::Local<v8::Array> arr { v8::Array::New(iv8, len) };
