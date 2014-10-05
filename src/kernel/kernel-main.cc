@@ -113,7 +113,8 @@ MultibootParseResult KernelMain::ParseMultiboot(void* mbt) {
     uint32_t rd_end = m->end;
 
     // This might be useful if initrd is unable to load files
-    // rd_start = mod_addr;
+    // Comment this line if it fails to boot
+    rd_start = mod_addr;
 
     size_t len = rd_end - rd_start;
 
