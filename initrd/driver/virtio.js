@@ -73,27 +73,27 @@ var VRing = (function() {
         self.view.setUint16(base + DescriptorTable.OFFSET_NEXT, next >>> 0, true);
     };
 
-    DescriptorTable.prototype.placeBuffers = function(buffersData) {
+    DescriptorTable.prototype.placeBuffers = function(buffers, isWriteOnly) {
         var self = this;
-        if (self.descriptorsAvailable < buffersData.length) {
+        var count = buffers.length;
+        if (self.descriptorsAvailable < count) {
             return -1;
         }
 
-        var count = buffersData.length;
         var head = self.freeDescriptorHead;
         var first = head;
         for (var i = 0; i < count; ++i) {
-            var d = buffersData[i];
+            var d = buffers[i];
             var flags = 0;
             if (i + 1 !== count) {
                 flags |= DescriptorTable.VRING_DESC_F_NEXT;
             }
-            if (d.isWriteOnly) {
+            if (isWriteOnly) {
                 flags |= DescriptorTable.VRING_DESC_F_WRITE;
             }
 
-            self.setBuffer(head, d.buf, flags);
-            self.descriptorsBuffers[head] = d.buf;
+            self.setBuffer(head, d, flags);
+            self.descriptorsBuffers[head] = d;
             head = self.getNext(head);
         }
 
@@ -228,15 +228,15 @@ var VRing = (function() {
     /**
      * Supply buffers to the device
      *
-     * @param buffersData {array} Array of buffers data elements
-     *        {buf: ArrayBuffer, isWriteOnly: bool}
+     * @param buffers {array} Array of buffers
+     * @param isWriteOnly {bool} R/W buffers flag
      */
-    VRing.prototype.placeBuffers = function(buffersData) {
+    VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
         var self = this;
         var VRING_DESC_F_NEXT = 1;
         var VRING_DESC_F_WRITE = 2;
 
-        var first = self.descriptorTable.placeBuffers(buffersData);
+        var first = self.descriptorTable.placeBuffers(buffers, isWriteOnly);
         if (first < 0) {
             return false;
         }
@@ -482,6 +482,7 @@ function initializeNetworkDevice(pci, allocator) {
     };
 
     var deviceFeatures = dev.readDeviceFeatures(features);
+    isolate.log(JSON.stringify(deviceFeatures));
     if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
         return;
     }
@@ -502,10 +503,7 @@ function initializeNetworkDevice(pci, allocator) {
 
     function fillReceiveQueue() {
         while (recvQueue.descriptorTable.descriptorsAvailable) {
-            recvQueue.placeBuffers([{
-                buf: new ArrayBuffer(1536),
-                isWriteOnly: true
-            }]);
+            recvQueue.placeBuffers([new ArrayBuffer(1536)], true);
         }
 
         dev.queueNotify(QUEUE_ID_RECV);
@@ -530,7 +528,7 @@ function initializeNetworkDevice(pci, allocator) {
                 break;
             }
 
-            isolate.log('[virtio] TRANSMIT OK');
+            // isolate.log('[virtio] TRANSMIT OK');
         }
 
         dat = null;
@@ -540,7 +538,8 @@ function initializeNetworkDevice(pci, allocator) {
                 break;
             }
 
-            isolate.log('[virtio] RECEIVE OK (' + dat.len + ' bytes)');
+            // isolate.log('[virtio] RECEIVE OK (' + dat.len + ' bytes)');
+
             if (networkInterface) {
                 networkInterface.recv(dat.buf, dat.len, 0);
             }
@@ -554,7 +553,7 @@ function initializeNetworkDevice(pci, allocator) {
         packetHeaderLength: virtioHeader.length,
         sendPacket: function(buf, offset, len) {
             virtioHeader.write(new DataView(buf));
-            transmitQueue.placeBuffers([{buf: buf, isWriteOnly: false}]);
+            transmitQueue.placeBuffers([buf], false);
             dev.queueNotify(QUEUE_ID_TRANSMIT);
         },
     }).then(networkInterfaceReady);
