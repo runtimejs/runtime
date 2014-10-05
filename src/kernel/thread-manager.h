@@ -33,10 +33,6 @@ extern "C" void enterFirstThread(void* new_state);
 
 class Engine;
 
-class ThreadInfo {
-    // TODO: add info
-};
-
 class ThreadData {
 public:
     explicit ThreadData(Thread* thread)
@@ -206,7 +202,8 @@ public:
         SharedSTLVector<ThreadInfo> vec;
         for (size_t i = 0; i < threads_.size(); ++i) {
             auto thread = threads_[i].thread();
-            vec.push_back(ThreadInfo());
+            RT_ASSERT(thread);
+            vec.push_back(thread->GetInfo());
         }
 
         return vec;

@@ -95,6 +95,10 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         runtime->Set(iv8_, "syncRPC", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "runtime", runtime);
 
+        v8::Local<v8::ObjectTemplate> performance { v8::ObjectTemplate::New() };
+        performance->Set(iv8_, "now", v8::FunctionTemplate::New(iv8_, NativesObject::PerformanceNow));
+        global->Set(iv8_, "performance", performance);
+
         global_object_template_.Set(iv8_, global);
     }
 

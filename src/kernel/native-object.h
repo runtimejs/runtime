@@ -54,6 +54,16 @@ public:
     DECLARE_NATIVE(BufferAddress);
 
     /**
+     * performance.now()
+     */
+    DECLARE_NATIVE(PerformanceNow);
+
+    /**
+     * List running isolates and stat info
+     */
+    DECLARE_NATIVE(IsolatesInfo);
+
+    /**
      * Get kernel system info
      */
     DECLARE_NATIVE(SystemInfo);
@@ -93,6 +103,7 @@ public:
         obj.SetCallback("bufferAddress", BufferAddress);
         obj.SetCallback("createHandlePool", CreateHandlePool);
         obj.SetCallback("systemInfo", SystemInfo);
+        obj.SetCallback("isolatesInfo", IsolatesInfo);
     }
 
     JsObjectWrapperBase* Clone() const {

@@ -33,7 +33,9 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         ref_count_(0),
         terminate_(false),
         parent_promise_id_(0),
-        runtime_(0) {
+        runtime_(0),
+        ev_count_(0),
+        filename_() {
     priority_.Set(1);
 }
 
@@ -239,6 +241,7 @@ bool Thread::Run() {
             v8::Local<v8::Value> filename { arr->Get(1) };
             RT_ASSERT(code->IsString());
             RT_ASSERT(filename->IsString());
+            filename_ = V8Utils::ToString(filename->ToString());
 
             v8::ScriptOrigin origin(filename);
             v8::ScriptCompiler::Source source(code->ToString(), origin);
@@ -362,6 +365,7 @@ bool Thread::Run() {
 
     if (ev_count > 0) {
         thread_mgr_->SubmitEvWork(ev_count);
+        ev_count_ += ev_count;
     }
 
     {   uint64_t time_now_end { GLOBAL_platform()->BootTimeMicroseconds() };

@@ -369,6 +369,7 @@ function(resources) {
         lspci: function() { return new Error('NOT_READY') },
         listNetworkInterfaces: function() { return new Error('NOT_READY') },
         systemInfo: resources.natives.systemInfo,
+        isolatesInfo: resources.natives.isolatesInfo,
         reboot: resources.natives.reboot,
         enterSleepState: resources.acpi.enterSleepState,
     };
@@ -507,6 +508,12 @@ function(resources) {
          */
         setKernelValue: function(key, value) {
             spawnKernelData[key] = value;
+        },
+        /**
+         * Get kernel value
+         */
+        getKernelValue: function(key) {
+            return spawnKernelData[key];
         },
         /**
          * Set system namespace value

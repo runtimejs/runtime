@@ -503,6 +503,30 @@ NATIVE_FUNCTION(NativesObject, InstallInternals) {
     }
 }
 
+NATIVE_FUNCTION(NativesObject, IsolatesInfo) {
+    PROLOGUE_NOTHIS;
+    RT_ASSERT(th->thread_manager());
+
+    LOCAL_V8STRING(s_name, "name");
+    LOCAL_V8STRING(s_eventsCount, "eventsCount");
+    LOCAL_V8STRING(s_runtime, "runtime");
+
+    auto list = th->thread_manager()->List();
+    auto arr = v8::Array::New(iv8, list.size());
+
+    size_t index = 0;
+    for (auto info : list) {
+        auto obj = v8::Object::New(iv8);
+        // TODO: ensure those uint64 fit into doubles
+        obj->Set(s_name, V8Utils::FromString(iv8, info.filename));
+        obj->Set(s_eventsCount, v8::Number::New(iv8, static_cast<double>(info.ev_count)));
+        obj->Set(s_runtime, v8::Number::New(iv8, static_cast<double>(info.runtime)));
+        arr->Set(index++, obj);
+    }
+
+    args.GetReturnValue().Set(arr);
+}
+
 NATIVE_FUNCTION(NativesObject, Reboot) {
     PROLOGUE_NOTHIS;
     GLOBAL_platform()->Reboot();
@@ -550,6 +574,12 @@ NATIVE_FUNCTION(NativesObject, Debug) {
 
     printf(" --- STOP --- \n");
     Cpu::HangSystem();
+}
+
+NATIVE_FUNCTION(NativesObject, PerformanceNow) {
+    PROLOGUE_NOTHIS;
+    double value = GLOBAL_platform()->BootTimeMicroseconds() / 1000.0;
+    args.GetReturnValue().Set(v8::Number::New(iv8, value));
 }
 
 NATIVE_FUNCTION(NativesObject, StopVideoLog) {

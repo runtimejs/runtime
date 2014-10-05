@@ -150,6 +150,13 @@ private:
     DELETE_COPY_AND_ASSIGN(TimeoutData);
 };
 
+class ThreadInfo {
+public:
+    String filename;
+    uint64_t runtime;
+    uint64_t ev_count;
+};
+
 class Thread {
     friend class ThreadManager;
 public:
@@ -317,6 +324,17 @@ public:
     ThreadType type() const { return type_; }
 
     /**
+     * Get thread info like events processed count and total runtime
+     */
+    ThreadInfo GetInfo() const {
+        auto info = ThreadInfo();
+        info.filename = filename_;
+        info.runtime = runtime_;
+        info.ev_count = ev_count_;
+        return info;
+    }
+
+    /**
      * Thread state storage required for stack switch
      */
     uint8_t _fxstate[1024] alignas(16);
@@ -345,6 +363,8 @@ private:
     ResourceHandle<EngineThread> parent_thread_;
 
     uint64_t runtime_;
+    uint64_t ev_count_;
+    String filename_;
 
     IndexedPool<TimeoutData> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;
