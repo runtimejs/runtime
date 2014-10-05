@@ -70,7 +70,7 @@
         }
 
         terminal({
-            text: text,
+            text: String(text),
             fg: fg,
             bg: bg,
             repeat: repeat >>> 0,
@@ -193,7 +193,7 @@
         print('shell: ' + text + '\n', {fg: 'lightred'});
     }
 
-    prompt.setInputHandler(function(text) {
+    function inputHandler(text) {
         disablePrompt();
         text = text.trim();
 
@@ -232,8 +232,9 @@
             shellError(message);
             restorePrompt();
         });
-    });
+    }
 
+    prompt.setInputHandler(inputHandler);
     prompt.display();
 
 })();
