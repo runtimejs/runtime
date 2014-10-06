@@ -307,7 +307,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         return scope.Escape<v8::Primitive>(v8::Int32::New(iv8,
             reader.ReadValue<int32_t>()));
     case Type::UINT32:
-        return scope.Escape<v8::Primitive>(v8::Uint32::New(iv8,
+        return scope.Escape<v8::Primitive>(v8::Uint32::NewFromUnsigned(iv8,
             reader.ReadValue<uint32_t>()));
     case Type::DOUBLE:
         return scope.Escape<v8::Primitive>(v8::Number::New(iv8,
