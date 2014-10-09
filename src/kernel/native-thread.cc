@@ -16,7 +16,7 @@
 
 namespace rt {
 
-NativeThread::NativeThread(uint32_t id, String name, uint32_t stacksize,
+NativeThread::NativeThread(uint32_t id, std::string name, uint32_t stacksize,
                            void* entry, void* arg)
     :	id_(id),
         name_(name),

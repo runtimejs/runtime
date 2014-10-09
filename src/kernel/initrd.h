@@ -18,7 +18,6 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
-#include <kernel/string.h>
 
 namespace rt {
 
@@ -46,11 +45,6 @@ public:
     size_t Size() const { return _size; }
     const uint8_t* Data() const { return _data; }
     bool IsEmpty() const { return _is_empty; }
-
-    String ToString() const {
-        return String(reinterpret_cast<const char*>(_data), _size);
-    }
-
 private:
     const char* _name;
     size_t _size;

@@ -15,7 +15,6 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <kernel/string.h>
 #include <kernel/vector.h>
 #include <common/utils.h>
 #include <v8.h>
@@ -90,24 +89,24 @@ public:
         PROMISE,
     };
 
-    inline static String ToString(const v8::Local<v8::String> str) {
+    inline static std::string ToString(const v8::Local<v8::String> str) {
         RT_ASSERT(!str.IsEmpty());
         RT_ASSERT(str->IsString());
         v8::String::Utf8Value data_value(str);
         const char* cdata = *data_value;
         RT_ASSERT(cdata);
-        String s(cdata);
+        std::string s(cdata);
         return s;
     }
 
-    inline static v8::Local<v8::String> FromString(v8::Isolate* iv8, String str) {
+    inline static v8::Local<v8::String> FromString(v8::Isolate* iv8, std::string str) {
         v8::EscapableHandleScope scope(iv8);
-        if (nullptr == str.Data()) {
+        if (str.empty()) {
             return scope.Escape(v8::String::Empty(iv8));
         }
 
-        return scope.Escape(v8::String::NewFromUtf8(iv8, str.Data(),
-                v8::String::kNormalString, str.Length()));
+        return scope.Escape(v8::String::NewFromUtf8(iv8, str.c_str(),
+                v8::String::kNormalString, str.length()));
     }
 
     inline static Thread* GetThread(const v8::FunctionCallbackInfo<v8::Value>& args) {
@@ -162,25 +161,6 @@ public:
         v8::Local<v8::String> m = v8::String::NewFromUtf8(iv8, message,
                                                           v8::String::kNormalString);
         iv8->ThrowException(v8::Exception::RangeError(m));
-    }
-
-    inline static StringsVector ToStringsVector(const v8::Local<v8::Array> arr) {
-        RT_ASSERT(!arr.IsEmpty());
-        RT_ASSERT(arr->IsArray());
-
-        uint32_t len = arr->Length();
-        if (0 == len) {
-            return StringsVector();
-        }
-
-        StringsVector sv;
-        sv.reserve(len);
-        for (uint32_t i = 0; i < len; ++i) {
-            v8::Local<v8::Value> v = arr->Get(i);
-            v8::Local<v8::String> vs = v->ToString();
-            sv.push_back(ToString(vs));
-        }
-        return sv;
     }
 };
 

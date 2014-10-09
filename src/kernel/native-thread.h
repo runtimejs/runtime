@@ -17,7 +17,6 @@
 #include <string>
 #include <kernel/kernel.h>
 #include <kernel/mem-manager.h>
-#include <kernel/string.h>
 
 namespace rt {
 
@@ -29,10 +28,10 @@ enum class NativeThreadStatus {
 
 class NativeThread {
 public:
-    NativeThread(uint32_t id, String name, uint32_t stacksize, void* entry, void* arg);
+    NativeThread(uint32_t id, std::string name, uint32_t stacksize, void* entry, void* arg);
     ~NativeThread();
 
-    String name() const { return name_; }
+    std::string name() const { return name_; }
     uint32_t id() const { return id_; }
     NativeThreadStatus status() const { return status_; }
     void* entry() const { return entry_; }
@@ -45,7 +44,7 @@ public:
     DELETE_COPY_AND_ASSIGN(NativeThread);
 private:
     uint32_t id_;
-    String name_;
+    std::string name_;
     NativeThreadStatus status_;
     void* state_;
     VirtualStack vstack_;

@@ -152,7 +152,7 @@ private:
 
 class ThreadInfo {
 public:
-    String filename;
+    std::string filename;
     uint64_t runtime;
     uint64_t ev_count;
 };
@@ -364,7 +364,7 @@ private:
 
     uint64_t runtime_;
     uint64_t ev_count_;
-    String filename_;
+    std::string filename_;
 
     IndexedPool<TimeoutData> timeout_data_;
     UniquePersistentIndexedPool<v8::Value> irq_data_;

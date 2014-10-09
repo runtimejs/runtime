@@ -17,7 +17,6 @@
 #include <kernel/kernel.h>
 #include <common/utils.h>
 #include <kernel/allocator.h>
-#include <kernel/string.h>
 #include <common/utils.h>
 #include <kernel/vector.h>
 #include <kernel/spinlock.h>

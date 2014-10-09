@@ -515,7 +515,7 @@ NATIVE_FUNCTION(NativesObject, IsolatesInfo) {
     auto arr = v8::Array::New(iv8, list.size());
 
     size_t index = 0;
-    for (auto info : list) {
+    for (auto& info : list) {
         auto obj = v8::Object::New(iv8);
         // TODO: ensure those uint64 fit into doubles
         obj->Set(s_name, V8Utils::FromString(iv8, info.filename));

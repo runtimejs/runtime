@@ -15,7 +15,6 @@
 #pragma once
 #include <kernel/kernel.h>
 #include <kernel/object-wrapper.h>
-#include <kernel/string.h>
 #include <kernel/v8utils.h>
 #include <kernel/template-cache.h>
 #include <acpi.h>
