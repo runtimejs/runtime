@@ -9,8 +9,6 @@ It's currently under development and does not include many essential features. I
 
 You can use issues section to ask any questions or share your ideas https://github.com/runtimejs/runtime/issues
 
-Project random discussions here https://github.com/runtimejs/discussions/issues
-
 Join IRC chatroom #runtimejs on freenode
 
 ![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_3.png)
@@ -37,7 +35,6 @@ Status
 - V8 isolates
 - multitasking (cooperative only)
 - Inter-isolate communication using [RPC](https://github.com/runtimejs/runtime/wiki/RPC)
-- SMP support (currently disabled)
 - embedded ACPICA for ACPI support
 - simple keyboard and VGA display drivers
 - shell and some basic applications
