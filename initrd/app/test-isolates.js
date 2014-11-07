@@ -13,19 +13,19 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    var counter = isolate.data.counter || 0;
+  var counter = isolate.data.counter || 0;
 
-    isolate.system.fs.current({
-        action: 'spawn',
-        data: {
-            counter: ++counter,
-        },
-        path: '/test-isolates.js',
-        env: isolate.env
-    });
+  isolate.system.fs.current({
+    action: 'spawn',
+    data: {
+      counter: ++counter,
+    },
+    path: '/test-isolates.js',
+    env: isolate.env
+  });
 
-    console.log('done ' + counter);
-    isolate.exit();
+  console.log('done ' + counter);
+  isolate.exit();
 })();

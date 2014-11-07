@@ -14,31 +14,31 @@
 
 // List PCI devices
 (function() {
-    "use strict";
+  "use strict";
 
-    function error(message) {
-        console.error('lspci: ' + message);
+  function error(message) {
+    console.error('lspci: ' + message);
+  }
+
+  isolate.system.kernel.lspci().then(function(data) {
+    for (var i = 0; i < data.length; ++i) {
+      var dev = data[i];
+      console.log(dev.bus.toString(16) + ':' + dev.slot.toString(16) + '.' + dev.func + ' ' +
+        dev.vendorId.toString(16) + ':' + dev.deviceId.toString(16) + ' ' +
+        dev.className + ' IRQ: ' + dev.irq + ' PIN: ' + dev.pin);
+    }
+  }, function(err) {
+    if (!(err instanceof Error)) {
+      return;
     }
 
-    isolate.system.kernel.lspci().then(function(data) {
-        for (var i = 0; i < data.length; ++i) {
-            var dev = data[i];
-            console.log(dev.bus.toString(16) + ':' + dev.slot.toString(16) + '.' + dev.func + ' ' +
-                dev.vendorId.toString(16) + ':' + dev.deviceId.toString(16) + ' ' +
-                dev.className + ' IRQ: ' + dev.irq + ' PIN: ' + dev.pin);
-        }
-    }, function(err) {
-        if (!(err instanceof Error)) {
-            return;
-        }
-
-        switch (err.message) {
-            case 'NOT_READY':
-                error('PCI subsystem is not ready.');
-                break;
-            default:
-                error('Unknown PCI subsystem error.');
-                break;
-        }
-    });
+    switch (err.message) {
+      case 'NOT_READY':
+        error('PCI subsystem is not ready.');
+        break;
+      default:
+        error('Unknown PCI subsystem error.');
+        break;
+    }
+  });
 })();

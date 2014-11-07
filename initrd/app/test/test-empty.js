@@ -15,10 +15,10 @@
 var expect = require('./lib/expect');
 
 (function() {
-    "use strict";
+  "use strict";
 
-    expect(1).to.be.ok();
-    expect(true).to.be.ok();
-    expect({}).to.be.ok();
-    expect(0).to.not.be.ok();
+  expect(1).to.be.ok();
+  expect(true).to.be.ok();
+  expect({}).to.be.ok();
+  expect(0).to.not.be.ok();
 })();

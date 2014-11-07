@@ -61,7 +61,7 @@ function echoHandler(socket) {
     echoHandler(socket);
   }).catch(function(err) {
     console.log(err.stack);
-  })
+  });
 }
 
 function onConnection(socket) {

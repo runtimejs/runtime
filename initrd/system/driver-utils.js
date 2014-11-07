@@ -14,18 +14,18 @@
 
 define('driverUtils', ['resources'],
 function(resources) {
-    "use strict";
+  "use strict";
 
-    return {
-        physicalMemory: function(address, byteLength) {
-            return resources.memoryRange.block(address >>> 0,
-                                               byteLength >>> 0);
-        },
-        irq: function(number) {
-            return resources.irqRange.irq(number >>> 0);
-        },
-        ioPort: function(number) {
-            return resources.ioRange.port(number >>> 0);
-        },
-    };
+  return {
+    physicalMemory: function(address, byteLength) {
+      return resources.memoryRange.block(address >>> 0,
+                         byteLength >>> 0);
+    },
+    irq: function(number) {
+      return resources.irqRange.irq(number >>> 0);
+    },
+    ioPort: function(number) {
+      return resources.ioRange.port(number >>> 0);
+    },
+  };
 });

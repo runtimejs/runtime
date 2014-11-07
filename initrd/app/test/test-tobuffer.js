@@ -16,39 +16,39 @@ var expect = require('./lib/expect');
 
 // ASCII subset of UTF-8 only
 function compareCharcodes(ab, str) {
-    var u8 = new Uint8Array(ab);
-    for (var i = 0; i < str.length; ++i) {
-        expect(u8[i]).to.equal(str.charCodeAt(i));
-    }
+  var u8 = new Uint8Array(ab);
+  for (var i = 0; i < str.length; ++i) {
+    expect(u8[i]).to.equal(str.charCodeAt(i));
+  }
 }
 
 function testNullTerminate(str) {
-    var ab = runtime.toBuffer(str, true);
-    expect(ab.byteLength).to.equal(str.length + 1);
-    compareCharcodes(ab, str);
-    var u8 = new Uint8Array(ab);
-    expect(u8[str.length]).to.equal(0);
+  var ab = runtime.toBuffer(str, true);
+  expect(ab.byteLength).to.equal(str.length + 1);
+  compareCharcodes(ab, str);
+  var u8 = new Uint8Array(ab);
+  expect(u8[str.length]).to.equal(0);
 }
 
 function testNoNullTerminate(str) {
-    var ab = runtime.toBuffer(str);
-    expect(ab.byteLength).to.equal(str.length)
-    compareCharcodes(ab, str);
+  var ab = runtime.toBuffer(str);
+  expect(ab.byteLength).to.equal(str.length)
+  compareCharcodes(ab, str);
 }
 
 function testEmptyBuffer() {
-    var ab = runtime.toBuffer('');
-    expect(ab.byteLength).to.equal(0)
-    var u8 = new Uint8Array(ab);
-    u8[0] = 1;
-    u8[1] = 10;
-    expect(u8[0]).to.equal(undefined);
-    expect(u8[1]).to.equal(undefined);
+  var ab = runtime.toBuffer('');
+  expect(ab.byteLength).to.equal(0)
+  var u8 = new Uint8Array(ab);
+  u8[0] = 1;
+  u8[1] = 10;
+  expect(u8[0]).to.equal(undefined);
+  expect(u8[1]).to.equal(undefined);
 }
 
-var strings = ['hello', '', '==sd', '<>@#*!', '        ', 'a b c d '];
+var strings = ['hello', '', '==sd', '<>@#*!', '      ', 'a b c d '];
 strings.forEach(function(str) {
-    testNullTerminate(str);
-    testNoNullTerminate(str);
-    testEmptyBuffer();
+  testNullTerminate(str);
+  testNoNullTerminate(str);
+  testEmptyBuffer();
 });

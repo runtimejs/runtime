@@ -14,7 +14,7 @@
 
 // Power off machine
 (function() {
-    "use strict";
-    // ACPI S5 mode = power off
-    isolate.system.kernel.enterSleepState(5);
+  "use strict";
+  // ACPI S5 mode = power off
+  isolate.system.kernel.enterSleepState(5);
 })();

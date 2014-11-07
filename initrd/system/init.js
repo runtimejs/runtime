@@ -14,45 +14,45 @@
 
 // NOTE: This script is executed in every context automatically
 var console = (function(undef) {
-    var stdout = null;
-    var stderr = null;
-    var times = {};
+  var stdout = null;
+  var stderr = null;
+  var times = {};
 
-    function getStdout() {
-        if (null === stdout) {
-            stdout = isolate.env.stdout;
-        }
-
-        return stdout;
+  function getStdout() {
+    if (null === stdout) {
+      stdout = isolate.env.stdout;
     }
 
-    return {
-        log: function() {
-            var s = Array.prototype.join.call(arguments, ' ');
-            getStdout()(s + '\n');
-        },
-        error: function() {
-            if (null === stderr) {
-                stderr = isolate.env.stderr;
-            }
+    return stdout;
+  }
 
-            var s = Array.prototype.join.call(arguments, ' ');
-            stderr(s + '\n');
-        },
-        time: function(label) {
-            times['l' + label] = Date.now();
-        },
-        timeEnd: function(label) {
-            var time = times['l' + label];
-            if ('undefined' === typeof time) {
-                return;
-            }
+  return {
+    log: function() {
+      var s = Array.prototype.join.call(arguments, ' ');
+      getStdout()(s + '\n');
+    },
+    error: function() {
+      if (null === stderr) {
+        stderr = isolate.env.stderr;
+      }
 
-            var d = Date.now() - time;
-            getStdout()(label + ': ' + d/1000 + 'ms' + '\n');
-            times['l' + label] = undef;
-        },
-    };
+      var s = Array.prototype.join.call(arguments, ' ');
+      stderr(s + '\n');
+    },
+    time: function(label) {
+      times['l' + label] = Date.now();
+    },
+    timeEnd: function(label) {
+      var time = times['l' + label];
+      if ('undefined' === typeof time) {
+        return;
+      }
+
+      var d = Date.now() - time;
+      getStdout()(label + ': ' + d/1000 + 'ms' + '\n');
+      times['l' + label] = undef;
+    },
+  };
 })();
 
 // CommonJS loader
@@ -60,139 +60,139 @@ var exports;
 var module = {};
 
 var require = (function() {
-    var cache = {'': {exports: {}}};
-    var requireStack = [''];
-    exports = module.exports = cache[''].exports;
+  var cache = {'': {exports: {}}};
+  var requireStack = [''];
+  exports = module.exports = cache[''].exports;
 
-    function pushExports(path) {
-        // save current exports state
-        var currentPath = requireStack[requireStack.length - 1];
-        cache[currentPath].exports = module.exports;
+  function pushExports(path) {
+    // save current exports state
+    var currentPath = requireStack[requireStack.length - 1];
+    cache[currentPath].exports = module.exports;
 
-        // load new exports
-        if ('undefined' === typeof cache[path]) {
-            cache[path] = {exports: {}};
-        }
-
-        requireStack.push(path);
-        module = {};
-        exports = module.exports = cache[path].exports;
+    // load new exports
+    if ('undefined' === typeof cache[path]) {
+      cache[path] = {exports: {}};
     }
 
-    function popExports() {
-        // save current exports state
-        var currentPath = requireStack.pop();
-        var result = cache[currentPath].exports = module.exports;
+    requireStack.push(path);
+    module = {};
+    exports = module.exports = cache[path].exports;
+  }
 
-        // restore previous state
-        var path = requireStack[requireStack.length - 1];
-        module = {};
-        exports = module.exports = cache[path].exports;
+  function popExports() {
+    // save current exports state
+    var currentPath = requireStack.pop();
+    var result = cache[currentPath].exports = module.exports;
 
-        return result;
+    // restore previous state
+    var path = requireStack[requireStack.length - 1];
+    module = {};
+    exports = module.exports = cache[path].exports;
+
+    return result;
+  }
+
+  function canonicalize(path) {
+    var currentPath = requireStack[requireStack.length - 1];
+    var dirComponents = currentPath.split('/').slice(0, -1);
+    var pathComponents = path.split('/').filter(function(x) {
+      return '' !== x;
+    });
+
+    if (0 === pathComponents.length) {
+      throw new Error('INVALID_PATH');
     }
 
-    function canonicalize(path) {
-        var currentPath = requireStack[requireStack.length - 1];
-        var dirComponents = currentPath.split('/').slice(0, -1);
-        var pathComponents = path.split('/').filter(function(x) {
-            return '' !== x;
-        });
-
-        if (0 === pathComponents.length) {
-            throw new Error('INVALID_PATH');
-        }
-
-        var loadPath;
-        if ('.' === pathComponents[0]) {
-            loadPath = dirComponents.concat(pathComponents);
-        } else {
-            loadPath = pathComponents;
-        }
-
-        return loadPath.filter(function(x) { return '.' !== x }).join('/');
+    var loadPath;
+    if ('.' === pathComponents[0]) {
+      loadPath = dirComponents.concat(pathComponents);
+    } else {
+      loadPath = pathComponents;
     }
 
-    function readFile(path) {
-        try {
-            return runtime.syncRPC(isolate.system.fs.current({
-                action: 'readFile',
-                path: path,
-            }));
-        } catch (err) {
-            if ('NOT_FOUND' === err.message) {
-                throw new Error('require: file "'+ path +'" not found')
-            }
+    return loadPath.filter(function(x) { return '.' !== x }).join('/');
+  }
 
-            throw err;
-        }
+  function readFile(path) {
+    try {
+      return runtime.syncRPC(isolate.system.fs.current({
+        action: 'readFile',
+        path: path,
+      }));
+    } catch (err) {
+      if ('NOT_FOUND' === err.message) {
+        throw new Error('require: file "'+ path +'" not found')
+      }
+
+      throw err;
+    }
+  }
+
+  return function require(path) {
+    path = canonicalize(path) + '.js';
+
+    var result;
+    if ('undefined' === typeof cache[path]) {
+      var fileContent = readFile(path);
+      pushExports(path);
+      isolate.eval(fileContent, path);
+      result = popExports();
+
+      if ('undefined' === typeof result) {
+        cache[path] = {};
+      }
+    } else {
+      result = cache[path].exports;
     }
 
-    return function require(path) {
-        path = canonicalize(path) + '.js';
-
-        var result;
-        if ('undefined' === typeof cache[path]) {
-            var fileContent = readFile(path);
-            pushExports(path);
-            isolate.eval(fileContent, path);
-            result = popExports();
-
-            if ('undefined' === typeof result) {
-                cache[path] = {};
-            }
-        } else {
-            result = cache[path].exports;
-        }
-
-        return result;
-    };
+    return result;
+  };
 })();
 
 (function(__native) {
-    "use strict";
+  "use strict";
 
-    /**
-     * Helper function to support IPC function calls
-     */
-    function RPC_CALL(fn, threadPtr, argsArray, promiseid) {
-        if (null === fn) {
-            // Invalid function call
-            __native.callResult(false, threadPtr, promiseid, null);
-            return;
-        }
+  /**
+   * Helper function to support IPC function calls
+   */
+  function RPC_CALL(fn, threadPtr, argsArray, promiseid) {
+    if (null === fn) {
+      // Invalid function call
+      __native.callResult(false, threadPtr, promiseid, null);
+      return;
+    }
 
-        var ret;
-        try {
-            ret = fn.apply(this, argsArray);
-        } catch (err) {
-            __native.callResult(false, threadPtr, promiseid, err);
-            throw err;
-        }
+    var ret;
+    try {
+      ret = fn.apply(this, argsArray);
+    } catch (err) {
+      __native.callResult(false, threadPtr, promiseid, err);
+      throw err;
+    }
 
-        if (ret instanceof Promise) {
-            if (!ret.then) return;
+    if (ret instanceof Promise) {
+      if (!ret.then) return;
 
-            ret.then(function(result) {
-                __native.callResult(true, threadPtr, promiseid, result);
-            }, function(err) {
-                __native.callResult(false, threadPtr, promiseid, err);
-            }).catch(function(err) {
-                __native.callResult(false, threadPtr, promiseid, err);
-            });
+      ret.then(function(result) {
+        __native.callResult(true, threadPtr, promiseid, result);
+      }, function(err) {
+        __native.callResult(false, threadPtr, promiseid, err);
+      }).catch(function(err) {
+        __native.callResult(false, threadPtr, promiseid, err);
+      });
 
-            return;
-        }
+      return;
+    }
 
-        if (ret instanceof Error) {
-            __native.callResult(false, threadPtr, promiseid, ret);
-        } else {
-            __native.callResult(true, threadPtr, promiseid, ret);
-        }
-    };
+    if (ret instanceof Error) {
+      __native.callResult(false, threadPtr, promiseid, ret);
+    } else {
+      __native.callResult(true, threadPtr, promiseid, ret);
+    }
+  };
 
-    __native.installInternals({
-        callWrapper: RPC_CALL,
-    });
+  __native.installInternals({
+    callWrapper: RPC_CALL,
+  });
 });
 // No more code here

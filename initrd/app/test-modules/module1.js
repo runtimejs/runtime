@@ -16,5 +16,5 @@ console.log('module1 eval');
 var bar = require('./module2').bar;
 
 exports.foo = function() {
-    return bar('world');
+  return bar('world');
 };

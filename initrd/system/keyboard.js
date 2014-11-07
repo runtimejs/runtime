@@ -17,31 +17,31 @@
  */
 define('keyboard', [],
 function() {
-    "use strict";
+  "use strict";
 
-    var listeners = [];
+  var listeners = [];
 
-    return {
-        /**
-         * Driver interface
-         */
-        driver: {
-            register: function(data) {
-                // Not implemented yet
-            },
-            event: function(keyinfo) {
-                listeners.forEach(function(listener) {
-                    listener(keyinfo);
-                });
-            },
-        },
-        /**
-         * Client interface
-         */
-        client: {
-            addListener: function(fn) {
-                listeners.push(fn);
-            },
-        },
-    };
+  return {
+    /**
+     * Driver interface
+     */
+    driver: {
+      register: function(data) {
+        // Not implemented yet
+      },
+      event: function(keyinfo) {
+        listeners.forEach(function(listener) {
+          listener(keyinfo);
+        });
+      },
+    },
+    /**
+     * Client interface
+     */
+    client: {
+      addListener: function(fn) {
+        listeners.push(fn);
+      },
+    },
+  };
 });

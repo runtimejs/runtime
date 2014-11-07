@@ -14,60 +14,60 @@
 
 define('net/eth', [],
 function() {
-    "use strict";
+  "use strict";
 
-    var headerLength = 14;
+  var headerLength = 14;
 
-    var etherTypeList = {
-        IPv4: 0x0800,
-        ARP:  0x0806,
-        IPv6: 0x86dd,
-    };
+  var etherTypeList = {
+    IPv4: 0x0800,
+    ARP:  0x0806,
+    IPv6: 0x86dd,
+  };
 
-    function writeHeader(view, offset, destMac, srcMac, etherType) {
-        var i = 0, pos = 0;
-        for (i = 0; i < 6; ++i) {
-            view.setUint8(offset + pos++, destMac[i]);
-        }
-        for (i = 0; i < 6; ++i) {
-            view.setUint8(offset + pos++, srcMac[i]);
-        }
-
-        view.setUint16(offset + pos, etherType, false);
+  function writeHeader(view, offset, destMac, srcMac, etherType) {
+    var i = 0, pos = 0;
+    for (i = 0; i < 6; ++i) {
+      view.setUint8(offset + pos++, destMac[i]);
+    }
+    for (i = 0; i < 6; ++i) {
+      view.setUint8(offset + pos++, srcMac[i]);
     }
 
-    function parse(reader) {
-        var destMac = [0, 0, 0, 0, 0, 0];
-        var srcMac = [0, 0, 0, 0, 0, 0];
-        var i;
-        for (i = 0; i < 6; ++i) {
-            destMac[i] = reader.readUint8();
-        }
-        for (i = 0; i < 6; ++i) {
-            srcMac[i] = reader.readUint8();
-        }
+    view.setUint16(offset + pos, etherType, false);
+  }
 
-        var etherTypeId = reader.readUint16();
-        var etherType = '';
-        switch (etherTypeId) {
-            case 0x0800: etherType = 'IPv4'; break;
-            case 0x0806: etherType = 'ARP'; break;
-            case 0x8100: etherType = '802.1Q'; break;
-            case 0x86dd: etherType = 'IPv6'; break;
-            default: return null;
-        }
+  function parse(reader) {
+    var destMac = [0, 0, 0, 0, 0, 0];
+    var srcMac = [0, 0, 0, 0, 0, 0];
+    var i;
+    for (i = 0; i < 6; ++i) {
+      destMac[i] = reader.readUint8();
+    }
+    for (i = 0; i < 6; ++i) {
+      srcMac[i] = reader.readUint8();
+    }
 
-        return {
-            destMac: destMac,
-            srcMac: srcMac,
-            etherType: etherType,
-        };
+    var etherTypeId = reader.readUint16();
+    var etherType = '';
+    switch (etherTypeId) {
+      case 0x0800: etherType = 'IPv4'; break;
+      case 0x0806: etherType = 'ARP'; break;
+      case 0x8100: etherType = '802.1Q'; break;
+      case 0x86dd: etherType = 'IPv6'; break;
+      default: return null;
     }
 
     return {
-        etherType: etherTypeList,
-        writeHeader: writeHeader,
-        headerLength: headerLength,
-        parse: parse,
+      destMac: destMac,
+      srcMac: srcMac,
+      etherType: etherType,
     };
+  }
+
+  return {
+    etherType: etherTypeList,
+    writeHeader: writeHeader,
+    headerLength: headerLength,
+    parse: parse,
+  };
 });

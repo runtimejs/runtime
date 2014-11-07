@@ -17,56 +17,56 @@
  * to load required device drivers
  */
 define('pciDrivers', [], function() {
-    "use strict";
+  "use strict";
 
-    var virtioDevice = {
-        name: 'Virtio device',
-        driver: 'virtio.js',
-        busMaster: true,
-        enabled: true,
-    };
+  var virtioDevice = {
+    name: 'Virtio device',
+    driver: 'virtio.js',
+    busMaster: true,
+    enabled: true,
+  };
 
-    /**
-     * PCI vendors and devices data
-     */
-    var data = {
-        0x10ec: {
-            name: 'Realtek Semiconductor Corp',
-            devices: {
-                0x8139: {
-                    name: 'Realtek RTL-8139/8139C/8139C+ PCI Fast Ethernet NIC',
-                    driver: 'rtl8139.js',
-                    busMaster: true,
-                    enabled: false,
-                },
-            },
+  /**
+   * PCI vendors and devices data
+   */
+  var data = {
+    0x10ec: {
+      name: 'Realtek Semiconductor Corp',
+      devices: {
+        0x8139: {
+          name: 'Realtek RTL-8139/8139C/8139C+ PCI Fast Ethernet NIC',
+          driver: 'rtl8139.js',
+          busMaster: true,
+          enabled: false,
         },
-    };
+      },
+    },
+  };
 
-    /**
-     * Search for device with provided PCI Vendor and Device IDs. Returns
-     * null in case device not found. Valid device info includes name
-     * and driver properties (driver is filename of driver startup file)
-     */
-    function findDevice(vendorId, deviceId) {
-        // Check if this is a virtio device
-        if (0x1af4 === vendorId && deviceId >= 0x1000 && deviceId <= 0x103f) {
-            return virtioDevice;
-        }
-
-        if ('undefined' === typeof data[vendorId]) {
-            return null;
-        }
-
-        var vendorData = data[vendorId];
-        if ('undefined' === typeof vendorData.devices[deviceId]) {
-            return null;
-        }
-
-        return vendorData.devices[deviceId];
+  /**
+   * Search for device with provided PCI Vendor and Device IDs. Returns
+   * null in case device not found. Valid device info includes name
+   * and driver properties (driver is filename of driver startup file)
+   */
+  function findDevice(vendorId, deviceId) {
+    // Check if this is a virtio device
+    if (0x1af4 === vendorId && deviceId >= 0x1000 && deviceId <= 0x103f) {
+      return virtioDevice;
     }
 
-    return {
-        findDevice: findDevice,
-    };
+    if ('undefined' === typeof data[vendorId]) {
+      return null;
+    }
+
+    var vendorData = data[vendorId];
+    if ('undefined' === typeof vendorData.devices[deviceId]) {
+      return null;
+    }
+
+    return vendorData.devices[deviceId];
+  }
+
+  return {
+    findDevice: findDevice,
+  };
 });

@@ -13,42 +13,42 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    // TODO: fix hardcoded view width
-    var width = 80;
-    var columns = 4;
+  // TODO: fix hardcoded view width
+  var width = 80;
+  var columns = 4;
 
-    var jsRegex = /\.js$/;
+  var jsRegex = /\.js$/;
 
-    function printFiles(data) {
-        data.sort();
+  function printFiles(data) {
+    data.sort();
 
-        for (var i = 0; i < data.length; ++i) {
-            var name = data[i];
-            var color = 'white';
+    for (var i = 0; i < data.length; ++i) {
+      var name = data[i];
+      var color = 'white';
 
-            // TODO: stat every entry
-            if (jsRegex.test(name)) {
-                color = 'lightred';
-            }
+      // TODO: stat every entry
+      if (jsRegex.test(name)) {
+        color = 'lightred';
+      }
 
-            isolate.env.stdout(name, {fg: color, x: (i % columns) * width / columns});
-            if (((columns - 1) === (i % columns)) && (i !== data.length - 1)) {
-                isolate.env.stdout('\n');
-            }
-        }
-
+      isolate.env.stdout(name, {fg: color, x: (i % columns) * width / columns});
+      if (((columns - 1) === (i % columns)) && (i !== data.length - 1)) {
         isolate.env.stdout('\n');
+      }
     }
 
-    function error(err) {
-        console.error(err.message);
-        isolate.exit();
-    }
+    isolate.env.stdout('\n');
+  }
 
-    isolate.system.fs.current({
-        action: 'list',
-        path: '/',
-    }).then(printFiles, error);
+  function error(err) {
+    console.error(err.message);
+    isolate.exit();
+  }
+
+  isolate.system.fs.current({
+    action: 'list',
+    path: '/',
+  }).then(printFiles, error);
 })();

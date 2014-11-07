@@ -14,14 +14,14 @@
 
 define('deviceManager', ['kernelLoader'],
 function(kernelLoader) {
-    "use strict";
+  "use strict";
 
-    /**
-     * TODO: move drivers out of the kernel
-     */
-    kernelLoader.load('/system/driver/ps2kbd.js');
-    kernelLoader.load('/driver/pci.js');
-    kernelLoader.load('/driver/pci-drivers.js');
+  /**
+   * TODO: move drivers out of the kernel
+   */
+  kernelLoader.load('/system/driver/ps2kbd.js');
+  kernelLoader.load('/driver/pci.js');
+  kernelLoader.load('/driver/pci-drivers.js');
 
-    return {};
+  return {};
 });

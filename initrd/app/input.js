@@ -13,21 +13,21 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
-    isolate.env.stdout('What is your name? ');
+  "use strict";
+  isolate.env.stdout('What is your name? ');
 
-    function readLine(cb) {
-        isolate.env.stdin({
-            mode: 'line',
-            onData: function(data) {
-                cb(data.text);
-            }
-        });
-    }
-
-    readLine(function(text) {
-        console.log('Hello, ' + text + '!');
-        isolate.exit();
+  function readLine(cb) {
+    isolate.env.stdin({
+      mode: 'line',
+      onData: function(data) {
+        cb(data.text);
+      }
     });
+  }
+
+  readLine(function(text) {
+    console.log('Hello, ' + text + '!');
+    isolate.exit();
+  });
 
 })();

@@ -14,17 +14,17 @@
 
 define('interface', ['vfs', 'resources'],
 function(vfs, resources) {
-    "use strict";
+  "use strict";
 
-    /**
-     * Export interface methods into system namespace
-     */
-    function registerInterface(name, methods) {
-        vfs.setSystem(name, methods);
-    }
+  /**
+   * Export interface methods into system namespace
+   */
+  function registerInterface(name, methods) {
+    vfs.setSystem(name, methods);
+  }
 
-    return {
-        registerInterface: registerInterface,
-        createHandlePool: resources.natives.createHandlePool,
-    };
+  return {
+    registerInterface: registerInterface,
+    createHandlePool: resources.natives.createHandlePool,
+  };
 });

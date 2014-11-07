@@ -13,46 +13,46 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    function error(message) {
-        console.error('lspci: ' + message);
+  function error(message) {
+    console.error('lspci: ' + message);
+  }
+
+  isolate.system.kernel.listNetworkInterfaces().then(function(data) {
+    data.forEach(function(ifc) {
+      isolate.env.stdout(ifc.name + '\n', {fg: 'yellow'});
+
+      if (ifc.hwAddr) {
+        var hw = ifc.hwAddr.map(function(x) {
+          return (x < 0x10) ? '0' + x.toString(16) : x.toString(16);
+        }).join(':');
+        console.log('  hw ' + hw);
+      }
+
+      if (ifc.ip && ifc.netmask) {
+        var ip = ifc.ip.join('.');
+        var mask = ifc.netmask.join('.');
+        console.log('  ip ' + ip + ' netmask ' + mask);
+      }
+
+      if (ifc.gateway) {
+        var gateway = ifc.gateway.join('.');
+        console.log('  router ' + gateway);
+      }
+    });
+  }, function(err) {
+    if (!(err instanceof Error)) {
+      return;
     }
 
-    isolate.system.kernel.listNetworkInterfaces().then(function(data) {
-        data.forEach(function(ifc) {
-            isolate.env.stdout(ifc.name + '\n', {fg: 'yellow'});
-
-            if (ifc.hwAddr) {
-                var hw = ifc.hwAddr.map(function(x) {
-                    return (x < 0x10) ? '0' + x.toString(16) : x.toString(16);
-                }).join(':');
-                console.log('  hw ' + hw);
-            }
-
-            if (ifc.ip && ifc.netmask) {
-                var ip = ifc.ip.join('.');
-                var mask = ifc.netmask.join('.');
-                console.log('  ip ' + ip + ' netmask ' + mask);
-            }
-
-            if (ifc.gateway) {
-                var gateway = ifc.gateway.join('.');
-                console.log('  router ' + gateway);
-            }
-        });
-    }, function(err) {
-        if (!(err instanceof Error)) {
-            return;
-        }
-
-        switch (err.message) {
-            case 'NOT_READY':
-                error('Network subsystem is not ready.');
-                break;
-            default:
-                error('Unknown network subsystem error.');
-                break;
-        }
-    });
+    switch (err.message) {
+      case 'NOT_READY':
+        error('Network subsystem is not ready.');
+        break;
+      default:
+        error('Unknown network subsystem error.');
+        break;
+    }
+  });
 })();

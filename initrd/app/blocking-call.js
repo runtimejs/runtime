@@ -13,13 +13,13 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    var promise = isolate.system.fs.current({
-        action: 'readFile',
-        path: '/test.json',
-    });
+  var promise = isolate.system.fs.current({
+    action: 'readFile',
+    path: '/test.json',
+  });
 
-    var content = runtime.syncRPC(promise);
-    console.log(content);
+  var content = runtime.syncRPC(promise);
+  console.log(content);
 })();

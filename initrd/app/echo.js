@@ -13,11 +13,11 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
-    if ('string' !== typeof isolate.data.command) {
-        console.error('echo: no input data');
-        return;
-    }
+  "use strict";
+  if ('string' !== typeof isolate.data.command) {
+    console.error('echo: no input data');
+    return;
+  }
 
-    console.log(isolate.data.command);
+  console.log(isolate.data.command);
 })();

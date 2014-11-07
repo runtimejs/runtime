@@ -14,6 +14,6 @@
 
 // Reboot current machine
 (function() {
-    "use strict";
-    isolate.system.kernel.reboot();
+  "use strict";
+  isolate.system.kernel.reboot();
 })();

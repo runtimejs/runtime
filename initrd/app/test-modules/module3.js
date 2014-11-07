@@ -15,5 +15,5 @@
 console.log('module3 eval');
 
 module.exports = function baz() {
-    return 'hello world';
+  return 'hello world';
 };

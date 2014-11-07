@@ -13,53 +13,53 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    var udpSocketApi = isolate.system.udpSocket;
-    var udpSocket = null;
+  var udpSocketApi = isolate.system.udpSocket;
+  var udpSocket = null;
 
-    var version = kernel.version();
+  var version = kernel.version();
 
-    function onMessage(data) {
-        var str = runtime.bufferToString(data.buf);
+  function onMessage(data) {
+    var str = runtime.bufferToString(data.buf);
 
-        if (str.length > 1) {
-            isolate.env.stdout('message from ');
-            isolate.env.stdout(data.address + ' ', {fg: 'yellow'});
-            isolate.env.stdout(str, {fg: 'green'});
-        }
-
-        var lines = [
-            '======================================================================',
-            'Hello! This is Runtime.JS version ' + version.runtime.join('.') + ' on V8 ' + version.v8,
-            '\n',
-            'Your IP: ' + data.address,
-            'Source port: ' + data.port,
-            'Boot time: ' + (Date.now() / 1000) + 's',
-            'Your message: ' + str.replace('\n', ''),
-            '\n'
-        ];
-
-        var message = lines.join('\n');
-
-        var buf = runtime.toBuffer(message);
-        udpSocket.send(data.address, data.port, buf);
+    if (str.length > 1) {
+      isolate.env.stdout('message from ');
+      isolate.env.stdout(data.address + ' ', {fg: 'yellow'});
+      isolate.env.stdout(str, {fg: 'green'});
     }
 
-    function onError() {
-        isolate.log('error')
-    }
+    var lines = [
+      '======================================================================',
+      'Hello! This is Runtime.JS version ' + version.runtime.join('.') + ' on V8 ' + version.v8,
+      '\n',
+      'Your IP: ' + data.address,
+      'Source port: ' + data.port,
+      'Boot time: ' + (Date.now() / 1000) + 's',
+      'Your message: ' + str.replace('\n', ''),
+      '\n'
+    ];
 
-    udpSocketApi.createSocket(onMessage, onError)
-        .then(function(socket) {
-            udpSocket = socket;
-            return socket.bind(9000);
-        })
-        .then(function(socket) {
-            isolate.env.stdout('listening to UDP port 9000\n', {fg: 'lightgreen'});
-            return socket;
-        })
-        .catch(function(err) {
-            isolate.log(err.stack);
-        });
+    var message = lines.join('\n');
+
+    var buf = runtime.toBuffer(message);
+    udpSocket.send(data.address, data.port, buf);
+  }
+
+  function onError() {
+    isolate.log('error')
+  }
+
+  udpSocketApi.createSocket(onMessage, onError)
+    .then(function(socket) {
+      udpSocket = socket;
+      return socket.bind(9000);
+    })
+    .then(function(socket) {
+      isolate.env.stdout('listening to UDP port 9000\n', {fg: 'lightgreen'});
+      return socket;
+    })
+    .catch(function(err) {
+      isolate.log(err.stack);
+    });
 })();

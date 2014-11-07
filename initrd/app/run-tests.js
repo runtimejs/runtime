@@ -13,33 +13,33 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    var nameRegex = /^.+\.js$/;
+  var nameRegex = /^.+\.js$/;
 
-    isolate.system.fs.current({
-        action: 'list',
-        path: '/test',
-    }).then(function(data) {
-        data.forEach(function(name) {
-            // TODO: stat every file
-            if (!nameRegex.test(name)) {
-                return;
-            }
+  isolate.system.fs.current({
+    action: 'list',
+    path: '/test',
+  }).then(function(data) {
+    data.forEach(function(name) {
+      // TODO: stat every file
+      if (!nameRegex.test(name)) {
+        return;
+      }
 
-            isolate.env.stdout(' * ', {fg: 'yellow'});
-            isolate.env.stdout(name, {fg: 'lightgray'});
-            try {
-                require('/test/' + name.replace(/\.js$/, ''));
-                isolate.env.stdout(' ok\n', {fg: 'lightgreen'});
-            } catch (err) {
-                isolate.env.stdout(' <FAIL>\n', {fg: 'lightred'});
-                console.error(err.stack);
-            }
-
-        });
-
-    }).catch(function(err) {
+      isolate.env.stdout(' * ', {fg: 'yellow'});
+      isolate.env.stdout(name, {fg: 'lightgray'});
+      try {
+        require('/test/' + name.replace(/\.js$/, ''));
+        isolate.env.stdout(' ok\n', {fg: 'lightgreen'});
+      } catch (err) {
+        isolate.env.stdout(' <FAIL>\n', {fg: 'lightred'});
         console.error(err.stack);
+      }
+
     });
+
+  }).catch(function(err) {
+    console.error(err.stack);
+  });
 })();

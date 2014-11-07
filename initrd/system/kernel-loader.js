@@ -14,36 +14,36 @@
 
 define('kernelLoader', ['resources'],
 function(resources) {
-    "use strict";
+  "use strict";
 
-    var load = resources.loader;
-    var files = {
-        // Standard kernel files
-        standard: [
-            '/system/device-manager.js',
-            '/system/driver-utils.js',
-            '/system/keyboard.js',
-            '/system/vfs.js',
-            '/system/driver/vga.js',
-            '/system/net/net.js',
-            '/system/net/eth.js',
-            '/system/net/ip4.js',
-            '/system/net/udp.js',
-            '/system/net/tcp.js',
-            '/system/net/tcpsocket.js',
-            '/system/net/tcpconn.js',
-            '/system/net/socket.js',
-            '/system/net/dhcp.js',
-            '/system/net/arp.js',
-            '/system/net/utils.js',
-            '/system/utils.js',
-            '/system/interface.js',
-        ],
-    };
+  var load = resources.loader;
+  var files = {
+    // Standard kernel files
+    standard: [
+      '/system/device-manager.js',
+      '/system/driver-utils.js',
+      '/system/keyboard.js',
+      '/system/vfs.js',
+      '/system/driver/vga.js',
+      '/system/net/net.js',
+      '/system/net/eth.js',
+      '/system/net/ip4.js',
+      '/system/net/udp.js',
+      '/system/net/tcp.js',
+      '/system/net/tcpsocket.js',
+      '/system/net/tcpconn.js',
+      '/system/net/socket.js',
+      '/system/net/dhcp.js',
+      '/system/net/arp.js',
+      '/system/net/utils.js',
+      '/system/utils.js',
+      '/system/interface.js',
+    ],
+  };
 
-    files.standard.forEach(load);
+  files.standard.forEach(load);
 
-    return {
-        load: load,
-    };
+  return {
+    load: load,
+  };
 });

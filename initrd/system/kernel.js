@@ -15,119 +15,119 @@
 isolate.log('Loading system...');
 
 function Injector() {
-    "use strict";
+  "use strict";
 
-    var modules = new Map();
+  var modules = new Map();
 
-    function getModule(name) {
-        if (modules.has(name)) {
-            return modules.get(name);
-        }
-
-        var d = {
-            name: name,
-            resolve: null,
-            reject: null,
-            promise: null,
-        };
-
-        d.promise = new Promise(function(resolve, reject) {
-            d.resolve = resolve;
-            d.reject = reject;
-        });
-
-        modules.set(name, d);
-        return d;
+  function getModule(name) {
+    if (modules.has(name)) {
+      return modules.get(name);
     }
 
-    this.set = function(name, inject, fn) {
-        if ('string' !== typeof name) {
-            throw new Error('invalid module name');
-        }
-
-        if (!Array.isArray(inject)) {
-            throw new Error('invalid module dependency list');
-        }
-
-        Promise.all(inject.map(function(depName) {
-            if ('string' !== typeof depName) {
-                throw new Error('invalid dependency service name');
-            }
-
-            return getModule(depName).promise;
-        })).then(function(deps) {
-            getModule(name).resolve(fn.apply(null, deps));
-        }).catch(function(err) {
-            isolate.log(err.stack);
-        });
+    var d = {
+      name: name,
+      resolve: null,
+      reject: null,
+      promise: null,
     };
 
-    this.get = function(value) {
-        if (Array.isArray(value)) {
-            return Promise.all(value.map(function(name) {
-                return getModule(name).promise;
-            }));
-        }
+    d.promise = new Promise(function(resolve, reject) {
+      d.resolve = resolve;
+      d.reject = reject;
+    });
 
-        if ('string' !== typeof value) {
-            throw new Error('invalid module name');
-        }
+    modules.set(name, d);
+    return d;
+  }
 
-        return getModule(value).promise;
-    };
+  this.set = function(name, inject, fn) {
+    if ('string' !== typeof name) {
+      throw new Error('invalid module name');
+    }
+
+    if (!Array.isArray(inject)) {
+      throw new Error('invalid module dependency list');
+    }
+
+    Promise.all(inject.map(function(depName) {
+      if ('string' !== typeof depName) {
+        throw new Error('invalid dependency service name');
+      }
+
+      return getModule(depName).promise;
+    })).then(function(deps) {
+      getModule(name).resolve(fn.apply(null, deps));
+    }).catch(function(err) {
+      isolate.log(err.stack);
+    });
+  };
+
+  this.get = function(value) {
+    if (Array.isArray(value)) {
+      return Promise.all(value.map(function(name) {
+        return getModule(name).promise;
+      }));
+    }
+
+    if ('string' !== typeof value) {
+      throw new Error('invalid module name');
+    }
+
+    return getModule(value).promise;
+  };
 }
 
 // Global define function
 var define;
 
 (function() {
-    "use strict";
+  "use strict";
 
-    /**
-     * Create DI injector
-     */
-    var injector = new Injector();
+  /**
+   * Create DI injector
+   */
+  var injector = new Injector();
 
-    /**
-     * Pretend this is an AMD loader
-     */
-    define = injector.set;
-    define.amd = {};
+  /**
+   * Pretend this is an AMD loader
+   */
+  define = injector.set;
+  define.amd = {};
 
-    /**
-     * Component provides access to kernel resources
-     */
-    define('resources', [],
-    function() {
-        return isolate.data();
+  /**
+   * Component provides access to kernel resources
+   */
+  define('resources', [],
+  function() {
+    return isolate.data();
+  });
+
+  /**
+   * Kernel bootstrap component. This loads kernel loader,
+   * because it can't load itself
+   */
+  define('bootstrap', ['resources'],
+  function(resources) {
+    resources.loader('/system/kernel-loader.js');
+  });
+
+  /**
+   * Main kernel component
+   */
+  define('kernel', ['resources', 'vga', 'keyboard', 'vfs'],
+  function(resources, vga, keyboard, vfs) {
+
+    vfs.getInitrdRoot()({
+      action: 'spawn',
+      path: '/app/terminal.js',
+      env: {
+        textVideo: vga.client,
+        keyboard: keyboard.client,
+      }
+    }).catch(function(err) {
+      isolate.log(err.stack);
     });
 
-    /**
-     * Kernel bootstrap component. This loads kernel loader,
-     * because it can't load itself
-     */
-    define('bootstrap', ['resources'],
-    function(resources) {
-        resources.loader('/system/kernel-loader.js');
-    });
-
-    /**
-     * Main kernel component
-     */
-    define('kernel', ['resources', 'vga', 'keyboard', 'vfs'],
-    function(resources, vga, keyboard, vfs) {
-
-        vfs.getInitrdRoot()({
-            action: 'spawn',
-            path: '/app/terminal.js',
-            env: {
-                textVideo: vga.client,
-                keyboard: keyboard.client,
-            }
-        }).catch(function(err) {
-            isolate.log(err.stack);
-        });
-
-        return {};
-    });
+    return {};
+  });
 })();

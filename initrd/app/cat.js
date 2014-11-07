@@ -13,32 +13,32 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    function error(text) {
-        console.error('cat: ' + text);
-    }
+  function error(text) {
+    console.error('cat: ' + text);
+  }
 
-    if ('string' !== typeof isolate.data.command) {
-        console.error('cat: no input filenames');
-        return;
-    }
+  if ('string' !== typeof isolate.data.command) {
+    console.error('cat: no input filenames');
+    return;
+  }
 
-    var fileNames = isolate.data.command.split(' ');
+  var fileNames = isolate.data.command.split(' ');
 
-    fileNames.forEach(function(filename) {
-        isolate.system.fs.current({
-            action: 'readFile',
-            path: filename,
-        }).then(function(fileContent) {
-            isolate.env.stdout(fileContent);
-        }, function(err) {
-            var message = 'unknown error';
-            switch(err.message) {
-                case 'NOT_FOUND': message = 'file "' + filename + '" not found'; break;
-            }
+  fileNames.forEach(function(filename) {
+    isolate.system.fs.current({
+      action: 'readFile',
+      path: filename,
+    }).then(function(fileContent) {
+      isolate.env.stdout(fileContent);
+    }, function(err) {
+      var message = 'unknown error';
+      switch(err.message) {
+        case 'NOT_FOUND': message = 'file "' + filename + '" not found'; break;
+      }
 
-            error(message);
-        });
+      error(message);
     });
+  });
 })();

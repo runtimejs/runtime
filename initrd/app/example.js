@@ -13,49 +13,49 @@
 // limitations under the License.
 
 var libfs = function(fs) {
-    return {
-        readFile: function(path, opts) {
-            return fs({
-                action: 'readFile',
-                path: path,
-            });
-        },
-        stat: function(path) {
-            return fs({
-                action: 'stat',
-                path: path,
-            });
-        },
-    };
+  return {
+    readFile: function(path, opts) {
+      return fs({
+        action: 'readFile',
+        path: path,
+      });
+    },
+    stat: function(path) {
+      return fs({
+        action: 'stat',
+        path: path,
+      });
+    },
+  };
 };
 
 (function() {
-    "use strict";
+  "use strict";
 
-    // Object 'fs.default' provides access to process working directory
-    // filesystem subtree and this is the only subtree that is visible
-    // through this object to current process.
-    // It's possible to provide 'fs.root' for trusted processes.
-    var fs = libfs(isolate.system.fs.current);
+  // Object 'fs.default' provides access to process working directory
+  // filesystem subtree and this is the only subtree that is visible
+  // through this object to current process.
+  // It's possible to provide 'fs.root' for trusted processes.
+  var fs = libfs(isolate.system.fs.current);
 
-    console.log('This is the example application');
+  console.log('This is the example application');
 
-    setTimeout(function() {
-        console.log('timeout test!');
-    }, 2000);
+  setTimeout(function() {
+    console.log('timeout test!');
+  }, 2000);
 
-    // open existing file
-    fs.readFile('/test.json').then(function(data) {
-        console.log(data);
-    }, function(err) {
-        console.log(err.message);
-    });
+  // open existing file
+  fs.readFile('/test.json').then(function(data) {
+    console.log(data);
+  }, function(err) {
+    console.log(err.message);
+  });
 
-    // open non-existing file
-    fs.readFile('/DOES_NOT_EXIST.json').then(function(data) {
-        console.log(data);
-    }, function(err) {
-        console.log(err.message);
-    });
+  // open non-existing file
+  fs.readFile('/DOES_NOT_EXIST.json').then(function(data) {
+    console.log(data);
+  }, function(err) {
+    console.log(err.message);
+  });
 
 })();

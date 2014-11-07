@@ -13,6 +13,6 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
-    isolate.env.stdout('', {x: 0, y: 0, clear: true});
+  "use strict";
+  isolate.env.stdout('', {x: 0, y: 0, clear: true});
 })();

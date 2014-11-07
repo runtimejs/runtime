@@ -13,16 +13,16 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
-    // isolate.env.stdout('', {x: 0, y: 0, clear: true});
-    // isolate.env.stdout(' ', {x: 0, y: 0, repeat: 25 * 80});
-    // isolate.env.stdout('', {x: 0, y: 0});
+  "use strict";
+  // isolate.env.stdout('', {x: 0, y: 0, clear: true});
+  // isolate.env.stdout(' ', {x: 0, y: 0, repeat: 25 * 80});
+  // isolate.env.stdout('', {x: 0, y: 0});
 
-    isolate.env.stdout('test ok\n');
+  isolate.env.stdout('test ok\n');
 
-    // setTimeout(function() {
-    //     console.log('timeout ok');
-    // }, 2000);
+  // setTimeout(function() {
+  //     console.log('timeout ok');
+  // }, 2000);
 
-    // isolate.exit(0);
+  // isolate.exit(0);
 })();

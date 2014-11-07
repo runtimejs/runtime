@@ -15,9 +15,9 @@
 var expect = require('./lib/expect');
 
 function test(str) {
-    var ab = runtime.toBuffer(str);
-    var s2 = runtime.bufferToString(ab);
-    expect(s2).to.equal(str);
+  var ab = runtime.toBuffer(str);
+  var s2 = runtime.bufferToString(ab);
+  expect(s2).to.equal(str);
 }
 
 test('hello');

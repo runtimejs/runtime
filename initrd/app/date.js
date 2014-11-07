@@ -13,6 +13,6 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
-    console.log(new Date().toString());
+  "use strict";
+  console.log(new Date().toString());
 })();

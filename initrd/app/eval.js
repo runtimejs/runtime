@@ -13,51 +13,51 @@
 // limitations under the License.
 
 function exit() {
-    isolate.exit();
+  isolate.exit();
 }
 
 (function() {
-    "use strict";
+  "use strict";
 
-    if ('string' === typeof isolate.data.command && '' !== isolate.data.command) {
-        evalLine(isolate.data.command);
-        return;
-    }
+  if ('string' === typeof isolate.data.command && '' !== isolate.data.command) {
+    evalLine(isolate.data.command);
+    return;
+  }
 
-    isolate.env.stdout('JavaScript REPL (special commands: exit)\n', {fg: 'darkgray'});
+  isolate.env.stdout('JavaScript REPL (special commands: exit)\n', {fg: 'darkgray'});
 
-    function readLine(cb) {
-        isolate.env.stdout('> ', {fg: 'lightgreen'});
-        isolate.env.stdin({
-            mode: 'line',
-            onData: function(data) {
-                cb(data.text);
-            }
-        });
-    }
-
-    function evalLine(text) {
-        text = text.trim();
-
-        if ('' === text) {
-            return;
-        }
-
-        try {
-            var result = (1, eval)(text);
-            isolate.env.stdout(result + '\n', {fg: 'lightgray'});
-        } catch (err) {
-            console.error(err.toString());
-        }
-    }
-
-    readLine(function onData(text) {
-        if ('exit' === text.trim()) {
-            isolate.exit();
-        }
-
-        evalLine(text);
-        readLine(onData);
+  function readLine(cb) {
+    isolate.env.stdout('> ', {fg: 'lightgreen'});
+    isolate.env.stdin({
+      mode: 'line',
+      onData: function(data) {
+        cb(data.text);
+      }
     });
+  }
+
+  function evalLine(text) {
+    text = text.trim();
+
+    if ('' === text) {
+      return;
+    }
+
+    try {
+      var result = (1, eval)(text);
+      isolate.env.stdout(result + '\n', {fg: 'lightgray'});
+    } catch (err) {
+      console.error(err.toString());
+    }
+  }
+
+  readLine(function onData(text) {
+    if ('exit' === text.trim()) {
+      isolate.exit();
+    }
+
+    evalLine(text);
+    readLine(onData);
+  });
 
 })();

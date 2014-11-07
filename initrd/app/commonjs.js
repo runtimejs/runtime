@@ -13,16 +13,16 @@
 // limitations under the License.
 
 (function() {
-    "use strict";
+  "use strict";
 
-    var foo = require('test-modules/module1').foo;
-    var foo2 = require('test-modules/module1').foo;
-    console.log(foo());
-    console.log(foo2());
+  var foo = require('test-modules/module1').foo;
+  var foo2 = require('test-modules/module1').foo;
+  console.log(foo());
+  console.log(foo2());
 
-    var bar = require('test-modules/module2').bar;
-    console.log(bar('world'));
+  var bar = require('test-modules/module2').bar;
+  console.log(bar('world'));
 
-    var baz = require('test-modules/module3')();
-    console.log(baz);
+  var baz = require('test-modules/module3')();
+  console.log(baz);
 })();
