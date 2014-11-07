@@ -26,7 +26,7 @@
 
     function send(str) {
         var buf = runtime.toBuffer(str);
-        udpSocketApi.send(udpSocket, '104.131.24.225' /* runtimetest.org TODO: use DNS resolver */, 9000, buf);
+        udpSocket.send('104.131.24.225' /* runtimetest.org TODO: use DNS resolver */, 9000, buf);
     }
 
     function onError() {

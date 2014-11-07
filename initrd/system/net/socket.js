@@ -12,18 +12,101 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('net/socket', ['net/udp', 'net/utils', 'interface'],
-function(udp, netUtils, intfc) {
+define('net/socket', ['net/udp', 'net/tcp', 'net/utils', 'interface', 'net/tcpsocket', 'net/tcpconn', 'resources'],
+function(udp, tcp, netUtils, intfc, tcpSocket, tcpConn, resources) {
     "use strict";
 
     var getInterfaceByName = null;
     var emptyFunction = function() {};
+
+    function SocketTable() {
+        this._table = new Map();
+    }
+
+    SocketTable.prototype._key = function(remotePort, remoteIP) {
+        return remotePort + '-' + remoteIP;
+    };
+
+    SocketTable.prototype.get = function(remotePort, remoteIP) {
+        if (!(this instanceof SocketTable)) throw new Error('instanceof check failed');
+        var key = this._key(remotePort, remoteIP);
+        var socket = this._table.get(key);
+        if ('undefined' === typeof socket) {
+            return null;
+        }
+
+        return socket;
+    };
+
+    SocketTable.prototype.set = function(remotePort, remoteIP, socket) {
+        if (!(this instanceof SocketTable)) throw new Error('instanceof check failed');
+        var key = this._key(remotePort, remoteIP);
+        this._table.set(key, socket);
+    };
+
+    /**
+     * TCP sockets
+     */
+    var tcpSockets = (function() {
+        var nextRandomPort = 49152;
+        var bindTable = new Map();
+        var sockets = new Map();
+
+        var tcpListenersSocketPool = intfc.createHandlePool({
+            /**
+             * Bind socket to port
+             *
+             * @param {number} port Port number
+             */
+            listen: function(port) {
+                var socket = sockets.get(this);
+                if (!netUtils.isPortValid(port)) {
+                    throw new Error('INVALID_PORT');
+                }
+
+                socket.listen(port);
+                return Promise.resolve(this);
+            }
+        });
+
+        function recvPacket(intf, ip4Header, tcpHeader, buf, len, dataOffset) {
+            var port = tcpHeader.destPort;
+
+            var listeningSocket = tcpSocket.getListeningSocket(port);
+            if (!listeningSocket) {
+                return;
+            }
+            listeningSocket.recv(intf, ip4Header, tcpHeader, buf, len, dataOffset);
+        }
+
+        var api = {
+            /**
+             * Create new TCP socket
+             *
+             * @param {function} onMessage Message received callback
+             * @param {function} onError Socket error callback
+             */
+            createSocket: function(onConnection, onError) {
+                var socketHandle = tcpListenersSocketPool.createHandle();
+                sockets.set(socketHandle, new tcpSocket.TCPServerSocket(onConnection));
+                return Promise.resolve(socketHandle);
+            },
+        };
+
+        intfc.registerInterface('tcpSocket', api);
+
+        return {
+            recv: recvPacket,
+            api: api
+        };
+    })();
 
     /**
      * UDP datagram sockets
      */
     var udpSockets = (function() {
         var nextRandomPort = 49152;
+        var bindTable = [];
 
         function UDPSocket(onMessage, onError) {
             this.onMessage = onMessage || emptyFunction;
@@ -45,62 +128,33 @@ function(udp, netUtils, intfc) {
             this.port = port;
         };
 
-        var udpSocketPool = intfc.createHandlePool();
-        var sockets = [];
-        var bindTable = [];
-
-        function getSocketByHandle(socketHandle) {
-            if (!udpSocketPool.has(socketHandle)) {
-                throw new Error('INVALID_HANDLE');
-            }
-
-            return sockets[socketHandle.index()];
-        }
-
-        /**
-         * UDP socket APIs exported to user applications. Return values are
-         * automatically wrapped into promises on the user side. To use this
-         * API from kernel code it's recommended to wrap return values into
-         * promises manually (using Promise.resolve() for example)
-         */
-        var api = {
-            /**
-             * Create new UDP socket
-             *
-             * @param {function} onMessage Message received callback
-             * @param {function} onError Socket error callback
-             */
-            createSocket: function(onMessage, onError) {
-                var socketHandle = udpSocketPool.createHandle();
-                sockets[socketHandle.index()] = new UDPSocket(onMessage, onError);
-                return Promise.resolve(socketHandle);
-            },
+        var sockets = new Map();
+        var udpSocketPool = intfc.createHandlePool({
             /**
              * Bind socket to port
              *
-             * @param {socketHandle} socketHandle Handle created using createSocket
              * @param {number} port Port number
              */
-            bindSocket: function(socketHandle, port) {
+            bind: function(port) {
+                var socket = sockets.get(this);
                 if (!netUtils.isPortValid(port)) {
                     throw new Error('INVALID_PORT');
                 }
 
-                var socket = getSocketByHandle(socketHandle);
                 socket.bind(port);
-                return Promise.resolve(socketHandle);
+                return Promise.resolve(socket);
             },
             /**
              * Send datagram
              *
-             * @param {socketHandle} socketHandle Handle created using createSocket
              * @param {string} ipAddress Receiver IP address
              * @param {number} port Receiver port number
              * @param {ArrayBuffer} buffer Data buffer
              * @param {number} offset [optional] Buffer offset or 0
              * @param {number} length [optional] Buffer length or entire buffer
              */
-            send: function(socketHandle, ipAddress, port, buffer, offset, length) {
+            send: function(ipAddress, port, buffer, offset, length) {
+                var socket = sockets.get(this);
                 if (!netUtils.isPortValid(port)) {
                     throw new Error('INVALID_PORT');
                 }
@@ -125,7 +179,6 @@ function(udp, netUtils, intfc) {
                 offset = offset >>> 0;
                 length = length >>> 0;
 
-                var socket = getSocketByHandle(socketHandle);
                 if (!socket.port) {
                     socket.bind(0);
                 }
@@ -136,6 +189,26 @@ function(udp, netUtils, intfc) {
                 var packet = intf.createUDPPacket(socket.port, port, buffer);
                 intf.sendIP4('UDP', ip, packet);
                 return Promise.resolve();
+            }
+        });
+
+        /**
+         * UDP socket APIs exported to user applications. Return values are
+         * automatically wrapped into promises on the user side. To use this
+         * API from kernel code it's recommended to wrap return values into
+         * promises manually (using Promise.resolve() for example)
+         */
+        var api = {
+            /**
+             * Create new UDP socket
+             *
+             * @param {function} onMessage Message received callback
+             * @param {function} onError Socket error callback
+             */
+            createSocket: function(onMessage, onError) {
+                var socketHandle = udpSocketPool.createHandle();
+                sockets.set(socketHandle, new UDPSocket(onMessage, onError));
+                return Promise.resolve(socketHandle);
             }
         };
 
@@ -166,7 +239,9 @@ function(udp, netUtils, intfc) {
 
     return {
         udpSocketApi: udpSockets.api,
+        tcpSocketApi: tcpSockets.api,
         recvUDP4: udpSockets.recv,
+        recvTCP4: tcpSockets.recv,
         setup: function(opts) {
             getInterfaceByName = opts.getInterfaceByName;
         },

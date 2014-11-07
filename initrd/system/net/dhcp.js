@@ -196,11 +196,6 @@ function(netSocket) {
     }
 
     /**
-     * UDP socket api functions
-     */
-    var udpSocketApi = netSocket.udpSocketApi;
-
-    /**
      * DHCP client
      *
      * @param {string} intfName Interface name
@@ -249,7 +244,7 @@ function(netSocket) {
             options: options,
         });
 
-        return udpSocketApi.send(self.socket, '255.255.255.255', 67, packetBuf);
+        return self.socket.send('255.255.255.255', 67, packetBuf);
     };
 
     DHCPClient.prototype._sendDiscoverPacket = function() {
@@ -329,13 +324,13 @@ function(netSocket) {
         }
 
         self.enabled = true;
-        udpSocketApi.createSocket(
+        netSocket.udpSocketApi.createSocket(
             function(data) { self._onMessage(data) },
             function(err) { self._onError(err) }
         )
             .then(function(socket) {
                 self.socket = socket;
-                return udpSocketApi.bindSocket(socket, 68);
+                return socket.bind(68);
             })
             .then(function(socket) {
                 self._sendDiscoverPacket();

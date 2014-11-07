@@ -15,13 +15,16 @@
 #pragma once
 
 #include <kernel/kernel.h>
+#include <kernel/handle.h>
 #include <vector>
 #include <array>
-#include <v8.h>
+#include <unordered_map>
+#include <include/v8.h>
 
 namespace rt {
 
 class ExternalFunction;
+class HandleObject;
 
 /**
  * List of available v8-exposed objects
@@ -66,6 +69,62 @@ private:
     NativeTypeId instance_typeid_;
 };
 
+// Moveable unique persistent
+template<typename T>
+struct MoveablePersistent : public v8::UniquePersistent<T> {
+    typedef v8::UniquePersistent<T> base_class;
+
+    MoveablePersistent() : base_class() {}
+
+    template<typename S>
+    MoveablePersistent(v8::Isolate* isolate, v8::Handle<S> const& handle)
+        : base_class(isolate, handle) {}
+
+    template<typename S>
+    MoveablePersistent(v8::Isolate* isolate, v8::PersistentBase<S> const& handle)
+        : base_class(isolate, handle) {}
+
+    MoveablePersistent(MoveablePersistent&& src)
+        : base_class(src.Pass()) {}
+
+    MoveablePersistent& operator=(MoveablePersistent&& src) {
+        if (&src != this) {
+            base_class::operator=(src.Pass());
+        }
+        return *this;
+    }
+
+    MoveablePersistent(const MoveablePersistent&) {
+        RT_ASSERT(!"should not be here");
+    }
+
+    MoveablePersistent& operator=(const MoveablePersistent&) = delete;
+};
+
+/**
+ * Per-isolate handle factory implemented as a WeakMap
+ */
+class HandleObjectFactory {
+    typedef std::unordered_map<uint64_t, MoveablePersistent<v8::Object>> MapType;
+public:
+    HandleObjectFactory(v8::Isolate* iv8)
+        :   iv8_(iv8) {
+        RT_ASSERT(iv8_);
+    }
+
+    v8::Local<v8::Object> Get(uint32_t pool_id, uint32_t handle_id);
+    inline static void WeakCallback(const v8::WeakCallbackData<v8::Object, HandleObjectFactory> &data);
+private:
+    inline static uint64_t MakeKey(uint32_t pool_id, uint32_t handle_id) {
+        RT_ASSERT(pool_id < HandlePoolManager::kMaxHandlePools);
+        return (static_cast<uint64_t>(pool_id) << 32) | handle_id;
+    }
+
+    v8::Isolate* iv8_;
+    std::array<v8::Eternal<v8::ObjectTemplate>, HandlePoolManager::kMaxHandlePools> handle_pool_templates_;
+    MapType map_;
+};
+
 /**
  * Per-isolate cache for v8 object and function templates
  */
@@ -78,6 +137,11 @@ public:
      * function
      */
     v8::Local<v8::Value> NewWrappedFunction(ExternalFunction* data);
+
+    /**
+     * Creates v8 object which represents an object handle
+     */
+    v8::Local<v8::Value> GetHandleInstance(uint32_t pool_id, uint32_t handle_id);
 
     /**
      * Creates v8 object which represents native object instance
@@ -143,6 +207,7 @@ private:
     v8::Eternal<v8::FunctionTemplate> wrapper_callable_template_;
     v8::Eternal<v8::UnboundScript> init_script_;
     std::array<v8::Eternal<v8::Object>, (uint32_t)NativeTypeId::LAST> object_cache_;
+    HandleObjectFactory handle_object_factory_;
 };
 
 } // namespace rt

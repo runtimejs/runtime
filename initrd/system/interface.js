@@ -23,15 +23,8 @@ function(vfs, resources) {
         vfs.setSystem(name, methods);
     }
 
-    /**
-     * Create new handle pool
-     */
-    function createHandlePool() {
-        return resources.natives.createHandlePool();
-    }
-
     return {
         registerInterface: registerInterface,
-        createHandlePool: createHandlePool,
+        createHandlePool: resources.natives.createHandlePool,
     };
 });

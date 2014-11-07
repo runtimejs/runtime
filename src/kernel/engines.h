@@ -23,7 +23,7 @@
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <kernel/v8platform.h>
-#include <include/libplatform/libplatform.h>
+#include <kernel/handle.h>
 
 namespace rt {
 
@@ -42,8 +42,7 @@ public:
         :	cpu_count_(cpu_count),
             _non_isolate_ticks(0),
             v8_platform_(nullptr),
-            arraybuffer_allocator_(nullptr),
-            next_handle_pool_id_(0) {
+            arraybuffer_allocator_(nullptr) {
         RT_ASSERT(nullptr == GLOBAL_engines());
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
@@ -91,7 +90,7 @@ public:
         ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
         const char* filename = "/system/kernel.js";
-        rt::InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
+        InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
         if (startup_file.IsEmpty()) {
             printf("Unable to load /system/kernel.js from initrd.\n");
             abort();
@@ -235,11 +234,9 @@ public:
         return arraybuffer_allocator_;
     }
 
-    uint32_t NextHandlePoolIndex() {
-        return next_handle_pool_id_++;
-    }
-
     AcpiManager* acpi_manager();
+
+    HandlePoolManager& handle_pools() { return handle_pools_; }
 
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
@@ -253,7 +250,7 @@ private:
     v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
-    int32_t next_handle_pool_id_;
+    HandlePoolManager handle_pools_;
 
     mutable Locker _platform_locker;
 };

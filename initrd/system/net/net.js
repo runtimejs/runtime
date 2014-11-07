@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('net', ['vfs', 'net/eth', 'net/ip4', 'net/udp', 'net/socket', 'net/dhcp', 'net/arp'],
-function(vfs, eth, ip4, udp, socket, dhcp, arp) {
+define('net', ['vfs', 'net/eth', 'net/ip4', 'net/udp', 'net/tcp', 'net/socket', 'net/dhcp', 'net/arp'],
+function(vfs, eth, ip4, udp, tcp, socket, dhcp, arp) {
     "use strict";
 
     var ethIndex = 0;
@@ -66,6 +66,12 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
         return value;
     }
 
+    PacketReader.prototype.readUint32 = function() {
+        var value = this.view.getUint32(this.offset, false);
+        this.offset += 4;
+        return value;
+    }
+
     function Interface(name, hwAddr, sendPacket) {
         this.name = name;
         this.hwAddr = hwAddr;
@@ -100,11 +106,8 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
         var self = this;
         var view = new DataView(sendBuf);
 
-        eth.writeHeader(view, self.packetHeaderLength, {
-            destMac: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-            srcMac: self.hwAddr,
-            etherType: etherType,
-        });
+        eth.writeHeader(view, self.packetHeaderLength,
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff], self.hwAddr, etherType);
 
         self.sendPacket(sendBuf);
     };
@@ -118,26 +121,33 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
             return;
         }
 
-        self.arpResolver.getAddressForIP(viaIP, function(destHW) {
-            eth.writeHeader(view, self.packetHeaderLength, {
-                destMac: destHW,
-                srcMac: self.hwAddr,
-                etherType: eth.etherType.IPv4,
-            });
+        var destHW = self.arpResolver.getAddressForIPNoRequest(viaIP);
 
-            self.sendPacket(sendBuf);
+        // Fast path (no callback allocated)
+        if (destHW) {
+            self._sendEthHW(destHW, sendBuf, view);
+            return;
+        }
+
+        self.arpResolver.getAddressForIP(viaIP, function(destHW) {
+            self._sendEthHW(destHW, sendBuf, view);
         });
+    };
+
+    Interface.prototype._sendEthHW = function(destHW, sendBuf, view) {
+        eth.writeHeader(view, this.packetHeaderLength, destHW, this.hwAddr, eth.etherType.IPv4);
+        this.sendPacket(sendBuf);
     };
 
     Interface.prototype.sendIP4Broadcast = function(protocol, sendBuf) {
         var self = this;
         var view = new DataView(sendBuf);
 
-        ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength, {
-            protocol: protocol,
-            srcIP: self.ip || [0, 0, 0, 0],
-            destIP: [255, 255, 255, 255],
-        });
+        ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
+            protocol,
+            self.ip || [0, 0, 0, 0], // src IP
+            [255, 255, 255, 255]     // dest IP
+        );
 
         self.sendEthBroadcast(eth.etherType.IPv4, sendBuf);
     };
@@ -145,12 +155,25 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
     Interface.prototype.sendIP4Unicast = function(protocol, destIP, viaIP, sendBuf) {
         var self = this;
         var view = new DataView(sendBuf);
+        var srcIP = self.ip || [0, 0, 0, 0];
 
-        ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength, {
-            protocol: protocol,
-            srcIP: self.ip || [0, 0, 0, 0],
-            destIP: destIP,
-        });
+        ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
+            protocol,
+            srcIP,
+            destIP
+        );
+
+        // Checksum
+        if (protocol === 'TCP') {
+            var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+            var segmentLength = sendBuf.byteLength - tcpHeaderOffset;
+            var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
+                    ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
+                    segmentLength + 0x06 /*protocol id*/;
+
+            var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
+            tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
+        }
 
         self.sendEthUnicast(destIP, viaIP, sendBuf);
     };
@@ -213,7 +236,27 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
         return sendBuf;
     };
 
-    function parseIPv4(reader) {
+    Interface.prototype.createTCPPacket = function(tcpOpts, buf) {
+        var self = this;
+
+        var dataLength = buf ? (buf.byteLength >>> 0) : 0;
+        var ipHeadersLength = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+        var headersLength = ipHeadersLength + tcp.headerLength;
+        var totalLength = headersLength + dataLength;
+
+        var sendBuf = new ArrayBuffer(totalLength);
+        var view = new DataView(sendBuf);
+
+        tcp.writeHeader(view, ipHeadersLength, tcpOpts);
+
+        if (buf && dataLength > 0) {
+            new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
+        }
+
+        return sendBuf;
+    };
+
+    function parseIPv4(intf, reader) {
         var ip4Header = ip4.parse(reader);
         if (null === ip4Header) {
             return;
@@ -222,10 +265,14 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
         switch (ip4Header.protocol) {
             case 'UDP':
                 var udpHeader = udp.parse(reader);
-                isolate.log(JSON.stringify(ip4Header), JSON.stringify(udpHeader));
+                // isolate.log(JSON.stringify(ip4Header), JSON.stringify(udpHeader));
                 socket.recvUDP4(ip4Header, udpHeader, reader.buf, reader.len, reader.offset);
                 break;
             case 'TCP':
+                var tcpHeader = tcp.parse(reader);
+                // isolate.log(JSON.stringify(ip4Header), JSON.stringify(tcpHeader));
+                socket.recvTCP4(intf, ip4Header, tcpHeader, reader.buf, reader.len, reader.offset);
+                break;
             case 'ICMP':
             default: return null;
         }
@@ -248,7 +295,6 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
 
     Interface.prototype.recv = function(buf, len, offset) {
         var self = this;
-        isolate.log('[net] RECV ', len);
         var reader = new PacketReader(buf, len, offset + self.packetHeaderLength);
         var ethHeader = eth.parse(reader);
 
@@ -258,7 +304,7 @@ function(vfs, eth, ip4, udp, socket, dhcp, arp) {
 
         switch (ethHeader.etherType) {
             case 'IPv4':
-                parseIPv4(reader);
+                parseIPv4(this, reader);
                 break;
             case 'ARP':
                 self.arpResolver.recv(reader);

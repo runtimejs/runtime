@@ -24,16 +24,16 @@ function() {
         IPv6: 0x86dd,
     };
 
-    function writeHeader(view, offset, opts) {
+    function writeHeader(view, offset, destMac, srcMac, etherType) {
         var i = 0, pos = 0;
         for (i = 0; i < 6; ++i) {
-            view.setUint8(offset + pos++, opts.destMac[i]);
+            view.setUint8(offset + pos++, destMac[i]);
         }
         for (i = 0; i < 6; ++i) {
-            view.setUint8(offset + pos++, opts.srcMac[i]);
+            view.setUint8(offset + pos++, srcMac[i]);
         }
 
-        view.setUint16(offset + pos, opts.etherType, false);
+        view.setUint16(offset + pos, etherType, false);
     }
 
     function parse(reader) {

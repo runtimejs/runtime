@@ -33,11 +33,69 @@ using ::common::Nullable;
 template<typename T>
 using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
 
+NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
+    PROLOGUE_NOTHIS;
+
+    if (args.IsConstructCall()) {
+        THROW_ERROR("function is not a constructor");
+    }
+
+    auto thisvalue = args.This();
+    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
+        THROW_ERROR("illegal invocation");
+    }
+
+    auto obj = thisvalue->ToObject();
+    if (obj->InternalFieldCount() != 1) {
+        THROW_ERROR("illegal invocation");
+    }
+
+    void* ptr = obj->GetAlignedPointerFromInternalField(0);
+    HandleObject* handle_object { static_cast<HandleObject*>(ptr) };
+    RT_ASSERT(handle_object);
+
+    if (NativeTypeId::TYPEID_HANDLE != handle_object->type_id()) {
+        THROW_ERROR("object is not a handle");
+    }
+
+    auto function_data = args.Data();
+    RT_ASSERT(function_data->IsExternal());
+    uint64_t pack = reinterpret_cast<uint64_t>(function_data.As<v8::External>()->Value());
+    uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
+    uint32_t method_index = static_cast<uint32_t>(pack);
+    uint32_t handle_id = handle_object->handle_id();
+
+    if (handle_object->pool_id() != pool_index) {
+        THROW_ERROR("handle does not support this method");
+    }
+
+    HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
+    RT_ASSERT(pool);
+    RT_ASSERT(pool->thread());
+
+    TransportData data;
+    {	TransportData::SerializeError err { data.MoveArgs(th, pool->thread(), args) };
+        if (TransportData::ThrowError(iv8, err)) return;
+    }
+
+    v8::Local<v8::Promise::Resolver> promise_resolver { v8::Promise::Resolver::New(iv8) };
+    uint32_t promise_index = th->AddPromise(
+        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
+
+    {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+            ThreadMessage::Type::HANDLE_METHOD_CALL,
+            th->handle(), std::move(data), nullptr, promise_index, pack, handle_id));
+        pool->thread_handle().getUnsafe()->PushMessage(std::move(msg));
+    }
+
+    args.GetReturnValue().Set(promise_resolver);
+}
+
 NATIVE_FUNCTION(NativesObject, CallHandler) {
     PROLOGUE_NOTHIS;
 
     if (args.IsConstructCall()) {
-        THROW_ERROR("Constructor call is not allowed");
+        THROW_ERROR("function is not a constructor");
     }
 
     v8::Local<v8::Value> thisvalue { args.This() };
@@ -62,6 +120,7 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
 
     v8::Local<v8::Promise::Resolver> promise_resolver {
         v8::Promise::Resolver::New(iv8) };
+
     uint32_t promise_index = th->AddPromise(
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
 
@@ -73,6 +132,72 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
     }
 
     args.GetReturnValue().Set(promise_resolver);
+}
+
+NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    v8::Local<v8::String> str = arg0->ToString();
+    int len = str->Utf8Length();
+    RT_ASSERT(len >= 0);
+
+    size_t buf_len = len;
+    auto options = v8::String::WriteOptions::NO_NULL_TERMINATION;
+
+    char* data = nullptr;
+    if (0 != buf_len) {
+        data = new char[buf_len];
+        str->WriteUtf8(data, buf_len, nullptr, options);
+    }
+
+    auto abv8 = ArrayBuffer::FromBuffer(iv8, data, buf_len)->GetInstance();
+    args.GetReturnValue().Set(v8::Uint8Array::New(abv8, 0, abv8->ByteLength()));
+}
+
+NATIVE_FUNCTION(NativesObject, TextDecoderDecode) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    VALIDATEARG(0, UINT8ARRAY, "argument 0 is not an Uint8Array");
+    RT_ASSERT(arg0->IsUint8Array());
+    auto abviewv8 = arg0.As<v8::ArrayBufferView>();
+    auto abv8 = abviewv8->Buffer();
+    RT_ASSERT(!abv8.IsEmpty());
+    RT_ASSERT(abv8->IsArrayBuffer());
+
+    if (0 == abv8->ByteLength()) {
+        args.GetReturnValue().SetEmptyString();
+        return;
+    }
+
+    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
+    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
+}
+
+NATIVE_FUNCTION(NativesObject, TextEncoder) {
+    PROLOGUE_NOTHIS;
+
+    if (!args.IsConstructCall()) {
+        THROW_ERROR("constructor cannot be called as a function");
+    }
+
+    // TODO: add other encodings
+    LOCAL_V8STRING(s_encoding, "encoding");
+    LOCAL_V8STRING(s_utf8, "utf-8");
+    args.This()->Set(s_encoding, s_utf8);
+}
+
+NATIVE_FUNCTION(NativesObject, TextDecoder) {
+    PROLOGUE_NOTHIS;
+
+    if (!args.IsConstructCall()) {
+        THROW_ERROR("constructor cannot be called as a function");
+    }
+
+    // TODO: add other encodings
+    LOCAL_V8STRING(s_encoding, "encoding");
+    LOCAL_V8STRING(s_utf8, "utf-8");
+    args.This()->Set(s_encoding, s_utf8);
 }
 
 NATIVE_FUNCTION(NativesObject, SyncRPC) {
@@ -376,8 +501,35 @@ NATIVE_FUNCTION(NativesObject, BufferToString) {
 
 NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
     PROLOGUE_NOTHIS;
-    args.GetReturnValue().Set((new HandlePoolObject(GLOBAL_engines()
-            ->NextHandlePoolIndex()))
+    USEARG(0);
+
+    SharedSTLVector<std::string> methods;
+    SharedSTLVector<v8::Eternal<v8::Value>> impls;
+    if (arg0->IsObject()) {
+        auto obj = arg0->ToObject();
+
+        auto namesArray = obj->GetOwnPropertyNames();
+        methods.reserve(namesArray->Length());
+
+        for (uint32_t i = 0; i < namesArray->Length(); ++i) {
+            auto name = namesArray->Get(i);
+            auto value = obj->Get(name);
+
+            if (!value->IsFunction()) {
+                THROW_TYPE_ERROR("object value is not a function");
+            }
+
+            methods.push_back(V8Utils::ToString(name->ToString()));
+            impls.push_back(v8::Eternal<v8::Value>(iv8, value));
+        }
+    }
+
+    RT_ASSERT(methods.size() == impls.size());
+    auto handle_pool = GLOBAL_engines()->handle_pools().CreateHandlePool(th, th->handle(),
+        std::move(methods), std::move(impls));
+
+    RT_ASSERT(handle_pool);
+    args.GetReturnValue().Set((new HandlePoolObject(handle_pool))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 }
@@ -585,6 +737,18 @@ NATIVE_FUNCTION(NativesObject, PerformanceNow) {
 NATIVE_FUNCTION(NativesObject, StopVideoLog) {
     PROLOGUE_NOTHIS;
     GLOBAL_boot_services()->logger()->DisableVideo();
+}
+
+NATIVE_FUNCTION(NativesObject, HandleIndex) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    auto handle_object = HandleObject::FromInstance(arg0);
+    if (nullptr == handle_object) {
+        THROW_ERROR("argument 0 is not a handle object");
+    }
+
+    RT_ASSERT(handle_object);
+    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, handle_object->handle_id()));
 }
 
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
@@ -1212,37 +1376,32 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     ret->Set(s_size, v8::Uint32::New(iv8, static_cast<uint32_t>(size)));
     ret->Set(s_buffer, ArrayBuffer::FromBuffer(iv8, ptr, size)->GetInstance());
 
-
     args.GetReturnValue().Set(ret);
-}
-
-NATIVE_FUNCTION(HandleObject, Index) {
-    PROLOGUE;
-    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, that->handle_id_));
 }
 
 NATIVE_FUNCTION(HandlePoolObject, CreateHandle) {
     PROLOGUE;
-    args.GetReturnValue().Set((new HandleObject(that->pool_id_, that->max_handle_id_++))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
+    RT_ASSERT(that->pool_);
+    auto obj = th->template_cache()->GetHandleInstance(that->pool_->index(), that->max_handle_id_++);
+    args.GetReturnValue().Set(obj);
 }
 
 NATIVE_FUNCTION(HandlePoolObject, Has) {
     PROLOGUE;
     USEARG(0);
-    HandleObject* obj = HandleObject::FromHandle(th, arg0);
-    if (nullptr == obj) {
+    auto handle_object = HandleObject::FromInstance(arg0);
+    if (nullptr == handle_object) {
+        THROW_ERROR("argument 0 is not a handle object");
+    }
+
+    RT_ASSERT(handle_object);
+    RT_ASSERT(that->pool_);
+    if (handle_object->pool_id() != that->pool_->index()) {
         args.GetReturnValue().Set(v8::False(iv8));
         return;
     }
 
-    if (obj->pool_id() != that->pool_id_) {
-        args.GetReturnValue().Set(v8::False(iv8));
-        return;
-    }
-
-    RT_ASSERT(obj->handle_id() < that->max_handle_id_);
+    RT_ASSERT(handle_object->handle_id() < that->max_handle_id_);
     args.GetReturnValue().Set(v8::True(iv8));
 }
 

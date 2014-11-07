@@ -278,6 +278,35 @@ bool Thread::Run() {
             }
         }
             break;
+        case ThreadMessage::Type::HANDLE_METHOD_CALL: {
+            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+            RT_ASSERT(!unpacked.IsEmpty());
+
+            uint64_t pack = message->recv_index2();
+            uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
+            uint32_t method_index = static_cast<uint32_t>(pack);
+
+            HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(pool_index);
+            RT_ASSERT(pool);
+            RT_ASSERT(pool->thread());
+            RT_ASSERT(pool->thread() == this);
+            v8::Local<v8::Value> fnval = pool->GetImpl(iv8_, method_index);
+            RT_ASSERT(!fnval.IsEmpty());
+            RT_ASSERT(fnval->IsFunction());
+
+            auto handle_obj = template_cache()->GetHandleInstance(pool_index, message->recv_index3());
+            {   RT_ASSERT(!call_wrapper_.IsEmpty());
+                v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
+                v8::Local<v8::Value> argv[] {
+                   fnval,
+                   message->sender().NewExternal(iv8_),
+                   unpacked,
+                   v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
+                };
+                fnwrap->Call(handle_obj, 4, argv);
+            }
+        }
+            break;
         case ThreadMessage::Type::FUNCTION_RETURN_RESOLVE: {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());

@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "irq-dispatcher.h"
-#include <kernel/platform.h>
+#include "handle.h"
+#include <kernel/engines.h>
 
 namespace rt {
 
-void IrqDispatcher::Raise(SystemContextIRQ irq_context, uint8_t number) {
-    RT_ASSERT(0 == Cpu::id()); // IRQ raise restricted to CPU0
-    RT_ASSERT(number < kIrqCount);
+HandlePool::HandlePool(uint32_t index, Thread *th, ResourceHandle<EngineThread> recv,
+    SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls)
+    :   index_(index),
+        methods_(std::move(methods)),
+        impls_(std::move(impls)),
+        th_(th),
+        recv_(recv) {
+    RT_ASSERT(th);
+    RT_ASSERT(methods_.size() == impls_.size());
 
-    {   ScopedLock lock(bindings_locker_);
-        for (const IRQBinding& binding : bindings_[number]) {
-            binding.Raise(irq_context);
-        }
-    }
 }
 
 } // namespace rt

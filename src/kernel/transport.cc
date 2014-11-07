@@ -216,6 +216,14 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
                 stream_.AppendValue<ExternalFunction*>(efn);
                 return SerializeError::NONE;
             }
+            case NativeTypeId::TYPEID_HANDLE: {
+                HandleObject* baseptr { static_cast<HandleObject*>(ptr) };
+                RT_ASSERT(baseptr);
+                AppendType(Type::NATIVE_OBJECT_HANDLE);
+                stream_.AppendValue<uint32_t>(baseptr->pool_id());
+                stream_.AppendValue<uint32_t>(baseptr->handle_id());
+                return SerializeError::NONE;
+            }
             default:
                 break;
             }
@@ -345,6 +353,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         ExternalFunction* efn = reader.ReadValue<ExternalFunction*>();
         RT_ASSERT(efn);
         RT_ASSERT(thread->template_cache());
+        // TODO: cache value
         v8::Local<v8::Value> fnobj { thread->template_cache()->NewWrappedFunction(efn) };
         return scope.Escape(fnobj);
     }
@@ -354,6 +363,12 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         RT_ASSERT(thread->template_cache());
         return scope.Escape(baseptr->BindToTemplateCache(thread->template_cache())
             ->GetInstance());
+    }
+    case Type::NATIVE_OBJECT_HANDLE: {
+        uint32_t pool_id = reader.ReadValue<uint32_t>();
+        uint32_t handle_id = reader.ReadValue<uint32_t>();
+        RT_ASSERT(thread->template_cache());
+        return scope.Escape(thread->template_cache()->GetHandleInstance(pool_id, handle_id));
     }
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };

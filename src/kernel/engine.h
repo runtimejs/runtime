@@ -36,6 +36,7 @@ public:
         TIMEOUT_EVENT,
         IRQ_RAISE,
         FUNCTION_CALL,
+        HANDLE_METHOD_CALL,
         FUNCTION_RETURN_RESOLVE,
         FUNCTION_RETURN_REJECT,
     };
@@ -43,12 +44,14 @@ public:
     ThreadMessage(Type type, ResourceHandle<EngineThread> sender,
         TransportData data,
         ExternalFunction* efn = nullptr,
-        size_t recv_index = 0)
+        size_t recv_index = 0, size_t recv_index2 = 0, size_t recv_index3 = 0)
         :	type_(type),
             sender_(sender),
             data_(std::move(data)),
             efn_(efn),
             recv_index_(recv_index),
+            recv_index2_(recv_index2),
+            recv_index3_(recv_index3),
             reusable_(false) {}
 
     ~ThreadMessage() {
@@ -73,6 +76,8 @@ public:
     }
 
     size_t recv_index() const { return recv_index_; }
+    size_t recv_index2() const { return recv_index2_; }
+    size_t recv_index3() const { return recv_index3_; }
     bool reusable() const { return reusable_; }
     DELETE_COPY_AND_ASSIGN(ThreadMessage);
 private:
@@ -81,6 +86,8 @@ private:
     TransportData data_;
     ExternalFunction* efn_;
     size_t recv_index_;
+    size_t recv_index2_;
+    size_t recv_index3_;
     bool reusable_;
 };
 

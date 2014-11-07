@@ -19,6 +19,7 @@
 #include <kernel/template-cache.h>
 #include <acpi.h>
 #include <common/utils.h>
+#include <kernel/handle.h>
 
 using common::Range;
 using common::MemoryBlock;
@@ -51,6 +52,25 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
     DECLARE_NATIVE(BufferAddress);
+
+    /**
+     * Super basic encoder/decoder support
+     * https://encoding.spec.whatwg.org/
+     */
+    DECLARE_NATIVE(TextEncoder);
+    DECLARE_NATIVE(TextEncoderEncode);
+    DECLARE_NATIVE(TextDecoder);
+    DECLARE_NATIVE(TextDecoderDecode);
+
+    /**
+     * Get unique index of an handle object within the handle pool
+     */
+    DECLARE_NATIVE(HandleIndex);
+
+    /**
+     * Handle method call handler
+     */
+    DECLARE_NATIVE(HandleMethodCall);
 
     /**
      * performance.now()
@@ -103,6 +123,7 @@ public:
         obj.SetCallback("createHandlePool", CreateHandlePool);
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
+        obj.SetCallback("handleIndex", HandleIndex);
     }
 
     JsObjectWrapperBase* Clone() const {
@@ -376,24 +397,25 @@ private:
 /**
  * Lightweight handle for kernel objects (socket, file, etc)
  */
-class HandleObject : public JsObjectWrapper<HandleObject,
-    NativeTypeId::TYPEID_HANDLE> {
+class HandleObject : public NativeObjectWrapper {
 public:
-    HandleObject(uint32_t pool_id, uint32_t handle_id) : JsObjectWrapper(),
-        pool_id_(pool_id), handle_id_(handle_id) { }
-
-    DECLARE_NATIVE(Index);
-
-    void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("index", Index);
-    }
-
-    JsObjectWrapperBase* Clone() const {
-        return new HandleObject(pool_id_, handle_id_);
-    }
+    HandleObject(uint32_t pool_id, uint32_t handle_id)
+        :	NativeObjectWrapper(NativeTypeId::TYPEID_HANDLE),
+            pool_id_(pool_id), handle_id_(handle_id) { }
 
     uint32_t pool_id() const { return pool_id_; }
     uint32_t handle_id() const { return handle_id_; }
+
+    static HandleObject* FromInstance(v8::Local<v8::Value> val) {
+        if (!val->IsObject()) return nullptr;
+        NativeObjectWrapper* ptr = TemplateCache::GetWrapped(val);
+        if (nullptr == ptr) return nullptr;
+        if (NativeTypeId::TYPEID_HANDLE != ptr->type_id()) return nullptr;
+        RT_ASSERT(ptr);
+        auto handle_object = reinterpret_cast<HandleObject*>(ptr);
+        RT_ASSERT(handle_object);
+        return handle_object;
+    }
 private:
     uint32_t pool_id_;
     uint32_t handle_id_;
@@ -402,8 +424,9 @@ private:
 class HandlePoolObject : public JsObjectWrapper<HandlePoolObject,
     NativeTypeId::TYPEID_HANDLE_POOL> {
 public:
-    HandlePoolObject(uint32_t pool_id) : JsObjectWrapper(),
-        pool_id_(pool_id) { }
+    HandlePoolObject(HandlePool* pool) : JsObjectWrapper(), pool_(pool) {
+        RT_ASSERT(pool_);
+    }
 
     DECLARE_NATIVE(CreateHandle);
     DECLARE_NATIVE(Has);
@@ -418,7 +441,7 @@ public:
         return nullptr; // Not clonable
     }
 private:
-    uint32_t pool_id_;
+    HandlePool* pool_;
     uint32_t max_handle_id_;
 };
 

@@ -137,7 +137,7 @@ EXPORT_EVENT void irq_handler_any(uint64_t number) {
 
     if (1 != number) {
         // Log all IRQ except keyboard
-        printf("IRQ %d, cpu %d\n", number, rt::Cpu::id());
+//        printf("IRQ %d, cpu %d\n", number, rt::Cpu::id());
     }
 
     RT_ASSERT(number <= 0xff);

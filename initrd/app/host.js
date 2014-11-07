@@ -251,7 +251,7 @@ DNSClient.prototype.resolve = function(hostname) {
             self._setResult(hostname, false, new Error('TIMEOUT'));
         }, 5000);
 
-        return isolate.system.udpSocket.send(self.socket, '8.8.8.8', 53, buf);
+        return self.socket.send('8.8.8.8', 53, buf);
     }).catch(function(err) {
         self._setResult(hostname, false, new Error('INTERNAL_ERROR'));
     });

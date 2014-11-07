@@ -83,6 +83,7 @@ public:
         FUNCTION,
         OBJECT,
         ARRAYBUFFER,
+        UINT8ARRAY,
         NUMBER,
         ARRAY,
         BOOL,
@@ -129,6 +130,7 @@ public:
         case ArgType::UINT32: return arg->IsUint32();
         case ArgType::INT32: return arg->IsInt32();
         case ArgType::ARRAYBUFFER: return arg->IsArrayBuffer();
+        case ArgType::UINT8ARRAY: return arg->IsUint8Array();
         case ArgType::NUMBER: return arg->IsNumber();
         case ArgType::ARRAY: return arg->IsArray();
         case ArgType::BOOL: return arg->IsBoolean();

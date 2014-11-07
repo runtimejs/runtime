@@ -17,11 +17,13 @@
 #include <kernel/v8utils.h>
 #include <kernel/native-fn.h>
 #include <kernel/initrd.h>
+#include <kernel/engines.h>
 
 namespace rt {
 
 TemplateCache::TemplateCache(v8::Isolate* iv8)
-    :	iv8_(iv8) {
+    :   iv8_(iv8),
+        handle_object_factory_(iv8) {
     RT_ASSERT(iv8_);
     v8::HandleScope scope(iv8_);
 
@@ -73,6 +75,18 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
                     v8::FunctionTemplate::New(iv8_, NativesObject::SetInterval));
         global->Set(iv8_, "clearInterval",
                     v8::FunctionTemplate::New(iv8_, NativesObject::ClearTimer));
+
+        {   auto encoder = v8::FunctionTemplate::New(iv8_, NativesObject::TextEncoder);
+            encoder->PrototypeTemplate()->Set(iv8_, "encode",
+                v8::FunctionTemplate::New(iv8_, NativesObject::TextEncoderEncode));
+            global->Set(iv8_, "TextEncoder", encoder);
+        }
+
+        {   auto decoder = v8::FunctionTemplate::New(iv8_, NativesObject::TextDecoder);
+            decoder->PrototypeTemplate()->Set(iv8_, "decode",
+                v8::FunctionTemplate::New(iv8_, NativesObject::TextDecoderDecode));
+            global->Set(iv8_, "TextDecoder", decoder);
+        }
 
         v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New() };
         isolate->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
@@ -141,6 +155,12 @@ v8::Local<v8::Value> TemplateCache::NewWrappedFunction(ExternalFunction* data) {
     return scope.Escape(obj);
 }
 
+v8::Local<v8::Value> TemplateCache::GetHandleInstance(uint32_t pool_id, uint32_t handle_id) {
+    RT_ASSERT(iv8_);
+    v8::EscapableHandleScope scope(iv8_);
+    return scope.Escape(handle_object_factory_.Get(pool_id, handle_id));
+}
+
 v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativeobj) {
     RT_ASSERT(nativeobj);
     RT_ASSERT(iv8_);
@@ -151,6 +171,66 @@ v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativ
     obj->SetAlignedPointerInInternalField(0,
         static_cast<NativeObjectWrapper*>(nativeobj));
     return scope.Escape(obj);
+}
+
+v8::Local<v8::Object> HandleObjectFactory::Get(uint32_t pool_id, uint32_t handle_id) {
+    v8::EscapableHandleScope scope(iv8_);
+    uint64_t key = MakeKey(pool_id, handle_id);
+    auto value = map_.find(key);
+    if (value != map_.end()) {
+        return scope.Escape(v8::Local<v8::Object>::New(iv8_, value->second));
+    }
+
+    {   auto handle_object = new HandleObject(pool_id, handle_id);
+        auto pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
+        RT_ASSERT(pool);
+        RT_ASSERT(pool->index() == handle_object->pool_id());
+
+        auto index = pool->index();
+        RT_ASSERT(index < HandlePoolManager::kMaxHandlePools);
+
+        if (handle_pool_templates_[index].IsEmpty()) {
+            v8::Local<v8::ObjectTemplate> t { v8::ObjectTemplate::New(iv8_) };
+            t->SetInternalFieldCount(1);
+
+            uint32_t mi = 0;
+            for (auto& method_name : pool->methods()) {
+                auto name = v8::String::NewFromUtf8(iv8_, method_name.c_str(),
+                    v8::String::kNormalString, method_name.length());
+
+                static_assert(sizeof(void*) == sizeof(uint64_t), "64-bit pointer size required");
+                uint64_t pack = (static_cast<uint64_t>(index) << 32) | (mi++);
+
+                t->Set(name, v8::FunctionTemplate::New(iv8_,
+                    NativesObject::HandleMethodCall, v8::External::New(iv8_, reinterpret_cast<void*>(pack))));
+            }
+
+            handle_pool_templates_[index].Set(iv8_, t);
+        }
+
+        v8::Local<v8::Object> obj { handle_pool_templates_[index].Get(iv8_)->NewInstance() };
+        obj->SetAlignedPointerInInternalField(0, static_cast<HandleObject*>(handle_object));
+        auto persistent = MoveablePersistent<v8::Object>(iv8_, obj);
+        persistent.SetWeak(this, WeakCallback);
+        map_[key] = std::move(persistent);
+        return scope.Escape(obj);
+    }
+}
+
+void HandleObjectFactory::WeakCallback(const v8::WeakCallbackData<v8::Object, HandleObjectFactory>& data) {
+    auto factory = data.GetParameter();
+    RT_ASSERT(factory);
+
+    auto handle_object = static_cast<HandleObject*>(data.GetValue()->GetAlignedPointerFromInternalField(0));
+    RT_ASSERT(handle_object);
+
+    uint64_t key = MakeKey(handle_object->pool_id(), handle_object->handle_id());
+    auto value = factory->map_.find(key);
+    if (value != factory->map_.end()) {
+        factory->map_.erase(value);
+    }
+
+    delete handle_object;
 }
 
 } // namespace rt

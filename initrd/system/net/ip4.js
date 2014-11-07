@@ -44,7 +44,7 @@ function() {
         return ((~acc) & 0xffff) >>> 0;
     }
 
-    function writeHeader(view, offset, opts) {
+    function writeHeader(view, offset, protocolId, srcIP, destIP) {
         var hdrLength = minHeaderLength;
         var version = 4; // IPv4
         var IHL = hdrLength >>> 2;
@@ -53,14 +53,14 @@ function() {
         view.setUint8(offset + 1, 0); // ToS
 
         var len = view.byteLength - offset;// - 4;
-        // view.setUint16(offset + 2, opts.dataLength + hdrLength, false); // Total length
+        // view.setUint16(offset + 2, dataLength + hdrLength, false); // Total length
         view.setUint16(offset + 2, len, false); // Total length
 
         view.setUint16(offset + 4, ++nextId, false); // ID
         view.setUint16(offset + 6, 0, false); // No fragmantation
         view.setUint8(offset + 8, 64); // TTL
 
-        var protocolId = protocol[opts.protocol];
+        var protocolId = protocol[protocolId];
         if ('undefined' === typeof protocolId) {
             throw new Error('unknown protocol');
         }
@@ -68,10 +68,10 @@ function() {
         view.setUint16(offset + 10, 0, false); // set header checksum to 0
         var i, pos = 12;
         for (i = 0; i < 4; ++i) {
-            view.setUint8(offset + pos++, opts.srcIP[i]);
+            view.setUint8(offset + pos++, srcIP[i]);
         }
         for (i = 0; i < 4; ++i) {
-            view.setUint8(offset + pos++, opts.destIP[i]);
+            view.setUint8(offset + pos++, destIP[i]);
         }
 
         view.setUint16(offset + 10, checksum(view, offset, hdrLength), false); // set header checksum

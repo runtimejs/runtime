@@ -43,7 +43,7 @@
         var message = lines.join('\n');
 
         var buf = runtime.toBuffer(message);
-        udpSocketApi.send(udpSocket, data.address, data.port, buf);
+        udpSocket.send(data.address, data.port, buf);
     }
 
     function onError() {
@@ -53,7 +53,7 @@
     udpSocketApi.createSocket(onMessage, onError)
         .then(function(socket) {
             udpSocket = socket;
-            return udpSocketApi.bindSocket(socket, 9000);
+            return socket.bind(9000);
         })
         .then(function(socket) {
             isolate.env.stdout('listening to UDP port 9000\n', {fg: 'lightgreen'});

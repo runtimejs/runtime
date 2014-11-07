@@ -310,6 +310,7 @@ private:
         HASHMAP,
         FUNCTION,
         NATIVE_OBJECT,
+        NATIVE_OBJECT_HANDLE,
         ERROR_OBJ,
         RESOURCES_FN,
     };

@@ -101,14 +101,20 @@ function(eth) {
         this.arpRequests = new Map();
     }
 
+    ARPResolver.prototype.getAddressForIPNoRequest = function(targetIpAddr) {
+        var key = targetIpAddr.join('.');
+        var result = this.arpCacheTable.get(key);
+        return result || null;
+    };
+
     ARPResolver.prototype.getAddressForIP = function(targetIpAddr, cb) {
         var self = this;
-        var key = targetIpAddr.join('.');
-        var result = self.arpCacheTable.get(key);
+        var result = this.getAddressForIPNoRequest(targetIpAddr);
         if (result) {
             return cb(result);
         }
 
+        var key = targetIpAddr.join('.');
         var requestInfo = self.arpRequests.get(key);
         if (!requestInfo) {
             requestInfo = [];
