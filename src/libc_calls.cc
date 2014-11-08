@@ -70,6 +70,19 @@ int *__errno_location(void) {
 
 void sched_yield() { }
 
+FILE* fopen(const char* filename, const char* mode) {
+    RT_ASSERT(filename);
+    return GLOBAL_boot_services()->fileio()->FOpen(filename);
+}
+
+int fseeko(FILE* stream, off_t offset, int whence) {
+    GLOBAL_boot_services()->FatalError("fseeko requested");
+}
+
+off_t ftello(FILE* stream) {
+    GLOBAL_boot_services()->FatalError("ftello requested");
+}
+
 char *fgets(char* s, int n, FILE* f) {
     GLOBAL_boot_services()->FatalError("fgets requested");
 }

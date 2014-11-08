@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "v8platform.h"
+#include <kernel/platform.h>
 #include <stdio.h>
 
 namespace rt {
@@ -44,6 +45,11 @@ void V8Platform::CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) {
     // TODO: do not run task immediately here
     // TODO: ensure locking works correctly (implement samaphores)
     task->Run();
+}
+
+double V8Platform::MonotonicallyIncreasingTime() {
+    double microsecondsPerSecond = 1000 * 1000;
+    return GLOBAL_platform()->BootTimeMicroseconds() / microsecondsPerSecond;
 }
 
 } // namespace rt
