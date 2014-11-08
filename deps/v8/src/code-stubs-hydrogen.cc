@@ -233,6 +233,8 @@ Handle<Code> HydrogenCodeStub::GenerateLightweightMissCode(
 
     // Generate the code for the stub.
     masm.set_generating_stub(true);
+    // TODO(yangguo): remove this once we can serialize IC stubs.
+    masm.enable_serializer();
     NoCurrentFrameScope scope(&masm);
     GenerateLightweightMiss(&masm, miss);
   }
@@ -271,8 +273,6 @@ static Handle<Code> DoGenerateCode(Stub* stub) {
   }
   CodeStubGraphBuilder<Stub> builder(isolate, stub);
   LChunk* chunk = OptimizeGraph(builder.CreateGraph());
-  // TODO(yangguo) remove this once the code serializer handles code stubs.
-  if (FLAG_serialize_toplevel) chunk->info()->PrepareForSerializing();
   Handle<Code> code = chunk->Codegen();
   if (FLAG_profile_hydrogen_code_stub_compilation) {
     OFStream os(stdout);
@@ -280,37 +280,6 @@ static Handle<Code> DoGenerateCode(Stub* stub) {
        << timer.Elapsed().InMillisecondsF() << " ms]" << std::endl;
   }
   return code;
-}
-
-
-template <>
-HValue* CodeStubGraphBuilder<ToNumberStub>::BuildCodeStub() {
-  HValue* value = GetParameter(0);
-
-  // Check if the parameter is already a SMI or heap number.
-  IfBuilder if_number(this);
-  if_number.If<HIsSmiAndBranch>(value);
-  if_number.OrIf<HCompareMap>(value, isolate()->factory()->heap_number_map());
-  if_number.Then();
-
-  // Return the number.
-  Push(value);
-
-  if_number.Else();
-
-  // Convert the parameter to number using the builtin.
-  HValue* function = AddLoadJSBuiltin(Builtins::TO_NUMBER);
-  Add<HPushArguments>(value);
-  Push(Add<HInvokeFunction>(function, 1));
-
-  if_number.End();
-
-  return Pop();
-}
-
-
-Handle<Code> ToNumberStub::GenerateCode() {
-  return DoGenerateCode(this);
 }
 
 
@@ -416,7 +385,12 @@ HValue* CodeStubGraphBuilder<FastCloneShallowObjectStub>::BuildCodeStub() {
   HInstruction* boilerplate = Add<HLoadNamedField>(
       allocation_site, static_cast<HValue*>(NULL), access);
 
-  int size = JSObject::kHeaderSize + casted_stub()->length() * kPointerSize;
+  int length = casted_stub()->length();
+  if (length == 0) {
+    // Empty objects have some slack added to them.
+    length = JSObject::kInitialGlobalObjectUnusedPropertiesCount;
+  }
+  int size = JSObject::kHeaderSize + length * kPointerSize;
   int object_size = size;
   if (FLAG_allocation_site_pretenuring) {
     size += AllocationMemento::kSize;
@@ -802,12 +776,12 @@ HValue* CodeStubGraphBuilder<StoreTransitionStub>::BuildCodeStub() {
 
       BuildCopyProperties(properties, new_properties, length, new_capacity);
 
-      // Store the new value into the "extended" object.
       Add<HStoreNamedField>(object, HObjectAccess::ForPropertiesPointer(),
                             new_properties);
     }
     // Fall through.
     case StoreTransitionStub::StoreMapAndValue:
+      // Store the new value into the "extended" object.
       BuildStoreNamedField(
           object, GetParameter(StoreTransitionDescriptor::kValueIndex),
           casted_stub()->index(), casted_stub()->representation(), true);
@@ -877,6 +851,22 @@ HValue* CodeStubGraphBuilder<TransitionElementsKindStub>::BuildCodeStub() {
 Handle<Code> TransitionElementsKindStub::GenerateCode() {
   return DoGenerateCode(this);
 }
+
+
+template <>
+HValue* CodeStubGraphBuilder<AllocateHeapNumberStub>::BuildCodeStub() {
+  HValue* result =
+      Add<HAllocate>(Add<HConstant>(HeapNumber::kSize), HType::HeapNumber(),
+                     NOT_TENURED, HEAP_NUMBER_TYPE);
+  AddStoreMapConstant(result, isolate()->factory()->heap_number_map());
+  return result;
+}
+
+
+Handle<Code> AllocateHeapNumberStub::GenerateCode() {
+  return DoGenerateCode(this);
+}
+
 
 HValue* CodeStubGraphBuilderBase::BuildArrayConstructor(
     ElementsKind kind,

@@ -28,6 +28,21 @@ TEST(Bits, CountPopulation32) {
 }
 
 
+TEST(Bits, CountPopulation64) {
+  EXPECT_EQ(0u, CountPopulation64(0));
+  EXPECT_EQ(1u, CountPopulation64(1));
+  EXPECT_EQ(2u, CountPopulation64(0x8000000000000001));
+  EXPECT_EQ(8u, CountPopulation64(0x11111111));
+  EXPECT_EQ(16u, CountPopulation64(0xf0f0f0f0));
+  EXPECT_EQ(24u, CountPopulation64(0xfff0f0ff));
+  EXPECT_EQ(32u, CountPopulation64(0xffffffff));
+  EXPECT_EQ(16u, CountPopulation64(0x1111111111111111));
+  EXPECT_EQ(32u, CountPopulation64(0xf0f0f0f0f0f0f0f0));
+  EXPECT_EQ(48u, CountPopulation64(0xfff0f0fffff0f0ff));
+  EXPECT_EQ(64u, CountPopulation64(0xffffffffffffffff));
+}
+
+
 TEST(Bits, CountLeadingZeros32) {
   EXPECT_EQ(32u, CountLeadingZeros32(0));
   EXPECT_EQ(31u, CountLeadingZeros32(1));
@@ -38,6 +53,17 @@ TEST(Bits, CountLeadingZeros32) {
 }
 
 
+TEST(Bits, CountLeadingZeros64) {
+  EXPECT_EQ(64u, CountLeadingZeros64(0));
+  EXPECT_EQ(63u, CountLeadingZeros64(1));
+  TRACED_FORRANGE(uint32_t, shift, 0, 63) {
+    EXPECT_EQ(63u - shift, CountLeadingZeros64(V8_UINT64_C(1) << shift));
+  }
+  EXPECT_EQ(36u, CountLeadingZeros64(0x0f0f0f0f));
+  EXPECT_EQ(4u, CountLeadingZeros64(0x0f0f0f0f00000000));
+}
+
+
 TEST(Bits, CountTrailingZeros32) {
   EXPECT_EQ(32u, CountTrailingZeros32(0));
   EXPECT_EQ(31u, CountTrailingZeros32(0x80000000));
@@ -45,6 +71,17 @@ TEST(Bits, CountTrailingZeros32) {
     EXPECT_EQ(shift, CountTrailingZeros32(1u << shift));
   }
   EXPECT_EQ(4u, CountTrailingZeros32(0xf0f0f0f0));
+}
+
+
+TEST(Bits, CountTrailingZeros64) {
+  EXPECT_EQ(64u, CountTrailingZeros64(0));
+  EXPECT_EQ(63u, CountTrailingZeros64(0x8000000000000000));
+  TRACED_FORRANGE(uint32_t, shift, 0, 63) {
+    EXPECT_EQ(shift, CountTrailingZeros64(V8_UINT64_C(1) << shift));
+  }
+  EXPECT_EQ(4u, CountTrailingZeros64(0xf0f0f0f0));
+  EXPECT_EQ(36u, CountTrailingZeros64(0xf0f0f0f000000000));
 }
 
 
@@ -158,6 +195,83 @@ TEST(Bits, SignedSubOverflow32) {
     TRACED_FORRANGE(int32_t, j, 1, i) {
       EXPECT_FALSE(SignedSubOverflow32(i, j, &val));
       EXPECT_EQ(i - j, val);
+    }
+  }
+}
+
+
+TEST(Bits, SignedMulHigh32) {
+  EXPECT_EQ(0, SignedMulHigh32(0, 0));
+  TRACED_FORRANGE(int32_t, i, 1, 50) {
+    TRACED_FORRANGE(int32_t, j, 1, i) { EXPECT_EQ(0, SignedMulHigh32(i, j)); }
+  }
+  EXPECT_EQ(-1073741824, SignedMulHigh32(std::numeric_limits<int32_t>::max(),
+                                         std::numeric_limits<int32_t>::min()));
+  EXPECT_EQ(-1073741824, SignedMulHigh32(std::numeric_limits<int32_t>::min(),
+                                         std::numeric_limits<int32_t>::max()));
+  EXPECT_EQ(1, SignedMulHigh32(1024 * 1024 * 1024, 4));
+  EXPECT_EQ(2, SignedMulHigh32(8 * 1024, 1024 * 1024));
+}
+
+
+TEST(Bits, SignedMulHighAndAdd32) {
+  TRACED_FORRANGE(int32_t, i, 1, 50) {
+    EXPECT_EQ(i, SignedMulHighAndAdd32(0, 0, i));
+    TRACED_FORRANGE(int32_t, j, 1, i) {
+      EXPECT_EQ(i, SignedMulHighAndAdd32(j, j, i));
+    }
+    EXPECT_EQ(i + 1, SignedMulHighAndAdd32(1024 * 1024 * 1024, 4, i));
+  }
+}
+
+
+TEST(Bits, SignedDiv32) {
+  EXPECT_EQ(std::numeric_limits<int32_t>::min(),
+            SignedDiv32(std::numeric_limits<int32_t>::min(), -1));
+  EXPECT_EQ(std::numeric_limits<int32_t>::max(),
+            SignedDiv32(std::numeric_limits<int32_t>::max(), 1));
+  TRACED_FORRANGE(int32_t, i, 0, 50) {
+    EXPECT_EQ(0, SignedDiv32(i, 0));
+    TRACED_FORRANGE(int32_t, j, 1, i) {
+      EXPECT_EQ(1, SignedDiv32(j, j));
+      EXPECT_EQ(i / j, SignedDiv32(i, j));
+      EXPECT_EQ(-i / j, SignedDiv32(i, -j));
+    }
+  }
+}
+
+
+TEST(Bits, SignedMod32) {
+  EXPECT_EQ(0, SignedMod32(std::numeric_limits<int32_t>::min(), -1));
+  EXPECT_EQ(0, SignedMod32(std::numeric_limits<int32_t>::max(), 1));
+  TRACED_FORRANGE(int32_t, i, 0, 50) {
+    EXPECT_EQ(0, SignedMod32(i, 0));
+    TRACED_FORRANGE(int32_t, j, 1, i) {
+      EXPECT_EQ(0, SignedMod32(j, j));
+      EXPECT_EQ(i % j, SignedMod32(i, j));
+      EXPECT_EQ(i % j, SignedMod32(i, -j));
+    }
+  }
+}
+
+
+TEST(Bits, UnsignedDiv32) {
+  TRACED_FORRANGE(uint32_t, i, 0, 50) {
+    EXPECT_EQ(0u, UnsignedDiv32(i, 0));
+    TRACED_FORRANGE(uint32_t, j, i + 1, 100) {
+      EXPECT_EQ(1u, UnsignedDiv32(j, j));
+      EXPECT_EQ(i / j, UnsignedDiv32(i, j));
+    }
+  }
+}
+
+
+TEST(Bits, UnsignedMod32) {
+  TRACED_FORRANGE(uint32_t, i, 0, 50) {
+    EXPECT_EQ(0u, UnsignedMod32(i, 0));
+    TRACED_FORRANGE(uint32_t, j, i + 1, 100) {
+      EXPECT_EQ(0u, UnsignedMod32(j, j));
+      EXPECT_EQ(i % j, UnsignedMod32(i, j));
     }
   }
 }

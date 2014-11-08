@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <limits>
+
 #include "test/unittests/compiler/instruction-selector-unittest.h"
 
 namespace v8 {
@@ -86,30 +88,37 @@ static const Shift kShifts[] = {
 
 // Immediates (random subset).
 static const int32_t kImmediates[] = {
-    -2147483617, -2147483606, -2113929216, -2080374784, -1996488704,
-    -1879048192, -1459617792, -1358954496, -1342177265, -1275068414,
-    -1073741818, -1073741777, -855638016,  -805306368,  -402653184,
-    -268435444,  -16777216,   0,           35,          61,
-    105,         116,         171,         245,         255,
-    692,         1216,        1248,        1520,        1600,
-    1888,        3744,        4080,        5888,        8384,
-    9344,        9472,        9792,        13312,       15040,
-    15360,       20736,       22272,       23296,       32000,
-    33536,       37120,       45824,       47872,       56320,
-    59392,       65280,       72704,       101376,      147456,
-    161792,      164864,      167936,      173056,      195584,
-    209920,      212992,      356352,      655360,      704512,
-    716800,      851968,      901120,      1044480,     1523712,
-    2572288,     3211264,     3588096,     3833856,     3866624,
-    4325376,     5177344,     6488064,     7012352,     7471104,
-    14090240,    16711680,    19398656,    22282240,    28573696,
-    30408704,    30670848,    43253760,    54525952,    55312384,
-    56623104,    68157440,    115343360,   131072000,   187695104,
-    188743680,   195035136,   197132288,   203423744,   218103808,
-    267386880,   268435470,   285212672,   402653185,   415236096,
-    595591168,   603979776,   603979778,   629145600,   1073741835,
-    1073741855,  1073741861,  1073741884,  1157627904,  1476395008,
-    1476395010,  1610612741,  2030043136,  2080374785,  2097152000};
+    std::numeric_limits<int32_t>::min(), -2147483617, -2147483606, -2113929216,
+    -2080374784,                         -1996488704, -1879048192, -1459617792,
+    -1358954496,                         -1342177265, -1275068414, -1073741818,
+    -1073741777,                         -855638016,  -805306368,  -402653184,
+    -268435444,                          -16777216,   0,           35,
+    61,                                  105,         116,         171,
+    245,                                 255,         692,         1216,
+    1248,                                1520,        1600,        1888,
+    3744,                                4080,        5888,        8384,
+    9344,                                9472,        9792,        13312,
+    15040,                               15360,       20736,       22272,
+    23296,                               32000,       33536,       37120,
+    45824,                               47872,       56320,       59392,
+    65280,                               72704,       101376,      147456,
+    161792,                              164864,      167936,      173056,
+    195584,                              209920,      212992,      356352,
+    655360,                              704512,      716800,      851968,
+    901120,                              1044480,     1523712,     2572288,
+    3211264,                             3588096,     3833856,     3866624,
+    4325376,                             5177344,     6488064,     7012352,
+    7471104,                             14090240,    16711680,    19398656,
+    22282240,                            28573696,    30408704,    30670848,
+    43253760,                            54525952,    55312384,    56623104,
+    68157440,                            115343360,   131072000,   187695104,
+    188743680,                           195035136,   197132288,   203423744,
+    218103808,                           267386880,   268435470,   285212672,
+    402653185,                           415236096,   595591168,   603979776,
+    603979778,                           629145600,   1073741835,  1073741855,
+    1073741861,                          1073741884,  1157627904,  1476395008,
+    1476395010,                          1610612741,  2030043136,  2080374785,
+    2097152000};
 
 }  // namespace
 
@@ -1363,30 +1372,215 @@ TEST_F(InstructionSelectorTest, TruncateFloat64ToFloat32WithParameter) {
 
 
 // -----------------------------------------------------------------------------
+// Comparisons.
+
+
+namespace {
+
+struct Comparison {
+  Constructor constructor;
+  const char* constructor_name;
+  FlagsCondition flags_condition;
+  FlagsCondition negated_flags_condition;
+};
+
+
+std::ostream& operator<<(std::ostream& os, const Comparison& cmp) {
+  return os << cmp.constructor_name;
+}
+
+
+const Comparison kComparisons[] = {
+    {&RawMachineAssembler::Word32Equal, "Word32Equal", kEqual, kNotEqual},
+    {&RawMachineAssembler::Int32LessThan, "Int32LessThan", kSignedLessThan,
+     kSignedGreaterThanOrEqual},
+    {&RawMachineAssembler::Int32LessThanOrEqual, "Int32LessThanOrEqual",
+     kSignedLessThanOrEqual, kSignedGreaterThan},
+    {&RawMachineAssembler::Uint32LessThan, "Uint32LessThan", kUnsignedLessThan,
+     kUnsignedGreaterThanOrEqual},
+    {&RawMachineAssembler::Uint32LessThanOrEqual, "Uint32LessThanOrEqual",
+     kUnsignedLessThanOrEqual, kUnsignedGreaterThan}};
+
+}  // namespace
+
+
+typedef InstructionSelectorTestWithParam<Comparison>
+    InstructionSelectorComparisonTest;
+
+
+TEST_P(InstructionSelectorComparisonTest, Parameters) {
+  const Comparison& cmp = GetParam();
+  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+  Node* const p0 = m.Parameter(0);
+  Node* const p1 = m.Parameter(1);
+  Node* const r = (m.*cmp.constructor)(p0, p1);
+  m.Return(r);
+  Stream const s = m.Build();
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kArmCmp, s[0]->arch_opcode());
+  EXPECT_EQ(kMode_Operand2_R, s[0]->addressing_mode());
+  ASSERT_EQ(2U, s[0]->InputCount());
+  EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+  EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+  ASSERT_EQ(1U, s[0]->OutputCount());
+  EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->OutputAt(0)));
+  EXPECT_EQ(kFlags_set, s[0]->flags_mode());
+  EXPECT_EQ(cmp.flags_condition, s[0]->flags_condition());
+}
+
+
+TEST_P(InstructionSelectorComparisonTest, Word32EqualWithZero) {
+  {
+    const Comparison& cmp = GetParam();
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const r =
+        m.Word32Equal((m.*cmp.constructor)(p0, p1), m.Int32Constant(0));
+    m.Return(r);
+    Stream const s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArmCmp, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_Operand2_R, s[0]->addressing_mode());
+    ASSERT_EQ(2U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->OutputAt(0)));
+    EXPECT_EQ(kFlags_set, s[0]->flags_mode());
+    EXPECT_EQ(cmp.negated_flags_condition, s[0]->flags_condition());
+  }
+  {
+    const Comparison& cmp = GetParam();
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const r =
+        m.Word32Equal(m.Int32Constant(0), (m.*cmp.constructor)(p0, p1));
+    m.Return(r);
+    Stream const s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArmCmp, s[0]->arch_opcode());
+    EXPECT_EQ(kMode_Operand2_R, s[0]->addressing_mode());
+    ASSERT_EQ(2U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->OutputAt(0)));
+    EXPECT_EQ(kFlags_set, s[0]->flags_mode());
+    EXPECT_EQ(cmp.negated_flags_condition, s[0]->flags_condition());
+  }
+}
+
+
+INSTANTIATE_TEST_CASE_P(InstructionSelectorTest,
+                        InstructionSelectorComparisonTest,
+                        ::testing::ValuesIn(kComparisons));
+
+
+// -----------------------------------------------------------------------------
 // Miscellaneous.
 
 
 TEST_F(InstructionSelectorTest, Int32AddWithInt32Mul) {
   {
     StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
-    m.Return(
-        m.Int32Add(m.Parameter(0), m.Int32Mul(m.Parameter(1), m.Parameter(2))));
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const p2 = m.Parameter(2);
+    Node* const n = m.Int32Add(p0, m.Int32Mul(p1, p2));
+    m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(kArmMla, s[0]->arch_opcode());
-    EXPECT_EQ(3U, s[0]->InputCount());
-    EXPECT_EQ(1U, s[0]->OutputCount());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p2), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(2)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
   }
   {
     StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
-    m.Return(
-        m.Int32Add(m.Int32Mul(m.Parameter(1), m.Parameter(2)), m.Parameter(0)));
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const p2 = m.Parameter(2);
+    Node* const n = m.Int32Add(m.Int32Mul(p1, p2), p0);
+    m.Return(n);
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(kArmMla, s[0]->arch_opcode());
-    EXPECT_EQ(3U, s[0]->InputCount());
-    EXPECT_EQ(1U, s[0]->OutputCount());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p2), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(2)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
   }
+}
+
+
+TEST_F(InstructionSelectorTest, Int32AddWithInt32MulHigh) {
+  {
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const p2 = m.Parameter(2);
+    Node* const n = m.Int32Add(p0, m.Int32MulHigh(p1, p2));
+    m.Return(n);
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArmSmmla, s[0]->arch_opcode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p2), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(2)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
+  }
+  {
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    Node* const p2 = m.Parameter(2);
+    Node* const n = m.Int32Add(m.Int32MulHigh(p1, p2), p0);
+    m.Return(n);
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArmSmmla, s[0]->arch_opcode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p2), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(2)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
+  }
+}
+
+
+TEST_F(InstructionSelectorTest, Int32SubWithInt32Mul) {
+  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
+  m.Return(
+      m.Int32Sub(m.Parameter(0), m.Int32Mul(m.Parameter(1), m.Parameter(2))));
+  Stream s = m.Build();
+  ASSERT_EQ(2U, s.size());
+  EXPECT_EQ(kArmMul, s[0]->arch_opcode());
+  ASSERT_EQ(1U, s[0]->OutputCount());
+  EXPECT_EQ(kArmSub, s[1]->arch_opcode());
+  ASSERT_EQ(2U, s[1]->InputCount());
+  EXPECT_EQ(s.ToVreg(s[0]->Output()), s.ToVreg(s[1]->InputAt(1)));
+}
+
+
+TEST_F(InstructionSelectorTest, Int32SubWithInt32MulForMLS) {
+  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
+  m.Return(
+      m.Int32Sub(m.Parameter(0), m.Int32Mul(m.Parameter(1), m.Parameter(2))));
+  Stream s = m.Build(MLS);
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kArmMls, s[0]->arch_opcode());
+  EXPECT_EQ(1U, s[0]->OutputCount());
+  EXPECT_EQ(3U, s[0]->InputCount());
 }
 
 
@@ -1554,29 +1748,37 @@ TEST_F(InstructionSelectorTest, Int32MulWithImmediate) {
 }
 
 
-TEST_F(InstructionSelectorTest, Int32SubWithInt32Mul) {
-  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
-  m.Return(
-      m.Int32Sub(m.Parameter(0), m.Int32Mul(m.Parameter(1), m.Parameter(2))));
+TEST_F(InstructionSelectorTest, Int32MulHighWithParameters) {
+  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+  Node* const p0 = m.Parameter(0);
+  Node* const p1 = m.Parameter(1);
+  Node* const n = m.Int32MulHigh(p0, p1);
+  m.Return(n);
   Stream s = m.Build();
-  ASSERT_EQ(2U, s.size());
-  EXPECT_EQ(kArmMul, s[0]->arch_opcode());
+  ASSERT_EQ(1U, s.size());
+  EXPECT_EQ(kArmSmmul, s[0]->arch_opcode());
+  ASSERT_EQ(2U, s[0]->InputCount());
+  EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+  EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
   ASSERT_EQ(1U, s[0]->OutputCount());
-  EXPECT_EQ(kArmSub, s[1]->arch_opcode());
-  ASSERT_EQ(2U, s[1]->InputCount());
-  EXPECT_EQ(s.ToVreg(s[0]->Output()), s.ToVreg(s[1]->InputAt(1)));
+  EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
 }
 
 
-TEST_F(InstructionSelectorTest, Int32SubWithInt32MulForMLS) {
-  StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32, kMachInt32);
-  m.Return(
-      m.Int32Sub(m.Parameter(0), m.Int32Mul(m.Parameter(1), m.Parameter(2))));
-  Stream s = m.Build(MLS);
+TEST_F(InstructionSelectorTest, Uint32MulHighWithParameters) {
+  StreamBuilder m(this, kMachUint32, kMachUint32, kMachUint32);
+  Node* const p0 = m.Parameter(0);
+  Node* const p1 = m.Parameter(1);
+  Node* const n = m.Uint32MulHigh(p0, p1);
+  m.Return(n);
+  Stream s = m.Build();
   ASSERT_EQ(1U, s.size());
-  EXPECT_EQ(kArmMls, s[0]->arch_opcode());
-  EXPECT_EQ(1U, s[0]->OutputCount());
-  EXPECT_EQ(3U, s[0]->InputCount());
+  EXPECT_EQ(kArmUmull, s[0]->arch_opcode());
+  ASSERT_EQ(2U, s[0]->InputCount());
+  EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+  EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+  ASSERT_EQ(2U, s[0]->OutputCount());
+  EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->OutputAt(1)));
 }
 
 
@@ -1705,7 +1907,7 @@ TEST_F(InstructionSelectorTest, Word32AndWithUbfxImmediateForARMv7) {
 
 TEST_F(InstructionSelectorTest, Word32AndWithBfcImmediateForARMv7) {
   TRACED_FORRANGE(int32_t, lsb, 0, 31) {
-    TRACED_FORRANGE(int32_t, width, 1, (32 - lsb) - 1) {
+    TRACED_FORRANGE(int32_t, width, 9, (32 - lsb) - 1) {
       StreamBuilder m(this, kMachInt32, kMachInt32);
       m.Return(m.Word32And(
           m.Parameter(0),
@@ -1722,7 +1924,7 @@ TEST_F(InstructionSelectorTest, Word32AndWithBfcImmediateForARMv7) {
     }
   }
   TRACED_FORRANGE(int32_t, lsb, 0, 31) {
-    TRACED_FORRANGE(int32_t, width, 1, (32 - lsb) - 1) {
+    TRACED_FORRANGE(int32_t, width, 9, (32 - lsb) - 1) {
       StreamBuilder m(this, kMachInt32, kMachInt32);
       m.Return(
           m.Word32And(m.Int32Constant(~((0xffffffffu >> (32 - width)) << lsb)),

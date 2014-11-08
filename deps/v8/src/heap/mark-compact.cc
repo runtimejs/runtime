@@ -227,103 +227,6 @@ static void VerifyEvacuation(Heap* heap) {
 #endif  // VERIFY_HEAP
 
 
-#ifdef DEBUG
-class VerifyNativeContextSeparationVisitor : public ObjectVisitor {
- public:
-  VerifyNativeContextSeparationVisitor() : current_native_context_(NULL) {}
-
-  void VisitPointers(Object** start, Object** end) {
-    for (Object** current = start; current < end; current++) {
-      if ((*current)->IsHeapObject()) {
-        HeapObject* object = HeapObject::cast(*current);
-        if (object->IsString()) continue;
-        switch (object->map()->instance_type()) {
-          case JS_FUNCTION_TYPE:
-            CheckContext(JSFunction::cast(object)->context());
-            break;
-          case JS_GLOBAL_PROXY_TYPE:
-            CheckContext(JSGlobalProxy::cast(object)->native_context());
-            break;
-          case JS_GLOBAL_OBJECT_TYPE:
-          case JS_BUILTINS_OBJECT_TYPE:
-            CheckContext(GlobalObject::cast(object)->native_context());
-            break;
-          case JS_ARRAY_TYPE:
-          case JS_DATE_TYPE:
-          case JS_OBJECT_TYPE:
-          case JS_REGEXP_TYPE:
-            VisitPointer(HeapObject::RawField(object, JSObject::kMapOffset));
-            break;
-          case MAP_TYPE:
-            VisitPointer(HeapObject::RawField(object, Map::kPrototypeOffset));
-            VisitPointer(HeapObject::RawField(object, Map::kConstructorOffset));
-            break;
-          case FIXED_ARRAY_TYPE:
-            if (object->IsContext()) {
-              CheckContext(object);
-            } else {
-              FixedArray* array = FixedArray::cast(object);
-              int length = array->length();
-              // Set array length to zero to prevent cycles while iterating
-              // over array bodies, this is easier than intrusive marking.
-              array->set_length(0);
-              array->IterateBody(FIXED_ARRAY_TYPE, FixedArray::SizeFor(length),
-                                 this);
-              array->set_length(length);
-            }
-            break;
-          case CELL_TYPE:
-          case JS_PROXY_TYPE:
-          case JS_VALUE_TYPE:
-          case TYPE_FEEDBACK_INFO_TYPE:
-            object->Iterate(this);
-            break;
-          case DECLARED_ACCESSOR_INFO_TYPE:
-          case EXECUTABLE_ACCESSOR_INFO_TYPE:
-          case BYTE_ARRAY_TYPE:
-          case CALL_HANDLER_INFO_TYPE:
-          case CODE_TYPE:
-          case FIXED_DOUBLE_ARRAY_TYPE:
-          case HEAP_NUMBER_TYPE:
-          case MUTABLE_HEAP_NUMBER_TYPE:
-          case INTERCEPTOR_INFO_TYPE:
-          case ODDBALL_TYPE:
-          case SCRIPT_TYPE:
-          case SHARED_FUNCTION_INFO_TYPE:
-            break;
-          default:
-            UNREACHABLE();
-        }
-      }
-    }
-  }
-
- private:
-  void CheckContext(Object* context) {
-    if (!context->IsContext()) return;
-    Context* native_context = Context::cast(context)->native_context();
-    if (current_native_context_ == NULL) {
-      current_native_context_ = native_context;
-    } else {
-      CHECK_EQ(current_native_context_, native_context);
-    }
-  }
-
-  Context* current_native_context_;
-};
-
-
-static void VerifyNativeContextSeparation(Heap* heap) {
-  HeapObjectIterator it(heap->code_space());
-
-  for (Object* object = it.Next(); object != NULL; object = it.Next()) {
-    VerifyNativeContextSeparationVisitor visitor;
-    Code::cast(object)->CodeIterateBody(&visitor);
-  }
-}
-#endif
-
-
 void MarkCompactCollector::SetUp() {
   free_list_old_data_space_.Reset(new FreeList(heap_->old_data_space()));
   free_list_old_pointer_space_.Reset(new FreeList(heap_->old_pointer_space()));
@@ -395,7 +298,11 @@ void MarkCompactCollector::CollectGarbage() {
 
   if (FLAG_collect_maps) ClearNonLiveReferences();
 
+  ProcessAndClearWeakCells();
+
   ClearWeakCollections();
+
+  heap_->set_encountered_weak_cells(Smi::FromInt(0));
 
 #ifdef VERIFY_HEAP
   if (FLAG_verify_heap) {
@@ -404,12 +311,6 @@ void MarkCompactCollector::CollectGarbage() {
 #endif
 
   SweepSpaces();
-
-#ifdef DEBUG
-  if (FLAG_verify_native_context_separation) {
-    VerifyNativeContextSeparation(heap_);
-  }
-#endif
 
 #ifdef VERIFY_HEAP
   if (heap()->weak_embedded_objects_verification_enabled()) {
@@ -555,7 +456,6 @@ class MarkCompactCollector::SweeperTask : public v8::Task {
 void MarkCompactCollector::StartSweeperThreads() {
   DCHECK(free_list_old_pointer_space_.get()->IsEmpty());
   DCHECK(free_list_old_data_space_.get()->IsEmpty());
-  sweeping_in_progress_ = true;
   V8::GetCurrentPlatform()->CallOnBackgroundThread(
       new SweeperTask(heap(), heap()->old_data_space()),
       v8::Platform::kShortRunningTask);
@@ -570,13 +470,15 @@ void MarkCompactCollector::EnsureSweepingCompleted() {
 
   // If sweeping is not completed or not running at all, we try to complete it
   // here.
-  if (!IsSweepingCompleted()) {
+  if (FLAG_predictable || !IsSweepingCompleted()) {
     SweepInParallel(heap()->paged_space(OLD_DATA_SPACE), 0);
     SweepInParallel(heap()->paged_space(OLD_POINTER_SPACE), 0);
   }
   // Wait twice for both jobs.
-  pending_sweeper_jobs_semaphore_.Wait();
-  pending_sweeper_jobs_semaphore_.Wait();
+  if (!FLAG_predictable) {
+    pending_sweeper_jobs_semaphore_.Wait();
+    pending_sweeper_jobs_semaphore_.Wait();
+  }
   ParallelSweepSpacesComplete();
   sweeping_in_progress_ = false;
   RefillFreeList(heap()->paged_space(OLD_DATA_SPACE));
@@ -925,6 +827,7 @@ void MarkCompactCollector::Prepare() {
     heap()->incremental_marking()->Abort();
     ClearMarkbits();
     AbortWeakCollections();
+    AbortWeakCells();
     AbortCompaction();
     was_marked_incrementally_ = false;
   }
@@ -965,6 +868,8 @@ void MarkCompactCollector::Finish() {
     Deoptimizer::DeoptimizeMarkedCode(isolate());
     have_code_to_deoptimize_ = false;
   }
+
+  heap_->incremental_marking()->ClearIdleMarkingDelayCounter();
 }
 
 
@@ -2040,6 +1945,11 @@ void MarkCompactCollector::MarkAllocationSite(AllocationSite* site) {
 }
 
 
+bool MarkCompactCollector::IsMarkingDequeEmpty() {
+  return marking_deque_.IsEmpty();
+}
+
+
 void MarkCompactCollector::MarkRoots(RootMarkingVisitor* visitor) {
   // Mark the heap roots including global variables, stack variables,
   // etc., and all objects reachable from them.
@@ -2612,13 +2522,14 @@ void MarkCompactCollector::ClearMapTransitions(Map* map) {
 
   // Note that we never eliminate a transition array, though we might right-trim
   // such that number_of_transitions() == 0. If this assumption changes,
-  // TransitionArray::CopyInsert() will need to deal with the case that a
-  // transition array disappeared during GC.
-  int trim = t->number_of_transitions() - transition_index;
+  // TransitionArray::Insert() will need to deal with the case that a transition
+  // array disappeared during GC.
+  int trim = t->number_of_transitions_storage() - transition_index;
   if (trim > 0) {
     heap_->RightTrimFixedArray<Heap::FROM_GC>(
         t, t->IsSimpleTransition() ? trim
                                    : trim * TransitionArray::kTransitionSize);
+    t->SetNumberOfTransitions(transition_index);
   }
   DCHECK(map->HasTransitionArray());
 }
@@ -2830,6 +2741,39 @@ void MarkCompactCollector::AbortWeakCollections() {
 }
 
 
+void MarkCompactCollector::ProcessAndClearWeakCells() {
+  HeapObject* undefined = heap()->undefined_value();
+  Object* weak_cell_obj = heap()->encountered_weak_cells();
+  while (weak_cell_obj != Smi::FromInt(0)) {
+    WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
+    // We do not insert cleared weak cells into the list, so the value
+    // cannot be a Smi here.
+    HeapObject* value = HeapObject::cast(weak_cell->value());
+    if (!MarkCompactCollector::IsMarked(value)) {
+      weak_cell->clear();
+    } else {
+      Object** slot = HeapObject::RawField(weak_cell, WeakCell::kValueOffset);
+      heap()->mark_compact_collector()->RecordSlot(slot, slot, value);
+    }
+    weak_cell_obj = weak_cell->next();
+    weak_cell->set_next(undefined, SKIP_WRITE_BARRIER);
+  }
+  heap()->set_encountered_weak_cells(Smi::FromInt(0));
+}
+
+
+void MarkCompactCollector::AbortWeakCells() {
+  Object* undefined = heap()->undefined_value();
+  Object* weak_cell_obj = heap()->encountered_weak_cells();
+  while (weak_cell_obj != Smi::FromInt(0)) {
+    WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
+    weak_cell_obj = weak_cell->next();
+    weak_cell->set_next(undefined, SKIP_WRITE_BARRIER);
+  }
+  heap()->set_encountered_weak_cells(Smi::FromInt(0));
+}
+
+
 void MarkCompactCollector::RecordMigratedSlot(Object* value, Address slot) {
   if (heap_->InNewSpace(value)) {
     heap_->store_buffer()->Mark(slot);
@@ -2841,7 +2785,7 @@ void MarkCompactCollector::RecordMigratedSlot(Object* value, Address slot) {
 }
 
 
-// We scavange new space simultaneously with sweeping. This is done in two
+// We scavenge new space simultaneously with sweeping. This is done in two
 // passes.
 //
 // The first pass migrates all alive objects from one semispace to another or
@@ -4167,7 +4111,6 @@ void MarkCompactCollector::SweepSpace(PagedSpace* space, SweeperType sweeper) {
 
     switch (sweeper) {
       case CONCURRENT_SWEEPING:
-      case PARALLEL_SWEEPING:
         if (!parallel_sweeping_active) {
           if (FLAG_gc_verbose) {
             PrintF("Sweeping 0x%" V8PRIxPTR ".\n",
@@ -4218,19 +4161,6 @@ void MarkCompactCollector::SweepSpace(PagedSpace* space, SweeperType sweeper) {
 }
 
 
-static bool ShouldStartSweeperThreads(MarkCompactCollector::SweeperType type) {
-  return (type == MarkCompactCollector::PARALLEL_SWEEPING ||
-          type == MarkCompactCollector::CONCURRENT_SWEEPING) &&
-         !FLAG_predictable;
-}
-
-
-static bool ShouldWaitForSweeperThreads(
-    MarkCompactCollector::SweeperType type) {
-  return type == MarkCompactCollector::PARALLEL_SWEEPING;
-}
-
-
 void MarkCompactCollector::SweepSpaces() {
   GCTracer::Scope gc_scope(heap()->tracer(), GCTracer::Scope::MC_SWEEP);
   double start_time = 0.0;
@@ -4241,10 +4171,6 @@ void MarkCompactCollector::SweepSpaces() {
 #ifdef DEBUG
   state_ = SWEEP_SPACES;
 #endif
-  SweeperType how_to_sweep = CONCURRENT_SWEEPING;
-  if (FLAG_parallel_sweeping) how_to_sweep = PARALLEL_SWEEPING;
-  if (FLAG_concurrent_sweeping) how_to_sweep = CONCURRENT_SWEEPING;
-
   MoveEvacuationCandidatesToEndOfPagesList();
 
   // Noncompacting collections simply sweep the spaces to clear the mark
@@ -4257,16 +4183,12 @@ void MarkCompactCollector::SweepSpaces() {
                                 GCTracer::Scope::MC_SWEEP_OLDSPACE);
     {
       SequentialSweepingScope scope(this);
-      SweepSpace(heap()->old_pointer_space(), how_to_sweep);
-      SweepSpace(heap()->old_data_space(), how_to_sweep);
+      SweepSpace(heap()->old_pointer_space(), CONCURRENT_SWEEPING);
+      SweepSpace(heap()->old_data_space(), CONCURRENT_SWEEPING);
     }
-
-    if (ShouldStartSweeperThreads(how_to_sweep)) {
+    sweeping_in_progress_ = true;
+    if (!FLAG_predictable) {
       StartSweeperThreads();
-    }
-
-    if (ShouldWaitForSweeperThreads(how_to_sweep)) {
-      EnsureSweepingCompleted();
     }
   }
   RemoveDeadInvalidatedCode();

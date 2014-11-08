@@ -7,13 +7,14 @@
 
 // Opcodes for control operators.
 #define INNER_CONTROL_OP_LIST(V) \
-  V(Dead)                  \
-  V(Loop)                  \
-  V(Branch)                \
-  V(IfTrue)                \
-  V(IfFalse)               \
-  V(Merge)                 \
-  V(Return)                \
+  V(Dead)                        \
+  V(Loop)                        \
+  V(Branch)                      \
+  V(IfTrue)                      \
+  V(IfFalse)                     \
+  V(Merge)                       \
+  V(Return)                      \
+  V(Terminate)                   \
   V(Throw)
 
 #define CONTROL_OP_LIST(V) \
@@ -32,6 +33,7 @@
   V(HeapConstant)
 
 #define INNER_OP_LIST(V) \
+  V(Select)              \
   V(Phi)                 \
   V(EffectPhi)           \
   V(ValueEffect)         \
@@ -158,7 +160,9 @@
   V(LoadField)                \
   V(LoadElement)              \
   V(StoreField)               \
-  V(StoreElement)
+  V(StoreElement)             \
+  V(ObjectIsSmi)              \
+  V(ObjectIsNonNegativeSmi)
 
 // Opcodes for Machine-level operators.
 #define MACHINE_OP_LIST(V)    \
@@ -185,6 +189,7 @@
   V(Int32Sub)                 \
   V(Int32SubWithOverflow)     \
   V(Int32Mul)                 \
+  V(Int32MulHigh)             \
   V(Int32Div)                 \
   V(Int32Mod)                 \
   V(Int32LessThan)            \
@@ -193,6 +198,7 @@
   V(Uint32LessThan)           \
   V(Uint32LessThanOrEqual)    \
   V(Uint32Mod)                \
+  V(Uint32MulHigh)            \
   V(Int64Add)                 \
   V(Int64Sub)                 \
   V(Int64Mul)                 \
@@ -222,6 +228,10 @@
   V(Float64Equal)             \
   V(Float64LessThan)          \
   V(Float64LessThanOrEqual)   \
+  V(Float64Floor)             \
+  V(Float64Ceil)              \
+  V(Float64RoundTruncate)     \
+  V(Float64RoundTiesAway)     \
   V(LoadStackPointer)
 
 #define VALUE_OP_LIST(V) \
@@ -255,6 +265,7 @@ class IrOpcode {
 
   // Returns the mnemonic name of an opcode.
   static const char* Mnemonic(Value val) {
+    // TODO(turbofan): make this a table lookup.
     switch (val) {
 #define RETURN_NAME(x) \
   case k##x:           \
@@ -268,6 +279,7 @@ class IrOpcode {
 
   static bool IsJsOpcode(Value val) {
     switch (val) {
+// TODO(turbofan): make this a range check.
 #define RETURN_NAME(x) \
   case k##x:           \
     return true;
@@ -280,6 +292,7 @@ class IrOpcode {
 
   static bool IsControlOpcode(Value val) {
     switch (val) {
+// TODO(turbofan): make this a range check.
 #define RETURN_NAME(x) \
   case k##x:           \
     return true;
@@ -292,6 +305,7 @@ class IrOpcode {
 
   static bool IsLeafOpcode(Value val) {
     switch (val) {
+// TODO(turbofan): make this a table lookup.
 #define RETURN_NAME(x) \
   case k##x:           \
     return true;
@@ -304,6 +318,7 @@ class IrOpcode {
 
   static bool IsCommonOpcode(Value val) {
     switch (val) {
+// TODO(turbofan): make this a table lookup or a range check.
 #define RETURN_NAME(x) \
   case k##x:           \
     return true;

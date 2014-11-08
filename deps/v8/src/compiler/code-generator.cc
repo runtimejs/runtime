@@ -12,9 +12,14 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-CodeGenerator::CodeGenerator(InstructionSequence* code)
-    : code_(code),
-      current_block_(NULL),
+CodeGenerator::CodeGenerator(Frame* frame, Linkage* linkage,
+                             InstructionSequence* code, CompilationInfo* info)
+    : frame_(frame),
+      linkage_(linkage),
+      code_(code),
+      info_(info),
+      labels_(zone()->NewArray<Label>(code->InstructionBlockCount())),
+      current_block_(BasicBlock::RpoNumber::Invalid()),
       current_source_position_(SourcePosition::Invalid()),
       masm_(code->zone()->isolate(), NULL, 0),
       resolver_(this),
@@ -22,11 +27,15 @@ CodeGenerator::CodeGenerator(InstructionSequence* code)
       deoptimization_states_(code->zone()),
       deoptimization_literals_(code->zone()),
       translations_(code->zone()),
-      last_lazy_deopt_pc_(0) {}
+      last_lazy_deopt_pc_(0) {
+  for (int i = 0; i < code->InstructionBlockCount(); ++i) {
+    new (&labels_[i]) Label;
+  }
+}
 
 
 Handle<Code> CodeGenerator::GenerateCode() {
-  CompilationInfo* info = linkage()->info();
+  CompilationInfo* info = this->info();
 
   // Emit a code line info recording start event.
   PositionsRecorder* recorder = masm()->positions_recorder();
@@ -41,10 +50,25 @@ Handle<Code> CodeGenerator::GenerateCode() {
   info->set_prologue_offset(masm()->pc_offset());
   AssemblePrologue();
 
-  // Assemble all instructions.
-  for (InstructionSequence::const_iterator i = code()->begin();
-       i != code()->end(); ++i) {
-    AssembleInstruction(*i);
+  // Assemble all non-deferred blocks, followed by deferred ones.
+  for (int deferred = 0; deferred < 2; ++deferred) {
+    for (auto const block : code()->instruction_blocks()) {
+      if (block->IsDeferred() == (deferred == 0)) {
+        continue;
+      }
+      // Bind a label for a block.
+      current_block_ = block->rpo_number();
+      if (FLAG_code_comments) {
+        // TODO(titzer): these code comments are a giant memory leak.
+        Vector<char> buffer = Vector<char>::New(32);
+        SNPrintF(buffer, "-- B%d start --", block->id().ToInt());
+        masm()->RecordComment(buffer.start());
+      }
+      masm()->bind(GetLabel(current_block_));
+      for (int i = block->code_start(); i < block->code_end(); ++i) {
+        AssembleInstruction(code()->InstructionAt(i));
+      }
+    }
   }
 
   FinishCode(masm());
@@ -80,6 +104,12 @@ Handle<Code> CodeGenerator::GenerateCode() {
 }
 
 
+bool CodeGenerator::IsNextInAssemblyOrder(BasicBlock::RpoNumber block) const {
+  return code()->InstructionBlockAt(current_block_)->ao_number().IsNext(
+      code()->InstructionBlockAt(block)->ao_number());
+}
+
+
 void CodeGenerator::RecordSafepoint(PointerMap* pointers, Safepoint::Kind kind,
                                     int arguments,
                                     Safepoint::DeoptMode deopt_mode) {
@@ -100,18 +130,6 @@ void CodeGenerator::RecordSafepoint(PointerMap* pointers, Safepoint::Kind kind,
 
 
 void CodeGenerator::AssembleInstruction(Instruction* instr) {
-  if (instr->IsBlockStart()) {
-    // Bind a label for a block start and handle parallel moves.
-    BlockStartInstruction* block_start = BlockStartInstruction::cast(instr);
-    current_block_ = block_start->block();
-    if (FLAG_code_comments) {
-      // TODO(titzer): these code comments are a giant memory leak.
-      Vector<char> buffer = Vector<char>::New(32);
-      SNPrintF(buffer, "-- B%d start --", block_start->block()->id().ToInt());
-      masm()->RecordComment(buffer.start());
-    }
-    masm()->bind(block_start->label());
-  }
   if (instr->IsGapMoves()) {
     // Handle parallel moves associated with the gap instruction.
     AssembleGap(GapInstruction::cast(instr));
@@ -147,7 +165,7 @@ void CodeGenerator::AssembleSourcePosition(SourcePositionInstruction* instr) {
     masm()->positions_recorder()->WriteRecordedPositions();
     if (FLAG_code_comments) {
       Vector<char> buffer = Vector<char>::New(256);
-      CompilationInfo* info = linkage()->info();
+      CompilationInfo* info = this->info();
       int ln = Script::GetLineNumber(info->script(), code_pos);
       int cn = Script::GetColumnNumber(info->script(), code_pos);
       if (info->script()->name()->IsString()) {
@@ -177,7 +195,7 @@ void CodeGenerator::AssembleGap(GapInstruction* instr) {
 
 
 void CodeGenerator::PopulateDeoptimizationData(Handle<Code> code_object) {
-  CompilationInfo* info = linkage()->info();
+  CompilationInfo* info = this->info();
   int deopt_count = static_cast<int>(deoptimization_states_.size());
   if (deopt_count == 0) return;
   Handle<DeoptimizationInputData> data =
@@ -270,7 +288,7 @@ void CodeGenerator::AddSafepointAndDeopt(Instruction* instr) {
     // by calls.)
     for (size_t i = 0; i < descriptor->GetSize(); i++) {
       InstructionOperand* op = instr->InputAt(frame_state_offset + 1 + i);
-      CHECK(op->IsStackSlot() || op->IsImmediate());
+      CHECK(op->IsStackSlot() || op->IsDoubleStackSlot() || op->IsImmediate());
     }
 #endif
     safepoints()->RecordLazyDeoptimizationIndex(deopt_state_id);
@@ -296,7 +314,15 @@ FrameStateDescriptor* CodeGenerator::GetFrameStateDescriptor(
   return code()->GetFrameStateDescriptor(state_id);
 }
 
-static InstructionOperand* OperandForFrameState(
+struct OperandAndType {
+  OperandAndType(InstructionOperand* operand, MachineType type)
+      : operand_(operand), type_(type) {}
+
+  InstructionOperand* operand_;
+  MachineType type_;
+};
+
+static OperandAndType TypedOperandForFrameState(
     FrameStateDescriptor* descriptor, Instruction* instr,
     size_t frame_state_offset, size_t index, OutputFrameStateCombine combine) {
   DCHECK(index < descriptor->GetSize(combine));
@@ -307,7 +333,8 @@ static InstructionOperand* OperandForFrameState(
           descriptor->GetSize(OutputFrameStateCombine::Ignore());
       // If the index is past the existing stack items, return the output.
       if (index >= size_without_output) {
-        return instr->OutputAt(index - size_without_output);
+        return OperandAndType(instr->OutputAt(index - size_without_output),
+                              kMachAnyTagged);
       }
       break;
     }
@@ -316,11 +343,13 @@ static InstructionOperand* OperandForFrameState(
           descriptor->GetSize(combine) - 1 - combine.GetOffsetToPokeAt();
       if (index >= index_from_top &&
           index < index_from_top + instr->OutputCount()) {
-        return instr->OutputAt(index - index_from_top);
+        return OperandAndType(instr->OutputAt(index - index_from_top),
+                              kMachAnyTagged);
       }
       break;
   }
-  return instr->InputAt(frame_state_offset + index);
+  return OperandAndType(instr->InputAt(frame_state_offset + index),
+                        descriptor->GetType(index));
 }
 
 
@@ -356,9 +385,9 @@ void CodeGenerator::BuildTranslationForFrameStateDescriptor(
 
   frame_state_offset += descriptor->outer_state()->GetTotalSize();
   for (size_t i = 0; i < descriptor->GetSize(state_combine); i++) {
-    InstructionOperand* op = OperandForFrameState(
+    OperandAndType op = TypedOperandForFrameState(
         descriptor, instr, frame_state_offset, i, state_combine);
-    AddTranslationForOperand(translation, instr, op);
+    AddTranslationForOperand(translation, instr, op.operand_, op.type_);
   }
 }
 
@@ -387,15 +416,36 @@ int CodeGenerator::BuildTranslation(Instruction* instr, int pc_offset,
 
 void CodeGenerator::AddTranslationForOperand(Translation* translation,
                                              Instruction* instr,
-                                             InstructionOperand* op) {
+                                             InstructionOperand* op,
+                                             MachineType type) {
   if (op->IsStackSlot()) {
-    translation->StoreStackSlot(op->index());
+    if (type == kMachBool || type == kMachInt32 || type == kMachInt8 ||
+        type == kMachInt16) {
+      translation->StoreInt32StackSlot(op->index());
+    } else if (type == kMachUint32) {
+      translation->StoreUint32StackSlot(op->index());
+    } else if ((type & kRepMask) == kRepTagged) {
+      translation->StoreStackSlot(op->index());
+    } else {
+      CHECK(false);
+    }
   } else if (op->IsDoubleStackSlot()) {
+    DCHECK((type & (kRepFloat32 | kRepFloat64)) != 0);
     translation->StoreDoubleStackSlot(op->index());
   } else if (op->IsRegister()) {
     InstructionOperandConverter converter(this, instr);
-    translation->StoreRegister(converter.ToRegister(op));
+    if (type == kMachBool || type == kMachInt32 || type == kMachInt8 ||
+        type == kMachInt16) {
+      translation->StoreInt32Register(converter.ToRegister(op));
+    } else if (type == kMachUint32) {
+      translation->StoreUint32Register(converter.ToRegister(op));
+    } else if ((type & kRepMask) == kRepTagged) {
+      translation->StoreRegister(converter.ToRegister(op));
+    } else {
+      CHECK(false);
+    }
   } else if (op->IsDoubleRegister()) {
+    DCHECK((type & (kRepFloat32 | kRepFloat64)) != 0);
     InstructionOperandConverter converter(this, instr);
     translation->StoreDoubleRegister(converter.ToDoubleRegister(op));
   } else if (op->IsImmediate()) {
@@ -404,22 +454,25 @@ void CodeGenerator::AddTranslationForOperand(Translation* translation,
     Handle<Object> constant_object;
     switch (constant.type()) {
       case Constant::kInt32:
+        DCHECK(type == kMachInt32 || type == kMachUint32);
         constant_object =
             isolate()->factory()->NewNumberFromInt(constant.ToInt32());
         break;
       case Constant::kFloat64:
+        DCHECK(type == kMachFloat64 || type == kMachAnyTagged);
         constant_object = isolate()->factory()->NewNumber(constant.ToFloat64());
         break;
       case Constant::kHeapObject:
+        DCHECK((type & kRepMask) == kRepTagged);
         constant_object = constant.ToHeapObject();
         break;
       default:
-        UNREACHABLE();
+        CHECK(false);
     }
     int literal_id = DefineDeoptimizationLiteral(constant_object);
     translation->StoreLiteral(literal_id);
   } else {
-    UNREACHABLE();
+    CHECK(false);
   }
 }
 

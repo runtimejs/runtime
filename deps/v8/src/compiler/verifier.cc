@@ -6,7 +6,10 @@
 
 #include <deque>
 #include <queue>
+#include <sstream>
+#include <string>
 
+#include "src/bit-vector.h"
 #include "src/compiler/generic-algorithm.h"
 #include "src/compiler/generic-node-inl.h"
 #include "src/compiler/generic-node.h"
@@ -18,7 +21,8 @@
 #include "src/compiler/opcodes.h"
 #include "src/compiler/operator.h"
 #include "src/compiler/schedule.h"
-#include "src/data-flow.h"
+#include "src/compiler/simplified-operator.h"
+#include "src/ostreams.h"
 
 namespace v8 {
 namespace internal {
@@ -45,28 +49,84 @@ static bool IsUseDefChainLinkPresent(Node* def, Node* use) {
 
 class Verifier::Visitor : public NullNodeVisitor {
  public:
-  explicit Visitor(Zone* zone)
-      : reached_from_start(NodeSet::key_compare(),
-                           NodeSet::allocator_type(zone)),
-        reached_from_end(NodeSet::key_compare(),
-                         NodeSet::allocator_type(zone)) {}
+  Visitor(Zone* z, Typing typed) : zone(z), typing(typed) {}
 
   // Fulfills the PreNodeCallback interface.
-  GenericGraphVisit::Control Pre(Node* node);
+  void Pre(Node* node);
 
-  bool from_start;
-  NodeSet reached_from_start;
-  NodeSet reached_from_end;
+  Zone* zone;
+  Typing typing;
+
+ private:
+  // TODO(rossberg): Get rid of these once we got rid of NodeProperties.
+  Bounds bounds(Node* node) { return NodeProperties::GetBounds(node); }
+  Node* ValueInput(Node* node, int i = 0) {
+    return NodeProperties::GetValueInput(node, i);
+  }
+  FieldAccess Field(Node* node) {
+    DCHECK(node->opcode() == IrOpcode::kLoadField ||
+           node->opcode() == IrOpcode::kStoreField);
+    return OpParameter<FieldAccess>(node);
+  }
+  ElementAccess Element(Node* node) {
+    DCHECK(node->opcode() == IrOpcode::kLoadElement ||
+           node->opcode() == IrOpcode::kStoreElement);
+    return OpParameter<ElementAccess>(node);
+  }
+  void CheckNotTyped(Node* node) {
+    if (NodeProperties::IsTyped(node)) {
+      std::ostringstream str;
+      str << "TypeError: node #" << node->opcode() << ":"
+          << node->op()->mnemonic() << " should never have a type";
+      V8_Fatal(__FILE__, __LINE__, str.str().c_str());
+    }
+  }
+  void CheckUpperIs(Node* node, Type* type) {
+    if (typing == TYPED && !bounds(node).upper->Is(type)) {
+      std::ostringstream str;
+      str << "TypeError: node #" << node->opcode() << ":"
+          << node->op()->mnemonic() << " upper bound ";
+      bounds(node).upper->PrintTo(str);
+      str << " is not ";
+      type->PrintTo(str);
+      V8_Fatal(__FILE__, __LINE__, str.str().c_str());
+    }
+  }
+  void CheckUpperMaybe(Node* node, Type* type) {
+    if (typing == TYPED && !bounds(node).upper->Maybe(type)) {
+      std::ostringstream str;
+      str << "TypeError: node #" << node->opcode() << ":"
+          << node->op()->mnemonic() << " upper bound ";
+      bounds(node).upper->PrintTo(str);
+      str << " must intersect ";
+      type->PrintTo(str);
+      V8_Fatal(__FILE__, __LINE__, str.str().c_str());
+    }
+  }
+  void CheckValueInputIs(Node* node, int i, Type* type) {
+    Node* input = ValueInput(node, i);
+    if (typing == TYPED && !bounds(input).upper->Is(type)) {
+      std::ostringstream str;
+      str << "TypeError: node #" << node->opcode() << ":"
+          << node->op()->mnemonic() << "(input @" << i << " = "
+          << input->opcode() << ":" << input->op()->mnemonic()
+          << ") upper bound ";
+      bounds(input).upper->PrintTo(str);
+      str << " is not ";
+      type->PrintTo(str);
+      V8_Fatal(__FILE__, __LINE__, str.str().c_str());
+    }
+  }
 };
 
 
-GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
-  int value_count = OperatorProperties::GetValueInputCount(node->op());
+void Verifier::Visitor::Pre(Node* node) {
+  int value_count = node->op()->ValueInputCount();
   int context_count = OperatorProperties::GetContextInputCount(node->op());
   int frame_state_count =
       OperatorProperties::GetFrameStateInputCount(node->op());
-  int effect_count = OperatorProperties::GetEffectInputCount(node->op());
-  int control_count = OperatorProperties::GetControlInputCount(node->op());
+  int effect_count = node->op()->EffectInputCount();
+  int control_count = node->op()->ControlInputCount();
 
   // Verify number of inputs matches up.
   int input_count = value_count + context_count + frame_state_count +
@@ -87,7 +147,7 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
   // Verify all value inputs actually produce a value.
   for (int i = 0; i < value_count; ++i) {
     Node* value = NodeProperties::GetValueInput(node, i);
-    CHECK(OperatorProperties::HasValueOutput(value->op()));
+    CHECK(value->op()->ValueOutputCount() > 0);
     CHECK(IsDefUseChainLinkPresent(value, node));
     CHECK(IsUseDefChainLinkPresent(value, node));
   }
@@ -95,7 +155,7 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
   // Verify all context inputs are value nodes.
   for (int i = 0; i < context_count; ++i) {
     Node* context = NodeProperties::GetContextInput(node);
-    CHECK(OperatorProperties::HasValueOutput(context->op()));
+    CHECK(context->op()->ValueOutputCount() > 0);
     CHECK(IsDefUseChainLinkPresent(context, node));
     CHECK(IsUseDefChainLinkPresent(context, node));
   }
@@ -103,7 +163,7 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
   // Verify all effect inputs actually have an effect.
   for (int i = 0; i < effect_count; ++i) {
     Node* effect = NodeProperties::GetEffectInput(node);
-    CHECK(OperatorProperties::HasEffectOutput(effect->op()));
+    CHECK(effect->op()->EffectOutputCount() > 0);
     CHECK(IsDefUseChainLinkPresent(effect, node));
     CHECK(IsUseDefChainLinkPresent(effect, node));
   }
@@ -111,13 +171,13 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
   // Verify all control inputs are control nodes.
   for (int i = 0; i < control_count; ++i) {
     Node* control = NodeProperties::GetControlInput(node, i);
-    CHECK(OperatorProperties::HasControlOutput(control->op()));
+    CHECK(control->op()->ControlOutputCount() > 0);
     CHECK(IsDefUseChainLinkPresent(control, node));
     CHECK(IsUseDefChainLinkPresent(control, node));
   }
 
   // Verify all successors are projections if multiple value outputs exist.
-  if (OperatorProperties::GetValueOutputCount(node->op()) > 1) {
+  if (node->op()->ValueOutputCount() > 1) {
     Node::Uses uses = node->uses();
     for (Node::Uses::iterator it = uses.begin(); it != uses.end(); ++it) {
       CHECK(!NodeProperties::IsValueEdge(it.edge()) ||
@@ -130,12 +190,17 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
     case IrOpcode::kStart:
       // Start has no inputs.
       CHECK_EQ(0, input_count);
+      // Type is a tuple.
+      // TODO(rossberg): Multiple outputs are currently typed as Internal.
+      CheckUpperIs(node, Type::Internal());
       break;
     case IrOpcode::kEnd:
       // End has no outputs.
-      CHECK(!OperatorProperties::HasValueOutput(node->op()));
-      CHECK(!OperatorProperties::HasEffectOutput(node->op()));
-      CHECK(!OperatorProperties::HasControlOutput(node->op()));
+      CHECK(node->op()->ValueOutputCount() == 0);
+      CHECK(node->op()->EffectOutputCount() == 0);
+      CHECK(node->op()->ControlOutputCount() == 0);
+      // Type is empty.
+      CheckNotTyped(node);
       break;
     case IrOpcode::kDead:
       // Dead is never connected to the graph.
@@ -143,31 +208,50 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
     case IrOpcode::kBranch: {
       // Branch uses are IfTrue and IfFalse.
       Node::Uses uses = node->uses();
-      bool got_true = false, got_false = false;
+      int count_true = 0, count_false = 0;
       for (Node::Uses::iterator it = uses.begin(); it != uses.end(); ++it) {
-        CHECK(((*it)->opcode() == IrOpcode::kIfTrue && !got_true) ||
-              ((*it)->opcode() == IrOpcode::kIfFalse && !got_false));
-        if ((*it)->opcode() == IrOpcode::kIfTrue) got_true = true;
-        if ((*it)->opcode() == IrOpcode::kIfFalse) got_false = true;
+        CHECK((*it)->opcode() == IrOpcode::kIfTrue ||
+              (*it)->opcode() == IrOpcode::kIfFalse);
+        if ((*it)->opcode() == IrOpcode::kIfTrue) ++count_true;
+        if ((*it)->opcode() == IrOpcode::kIfFalse) ++count_false;
       }
-      // TODO(rossberg): Currently fails for various tests.
-      // CHECK(got_true && got_false);
+      CHECK(count_true == 1 && count_false == 1);
+      // Type is empty.
+      CheckNotTyped(node);
       break;
     }
     case IrOpcode::kIfTrue:
     case IrOpcode::kIfFalse:
       CHECK_EQ(IrOpcode::kBranch,
                NodeProperties::GetControlInput(node, 0)->opcode());
+      // Type is empty.
+      CheckNotTyped(node);
       break;
     case IrOpcode::kLoop:
     case IrOpcode::kMerge:
+      CHECK_EQ(control_count, input_count);
+      // Type is empty.
+      CheckNotTyped(node);
       break;
     case IrOpcode::kReturn:
       // TODO(rossberg): check successor is End
+      // Type is empty.
+      CheckNotTyped(node);
       break;
     case IrOpcode::kThrow:
       // TODO(rossberg): what are the constraints on these?
+      // Type is empty.
+      CheckNotTyped(node);
       break;
+    case IrOpcode::kTerminate:
+      // Type is empty.
+      CheckNotTyped(node);
+      CHECK_EQ(1, control_count);
+      CHECK_EQ(input_count, 1 + effect_count);
+      break;
+
+    // Common operators
+    // ----------------
     case IrOpcode::kParameter: {
       // Parameters have the start node as inputs.
       CHECK_EQ(1, input_count);
@@ -177,81 +261,485 @@ GenericGraphVisit::Control Verifier::Visitor::Pre(Node* node) {
       int index = OpParameter<int>(node);
       Node* input = NodeProperties::GetValueInput(node, 0);
       // Currently, parameter indices start at -1 instead of 0.
-      CHECK_GT(OperatorProperties::GetValueOutputCount(input->op()), index + 1);
+      CHECK_GT(input->op()->ValueOutputCount(), index + 1);
+      // Type can be anything.
+      CheckUpperIs(node, Type::Any());
       break;
     }
-    case IrOpcode::kInt32Constant:
+    case IrOpcode::kInt32Constant:  // TODO(rossberg): rename Word32Constant?
+      // Constants have no inputs.
+      CHECK_EQ(0, input_count);
+      // Type is a 32 bit integer, signed or unsigned.
+      CheckUpperIs(node, Type::Integral32());
+      break;
     case IrOpcode::kInt64Constant:
+      // Constants have no inputs.
+      CHECK_EQ(0, input_count);
+      // Type is internal.
+      // TODO(rossberg): Introduce proper Int64 type.
+      CheckUpperIs(node, Type::Internal());
+      break;
+    case IrOpcode::kFloat32Constant:
     case IrOpcode::kFloat64Constant:
-    case IrOpcode::kExternalConstant:
     case IrOpcode::kNumberConstant:
+      // Constants have no inputs.
+      CHECK_EQ(0, input_count);
+      // Type is a number.
+      CheckUpperIs(node, Type::Number());
+      break;
     case IrOpcode::kHeapConstant:
       // Constants have no inputs.
       CHECK_EQ(0, input_count);
+      // Type can be anything represented as a heap pointer.
+      CheckUpperIs(node, Type::TaggedPtr());
       break;
+    case IrOpcode::kExternalConstant:
+      // Constants have no inputs.
+      CHECK_EQ(0, input_count);
+      // Type is considered internal.
+      CheckUpperIs(node, Type::Internal());
+      break;
+    case IrOpcode::kProjection: {
+      // Projection has an input that produces enough values.
+      int index = static_cast<int>(OpParameter<size_t>(node->op()));
+      Node* input = NodeProperties::GetValueInput(node, 0);
+      CHECK_GT(input->op()->ValueOutputCount(), index);
+      // Type can be anything.
+      // TODO(rossberg): Introduce tuple types for this.
+      // TODO(titzer): Convince rossberg not to.
+      CheckUpperIs(node, Type::Any());
+      break;
+    }
+    case IrOpcode::kSelect: {
+      CHECK_EQ(0, effect_count);
+      CHECK_EQ(0, control_count);
+      CHECK_EQ(3, value_count);
+      break;
+    }
     case IrOpcode::kPhi: {
       // Phi input count matches parent control node.
+      CHECK_EQ(0, effect_count);
       CHECK_EQ(1, control_count);
       Node* control = NodeProperties::GetControlInput(node, 0);
-      CHECK_EQ(value_count,
-               OperatorProperties::GetControlInputCount(control->op()));
+      CHECK_EQ(value_count, control->op()->ControlInputCount());
+      CHECK_EQ(input_count, 1 + value_count);
+      // Type must be subsumed by all input types.
+      // TODO(rossberg): for now at least, narrowing does not really hold.
+      /*
+      for (int i = 0; i < value_count; ++i) {
+        // TODO(rossberg, jarin): Figure out what to do about lower bounds.
+        // CHECK(bounds(node).lower->Is(bounds(ValueInput(node, i)).lower));
+        CHECK(bounds(ValueInput(node, i)).upper->Is(bounds(node).upper));
+      }
+      */
       break;
     }
     case IrOpcode::kEffectPhi: {
       // EffectPhi input count matches parent control node.
+      CHECK_EQ(0, value_count);
       CHECK_EQ(1, control_count);
       Node* control = NodeProperties::GetControlInput(node, 0);
-      CHECK_EQ(effect_count,
-               OperatorProperties::GetControlInputCount(control->op()));
+      CHECK_EQ(effect_count, control->op()->ControlInputCount());
+      CHECK_EQ(input_count, 1 + effect_count);
+      break;
+    }
+    case IrOpcode::kValueEffect:
+      // TODO(rossberg): what are the constraints on these?
+      break;
+    case IrOpcode::kFinish: {
+      // TODO(rossberg): what are the constraints on these?
+      // Type must be subsumed by input type.
+      if (typing == TYPED) {
+        CHECK(bounds(ValueInput(node)).lower->Is(bounds(node).lower));
+        CHECK(bounds(ValueInput(node)).upper->Is(bounds(node).upper));
+      }
       break;
     }
     case IrOpcode::kFrameState:
       // TODO(jarin): what are the constraints on these?
       break;
+    case IrOpcode::kStateValues:
+      // TODO(jarin): what are the constraints on these?
+      break;
     case IrOpcode::kCall:
       // TODO(rossberg): what are the constraints on these?
       break;
-    case IrOpcode::kProjection: {
-      // Projection has an input that produces enough values.
-      size_t index = OpParameter<size_t>(node);
-      Node* input = NodeProperties::GetValueInput(node, 0);
-      CHECK_GT(OperatorProperties::GetValueOutputCount(input->op()),
-               static_cast<int>(index));
+
+    // JavaScript operators
+    // --------------------
+    case IrOpcode::kJSEqual:
+    case IrOpcode::kJSNotEqual:
+    case IrOpcode::kJSStrictEqual:
+    case IrOpcode::kJSStrictNotEqual:
+    case IrOpcode::kJSLessThan:
+    case IrOpcode::kJSGreaterThan:
+    case IrOpcode::kJSLessThanOrEqual:
+    case IrOpcode::kJSGreaterThanOrEqual:
+    case IrOpcode::kJSUnaryNot:
+      // Type is Boolean.
+      CheckUpperIs(node, Type::Boolean());
+      break;
+
+    case IrOpcode::kJSBitwiseOr:
+    case IrOpcode::kJSBitwiseXor:
+    case IrOpcode::kJSBitwiseAnd:
+    case IrOpcode::kJSShiftLeft:
+    case IrOpcode::kJSShiftRight:
+    case IrOpcode::kJSShiftRightLogical:
+      // Type is 32 bit integral.
+      CheckUpperIs(node, Type::Integral32());
+      break;
+    case IrOpcode::kJSAdd:
+      // Type is Number or String.
+      CheckUpperIs(node, Type::NumberOrString());
+      break;
+    case IrOpcode::kJSSubtract:
+    case IrOpcode::kJSMultiply:
+    case IrOpcode::kJSDivide:
+    case IrOpcode::kJSModulus:
+      // Type is Number.
+      CheckUpperIs(node, Type::Number());
+      break;
+
+    case IrOpcode::kJSToBoolean:
+      // Type is Boolean.
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kJSToNumber:
+      // Type is Number.
+      CheckUpperIs(node, Type::Number());
+      break;
+    case IrOpcode::kJSToString:
+      // Type is String.
+      CheckUpperIs(node, Type::String());
+      break;
+    case IrOpcode::kJSToName:
+      // Type is Name.
+      CheckUpperIs(node, Type::Name());
+      break;
+    case IrOpcode::kJSToObject:
+      // Type is Receiver.
+      CheckUpperIs(node, Type::Receiver());
+      break;
+
+    case IrOpcode::kJSCreate:
+      // Type is Object.
+      CheckUpperIs(node, Type::Object());
+      break;
+    case IrOpcode::kJSLoadProperty:
+    case IrOpcode::kJSLoadNamed:
+      // Type can be anything.
+      CheckUpperIs(node, Type::Any());
+      break;
+    case IrOpcode::kJSStoreProperty:
+    case IrOpcode::kJSStoreNamed:
+      // Type is empty.
+      CheckNotTyped(node);
+      break;
+    case IrOpcode::kJSDeleteProperty:
+    case IrOpcode::kJSHasProperty:
+    case IrOpcode::kJSInstanceOf:
+      // Type is Boolean.
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kJSTypeOf:
+      // Type is String.
+      CheckUpperIs(node, Type::String());
+      break;
+
+    case IrOpcode::kJSLoadContext:
+      // Type can be anything.
+      CheckUpperIs(node, Type::Any());
+      break;
+    case IrOpcode::kJSStoreContext:
+      // Type is empty.
+      CheckNotTyped(node);
+      break;
+    case IrOpcode::kJSCreateFunctionContext:
+    case IrOpcode::kJSCreateCatchContext:
+    case IrOpcode::kJSCreateWithContext:
+    case IrOpcode::kJSCreateBlockContext:
+    case IrOpcode::kJSCreateModuleContext:
+    case IrOpcode::kJSCreateGlobalContext: {
+      // Type is Context, and operand is Internal.
+      Node* context = NodeProperties::GetContextInput(node);
+      // TODO(rossberg): This should really be Is(Internal), but the typer
+      // currently can't do backwards propagation.
+      CheckUpperMaybe(context, Type::Internal());
+      if (typing == TYPED) CHECK(bounds(node).upper->IsContext());
       break;
     }
-    default:
-      // TODO(rossberg): Check other node kinds.
+
+    case IrOpcode::kJSCallConstruct:
+      // Type is Receiver.
+      CheckUpperIs(node, Type::Receiver());
+      break;
+    case IrOpcode::kJSCallFunction:
+    case IrOpcode::kJSCallRuntime:
+    case IrOpcode::kJSYield:
+    case IrOpcode::kJSDebugger:
+      // Type can be anything.
+      CheckUpperIs(node, Type::Any());
+      break;
+
+    // Simplified operators
+    // -------------------------------
+    case IrOpcode::kBooleanNot:
+      // Boolean -> Boolean
+      CheckValueInputIs(node, 0, Type::Boolean());
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kBooleanToNumber:
+      // Boolean -> Number
+      CheckValueInputIs(node, 0, Type::Boolean());
+      CheckUpperIs(node, Type::Number());
+      break;
+    case IrOpcode::kNumberEqual:
+    case IrOpcode::kNumberLessThan:
+    case IrOpcode::kNumberLessThanOrEqual:
+      // (Number, Number) -> Boolean
+      CheckValueInputIs(node, 0, Type::Number());
+      CheckValueInputIs(node, 1, Type::Number());
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kNumberAdd:
+    case IrOpcode::kNumberSubtract:
+    case IrOpcode::kNumberMultiply:
+    case IrOpcode::kNumberDivide:
+    case IrOpcode::kNumberModulus:
+      // (Number, Number) -> Number
+      CheckValueInputIs(node, 0, Type::Number());
+      CheckValueInputIs(node, 1, Type::Number());
+      // TODO(rossberg): activate once we retype after opcode changes.
+      // CheckUpperIs(node, Type::Number());
+      break;
+    case IrOpcode::kNumberToInt32:
+      // Number -> Signed32
+      CheckValueInputIs(node, 0, Type::Number());
+      CheckUpperIs(node, Type::Signed32());
+      break;
+    case IrOpcode::kNumberToUint32:
+      // Number -> Unsigned32
+      CheckValueInputIs(node, 0, Type::Number());
+      CheckUpperIs(node, Type::Unsigned32());
+      break;
+    case IrOpcode::kStringEqual:
+    case IrOpcode::kStringLessThan:
+    case IrOpcode::kStringLessThanOrEqual:
+      // (String, String) -> Boolean
+      CheckValueInputIs(node, 0, Type::String());
+      CheckValueInputIs(node, 1, Type::String());
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kStringAdd:
+      // (String, String) -> String
+      CheckValueInputIs(node, 0, Type::String());
+      CheckValueInputIs(node, 1, Type::String());
+      CheckUpperIs(node, Type::String());
+      break;
+    case IrOpcode::kReferenceEqual: {
+      // (Unique, Any) -> Boolean  and
+      // (Any, Unique) -> Boolean
+      if (typing == TYPED) {
+        CHECK(bounds(ValueInput(node, 0)).upper->Is(Type::Unique()) ||
+              bounds(ValueInput(node, 1)).upper->Is(Type::Unique()));
+      }
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    }
+    case IrOpcode::kObjectIsSmi:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckUpperIs(node, Type::Boolean());
+      break;
+    case IrOpcode::kObjectIsNonNegativeSmi:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckUpperIs(node, Type::Boolean());
+      break;
+
+    case IrOpcode::kChangeTaggedToInt32: {
+      // Signed32 /\ Tagged -> Signed32 /\ UntaggedInt32
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from = Type::Intersect(Type::Signed32(), Type::Tagged());
+      // Type* to = Type::Intersect(Type::Signed32(), Type::UntaggedInt32());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeTaggedToUint32: {
+      // Unsigned32 /\ Tagged -> Unsigned32 /\ UntaggedInt32
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from = Type::Intersect(Type::Unsigned32(), Type::Tagged());
+      // Type* to =Type::Intersect(Type::Unsigned32(), Type::UntaggedInt32());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeTaggedToFloat64: {
+      // Number /\ Tagged -> Number /\ UntaggedFloat64
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from = Type::Intersect(Type::Number(), Type::Tagged());
+      // Type* to = Type::Intersect(Type::Number(), Type::UntaggedFloat64());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeInt32ToTagged: {
+      // Signed32 /\ UntaggedInt32 -> Signed32 /\ Tagged
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from =Type::Intersect(Type::Signed32(), Type::UntaggedInt32());
+      // Type* to = Type::Intersect(Type::Signed32(), Type::Tagged());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeUint32ToTagged: {
+      // Unsigned32 /\ UntaggedInt32 -> Unsigned32 /\ Tagged
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from=Type::Intersect(Type::Unsigned32(),Type::UntaggedInt32());
+      // Type* to = Type::Intersect(Type::Unsigned32(), Type::Tagged());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeFloat64ToTagged: {
+      // Number /\ UntaggedFloat64 -> Number /\ Tagged
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from =Type::Intersect(Type::Number(), Type::UntaggedFloat64());
+      // Type* to = Type::Intersect(Type::Number(), Type::Tagged());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeBoolToBit: {
+      // Boolean /\ TaggedPtr -> Boolean /\ UntaggedInt1
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from = Type::Intersect(Type::Boolean(), Type::TaggedPtr());
+      // Type* to = Type::Intersect(Type::Boolean(), Type::UntaggedInt1());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+    case IrOpcode::kChangeBitToBool: {
+      // Boolean /\ UntaggedInt1 -> Boolean /\ TaggedPtr
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type* from = Type::Intersect(Type::Boolean(), Type::UntaggedInt1());
+      // Type* to = Type::Intersect(Type::Boolean(), Type::TaggedPtr());
+      // CheckValueInputIs(node, 0, from));
+      // CheckUpperIs(node, to));
+      break;
+    }
+
+    case IrOpcode::kLoadField:
+      // Object -> fieldtype
+      // TODO(rossberg): activate once machine ops are typed.
+      // CheckValueInputIs(node, 0, Type::Object());
+      // CheckUpperIs(node, Field(node).type));
+      break;
+    case IrOpcode::kLoadElement:
+      // Object -> elementtype
+      // TODO(rossberg): activate once machine ops are typed.
+      // CheckValueInputIs(node, 0, Type::Object());
+      // CheckUpperIs(node, Element(node).type));
+      break;
+    case IrOpcode::kStoreField:
+      // (Object, fieldtype) -> _|_
+      // TODO(rossberg): activate once machine ops are typed.
+      // CheckValueInputIs(node, 0, Type::Object());
+      // CheckValueInputIs(node, 1, Field(node).type));
+      CheckNotTyped(node);
+      break;
+    case IrOpcode::kStoreElement:
+      // (Object, elementtype) -> _|_
+      // TODO(rossberg): activate once machine ops are typed.
+      // CheckValueInputIs(node, 0, Type::Object());
+      // CheckValueInputIs(node, 1, Element(node).type));
+      CheckNotTyped(node);
+      break;
+
+    // Machine operators
+    // -----------------------
+    case IrOpcode::kLoad:
+    case IrOpcode::kStore:
+    case IrOpcode::kWord32And:
+    case IrOpcode::kWord32Or:
+    case IrOpcode::kWord32Xor:
+    case IrOpcode::kWord32Shl:
+    case IrOpcode::kWord32Shr:
+    case IrOpcode::kWord32Sar:
+    case IrOpcode::kWord32Ror:
+    case IrOpcode::kWord32Equal:
+    case IrOpcode::kWord64And:
+    case IrOpcode::kWord64Or:
+    case IrOpcode::kWord64Xor:
+    case IrOpcode::kWord64Shl:
+    case IrOpcode::kWord64Shr:
+    case IrOpcode::kWord64Sar:
+    case IrOpcode::kWord64Ror:
+    case IrOpcode::kWord64Equal:
+    case IrOpcode::kInt32Add:
+    case IrOpcode::kInt32AddWithOverflow:
+    case IrOpcode::kInt32Sub:
+    case IrOpcode::kInt32SubWithOverflow:
+    case IrOpcode::kInt32Mul:
+    case IrOpcode::kInt32MulHigh:
+    case IrOpcode::kInt32Div:
+    case IrOpcode::kInt32Mod:
+    case IrOpcode::kInt32LessThan:
+    case IrOpcode::kInt32LessThanOrEqual:
+    case IrOpcode::kUint32Div:
+    case IrOpcode::kUint32Mod:
+    case IrOpcode::kUint32MulHigh:
+    case IrOpcode::kUint32LessThan:
+    case IrOpcode::kUint32LessThanOrEqual:
+    case IrOpcode::kInt64Add:
+    case IrOpcode::kInt64Sub:
+    case IrOpcode::kInt64Mul:
+    case IrOpcode::kInt64Div:
+    case IrOpcode::kInt64Mod:
+    case IrOpcode::kInt64LessThan:
+    case IrOpcode::kInt64LessThanOrEqual:
+    case IrOpcode::kUint64Div:
+    case IrOpcode::kUint64Mod:
+    case IrOpcode::kUint64LessThan:
+    case IrOpcode::kFloat64Add:
+    case IrOpcode::kFloat64Sub:
+    case IrOpcode::kFloat64Mul:
+    case IrOpcode::kFloat64Div:
+    case IrOpcode::kFloat64Mod:
+    case IrOpcode::kFloat64Sqrt:
+    case IrOpcode::kFloat64Floor:
+    case IrOpcode::kFloat64Ceil:
+    case IrOpcode::kFloat64RoundTruncate:
+    case IrOpcode::kFloat64RoundTiesAway:
+    case IrOpcode::kFloat64Equal:
+    case IrOpcode::kFloat64LessThan:
+    case IrOpcode::kFloat64LessThanOrEqual:
+    case IrOpcode::kTruncateInt64ToInt32:
+    case IrOpcode::kTruncateFloat64ToFloat32:
+    case IrOpcode::kTruncateFloat64ToInt32:
+    case IrOpcode::kChangeInt32ToInt64:
+    case IrOpcode::kChangeUint32ToUint64:
+    case IrOpcode::kChangeInt32ToFloat64:
+    case IrOpcode::kChangeUint32ToFloat64:
+    case IrOpcode::kChangeFloat32ToFloat64:
+    case IrOpcode::kChangeFloat64ToInt32:
+    case IrOpcode::kChangeFloat64ToUint32:
+    case IrOpcode::kLoadStackPointer:
+      // TODO(rossberg): Check.
       break;
   }
-
-  if (from_start) {
-    reached_from_start.insert(node);
-  } else {
-    reached_from_end.insert(node);
-  }
-
-  return GenericGraphVisit::CONTINUE;
 }
 
 
-void Verifier::Run(Graph* graph) {
-  Visitor visitor(graph->zone());
-
+void Verifier::Run(Graph* graph, Typing typing) {
+  Visitor visitor(graph->zone(), typing);
   CHECK_NE(NULL, graph->start());
-  visitor.from_start = true;
-  graph->VisitNodeUsesFromStart(&visitor);
   CHECK_NE(NULL, graph->end());
-  visitor.from_start = false;
   graph->VisitNodeInputsFromEnd(&visitor);
-
-  // All control nodes reachable from end are reachable from start.
-  for (NodeSet::iterator it = visitor.reached_from_end.begin();
-       it != visitor.reached_from_end.end(); ++it) {
-    CHECK(!NodeProperties::IsControl(*it) ||
-          visitor.reached_from_start.count(*it));
-  }
 }
 
+
+// -----------------------------------------------------------------------------
 
 static bool HasDominatingDef(Schedule* schedule, Node* node,
                              BasicBlock* container, BasicBlock* use_block,
@@ -271,10 +759,22 @@ static bool HasDominatingDef(Schedule* schedule, Node* node,
 }
 
 
+static bool Dominates(Schedule* schedule, Node* dominator, Node* dominatee) {
+  BasicBlock* dom = schedule->block(dominator);
+  BasicBlock* sub = schedule->block(dominatee);
+  while (sub != NULL) {
+    if (sub == dom) {
+      return true;
+    }
+    sub = sub->dominator();
+  }
+  return false;
+}
+
+
 static void CheckInputsDominate(Schedule* schedule, BasicBlock* block,
                                 Node* node, int use_pos) {
-  for (int j = OperatorProperties::GetValueInputCount(node->op()) - 1; j >= 0;
-       j--) {
+  for (int j = node->op()->ValueInputCount() - 1; j >= 0; j--) {
     BasicBlock* use_block = block;
     if (node->opcode() == IrOpcode::kPhi) {
       use_block = use_block->PredecessorAt(j);
@@ -287,6 +787,19 @@ static void CheckInputsDominate(Schedule* schedule, BasicBlock* block,
                "Node #%d:%s in B%d is not dominated by input@%d #%d:%s",
                node->id(), node->op()->mnemonic(), block->id().ToInt(), j,
                input->id(), input->op()->mnemonic());
+    }
+  }
+  // Ensure that nodes are dominated by their control inputs;
+  // kEnd is an exception, as unreachable blocks resulting from kMerge
+  // are not in the RPO.
+  if (node->op()->ControlInputCount() == 1 &&
+      node->opcode() != IrOpcode::kEnd) {
+    Node* ctl = NodeProperties::GetControlInput(node);
+    if (!Dominates(schedule, ctl, node)) {
+      V8_Fatal(__FILE__, __LINE__,
+               "Node #%d:%s in B%d is not dominated by control input #%d:%s",
+               node->id(), node->op()->mnemonic(), block->id(), ctl->id(),
+               ctl->op()->mnemonic());
     }
   }
 }
@@ -304,6 +817,17 @@ void ScheduleVerifier::Run(Schedule* schedule) {
   for (BasicBlockVector::iterator b = rpo_order->begin(); b != rpo_order->end();
        ++b) {
     CHECK_EQ((*b), schedule->GetBlockById((*b)->id()));
+    // All predecessors and successors should be in rpo and in this schedule.
+    for (BasicBlock::Predecessors::iterator j = (*b)->predecessors_begin();
+         j != (*b)->predecessors_end(); ++j) {
+      CHECK_GE((*j)->rpo_number(), 0);
+      CHECK_EQ((*j), schedule->GetBlockById((*j)->id()));
+    }
+    for (BasicBlock::Successors::iterator j = (*b)->successors_begin();
+         j != (*b)->successors_end(); ++j) {
+      CHECK_GE((*j)->rpo_number(), 0);
+      CHECK_EQ((*j), schedule->GetBlockById((*j)->id()));
+    }
   }
 
   // Verify RPO numbers of blocks.
@@ -423,8 +947,7 @@ void ScheduleVerifier::Run(Schedule* schedule) {
       if (phi->opcode() != IrOpcode::kPhi) continue;
       // TODO(titzer): Nasty special case. Phis from RawMachineAssembler
       // schedules don't have control inputs.
-      if (phi->InputCount() >
-          OperatorProperties::GetValueInputCount(phi->op())) {
+      if (phi->InputCount() > phi->op()->ValueInputCount()) {
         Node* control = NodeProperties::GetControlInput(phi);
         CHECK(control->opcode() == IrOpcode::kMerge ||
               control->opcode() == IrOpcode::kLoop);

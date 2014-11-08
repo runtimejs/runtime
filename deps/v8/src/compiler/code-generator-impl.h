@@ -5,15 +5,12 @@
 #ifndef V8_COMPILER_CODE_GENERATOR_IMPL_H_
 #define V8_COMPILER_CODE_GENERATOR_IMPL_H_
 
+#include "src/code-stubs.h"
 #include "src/compiler/code-generator.h"
-#include "src/compiler/common-operator.h"
-#include "src/compiler/generic-graph.h"
 #include "src/compiler/instruction.h"
 #include "src/compiler/linkage.h"
-#include "src/compiler/machine-operator.h"
-#include "src/compiler/node.h"
 #include "src/compiler/opcodes.h"
-#include "src/compiler/operator.h"
+#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -60,13 +57,11 @@ class InstructionOperandConverter {
     return ToHeapObject(instr_->InputAt(index));
   }
 
-  Label* InputLabel(int index) {
-    return gen_->code()->GetLabel(InputBlock(index));
-  }
+  Label* InputLabel(int index) { return gen_->GetLabel(InputRpo(index)); }
 
-  BasicBlock* InputBlock(int index) {
-    int block_id = InputInt32(index);
-    return gen_->schedule()->GetBlockById(BasicBlock::Id::FromInt(block_id));
+  BasicBlock::RpoNumber InputRpo(int index) {
+    int rpo_number = InputInt32(index);
+    return BasicBlock::RpoNumber::FromInt(rpo_number);
   }
 
   Register OutputRegister(int index = 0) {

@@ -105,15 +105,14 @@ Handle<Code> PlatformCodeStub::GenerateCode() {
   // Generate the new code.
   MacroAssembler masm(isolate(), NULL, 256);
 
-  // TODO(yangguo) remove this once the code serializer handles code stubs.
-  if (FLAG_serialize_toplevel) masm.enable_serializer();
-
   {
     // Update the static counter each time a new code stub is generated.
     isolate()->counters()->code_stubs()->Increment();
 
     // Generate the code for the stub.
     masm.set_generating_stub(true);
+    // TODO(yangguo): remove this once we can serialize IC stubs.
+    masm.enable_serializer();
     NoCurrentFrameScope scope(&masm);
     Generate(&masm);
   }
@@ -224,9 +223,8 @@ void CodeStub::Dispatch(Isolate* isolate, uint32_t key, void** value_out,
     CODE_STUB_LIST(DEF_CASE)
 #undef DEF_CASE
     case NUMBER_OF_IDS:
-      UNREACHABLE();
     case NoCache:
-      *value_out = NULL;
+      UNREACHABLE();
       break;
   }
 }
@@ -596,6 +594,9 @@ void HandlerStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
 
 CallInterfaceDescriptor HandlerStub::GetCallInterfaceDescriptor() {
   if (kind() == Code::LOAD_IC || kind() == Code::KEYED_LOAD_IC) {
+    if (FLAG_vector_ics) {
+      return VectorLoadICDescriptor(isolate());
+    }
     return LoadDescriptor(isolate());
   } else {
     DCHECK_EQ(Code::STORE_IC, kind());
@@ -631,14 +632,13 @@ static void InitializeVectorLoadStub(Isolate* isolate,
 
 void VectorLoadStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
   InitializeVectorLoadStub(isolate(), descriptor,
-                           FUNCTION_ADDR(VectorLoadIC_MissFromStubFailure));
+                           FUNCTION_ADDR(LoadIC_MissFromStubFailure));
 }
 
 
 void VectorKeyedLoadStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
-  InitializeVectorLoadStub(
-      isolate(), descriptor,
-      FUNCTION_ADDR(VectorKeyedLoadIC_MissFromStubFailure));
+  InitializeVectorLoadStub(isolate(), descriptor,
+                           FUNCTION_ADDR(KeyedLoadIC_MissFromStubFailure));
 }
 
 
@@ -652,9 +652,6 @@ void FastNewClosureStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
 
 
 void FastNewContextStub::InitializeDescriptor(CodeStubDescriptor* d) {}
-
-
-void ToNumberStub::InitializeDescriptor(CodeStubDescriptor* d) {}
 
 
 void NumberToStringStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
@@ -694,6 +691,13 @@ void TransitionElementsKindStub::InitializeDescriptor(
     CodeStubDescriptor* descriptor) {
   descriptor->Initialize(
       Runtime::FunctionForId(Runtime::kTransitionElementsKind)->entry);
+}
+
+
+void AllocateHeapNumberStub::InitializeDescriptor(
+    CodeStubDescriptor* descriptor) {
+  descriptor->Initialize(
+      Runtime::FunctionForId(Runtime::kAllocateHeapNumber)->entry);
 }
 
 

@@ -52,6 +52,7 @@ namespace internal {
   V(Map, fixed_cow_array_map, FixedCOWArrayMap)                                \
   V(Map, fixed_double_array_map, FixedDoubleArrayMap)                          \
   V(Map, constant_pool_array_map, ConstantPoolArrayMap)                        \
+  V(Map, weak_cell_map, WeakCellMap)                                           \
   V(Oddball, no_interceptor_result_sentinel, NoInterceptorResultSentinel)      \
   V(Map, hash_table_map, HashTableMap)                                         \
   V(Map, ordered_hash_table_map, OrderedHashTableMap)                          \
@@ -83,6 +84,7 @@ namespace internal {
   V(Map, external_string_with_one_byte_data_map,                               \
     ExternalStringWithOneByteDataMap)                                          \
   V(Map, external_one_byte_string_map, ExternalOneByteStringMap)               \
+  V(Map, native_source_string_map, NativeSourceStringMap)                      \
   V(Map, short_external_string_map, ShortExternalStringMap)                    \
   V(Map, short_external_string_with_one_byte_data_map,                         \
     ShortExternalStringWithOneByteDataMap)                                     \
@@ -196,57 +198,6 @@ namespace internal {
   SMI_ROOT_LIST(V)    \
   V(StringTable, string_table, StringTable)
 
-// Heap roots that are known to be immortal immovable, for which we can safely
-// skip write barriers.
-#define IMMORTAL_IMMOVABLE_ROOT_LIST(V) \
-  V(byte_array_map)                     \
-  V(free_space_map)                     \
-  V(one_pointer_filler_map)             \
-  V(two_pointer_filler_map)             \
-  V(undefined_value)                    \
-  V(the_hole_value)                     \
-  V(null_value)                         \
-  V(true_value)                         \
-  V(false_value)                        \
-  V(uninitialized_value)                \
-  V(cell_map)                           \
-  V(global_property_cell_map)           \
-  V(shared_function_info_map)           \
-  V(meta_map)                           \
-  V(heap_number_map)                    \
-  V(mutable_heap_number_map)            \
-  V(native_context_map)                 \
-  V(fixed_array_map)                    \
-  V(code_map)                           \
-  V(scope_info_map)                     \
-  V(fixed_cow_array_map)                \
-  V(fixed_double_array_map)             \
-  V(constant_pool_array_map)            \
-  V(no_interceptor_result_sentinel)     \
-  V(hash_table_map)                     \
-  V(ordered_hash_table_map)             \
-  V(empty_fixed_array)                  \
-  V(empty_byte_array)                   \
-  V(empty_descriptor_array)             \
-  V(empty_constant_pool_array)          \
-  V(arguments_marker)                   \
-  V(symbol_map)                         \
-  V(sloppy_arguments_elements_map)      \
-  V(function_context_map)               \
-  V(catch_context_map)                  \
-  V(with_context_map)                   \
-  V(block_context_map)                  \
-  V(module_context_map)                 \
-  V(global_context_map)                 \
-  V(undefined_map)                      \
-  V(the_hole_map)                       \
-  V(null_map)                           \
-  V(boolean_map)                        \
-  V(uninitialized_map)                  \
-  V(message_object_map)                 \
-  V(foreign_map)                        \
-  V(neander_map)
-
 #define INTERNALIZED_STRING_LIST(V)                        \
   V(Object_string, "Object")                               \
   V(proto_string, "__proto__")                             \
@@ -321,7 +272,11 @@ namespace internal {
   V(value_string, "value")                                 \
   V(next_string, "next")                                   \
   V(byte_length_string, "byteLength")                      \
-  V(byte_offset_string, "byteOffset")
+  V(byte_offset_string, "byteOffset")                      \
+  V(minus_zero_string, "-0")                               \
+  V(Array_string, "Array")                                 \
+  V(Error_string, "Error")                                 \
+  V(RegExp_string, "RegExp")
 
 #define PRIVATE_SYMBOL_LIST(V)      \
   V(frozen_symbol)                  \
@@ -339,7 +294,64 @@ namespace internal {
   V(intl_initialized_marker_symbol) \
   V(intl_impl_object_symbol)        \
   V(promise_debug_marker_symbol)    \
-  V(promise_has_handler_symbol)
+  V(promise_has_handler_symbol)     \
+  V(class_script_symbol)            \
+  V(class_start_position_symbol)    \
+  V(class_end_position_symbol)
+
+// Heap roots that are known to be immortal immovable, for which we can safely
+// skip write barriers. This list is not complete and has omissions.
+#define IMMORTAL_IMMOVABLE_ROOT_LIST(V) \
+  V(ByteArrayMap)                       \
+  V(FreeSpaceMap)                       \
+  V(OnePointerFillerMap)                \
+  V(TwoPointerFillerMap)                \
+  V(UndefinedValue)                     \
+  V(TheHoleValue)                       \
+  V(NullValue)                          \
+  V(TrueValue)                          \
+  V(FalseValue)                         \
+  V(UninitializedValue)                 \
+  V(CellMap)                            \
+  V(GlobalPropertyCellMap)              \
+  V(SharedFunctionInfoMap)              \
+  V(MetaMap)                            \
+  V(HeapNumberMap)                      \
+  V(MutableHeapNumberMap)               \
+  V(NativeContextMap)                   \
+  V(FixedArrayMap)                      \
+  V(CodeMap)                            \
+  V(ScopeInfoMap)                       \
+  V(FixedCOWArrayMap)                   \
+  V(FixedDoubleArrayMap)                \
+  V(ConstantPoolArrayMap)               \
+  V(WeakCellMap)                        \
+  V(NoInterceptorResultSentinel)        \
+  V(HashTableMap)                       \
+  V(OrderedHashTableMap)                \
+  V(EmptyFixedArray)                    \
+  V(EmptyByteArray)                     \
+  V(EmptyDescriptorArray)               \
+  V(EmptyConstantPoolArray)             \
+  V(ArgumentsMarker)                    \
+  V(SymbolMap)                          \
+  V(SloppyArgumentsElementsMap)         \
+  V(FunctionContextMap)                 \
+  V(CatchContextMap)                    \
+  V(WithContextMap)                     \
+  V(BlockContextMap)                    \
+  V(ModuleContextMap)                   \
+  V(GlobalContextMap)                   \
+  V(UndefinedMap)                       \
+  V(TheHoleMap)                         \
+  V(NullMap)                            \
+  V(BooleanMap)                         \
+  V(UninitializedMap)                   \
+  V(ArgumentsMarkerMap)                 \
+  V(JSMessageObjectMap)                 \
+  V(ForeignMap)                         \
+  V(NeanderMap)                         \
+  PRIVATE_SYMBOL_LIST(V)
 
 // Forward declarations.
 class HeapStats;
@@ -542,6 +554,10 @@ class Heap {
   // jslimit_/real_jslimit_ variable in the StackGuard.
   void SetStackLimits();
 
+  // Notifies the heap that is ok to start marking or other activities that
+  // should not happen during deserialization.
+  void NotifyDeserializationComplete();
+
   // Returns whether SetUp has been called.
   bool HasBeenSetUp();
 
@@ -556,6 +572,7 @@ class Heap {
   int MaxSemiSpaceSize() { return max_semi_space_size_; }
   int ReservedSemiSpaceSize() { return reserved_semispace_size_; }
   int InitialSemiSpaceSize() { return initial_semispace_size_; }
+  int TargetSemiSpaceSize() { return target_semispace_size_; }
   intptr_t MaxOldGenerationSize() { return max_old_generation_size_; }
   intptr_t MaxExecutableSize() { return max_executable_size_; }
 
@@ -821,6 +838,11 @@ class Heap {
     return encountered_weak_collections_;
   }
 
+  void set_encountered_weak_cells(Object* weak_cell) {
+    encountered_weak_cells_ = weak_cell;
+  }
+  Object* encountered_weak_cells() const { return encountered_weak_cells_; }
+
   // Number of mark-sweeps.
   unsigned int ms_count() { return ms_count_; }
 
@@ -908,6 +930,8 @@ class Heap {
     return reinterpret_cast<Address*>(&roots_[kStoreBufferTopRootIndex]);
   }
 
+  static bool RootIsImmortalImmovable(int root_index);
+
 #ifdef VERIFY_HEAP
   // Verify the heap is in its normal state before or after a GC.
   void Verify();
@@ -994,7 +1018,16 @@ class Heap {
 
   // Support for partial snapshots.  After calling this we have a linear
   // space to write objects in each space.
-  void ReserveSpace(int* sizes, Address* addresses);
+  struct Chunk {
+    uint32_t size;
+    Address start;
+    Address end;
+  };
+
+  typedef List<Chunk> Reservation;
+
+  // Returns false if not able to reserve.
+  bool ReserveSpace(Reservation* reservations);
 
   //
   // Support for the API.
@@ -1086,6 +1119,8 @@ class Heap {
     kStrongRootListLength = kStringTableRootIndex,
     kSmiRootsStart = kStringTableRootIndex + 1
   };
+
+  Object* root(RootListIndex index) { return roots_[index]; }
 
   STATIC_ASSERT(kUndefinedValueRootIndex ==
                 Internals::kUndefinedValueRootIndex);
@@ -1377,6 +1412,8 @@ class Heap {
   inline void OnMoveEvent(HeapObject* target, HeapObject* source,
                           int size_in_bytes);
 
+  bool deserialization_complete() const { return deserialization_complete_; }
+
  protected:
   // Methods made available to tests.
 
@@ -1442,6 +1479,7 @@ class Heap {
   int reserved_semispace_size_;
   int max_semi_space_size_;
   int initial_semispace_size_;
+  int target_semispace_size_;
   intptr_t max_old_generation_size_;
   intptr_t max_executable_size_;
   intptr_t maximum_committed_;
@@ -1548,6 +1586,8 @@ class Heap {
   // marking. It is initialized during marking, destroyed after marking and
   // contains Smi(0) while marking is not active.
   Object* encountered_weak_collections_;
+
+  Object* encountered_weak_cells_;
 
   StoreBufferRebuilder store_buffer_rebuilder_;
 
@@ -1829,6 +1869,8 @@ class Heap {
   // Allocate a tenured JS global property cell initialized with the hole.
   MUST_USE_RESULT AllocationResult AllocatePropertyCell();
 
+  MUST_USE_RESULT AllocationResult AllocateWeakCell(HeapObject* value);
+
   // Allocates a new utility object in the old generation.
   MUST_USE_RESULT AllocationResult AllocateStruct(InstanceType type);
 
@@ -1939,7 +1981,11 @@ class Heap {
 
   void SelectScavengingVisitorsTable();
 
-  void AdvanceIdleIncrementalMarking(intptr_t step_size);
+  void IdleMarkCompact(const char* message);
+
+  void TryFinalizeIdleIncrementalMarking(
+      size_t idle_time_in_ms, size_t size_of_objects,
+      size_t mark_compact_speed_in_bytes_per_ms);
 
   bool WorthActivatingIncrementalMarking();
 
@@ -2032,6 +2078,8 @@ class Heap {
   base::Mutex relocation_mutex_;
 
   int gc_callbacks_depth_;
+
+  bool deserialization_complete_;
 
   friend class AlwaysAllocateScope;
   friend class Deserializer;
