@@ -140,10 +140,15 @@ endif
 # asan=/path/to/clang++
 ifneq ($(strip $(asan)),)
   GYPFLAGS += -Dasan=1
+  export CC=$(dir $(asan))clang
   export CXX=$(asan)
   export CXX_host=$(asan)
   export LINK=$(asan)
-  export ASAN_SYMBOLIZER_PATH="$(dir $(asan))llvm-symbolizer"
+  export ASAN_SYMBOLIZER_PATH=$(dir $(asan))llvm-symbolizer
+  TESTFLAGS += --asan
+  ifeq ($(lsan), on)
+    GYPFLAGS += -Dlsan=1
+  endif
 endif
 
 # arm specific flags.
@@ -252,7 +257,7 @@ NACL_CHECKS = $(addsuffix .check,$(NACL_BUILDS))
 ENVFILE = $(OUTDIR)/environment
 
 .PHONY: all check clean builddeps dependencies $(ENVFILE).new native \
-        qc quickcheck $(QUICKCHECKS) \
+        qc quickcheck $(QUICKCHECKS) turbocheck \
         $(addsuffix .quickcheck,$(MODES)) $(addsuffix .quickcheck,$(ARCHES)) \
         $(ARCHES) $(MODES) $(BUILDS) $(CHECKS) $(addsuffix .clean,$(ARCHES)) \
         $(addsuffix .check,$(MODES)) $(addsuffix .check,$(ARCHES)) \
@@ -380,6 +385,15 @@ quickcheck: $(subst $(COMMA),$(SPACE),$(FASTCOMPILEMODES))
 	tools/run-tests.py $(TESTJOBS) --outdir=$(OUTDIR) \
 	    --arch-and-mode=$(FASTTESTMODES) $(TESTFLAGS) --quickcheck
 qc: quickcheck
+
+turbocheck: $(subst $(COMMA),$(SPACE),$(FASTCOMPILEMODES))
+	tools/run-tests.py $(TESTJOBS) --outdir=$(OUTDIR) \
+	    --arch-and-mode=$(SUPERFASTTESTMODES) $(TESTFLAGS) \
+	    --quickcheck --variants=turbofan --download-data mozilla webkit
+	tools/run-tests.py $(TESTJOBS) --outdir=$(OUTDIR) \
+	    --arch-and-mode=$(FASTTESTMODES) $(TESTFLAGS) \
+	    --quickcheck --variants=turbofan
+tc: turbocheck
 
 # Clean targets. You can clean each architecture individually, or everything.
 $(addsuffix .clean, $(ARCHES) $(ANDROID_ARCHES) $(NACL_ARCHES)):

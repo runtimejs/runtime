@@ -391,8 +391,6 @@ class CompilationInfo {
     ast_value_factory_owned_ = owned;
   }
 
-  AstNode::IdGen* ast_node_id_gen() { return &ast_node_id_gen_; }
-
  protected:
   CompilationInfo(Handle<Script> script,
                   Zone* zone);
@@ -512,7 +510,6 @@ class CompilationInfo {
 
   AstValueFactory* ast_value_factory_;
   bool ast_value_factory_owned_;
-  AstNode::IdGen ast_node_id_gen_;
 
   // This flag is used by the main thread to track whether this compilation
   // should be abandoned due to dependency change.
@@ -678,20 +675,23 @@ class Compiler : public AllStatic {
   MUST_USE_RESULT static MaybeHandle<Code> GetDebugCode(
       Handle<JSFunction> function);
 
+  // Parser::Parse, then Compiler::Analyze.
+  static bool ParseAndAnalyze(CompilationInfo* info);
+  // Rewrite, analyze scopes, and renumber.
+  static bool Analyze(CompilationInfo* info);
+  // Adds deoptimization support, requires ParseAndAnalyze.
+  static bool EnsureDeoptimizationSupport(CompilationInfo* info);
+
   static bool EnsureCompiled(Handle<JSFunction> function,
                              ClearExceptionFlag flag);
-
-  static bool EnsureDeoptimizationSupport(CompilationInfo* info);
 
   static void CompileForLiveEdit(Handle<Script> script);
 
   // Compile a String source within a context for eval.
   MUST_USE_RESULT static MaybeHandle<JSFunction> GetFunctionFromEval(
-      Handle<String> source,
-      Handle<Context> context,
-      StrictMode strict_mode,
-      ParseRestriction restriction,
-      int scope_position);
+      Handle<String> source, Handle<SharedFunctionInfo> outer_info,
+      Handle<Context> context, StrictMode strict_mode,
+      ParseRestriction restriction, int scope_position);
 
   // Compile a String source within a context.
   static Handle<SharedFunctionInfo> CompileScript(

@@ -5,7 +5,6 @@
 #include "src/v8.h"
 
 #include "src/arguments.h"
-#include "src/runtime/runtime.h"
 #include "src/runtime/runtime-utils.h"
 
 namespace v8 {
@@ -49,6 +48,28 @@ RUNTIME_FUNCTION(Runtime_RunMicrotasks) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 0);
   isolate->RunMicrotasks();
+  return isolate->heap()->undefined_value();
+}
+
+
+RUNTIME_FUNCTION(Runtime_DeliverObservationChangeRecords) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 2);
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, callback, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, argument, 1);
+  v8::TryCatch catcher;
+  // We should send a message on uncaught exception thrown during
+  // Object.observe delivery while not interrupting further delivery, thus
+  // we make a call inside a verbose TryCatch.
+  catcher.SetVerbose(true);
+  Handle<Object> argv[] = {argument};
+  USE(Execution::Call(isolate, callback, isolate->factory()->undefined_value(),
+                      arraysize(argv), argv));
+  if (isolate->has_pending_exception()) {
+    isolate->ReportPendingMessages();
+    isolate->clear_pending_exception();
+    isolate->set_external_caught_exception(false);
+  }
   return isolate->heap()->undefined_value();
 }
 

@@ -16,8 +16,9 @@ namespace internal {
 namespace compiler {
 
 class ControlBuilder;
-class LoopBuilder;
 class Graph;
+class LoopAssignmentAnalysis;
+class LoopBuilder;
 
 // The AstGraphBuilder produces a high-level IR graph, based on an
 // underlying AST. The produced graph can either be compiled into a
@@ -25,7 +26,7 @@ class Graph;
 // of function inlining.
 class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
  public:
-  AstGraphBuilder(CompilationInfo* info, JSGraph* jsgraph);
+  AstGraphBuilder(Zone* local_zone, CompilationInfo* info, JSGraph* jsgraph);
 
   // Creates a graph by visiting the entire AST.
   bool CreateGraph();
@@ -55,7 +56,7 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
   // Support for control flow builders. The concrete type of the environment
   // depends on the graph builder, but environments themselves are not virtual.
   typedef StructuredGraphBuilder::Environment BaseEnvironment;
-  virtual BaseEnvironment* CopyEnvironment(BaseEnvironment* env);
+  virtual BaseEnvironment* CopyEnvironment(BaseEnvironment* env) OVERRIDE;
 
   // TODO(mstarzinger): The pipeline only needs to be a friend to access the
   // function context. Remove as soon as the context is a parameter.
@@ -79,10 +80,13 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
 
   // Builders for variable load and assignment.
   Node* BuildVariableAssignment(Variable* var, Node* value, Token::Value op,
-                                BailoutId bailout_id);
+                                BailoutId bailout_id,
+                                OutputFrameStateCombine state_combine =
+                                    OutputFrameStateCombine::Ignore());
   Node* BuildVariableDelete(Variable* var, BailoutId bailout_id,
                             OutputFrameStateCombine state_combine);
   Node* BuildVariableLoad(Variable* var, BailoutId bailout_id,
+                          const VectorSlotPair& feedback,
                           ContextualMode mode = CONTEXTUAL);
 
   // Builders for accessing the function context.
@@ -108,13 +112,13 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
   // Builder for stack-check guards.
   Node* BuildStackCheck();
 
-#define DECLARE_VISIT(type) virtual void Visit##type(type* node);
+#define DECLARE_VISIT(type) virtual void Visit##type(type* node) OVERRIDE;
   // Visiting functions for AST nodes make this an AstVisitor.
   AST_NODE_LIST(DECLARE_VISIT)
 #undef DECLARE_VISIT
 
   // Visiting function for declarations list is overridden.
-  virtual void VisitDeclarations(ZoneList<Declaration*>* declarations);
+  virtual void VisitDeclarations(ZoneList<Declaration*>* declarations) OVERRIDE;
 
  private:
   CompilationInfo* info_;
@@ -134,6 +138,9 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
   SetOncePointer<Node> function_closure_;
   SetOncePointer<Node> function_context_;
 
+  // Result of loop assignment analysis performed before graph creation.
+  LoopAssignmentAnalysis* loop_assignment_analysis_;
+
   CompilationInfo* info() const { return info_; }
   inline StrictMode strict_mode() const;
   JSGraph* jsgraph() { return jsgraph_; }
@@ -143,6 +150,9 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
   // Current scope during visitation.
   inline Scope* current_scope() const;
 
+  // Named and keyed loads require a VectorSlotPair for successful lowering.
+  VectorSlotPair CreateVectorSlotPair(FeedbackVectorICSlot slot) const;
+
   // Process arguments to a call by popping {arity} elements off the operand
   // stack and build a call node using the given call operator.
   Node* ProcessArguments(const Operator* op, int arity);
@@ -151,6 +161,7 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
   void VisitIfNotNull(Statement* stmt);
 
   // Visit expressions.
+  void Visit(Expression* expr);
   void VisitForTest(Expression* expr);
   void VisitForEffect(Expression* expr);
   void VisitForValue(Expression* expr);
@@ -182,7 +193,7 @@ class AstGraphBuilder : public StructuredGraphBuilder, public AstVisitor {
       Node* node, BailoutId ast_id,
       OutputFrameStateCombine combine = OutputFrameStateCombine::Ignore());
 
-  OutputFrameStateCombine StateCombineFromAstContext();
+  BitVector* GetVariablesAssignedInLoop(IterationStatement* stmt);
 
   DEFINE_AST_VISITOR_SUBCLASS_MEMBERS();
   DISALLOW_COPY_AND_ASSIGN(AstGraphBuilder);
@@ -430,8 +441,9 @@ class AstGraphBuilder::ContextScope BASE_EMBEDDED {
 Scope* AstGraphBuilder::current_scope() const {
   return execution_context_->scope();
 }
-}
-}
-}  // namespace v8::internal::compiler
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_COMPILER_AST_GRAPH_BUILDER_H_

@@ -5,7 +5,8 @@
 #ifndef V8_GLOBALS_H_
 #define V8_GLOBALS_H_
 
-#include "include/v8stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #include "src/base/build_config.h"
 #include "src/base/logging.h"
@@ -25,8 +26,8 @@
 # define V8_INFINITY INFINITY
 #endif
 
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM || \
-    V8_TARGET_ARCH_ARM64
+#if V8_TARGET_ARCH_IA32 || (V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_32_BIT) || \
+    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS
 #define V8_TURBOFAN_BACKEND 1
 #else
 #define V8_TURBOFAN_BACKEND 0
@@ -66,11 +67,7 @@ namespace internal {
 #endif
 
 // Determine whether the architecture uses an out-of-line constant pool.
-#if V8_TARGET_ARCH_ARM
-#define V8_OOL_CONSTANT_POOL 1
-#else
 #define V8_OOL_CONSTANT_POOL 0
-#endif
 
 #ifdef V8_TARGET_ARCH_ARM
 // Set stack limit lower for ARM than for other architectures because
@@ -148,10 +145,10 @@ const uintptr_t kUintptrAllBitsSet = V8_UINT64_C(0xFFFFFFFFFFFFFFFF);
 const bool kRequiresCodeRange = true;
 const size_t kMaximalCodeRangeSize = 512 * MB;
 #if V8_OS_WIN
-const size_t kMinimumCodeRangeSize = 2 * MB;
+const size_t kMinimumCodeRangeSize = 4 * MB;
 const size_t kReservedCodeRangePages = 1;
 #else
-const size_t kMinimumCodeRangeSize = 1 * MB;
+const size_t kMinimumCodeRangeSize = 3 * MB;
 const size_t kReservedCodeRangePages = 0;
 #endif
 #else
@@ -162,7 +159,7 @@ const uintptr_t kUintptrAllBitsSet = 0xFFFFFFFFu;
 // x32 port also requires code range.
 const bool kRequiresCodeRange = true;
 const size_t kMaximalCodeRangeSize = 256 * MB;
-const size_t kMinimumCodeRangeSize = 1 * MB;
+const size_t kMinimumCodeRangeSize = 3 * MB;
 const size_t kReservedCodeRangePages = 0;
 #else
 const bool kRequiresCodeRange = false;
@@ -291,6 +288,7 @@ const uint32_t kFreeListZapValue = 0xfeed1eaf;
 #endif
 
 const int kCodeZapValue = 0xbadc0de;
+const uint32_t kPhantomReferenceZap = 0xca11bac;
 
 // On Intel architecture, cache line size is 64 bytes.
 // On ARM it may be less (32 bytes), but as far this constant is
@@ -356,6 +354,7 @@ template <typename Config, class Allocator = FreeStoreAllocationPolicy>
 class String;
 class Name;
 class Struct;
+class Symbol;
 class Variable;
 class RelocInfo;
 class Deserializer;
@@ -379,7 +378,6 @@ enum AllocationSpace {
   CELL_SPACE,           // Only and all cell objects.
   PROPERTY_CELL_SPACE,  // Only and all global property cell objects.
   LO_SPACE,             // Promoted large objects.
-  INVALID_SPACE,        // Only used in AllocationResult to signal success.
 
   FIRST_SPACE = NEW_SPACE,
   LAST_SPACE = LO_SPACE,
@@ -608,28 +606,29 @@ struct AccessorDescriptor {
 
 // CPU feature flags.
 enum CpuFeature {
-    // x86
-    SSE4_1,
-    SSE3,
-    SAHF,
-    // ARM
-    VFP3,
-    ARMv7,
-    SUDIV,
-    MLS,
-    UNALIGNED_ACCESSES,
-    MOVW_MOVT_IMMEDIATE_LOADS,
-    VFP32DREGS,
-    NEON,
-    // MIPS, MIPS64
-    FPU,
-    FP64FPU,
-    MIPSr1,
-    MIPSr2,
-    MIPSr6,
-    // ARM64
-    ALWAYS_ALIGN_CSP,
-    NUMBER_OF_CPU_FEATURES
+  // x86
+  SSE4_1,
+  SSE3,
+  SAHF,
+  // ARM
+  VFP3,
+  ARMv7,
+  ARMv8,
+  SUDIV,
+  MLS,
+  UNALIGNED_ACCESSES,
+  MOVW_MOVT_IMMEDIATE_LOADS,
+  VFP32DREGS,
+  NEON,
+  // MIPS, MIPS64
+  FPU,
+  FP64FPU,
+  MIPSr1,
+  MIPSr2,
+  MIPSr6,
+  // ARM64
+  ALWAYS_ALIGN_CSP,
+  NUMBER_OF_CPU_FEATURES
 };
 
 
@@ -648,7 +647,8 @@ enum ScopeType {
   GLOBAL_SCOPE,    // The top-level scope for a program or a top-level eval.
   CATCH_SCOPE,     // The scope introduced by catch.
   BLOCK_SCOPE,     // The scope introduced by a new block.
-  WITH_SCOPE       // The scope introduced by with.
+  WITH_SCOPE,      // The scope introduced by with.
+  ARROW_SCOPE      // The top-level scope for an arrow function literal.
 };
 
 

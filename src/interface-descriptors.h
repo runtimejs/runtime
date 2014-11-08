@@ -33,6 +33,7 @@ class PlatformInterfaceDescriptor;
   V(CallConstruct)                            \
   V(RegExpConstructResult)                    \
   V(TransitionElementsKind)                   \
+  V(AllocateHeapNumber)                       \
   V(ArrayConstructorConstantArgCount)         \
   V(ArrayConstructor)                         \
   V(InternalArrayConstructorConstantArgCount) \
@@ -163,7 +164,7 @@ class CallInterfaceDescriptor {
 
   static const Register ContextRegister();
 
-  const char* DebugName(Isolate* isolate);
+  const char* DebugName(Isolate* isolate) const;
 
  protected:
   const CallInterfaceDescriptorData* data() const { return data_; }
@@ -343,6 +344,12 @@ class RegExpConstructResultDescriptor : public CallInterfaceDescriptor {
 class TransitionElementsKindDescriptor : public CallInterfaceDescriptor {
  public:
   DECLARE_DESCRIPTOR(TransitionElementsKindDescriptor, CallInterfaceDescriptor)
+};
+
+
+class AllocateHeapNumberDescriptor : public CallInterfaceDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(AllocateHeapNumberDescriptor, CallInterfaceDescriptor)
 };
 
 

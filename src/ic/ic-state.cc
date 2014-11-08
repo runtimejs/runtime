@@ -10,10 +10,24 @@
 namespace v8 {
 namespace internal {
 
+// static
 void ICUtility::Clear(Isolate* isolate, Address address,
                       ConstantPoolArray* constant_pool) {
   IC::Clear(isolate, address, constant_pool);
 }
+
+
+// static
+template <class Nexus>
+void ICUtility::Clear(Isolate* isolate, Code::Kind kind, Code* host,
+                      Nexus* nexus) {
+  IC::Clear<Nexus>(isolate, kind, host, nexus);
+}
+
+
+// Force instantiation of template instances for vector-based IC clearing.
+template void ICUtility::Clear<CallICNexus>(Isolate*, Code::Kind, Code*,
+                                            CallICNexus*);
 
 
 CallICState::CallICState(ExtraICState extra_ic_state)

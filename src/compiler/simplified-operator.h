@@ -25,12 +25,13 @@ namespace compiler {
 
 // Forward declarations.
 class Operator;
-struct SimplifiedOperatorBuilderImpl;
+struct SimplifiedOperatorGlobalCache;
 
 
 enum BaseTaggedness { kUntaggedBase, kTaggedBase };
 
 std::ostream& operator<<(std::ostream&, BaseTaggedness);
+
 
 // An access descriptor for loads/stores of fixed structures like field
 // accesses of heap objects. Accesses from either tagged or untagged base
@@ -38,14 +39,22 @@ std::ostream& operator<<(std::ostream&, BaseTaggedness);
 struct FieldAccess {
   BaseTaggedness base_is_tagged;  // specifies if the base pointer is tagged.
   int offset;                     // offset of the field, without tag.
-  Handle<Name> name;              // debugging only.
+  MaybeHandle<Name> name;         // debugging only.
   Type* type;                     // type of the field.
   MachineType machine_type;       // machine type of the field.
 
   int tag() const { return base_is_tagged == kTaggedBase ? kHeapObjectTag : 0; }
 };
 
+bool operator==(FieldAccess const&, FieldAccess const&);
+bool operator!=(FieldAccess const&, FieldAccess const&);
 
+size_t hash_value(FieldAccess const&);
+
+std::ostream& operator<<(std::ostream&, FieldAccess const&);
+
+
+// The bound checking mode for ElementAccess below.
 enum BoundsCheckMode { kNoBoundsCheck, kTypedArrayBoundsCheck };
 
 std::ostream& operator<<(std::ostream&, BoundsCheckMode);
@@ -65,8 +74,10 @@ struct ElementAccess {
   int tag() const { return base_is_tagged == kTaggedBase ? kHeapObjectTag : 0; }
 };
 
-bool operator==(ElementAccess const& lhs, ElementAccess const& rhs);
-bool operator!=(ElementAccess const& lhs, ElementAccess const& rhs);
+bool operator==(ElementAccess const&, ElementAccess const&);
+bool operator!=(ElementAccess const&, ElementAccess const&);
+
+size_t hash_value(ElementAccess const&);
 
 std::ostream& operator<<(std::ostream&, ElementAccess const&);
 
@@ -135,6 +146,9 @@ class SimplifiedOperatorBuilder FINAL {
   const Operator* ChangeBoolToBit();
   const Operator* ChangeBitToBool();
 
+  const Operator* ObjectIsSmi();
+  const Operator* ObjectIsNonNegativeSmi();
+
   const Operator* LoadField(const FieldAccess&);
   const Operator* StoreField(const FieldAccess&);
 
@@ -147,7 +161,7 @@ class SimplifiedOperatorBuilder FINAL {
  private:
   Zone* zone() const { return zone_; }
 
-  const SimplifiedOperatorBuilderImpl& impl_;
+  const SimplifiedOperatorGlobalCache& cache_;
   Zone* const zone_;
 
   DISALLOW_COPY_AND_ASSIGN(SimplifiedOperatorBuilder);

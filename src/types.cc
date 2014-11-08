@@ -247,6 +247,7 @@ TypeImpl<Config>::BitsetType::Lub(i::Map* map) {
     case SHARED_FUNCTION_INFO_TYPE:
     case ACCESSOR_PAIR_TYPE:
     case FIXED_ARRAY_TYPE:
+    case BYTE_ARRAY_TYPE:
     case FOREIGN_TYPE:
     case CODE_TYPE:
       return kInternal & kTaggedPtr;
@@ -344,7 +345,7 @@ double TypeImpl<Config>::BitsetType::Max(bitset bits) {
   DisallowHeapAllocation no_allocation;
   DCHECK(Is(bits, kNumber));
   const BitsetMin* mins = BitsetMins();
-  bool mz = bits & kMinusZero;
+  bool mz = SEMANTIC(bits & kMinusZero);
   if (BitsetType::Is(mins[BitsetMinsSize()-1].bits, bits)) {
     return +V8_INFINITY;
   }
@@ -436,6 +437,7 @@ bool TypeImpl<Config>::SlowIs(TypeImpl* that) {
             Contains(that->AsRange(), *this->AsConstant()->Value()));
   }
   if (this->IsRange()) return false;
+
   return this->SimplyEquals(that);
 }
 

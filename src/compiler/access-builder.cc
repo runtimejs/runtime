@@ -11,43 +11,64 @@ namespace compiler {
 
 // static
 FieldAccess AccessBuilder::ForMap() {
-  return {kTaggedBase, HeapObject::kMapOffset, Handle<Name>(), Type::Any(),
+  return {kTaggedBase, HeapObject::kMapOffset, MaybeHandle<Name>(), Type::Any(),
           kMachAnyTagged};
 }
 
 
 // static
 FieldAccess AccessBuilder::ForJSObjectProperties() {
-  return {kTaggedBase, JSObject::kPropertiesOffset, Handle<Name>(), Type::Any(),
-          kMachAnyTagged};
+  return {kTaggedBase, JSObject::kPropertiesOffset, MaybeHandle<Name>(),
+          Type::Any(), kMachAnyTagged};
 }
 
 
 // static
 FieldAccess AccessBuilder::ForJSObjectElements() {
-  return {kTaggedBase, JSObject::kElementsOffset, Handle<Name>(),
+  return {kTaggedBase, JSObject::kElementsOffset, MaybeHandle<Name>(),
           Type::Internal(), kMachAnyTagged};
 }
 
 
 // static
 FieldAccess AccessBuilder::ForJSFunctionContext() {
-  return {kTaggedBase, JSFunction::kContextOffset, Handle<Name>(),
+  return {kTaggedBase, JSFunction::kContextOffset, MaybeHandle<Name>(),
           Type::Internal(), kMachAnyTagged};
 }
 
 
 // static
 FieldAccess AccessBuilder::ForJSArrayBufferBackingStore() {
-  return {kTaggedBase, JSArrayBuffer::kBackingStoreOffset, Handle<Name>(),
+  return {kTaggedBase, JSArrayBuffer::kBackingStoreOffset, MaybeHandle<Name>(),
           Type::UntaggedPtr(), kMachPtr};
 }
 
 
 // static
 FieldAccess AccessBuilder::ForExternalArrayPointer() {
-  return {kTaggedBase, ExternalArray::kExternalPointerOffset, Handle<Name>(),
-          Type::UntaggedPtr(), kMachPtr};
+  return {kTaggedBase, ExternalArray::kExternalPointerOffset,
+          MaybeHandle<Name>(), Type::UntaggedPtr(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForMapInstanceType() {
+  return {kTaggedBase, Map::kInstanceTypeOffset, Handle<Name>(),
+          Type::UntaggedInt8(), kMachUint8};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForStringLength() {
+  return {kTaggedBase, String::kLengthOffset, Handle<Name>(),
+          Type::SignedSmall(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForValue() {
+  return {kTaggedBase, JSValue::kValueOffset, Handle<Name>(), Type::Any(),
+          kMachAnyTagged};
 }
 
 
@@ -85,10 +106,10 @@ ElementAccess AccessBuilder::ForTypedArrayElement(ExternalArrayType type,
               Type::Unsigned32(), kMachUint32};
     case kExternalFloat32Array:
       return {kTypedArrayBoundsCheck, taggedness, header_size, Type::Number(),
-              kRepFloat32};
+              kMachFloat32};
     case kExternalFloat64Array:
       return {kTypedArrayBoundsCheck, taggedness, header_size, Type::Number(),
-              kRepFloat64};
+              kMachFloat64};
   }
   UNREACHABLE();
   return {kTypedArrayBoundsCheck, kUntaggedBase, 0, Type::None(), kMachNone};

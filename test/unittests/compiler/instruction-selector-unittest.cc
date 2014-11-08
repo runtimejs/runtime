@@ -4,6 +4,7 @@
 
 #include "test/unittests/compiler/instruction-selector-unittest.h"
 
+#include "src/compiler/graph-inl.h"
 #include "src/flags.h"
 #include "test/unittests/compiler/compiler-test-utils.h"
 
@@ -34,18 +35,32 @@ InstructionSelectorTest::Stream InstructionSelectorTest::StreamBuilder::Build(
         << *schedule;
   }
   EXPECT_NE(0, graph()->NodeCount());
-  CompilationInfo info(test_->isolate(), test_->zone());
-  Linkage linkage(&info, call_descriptor());
-  InstructionSequence sequence(&linkage, graph(), schedule);
+  int initial_node_count = graph()->NodeCount();
+  Linkage linkage(test_->zone(), call_descriptor());
+  InstructionBlocks* instruction_blocks =
+      InstructionSequence::InstructionBlocksFor(test_->zone(), schedule);
+  InstructionSequence sequence(test_->zone(), instruction_blocks);
   SourcePositionTable source_position_table(graph());
-  InstructionSelector selector(&sequence, &source_position_table, features);
+  InstructionSelector selector(test_->zone(), graph(), &linkage, &sequence,
+                               schedule, &source_position_table, features);
   selector.SelectInstructions();
   if (FLAG_trace_turbo) {
     OFStream out(stdout);
+    PrintableInstructionSequence printable = {
+        RegisterConfiguration::ArchDefault(), &sequence};
     out << "=== Code sequence after instruction selection ===" << std::endl
-        << sequence;
+        << printable;
   }
   Stream s;
+  // Map virtual registers.
+  {
+    const NodeToVregMap& node_map = selector.GetNodeMapForTesting();
+    for (int i = 0; i < initial_node_count; ++i) {
+      if (node_map[i] != InstructionSelector::kNodeUnmapped) {
+        s.virtual_registers_.insert(std::make_pair(i, node_map[i]));
+      }
+    }
+  }
   std::set<int> virtual_registers;
   for (InstructionSequence::const_iterator i = sequence.begin();
        i != sequence.end(); ++i) {
@@ -107,6 +122,39 @@ InstructionSelectorTest::Stream InstructionSelectorTest::StreamBuilder::Build(
         InstructionSequence::StateId::FromInt(i)));
   }
   return s;
+}
+
+
+int InstructionSelectorTest::Stream::ToVreg(const Node* node) const {
+  VirtualRegisters::const_iterator i = virtual_registers_.find(node->id());
+  CHECK(i != virtual_registers_.end());
+  return i->second;
+}
+
+
+bool InstructionSelectorTest::Stream::IsFixed(const InstructionOperand* operand,
+                                              Register reg) const {
+  if (!operand->IsUnallocated()) return false;
+  const UnallocatedOperand* unallocated = UnallocatedOperand::cast(operand);
+  if (!unallocated->HasFixedRegisterPolicy()) return false;
+  const int index = Register::ToAllocationIndex(reg);
+  return unallocated->fixed_register_index() == index;
+}
+
+
+bool InstructionSelectorTest::Stream::IsSameAsFirst(
+    const InstructionOperand* operand) const {
+  if (!operand->IsUnallocated()) return false;
+  const UnallocatedOperand* unallocated = UnallocatedOperand::cast(operand);
+  return unallocated->HasSameAsInputPolicy();
+}
+
+
+bool InstructionSelectorTest::Stream::IsUsedAtStart(
+    const InstructionOperand* operand) const {
+  if (!operand->IsUnallocated()) return false;
+  const UnallocatedOperand* unallocated = UnallocatedOperand::cast(operand);
+  return unallocated->IsUsedAtStart();
 }
 
 
@@ -180,7 +228,7 @@ TARGET_TEST_F(InstructionSelectorTest, DoubleParameter) {
   Node* param = m.Parameter(0);
   m.Return(param);
   Stream s = m.Build(kAllInstructions);
-  EXPECT_TRUE(s.IsDouble(param->id()));
+  EXPECT_TRUE(s.IsDouble(param));
 }
 
 
@@ -189,7 +237,7 @@ TARGET_TEST_F(InstructionSelectorTest, ReferenceParameter) {
   Node* param = m.Parameter(0);
   m.Return(param);
   Stream s = m.Build(kAllInstructions);
-  EXPECT_TRUE(s.IsReference(param->id()));
+  EXPECT_TRUE(s.IsReference(param));
 }
 
 
@@ -207,16 +255,16 @@ TARGET_TEST_F(InstructionSelectorTest, Finish) {
   EXPECT_EQ(kArchNop, s[0]->arch_opcode());
   ASSERT_EQ(1U, s[0]->OutputCount());
   ASSERT_TRUE(s[0]->Output()->IsUnallocated());
-  EXPECT_EQ(param->id(), s.ToVreg(s[0]->Output()));
+  EXPECT_EQ(s.ToVreg(param), s.ToVreg(s[0]->Output()));
   EXPECT_EQ(kArchNop, s[1]->arch_opcode());
   ASSERT_EQ(1U, s[1]->InputCount());
   ASSERT_TRUE(s[1]->InputAt(0)->IsUnallocated());
-  EXPECT_EQ(param->id(), s.ToVreg(s[1]->InputAt(0)));
+  EXPECT_EQ(s.ToVreg(param), s.ToVreg(s[1]->InputAt(0)));
   ASSERT_EQ(1U, s[1]->OutputCount());
   ASSERT_TRUE(s[1]->Output()->IsUnallocated());
   EXPECT_TRUE(UnallocatedOperand::cast(s[1]->Output())->HasSameAsInputPolicy());
-  EXPECT_EQ(finish->id(), s.ToVreg(s[1]->Output()));
-  EXPECT_TRUE(s.IsReference(finish->id()));
+  EXPECT_EQ(s.ToVreg(finish), s.ToVreg(s[1]->Output()));
+  EXPECT_TRUE(s.IsReference(finish));
 }
 
 
@@ -243,8 +291,8 @@ TARGET_TEST_P(InstructionSelectorPhiTest, Doubleness) {
   Node* phi = m.Phi(type, param0, param1);
   m.Return(phi);
   Stream s = m.Build(kAllInstructions);
-  EXPECT_EQ(s.IsDouble(phi->id()), s.IsDouble(param0->id()));
-  EXPECT_EQ(s.IsDouble(phi->id()), s.IsDouble(param1->id()));
+  EXPECT_EQ(s.IsDouble(phi), s.IsDouble(param0));
+  EXPECT_EQ(s.IsDouble(phi), s.IsDouble(param1));
 }
 
 
@@ -263,8 +311,8 @@ TARGET_TEST_P(InstructionSelectorPhiTest, Referenceness) {
   Node* phi = m.Phi(type, param0, param1);
   m.Return(phi);
   Stream s = m.Build(kAllInstructions);
-  EXPECT_EQ(s.IsReference(phi->id()), s.IsReference(param0->id()));
-  EXPECT_EQ(s.IsReference(phi->id()), s.IsReference(param1->id()));
+  EXPECT_EQ(s.IsReference(phi), s.IsReference(param0));
+  EXPECT_EQ(s.IsReference(phi), s.IsReference(param1));
 }
 
 
@@ -357,8 +405,8 @@ TARGET_TEST_F(InstructionSelectorTest, CallFunctionStubWithDeopt) {
 
   // Build frame state for the state before the call.
   Node* parameters = m.NewNode(m.common()->StateValues(1), m.Int32Constant(43));
-  Node* locals = m.NewNode(m.common()->StateValues(1), m.Int32Constant(44));
-  Node* stack = m.NewNode(m.common()->StateValues(1), m.Int32Constant(45));
+  Node* locals = m.NewNode(m.common()->StateValues(1), m.Float64Constant(0.5));
+  Node* stack = m.NewNode(m.common()->StateValues(1), m.UndefinedConstant());
 
   Node* context_sentinel = m.Int32Constant(0);
   Node* frame_state_before = m.NewNode(
@@ -407,14 +455,20 @@ TARGET_TEST_F(InstructionSelectorTest, CallFunctionStubWithDeopt) {
   EXPECT_EQ(1u, desc_before->locals_count());
   EXPECT_EQ(1u, desc_before->stack_count());
   EXPECT_EQ(43, s.ToInt32(call_instr->InputAt(2)));
-  EXPECT_EQ(0, s.ToInt32(call_instr->InputAt(3)));
-  EXPECT_EQ(44, s.ToInt32(call_instr->InputAt(4)));
-  EXPECT_EQ(45, s.ToInt32(call_instr->InputAt(5)));
+  EXPECT_EQ(0, s.ToInt32(call_instr->InputAt(3)));  // This should be a context.
+                                                    // We inserted 0 here.
+  EXPECT_EQ(0.5, s.ToFloat64(call_instr->InputAt(4)));
+  EXPECT_TRUE(s.ToHeapObject(call_instr->InputAt(5))->IsUndefined());
+  EXPECT_EQ(kMachInt32, desc_before->GetType(0));
+  EXPECT_EQ(kMachAnyTagged, desc_before->GetType(1));  // context is always
+                                                       // tagged/any.
+  EXPECT_EQ(kMachFloat64, desc_before->GetType(2));
+  EXPECT_EQ(kMachAnyTagged, desc_before->GetType(3));
 
   // Function.
-  EXPECT_EQ(function_node->id(), s.ToVreg(call_instr->InputAt(6)));
+  EXPECT_EQ(s.ToVreg(function_node), s.ToVreg(call_instr->InputAt(6)));
   // Context.
-  EXPECT_EQ(context->id(), s.ToVreg(call_instr->InputAt(7)));
+  EXPECT_EQ(s.ToVreg(context), s.ToVreg(call_instr->InputAt(7)));
 
   EXPECT_EQ(kArchRet, s[index++]->arch_opcode());
 
@@ -447,8 +501,10 @@ TARGET_TEST_F(InstructionSelectorTest,
   Node* context2 = m.Int32Constant(46);
   Node* parameters2 =
       m.NewNode(m.common()->StateValues(1), m.Int32Constant(43));
-  Node* locals2 = m.NewNode(m.common()->StateValues(1), m.Int32Constant(44));
-  Node* stack2 = m.NewNode(m.common()->StateValues(1), m.Int32Constant(45));
+  Node* locals2 =
+      m.NewNode(m.common()->StateValues(1), m.Float64Constant(0.25));
+  Node* stack2 = m.NewNode(m.common()->StateValues(2), m.Int32Constant(44),
+                           m.Int32Constant(45));
   Node* frame_state_before =
       m.NewNode(m.common()->FrameState(JS_FRAME, bailout_id_before,
                                        OutputFrameStateCombine::Push()),
@@ -476,7 +532,7 @@ TARGET_TEST_F(InstructionSelectorTest,
   size_t num_operands =
       1 +  // Code object.
       1 +  // Frame state deopt id
-      4 +  // One input for each value in frame state + context.
+      5 +  // One input for each value in frame state + context.
       4 +  // One input for each value in the parent frame state + context.
       1 +  // Function.
       1;   // Context.
@@ -488,25 +544,40 @@ TARGET_TEST_F(InstructionSelectorTest,
   int32_t deopt_id_before = s.ToInt32(call_instr->InputAt(1));
   FrameStateDescriptor* desc_before =
       s.GetFrameStateDescriptor(deopt_id_before);
+  FrameStateDescriptor* desc_before_outer = desc_before->outer_state();
   EXPECT_EQ(bailout_id_before, desc_before->bailout_id());
-  EXPECT_EQ(1u, desc_before->parameters_count());
-  EXPECT_EQ(1u, desc_before->locals_count());
-  EXPECT_EQ(1u, desc_before->stack_count());
+  EXPECT_EQ(1u, desc_before_outer->parameters_count());
+  EXPECT_EQ(1u, desc_before_outer->locals_count());
+  EXPECT_EQ(1u, desc_before_outer->stack_count());
+  // Values from parent environment.
   EXPECT_EQ(63, s.ToInt32(call_instr->InputAt(2)));
+  EXPECT_EQ(kMachInt32, desc_before_outer->GetType(0));
   // Context:
   EXPECT_EQ(66, s.ToInt32(call_instr->InputAt(3)));
+  EXPECT_EQ(kMachAnyTagged, desc_before_outer->GetType(1));
   EXPECT_EQ(64, s.ToInt32(call_instr->InputAt(4)));
+  EXPECT_EQ(kMachInt32, desc_before_outer->GetType(2));
   EXPECT_EQ(65, s.ToInt32(call_instr->InputAt(5)));
-  // Values from parent environment should follow.
+  EXPECT_EQ(kMachInt32, desc_before_outer->GetType(3));
+  // Values from the nested frame.
+  EXPECT_EQ(1u, desc_before->parameters_count());
+  EXPECT_EQ(1u, desc_before->locals_count());
+  EXPECT_EQ(2u, desc_before->stack_count());
   EXPECT_EQ(43, s.ToInt32(call_instr->InputAt(6)));
+  EXPECT_EQ(kMachInt32, desc_before->GetType(0));
   EXPECT_EQ(46, s.ToInt32(call_instr->InputAt(7)));
-  EXPECT_EQ(44, s.ToInt32(call_instr->InputAt(8)));
-  EXPECT_EQ(45, s.ToInt32(call_instr->InputAt(9)));
+  EXPECT_EQ(kMachAnyTagged, desc_before->GetType(1));
+  EXPECT_EQ(0.25, s.ToFloat64(call_instr->InputAt(8)));
+  EXPECT_EQ(kMachFloat64, desc_before->GetType(2));
+  EXPECT_EQ(44, s.ToInt32(call_instr->InputAt(9)));
+  EXPECT_EQ(kMachInt32, desc_before->GetType(3));
+  EXPECT_EQ(45, s.ToInt32(call_instr->InputAt(10)));
+  EXPECT_EQ(kMachInt32, desc_before->GetType(4));
 
   // Function.
-  EXPECT_EQ(function_node->id(), s.ToVreg(call_instr->InputAt(10)));
+  EXPECT_EQ(s.ToVreg(function_node), s.ToVreg(call_instr->InputAt(11)));
   // Context.
-  EXPECT_EQ(context2->id(), s.ToVreg(call_instr->InputAt(11)));
+  EXPECT_EQ(s.ToVreg(context2), s.ToVreg(call_instr->InputAt(12)));
   // Continuation.
 
   EXPECT_EQ(kArchRet, s[index++]->arch_opcode());

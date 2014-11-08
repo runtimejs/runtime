@@ -29,7 +29,7 @@ class GCIdleTimeHandlerTest : public ::testing::Test {
     result.mark_compact_speed_in_bytes_per_ms = kMarkCompactSpeed;
     result.incremental_marking_speed_in_bytes_per_ms = kMarkingSpeed;
     result.scavenge_speed_in_bytes_per_ms = kScavengeSpeed;
-    result.available_new_space_memory = kNewSpaceCapacity;
+    result.used_new_space_size = 0;
     result.new_space_capacity = kNewSpaceCapacity;
     result.new_space_allocation_throughput_in_bytes_per_ms =
         kNewSpaceAllocationThroughput;
@@ -109,38 +109,73 @@ TEST(GCIdleTimeHandler, EstimateMarkCompactTimeMax) {
 }
 
 
-TEST(GCIdleTimeHandler, EstimateScavengeTimeInitial) {
-  size_t size = 1 * MB;
-  size_t time = GCIdleTimeHandler::EstimateScavengeTime(size, 0);
-  EXPECT_EQ(size / GCIdleTimeHandler::kInitialConservativeScavengeSpeed, time);
+TEST_F(GCIdleTimeHandlerTest, DoScavengeEmptyNewSpace) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  int idle_time_in_ms = 16;
+  EXPECT_FALSE(GCIdleTimeHandler::ShouldDoScavenge(
+      idle_time_in_ms, heap_state.new_space_capacity,
+      heap_state.used_new_space_size, heap_state.scavenge_speed_in_bytes_per_ms,
+      heap_state.new_space_allocation_throughput_in_bytes_per_ms));
 }
 
 
-TEST(GCIdleTimeHandler, EstimateScavengeTimeNonZero) {
-  size_t size = 1 * MB;
-  size_t speed = 1 * MB;
-  size_t time = GCIdleTimeHandler::EstimateScavengeTime(size, speed);
-  EXPECT_EQ(size / speed, time);
+TEST_F(GCIdleTimeHandlerTest, DoScavengeFullNewSpace) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  heap_state.used_new_space_size = kNewSpaceCapacity;
+  int idle_time_in_ms = 16;
+  EXPECT_TRUE(GCIdleTimeHandler::ShouldDoScavenge(
+      idle_time_in_ms, heap_state.new_space_capacity,
+      heap_state.used_new_space_size, heap_state.scavenge_speed_in_bytes_per_ms,
+      heap_state.new_space_allocation_throughput_in_bytes_per_ms));
 }
 
 
-TEST(GCIdleTimeHandler, ScavangeMayHappenSoonInitial) {
-  size_t available = 100 * KB;
-  EXPECT_FALSE(GCIdleTimeHandler::ScavangeMayHappenSoon(available, 0));
+TEST_F(GCIdleTimeHandlerTest, DoScavengeUnknownScavengeSpeed) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  heap_state.used_new_space_size = kNewSpaceCapacity;
+  heap_state.scavenge_speed_in_bytes_per_ms = 0;
+  int idle_time_in_ms = 16;
+  EXPECT_FALSE(GCIdleTimeHandler::ShouldDoScavenge(
+      idle_time_in_ms, heap_state.new_space_capacity,
+      heap_state.used_new_space_size, heap_state.scavenge_speed_in_bytes_per_ms,
+      heap_state.new_space_allocation_throughput_in_bytes_per_ms));
 }
 
 
-TEST(GCIdleTimeHandler, ScavangeMayHappenSoonNonZeroFalse) {
-  size_t available = (GCIdleTimeHandler::kMaxFrameRenderingIdleTime + 1) * KB;
-  size_t speed = 1 * KB;
-  EXPECT_FALSE(GCIdleTimeHandler::ScavangeMayHappenSoon(available, speed));
+TEST_F(GCIdleTimeHandlerTest, DoScavengeLowScavengeSpeed) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  heap_state.used_new_space_size = kNewSpaceCapacity;
+  heap_state.scavenge_speed_in_bytes_per_ms = 1 * KB;
+  int idle_time_in_ms = 16;
+  EXPECT_FALSE(GCIdleTimeHandler::ShouldDoScavenge(
+      idle_time_in_ms, heap_state.new_space_capacity,
+      heap_state.used_new_space_size, heap_state.scavenge_speed_in_bytes_per_ms,
+      heap_state.new_space_allocation_throughput_in_bytes_per_ms));
 }
 
 
-TEST(GCIdleTimeHandler, ScavangeMayHappenSoonNonZeroTrue) {
-  size_t available = GCIdleTimeHandler::kMaxFrameRenderingIdleTime * KB;
-  size_t speed = 1 * KB;
-  EXPECT_TRUE(GCIdleTimeHandler::ScavangeMayHappenSoon(available, speed));
+TEST_F(GCIdleTimeHandlerTest, DoScavengeHighScavengeSpeed) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  heap_state.used_new_space_size = kNewSpaceCapacity;
+  heap_state.scavenge_speed_in_bytes_per_ms = kNewSpaceCapacity;
+  int idle_time_in_ms = 16;
+  EXPECT_TRUE(GCIdleTimeHandler::ShouldDoScavenge(
+      idle_time_in_ms, heap_state.new_space_capacity,
+      heap_state.used_new_space_size, heap_state.scavenge_speed_in_bytes_per_ms,
+      heap_state.new_space_allocation_throughput_in_bytes_per_ms));
+}
+
+
+TEST_F(GCIdleTimeHandlerTest, ShouldDoMarkCompact) {
+  size_t idle_time_in_ms = 16;
+  EXPECT_TRUE(GCIdleTimeHandler::ShouldDoMarkCompact(idle_time_in_ms, 0, 0));
+}
+
+
+TEST_F(GCIdleTimeHandlerTest, DontDoMarkCompact) {
+  size_t idle_time_in_ms = 1;
+  EXPECT_FALSE(GCIdleTimeHandler::ShouldDoMarkCompact(
+      idle_time_in_ms, kSizeOfObjects, kMarkingSpeed));
 }
 
 
@@ -151,6 +186,17 @@ TEST_F(GCIdleTimeHandlerTest, AfterContextDisposeLargeIdleTime) {
   size_t speed = heap_state.mark_compact_speed_in_bytes_per_ms;
   int idle_time_ms =
       static_cast<int>((heap_state.size_of_objects + speed - 1) / speed);
+  GCIdleTimeAction action = handler()->Compute(idle_time_ms, heap_state);
+  EXPECT_EQ(DO_FULL_GC, action.type);
+}
+
+
+TEST_F(GCIdleTimeHandlerTest, AfterContextDisposeZeroIdleTime) {
+  GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
+  heap_state.contexts_disposed = 1;
+  heap_state.incremental_marking_stopped = true;
+  heap_state.size_of_objects = GCIdleTimeHandler::kSmallHeapSize / 2;
+  int idle_time_ms = 0;
   GCIdleTimeAction action = handler()->Compute(idle_time_ms, heap_state);
   EXPECT_EQ(DO_FULL_GC, action.type);
 }
@@ -294,8 +340,9 @@ TEST_F(GCIdleTimeHandlerTest, ContinueAfterStop2) {
 TEST_F(GCIdleTimeHandlerTest, Scavenge) {
   GCIdleTimeHandler::HeapState heap_state = DefaultHeapState();
   int idle_time_ms = 10;
-  heap_state.available_new_space_memory =
-      kNewSpaceAllocationThroughput * idle_time_ms;
+  heap_state.used_new_space_size =
+      heap_state.new_space_capacity -
+      (kNewSpaceAllocationThroughput * idle_time_ms);
   GCIdleTimeAction action = handler()->Compute(idle_time_ms, heap_state);
   EXPECT_EQ(DO_SCAVENGE, action.type);
 }
@@ -306,11 +353,12 @@ TEST_F(GCIdleTimeHandlerTest, ScavengeAndDone) {
   int idle_time_ms = 10;
   heap_state.can_start_incremental_marking = false;
   heap_state.incremental_marking_stopped = true;
-  heap_state.available_new_space_memory =
-      kNewSpaceAllocationThroughput * idle_time_ms;
+  heap_state.used_new_space_size =
+      heap_state.new_space_capacity -
+      (kNewSpaceAllocationThroughput * idle_time_ms);
   GCIdleTimeAction action = handler()->Compute(idle_time_ms, heap_state);
   EXPECT_EQ(DO_SCAVENGE, action.type);
-  heap_state.available_new_space_memory = kNewSpaceCapacity;
+  heap_state.used_new_space_size = 0;
   action = handler()->Compute(idle_time_ms, heap_state);
   EXPECT_EQ(DO_NOTHING, action.type);
 }

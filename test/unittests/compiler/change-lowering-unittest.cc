@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/code-stubs.h"
 #include "src/compiler/change-lowering.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-properties-inl.h"
 #include "src/compiler/simplified-operator.h"
-#include "src/compiler/typer.h"
 #include "test/unittests/compiler/compiler-test-utils.h"
 #include "test/unittests/compiler/graph-unittest.h"
+#include "test/unittests/compiler/node-test-utils.h"
 #include "testing/gmock-support.h"
 
 using testing::_;
@@ -65,12 +66,11 @@ class ChangeLoweringTest : public GraphTest {
   }
 
   Reduction Reduce(Node* node) {
-    Typer typer(zone());
     MachineOperatorBuilder machine(WordRepresentation());
     JSOperatorBuilder javascript(zone());
-    JSGraph jsgraph(graph(), common(), &javascript, &typer, &machine);
+    JSGraph jsgraph(graph(), common(), &javascript, &machine);
     CompilationInfo info(isolate(), zone());
-    Linkage linkage(&info);
+    Linkage linkage(zone(), &info);
     ChangeLowering reducer(&jsgraph, &linkage);
     return reducer.Reduce(node);
   }
@@ -79,19 +79,18 @@ class ChangeLoweringTest : public GraphTest {
 
   Matcher<Node*> IsAllocateHeapNumber(const Matcher<Node*>& effect_matcher,
                                       const Matcher<Node*>& control_matcher) {
-    return IsCall(
-        _, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-               CEntryStub(isolate(), 1).GetCode())),
-        IsExternalConstant(ExternalReference(
-            Runtime::FunctionForId(Runtime::kAllocateHeapNumber), isolate())),
-        IsInt32Constant(0), IsNumberConstant(0.0), effect_matcher,
-        control_matcher);
+    return IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
+                         AllocateHeapNumberStub(isolate()).GetCode())),
+                  IsNumberConstant(0.0), effect_matcher, control_matcher);
   }
   Matcher<Node*> IsLoadHeapNumber(const Matcher<Node*>& value_matcher,
                                   const Matcher<Node*>& control_matcher) {
     return IsLoad(kMachFloat64, value_matcher,
-                  IsInt32Constant(HeapNumberValueOffset()), graph()->start(),
+                  IsIntPtrConstant(HeapNumberValueOffset()), graph()->start(),
                   control_matcher);
+  }
+  Matcher<Node*> IsIntPtrConstant(int value) {
+    return Is32() ? IsInt32Constant(value) : IsInt64Constant(value);
   }
   Matcher<Node*> IsWordEqual(const Matcher<Node*>& lhs_matcher,
                              const Matcher<Node*>& rhs_matcher) {
@@ -125,15 +124,9 @@ TARGET_TEST_P(ChangeLoweringCommonTest, ChangeBitToBool) {
   Node* node = graph()->NewNode(simplified()->ChangeBitToBool(), val);
   Reduction reduction = Reduce(node);
   ASSERT_TRUE(reduction.Changed());
-
-  Node* phi = reduction.replacement();
-  Capture<Node*> branch;
-  EXPECT_THAT(phi,
-              IsPhi(static_cast<MachineType>(kTypeBool | kRepTagged),
-                    IsTrueConstant(), IsFalseConstant(),
-                    IsMerge(IsIfTrue(AllOf(CaptureEq(&branch),
-                                           IsBranch(val, graph()->start()))),
-                            IsIfFalse(CaptureEq(&branch)))));
+  EXPECT_THAT(reduction.replacement(),
+              IsSelect(static_cast<MachineType>(kTypeBool | kRepTagged), val,
+                       IsTrueConstant(), IsFalseConstant()));
 }
 
 
@@ -160,8 +153,9 @@ TARGET_TEST_P(ChangeLoweringCommonTest, ChangeFloat64ToTagged) {
       IsFinish(
           AllOf(CaptureEq(&heap_number),
                 IsAllocateHeapNumber(IsValueEffect(val), graph()->start())),
-          IsStore(kMachFloat64, kNoWriteBarrier, CaptureEq(&heap_number),
-                  IsInt32Constant(HeapNumberValueOffset()), val,
+          IsStore(StoreRepresentation(kMachFloat64, kNoWriteBarrier),
+                  CaptureEq(&heap_number),
+                  IsIntPtrConstant(HeapNumberValueOffset()), val,
                   CaptureEq(&heap_number), graph()->start())));
 }
 
@@ -202,13 +196,13 @@ TARGET_TEST_F(ChangeLowering32Test, ChangeInt32ToTagged) {
   EXPECT_THAT(
       phi,
       IsPhi(kMachAnyTagged,
-            IsFinish(
-                AllOf(CaptureEq(&heap_number),
-                      IsAllocateHeapNumber(_, CaptureEq(&if_true))),
-                IsStore(kMachFloat64, kNoWriteBarrier, CaptureEq(&heap_number),
-                        IsInt32Constant(HeapNumberValueOffset()),
-                        IsChangeInt32ToFloat64(val), CaptureEq(&heap_number),
-                        CaptureEq(&if_true))),
+            IsFinish(AllOf(CaptureEq(&heap_number),
+                           IsAllocateHeapNumber(_, CaptureEq(&if_true))),
+                     IsStore(StoreRepresentation(kMachFloat64, kNoWriteBarrier),
+                             CaptureEq(&heap_number),
+                             IsIntPtrConstant(HeapNumberValueOffset()),
+                             IsChangeInt32ToFloat64(val),
+                             CaptureEq(&heap_number), CaptureEq(&if_true))),
             IsProjection(
                 0, AllOf(CaptureEq(&add), IsInt32AddWithOverflow(val, val))),
             IsMerge(AllOf(CaptureEq(&if_true), IsIfTrue(CaptureEq(&branch))),
@@ -308,13 +302,13 @@ TARGET_TEST_F(ChangeLowering32Test, ChangeUint32ToTagged) {
       phi,
       IsPhi(
           kMachAnyTagged, IsWord32Shl(val, IsInt32Constant(SmiShiftAmount())),
-          IsFinish(
-              AllOf(CaptureEq(&heap_number),
-                    IsAllocateHeapNumber(_, CaptureEq(&if_false))),
-              IsStore(kMachFloat64, kNoWriteBarrier, CaptureEq(&heap_number),
-                      IsInt32Constant(HeapNumberValueOffset()),
-                      IsChangeUint32ToFloat64(val), CaptureEq(&heap_number),
-                      CaptureEq(&if_false))),
+          IsFinish(AllOf(CaptureEq(&heap_number),
+                         IsAllocateHeapNumber(_, CaptureEq(&if_false))),
+                   IsStore(StoreRepresentation(kMachFloat64, kNoWriteBarrier),
+                           CaptureEq(&heap_number),
+                           IsInt32Constant(HeapNumberValueOffset()),
+                           IsChangeUint32ToFloat64(val),
+                           CaptureEq(&heap_number), CaptureEq(&if_false))),
           IsMerge(
               IsIfTrue(AllOf(CaptureEq(&branch),
                              IsBranch(IsUint32LessThanOrEqual(
@@ -345,7 +339,7 @@ TARGET_TEST_F(ChangeLowering64Test, ChangeInt32ToTagged) {
 
   EXPECT_THAT(reduction.replacement(),
               IsWord64Shl(IsChangeInt32ToInt64(val),
-                          IsInt32Constant(SmiShiftAmount())));
+                          IsInt64Constant(SmiShiftAmount())));
 }
 
 
@@ -365,12 +359,12 @@ TARGET_TEST_F(ChangeLowering64Test, ChangeTaggedToFloat64) {
       IsPhi(
           kMachFloat64, IsLoadHeapNumber(val, CaptureEq(&if_true)),
           IsChangeInt32ToFloat64(IsTruncateInt64ToInt32(
-              IsWord64Sar(val, IsInt32Constant(SmiShiftAmount())))),
+              IsWord64Sar(val, IsInt64Constant(SmiShiftAmount())))),
           IsMerge(
               AllOf(CaptureEq(&if_true),
                     IsIfTrue(AllOf(
                         CaptureEq(&branch),
-                        IsBranch(IsWord64And(val, IsInt32Constant(kSmiTagMask)),
+                        IsBranch(IsWord64And(val, IsInt64Constant(kSmiTagMask)),
                                  graph()->start())))),
               IsIfFalse(CaptureEq(&branch)))));
 }
@@ -392,11 +386,11 @@ TARGET_TEST_F(ChangeLowering64Test, ChangeTaggedToInt32) {
       IsPhi(kMachInt32,
             IsChangeFloat64ToInt32(IsLoadHeapNumber(val, CaptureEq(&if_true))),
             IsTruncateInt64ToInt32(
-                IsWord64Sar(val, IsInt32Constant(SmiShiftAmount()))),
+                IsWord64Sar(val, IsInt64Constant(SmiShiftAmount()))),
             IsMerge(AllOf(CaptureEq(&if_true), IsIfTrue(CaptureEq(&branch))),
                     IsIfFalse(AllOf(
                         CaptureEq(&branch),
-                        IsBranch(IsWord64And(val, IsInt32Constant(kSmiTagMask)),
+                        IsBranch(IsWord64And(val, IsInt64Constant(kSmiTagMask)),
                                  graph()->start()))))));
 }
 
@@ -417,11 +411,11 @@ TARGET_TEST_F(ChangeLowering64Test, ChangeTaggedToUint32) {
       IsPhi(kMachUint32,
             IsChangeFloat64ToUint32(IsLoadHeapNumber(val, CaptureEq(&if_true))),
             IsTruncateInt64ToInt32(
-                IsWord64Sar(val, IsInt32Constant(SmiShiftAmount()))),
+                IsWord64Sar(val, IsInt64Constant(SmiShiftAmount()))),
             IsMerge(AllOf(CaptureEq(&if_true), IsIfTrue(CaptureEq(&branch))),
                     IsIfFalse(AllOf(
                         CaptureEq(&branch),
-                        IsBranch(IsWord64And(val, IsInt32Constant(kSmiTagMask)),
+                        IsBranch(IsWord64And(val, IsInt64Constant(kSmiTagMask)),
                                  graph()->start()))))));
 }
 
@@ -441,14 +435,14 @@ TARGET_TEST_F(ChangeLowering64Test, ChangeUint32ToTagged) {
       phi,
       IsPhi(
           kMachAnyTagged, IsWord64Shl(IsChangeUint32ToUint64(val),
-                                      IsInt32Constant(SmiShiftAmount())),
-          IsFinish(
-              AllOf(CaptureEq(&heap_number),
-                    IsAllocateHeapNumber(_, CaptureEq(&if_false))),
-              IsStore(kMachFloat64, kNoWriteBarrier, CaptureEq(&heap_number),
-                      IsInt32Constant(HeapNumberValueOffset()),
-                      IsChangeUint32ToFloat64(val), CaptureEq(&heap_number),
-                      CaptureEq(&if_false))),
+                                      IsInt64Constant(SmiShiftAmount())),
+          IsFinish(AllOf(CaptureEq(&heap_number),
+                         IsAllocateHeapNumber(_, CaptureEq(&if_false))),
+                   IsStore(StoreRepresentation(kMachFloat64, kNoWriteBarrier),
+                           CaptureEq(&heap_number),
+                           IsInt64Constant(HeapNumberValueOffset()),
+                           IsChangeUint32ToFloat64(val),
+                           CaptureEq(&heap_number), CaptureEq(&if_false))),
           IsMerge(
               IsIfTrue(AllOf(CaptureEq(&branch),
                              IsBranch(IsUint32LessThanOrEqual(
