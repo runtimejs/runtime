@@ -157,10 +157,19 @@ NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
 NATIVE_FUNCTION(NativesObject, TextDecoderDecode) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    VALIDATEARG(0, UINT8ARRAY, "argument 0 is not an Uint8Array");
-    RT_ASSERT(arg0->IsUint8Array());
-    auto abviewv8 = arg0.As<v8::ArrayBufferView>();
-    auto abv8 = abviewv8->Buffer();
+
+    v8::Local<v8::ArrayBuffer> abv8;
+    if (arg0->IsUint8Array()) {
+        auto abviewv8 = arg0.As<v8::ArrayBufferView>();
+        abv8 = abviewv8->Buffer();
+    } else if (arg0->IsArrayBuffer()) {
+        abv8 = arg0.As<v8::ArrayBuffer>();
+    }
+
+    if (abv8.IsEmpty()) {
+        THROW_ERROR("argument 0 is not an ArrayBuffer or Uint8Array");
+    }
+
     RT_ASSERT(!abv8.IsEmpty());
     RT_ASSERT(abv8->IsArrayBuffer());
 

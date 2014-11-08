@@ -24,7 +24,7 @@ function httpHandler(socket) {
   socket.read().then(function(buffers) {
     for (var i = 0; i < buffers.length; ++i) {
       var buf = buffers[i];
-      var message = dec.decode(new Uint8Array(buf));
+      var message = dec.decode(buf);
       isolate.env.stdout(message.split('\r\n').join('\n'));
 
       var body = '<html><body>Hello World!</body></html>';
