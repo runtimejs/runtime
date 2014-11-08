@@ -1,5 +1,5 @@
 # 1. pull new v8 version
-    git subtree pull --prefix=deps/v8 git@github.com:v8/v8.git master --squash
+    git subtree pull --prefix=deps/v8 git@github.com:v8/v8-git-mirror.git master --squash
 
 # 2. build to update generated files
     cd deps/v8
