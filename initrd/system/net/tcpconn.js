@@ -171,8 +171,8 @@ function(netUtils, tcp) {
       var buf = this.bufferedSendData[i];
       if (null === buf) {
         // this.send(tcp.flags.FIN, null);
-        // this.sendFIN();
-        // this.setState(socketState.FIN_WAIT_1);
+        this.sendFIN();
+        this.setState(socketState.FIN_WAIT_1);
         // ++this.localWindow.nextSeqNumber;
       } else {
         this.send(tcp.flags.PSH | tcp.flags.ACK, buf);
