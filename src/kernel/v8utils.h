@@ -32,12 +32,14 @@ using common::Nullable;
     auto that = GetThis(th, args);			  								\
     if (nullptr == that) return;												\
     RT_ASSERT(th);															\
+    RuntimeStateScope<RuntimeState::NATIVE_CALL> native_call_state(th->thread_manager()); \
     v8::Isolate* iv8 = th->IsolateV8();										\
     RT_ASSERT(iv8)
 
 #define PROLOGUE_NOTHIS		 													\
     auto th = V8Utils::GetThread(args);								\
     RT_ASSERT(th);															\
+    RuntimeStateScope<RuntimeState::NATIVE_CALL> native_call_state(th->thread_manager()); \
     v8::Isolate* iv8 = th->IsolateV8();										\
     RT_ASSERT(iv8)
 

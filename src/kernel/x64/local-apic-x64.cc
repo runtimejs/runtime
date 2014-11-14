@@ -102,6 +102,9 @@ void LocalApicX64::InitCpu(PlatformArch* platform) {
 
     RT_ASSERT(bus_freq_);
     uint32_t quantum = 32;
+#ifdef RUNTIME_PROFILER
+    quantum = 4096 * 4;
+#endif
     uint32_t init_count = bus_freq_ / quantum / 16;
 
     // Set minimum initial count value to avoid QEMU

@@ -18,6 +18,7 @@
 #include <kernel/mem-manager.h>
 #include <kernel/platform.h>
 #include <kernel/engines.h>
+#include <kernel/profiler/profiler.h>
 
 using namespace rt;
 
@@ -132,12 +133,14 @@ EXPORT_EVENT void irq_keyboard_event(uint64_t* rip) {
     GLOBAL_platform()->HandleIRQ(irq_context, 1);
 }
 
+int net_irq_count = 0;
+
 EXPORT_EVENT void irq_handler_any(uint64_t number) {
     SystemContextDefaultIRQ irq_context {};
 
     if (1 != number) {
         // Log all IRQ except keyboard
-//        printf("IRQ %d, cpu %d\n", number, rt::Cpu::id());
+        printf("IRQ %d, cpu %d\n", number, rt::Cpu::id());
     }
 
     RT_ASSERT(number <= 0xff);
@@ -146,10 +149,16 @@ EXPORT_EVENT void irq_handler_any(uint64_t number) {
 }
 
 // TODO: fix this event
-EXPORT_EVENT void irq_timer_event() {
+EXPORT_EVENT void irq_timer_event(void* rsp, void* rbp, void* rip) {
     rt::SystemContextTimerIRQ irq_context {};
     RT_ASSERT(GLOBAL_engines());
     GLOBAL_engines()->TimerTick(irq_context);
+
+    RegisterState state;
+    state.rsp = rsp;
+    state.rbp = rbp;
+    state.rip = rip;
+    GLOBAL_platform()->profiler().MakeSample(irq_context, state);
 
     // TODO: fix hardcoded apic base address
     LocalApicRegisterAccessor registers((void*)0xfee00000);

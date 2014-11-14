@@ -24,6 +24,7 @@
 #include <kernel/atomic.h>
 #include <kernel/resource.h>
 #include <kernel/system-context.h>
+#include <kernel/runtime-state.h>
 
 namespace rt {
 
@@ -227,6 +228,12 @@ public:
         return ev_done_checkpoint_ == ev_done_total_;
     }
 
+#ifdef RUNTIME_TRACK_STATE
+    RuntimeStateStack& state_stack() {
+        return state_stack_;
+    }
+#endif
+
     void ProcessNewThreads();
     void ProcessTimeouts();
     void TimerInterruptNotify(SystemContextIRQ& irq_context);
@@ -243,7 +250,39 @@ private:
     Timeouts<ThreadTimeout> timeouts_;
     uint64_t ev_done_total_;
     uint64_t ev_done_checkpoint_;
+    RuntimeStateStack state_stack_;
     DELETE_COPY_AND_ASSIGN(ThreadManager);
 };
+
+#ifdef RUNTIME_TRACK_STATE
+
+template<RuntimeState state>
+class RuntimeStateScope {
+public:
+    RuntimeStateScope(ThreadManager* thread_mgr)
+        :	thread_mgr_(thread_mgr) {
+        RT_ASSERT(thread_mgr_);
+        NoInterrupsScope no_interrupts;
+        thread_mgr_->state_stack().Push(state);
+    }
+
+    ~RuntimeStateScope() {
+        RT_ASSERT(thread_mgr_);
+        NoInterrupsScope no_interrupts;
+        thread_mgr_->state_stack().Pop();
+    }
+private:
+    ThreadManager* thread_mgr_;
+};
+
+#else
+
+template<RuntimeState state>
+class RuntimeStateScope {
+public:
+    RuntimeStateScope(ThreadManager* thread_mgr) {}
+}
+
+#endif
 
 } // namespace rt

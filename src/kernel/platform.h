@@ -17,6 +17,7 @@
 #include <kernel/mem-manager.h>
 #include <kernel/irq-dispatcher.h>
 #include <kernel/system-context.h>
+#include <kernel/profiler/profiler.h>
 
 #ifdef RUNTIMEJS_PLATFORM_X64
 #include <kernel/x64/platform-x64.h>
@@ -65,6 +66,11 @@ public:
     IrqDispatcher& irq_dispatcher() { return irq_dispatcher_; }
 
     /**
+     * Returns system profiler
+     */
+    Profiler& profiler() { return profiler_; }
+
+    /**
      * IRQ handler (requires IRQ context)
      */
     void HandleIRQ(SystemContextIRQ irq_context, uint8_t number) {
@@ -87,6 +93,14 @@ public:
         return platform_arch_.BootTimeMicroseconds();
     }
 
+    void SetCommandLine(std::string cmd) {
+        command_line_ = cmd;
+    }
+
+    std::string GetCommandLine() const {
+        return command_line_;
+    }
+
     /**
      * Print current stack backtrace
      */
@@ -94,6 +108,8 @@ public:
 private:
     PlatformArch platform_arch_;
     IrqDispatcher irq_dispatcher_;
+    Profiler profiler_;
+    std::string command_line_;
     DELETE_COPY_AND_ASSIGN(Platform);
 };
 

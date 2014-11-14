@@ -147,6 +147,7 @@ void KernelMain::InitSystemBSP(void* mbt) {
 
     uint32_t cpus_found = GLOBAL_platform()->cpu_count();
     GLOBAL_platform()->InitCurrentCPU();
+    GLOBAL_platform()->SetCommandLine(std::string(parsed.cmdline()));
 
     printf("Found %d cpus.\n", cpus_found);
 

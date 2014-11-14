@@ -36,7 +36,6 @@ public:
 
 class SystemContextTimerIRQ : public SystemContextIRQ {};
 
-
 } // namespace rt
 
 

@@ -27,8 +27,14 @@ struct HPETRegisters {
     uint64_t generalInterruptStatus;
 } __attribute__((packed));
 
-class HpetX64
-{
+struct HPETTimerConfig {
+    uint64_t config;
+    uint64_t comparatorValue;
+    uint64_t interruptRoute;
+    uint64_t reserved0;
+};
+
+class HpetX64 {
 public:
     /**
      * Create HPET instance using registers base address
@@ -55,10 +61,17 @@ public:
     void ResetCounter() {
         *counter_ = 0;
     }
+
+    HPETTimerConfig* GetTimerConfig(uint8_t timer_index) {
+        return reinterpret_cast<HPETTimerConfig*>(reinterpret_cast<uint8_t*>(address_) +
+            kTimerConfigsOffset + sizeof(HPETTimerConfig) * timer_index);
+    }
 private:
     static const int kCapabilitiesCounterSizeMask = (1 << 13);
     static const int kConfigurationEnable = (1 << 0);
     static const int kCounterOffset = 0x0f0;
+    static const int kTimerConfigsOffset = 0x100;
+    void* address_;
     HPETRegisters* registers_;
     volatile uint64_t* counter_;
     uint64_t frequency_;

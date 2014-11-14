@@ -14,10 +14,17 @@
 
 "use strict";
 
+var requestCount = 0;
+var expectRequests = 100;
+
 /**
  * Handle HTTP request
  */
 function httpHandler(socket) {
+  if (0 === requestCount) {
+    kernel.startProfiling();
+  }
+
   var enc = new TextEncoder('utf-8');
   var dec = new TextDecoder('utf-8');
 
@@ -41,6 +48,11 @@ function httpHandler(socket) {
 
       socket.write(enc.encode(response.join('\r\n')).buffer);
       socket.close();
+
+      if (expectRequests === ++requestCount) {
+        // Timeout to make sure system is done with a connection
+        setTimeout(kernel.stopProfiling, 500);
+      }
     }
 
   }).catch(function(err) {

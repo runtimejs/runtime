@@ -614,11 +614,12 @@ align 16
 _int_gate_irq_timer:
 
     SaveState
-    mov ax, 1
-    mov fs, ax
+    mov rdi, rsp 	; arg 0
+    add rdi, 256
+    mov rdx, [rdi] 	; arg 2, rip from stack
+    add rdi, 40		; compute sp, exclude cpu saved state (5*qword)
+    mov rsi, rbp 	; arg 1
     call    irq_timer_event
-    mov ax, 0
-    mov fs, ax
     RestoreState
     iretq
 

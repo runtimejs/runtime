@@ -67,6 +67,13 @@ v8::Local<v8::Value> FunctionExports::Get(uint32_t index, size_t export_id) {
     return scope.Escape(data_[index].GetValue(iv8));
 }
 
+void OnJitCodeEvent(const v8::JitCodeEvent* event) {
+    RT_ASSERT(event);
+#ifdef RUNTIME_PROFILER
+    GLOBAL_platform()->profiler().OnJitCodeEvent(event);
+#endif
+}
+
 void Thread::SetUp() {
     // Skip initialization for idle thread
     if (ThreadType::IDLE == type_) {
@@ -75,7 +82,9 @@ void Thread::SetUp() {
 
     RT_ASSERT(nullptr == iv8_);
     RT_ASSERT(nullptr == tpl_cache_);
-    iv8_ = v8::Isolate::New();
+    v8::Isolate::CreateParams params;
+    params.code_event_handler = OnJitCodeEvent;
+    iv8_ = v8::Isolate::New(params);
     iv8_->SetData(0, this);
     printf("[V8] new isolate\n");
     v8::Isolate::Scope ivscope(iv8_);
@@ -148,6 +157,8 @@ v8::Local<v8::Object> Thread::GetIsolateGlobal() {
 }
 
 bool Thread::Run() {
+    RuntimeStateScope<RuntimeState::EVENT_LOOP> event_loop_state(thread_manager());
+
     // Not possible to run terminated thread
     RT_ASSERT(ThreadType::TERMINATED != type_);
 
@@ -155,6 +166,7 @@ bool Thread::Run() {
     if (ThreadType::IDLE == type_) {
 
         if (thread_mgr_->CanHalt()) {
+            RuntimeStateScope<RuntimeState::HALT> halt_state(thread_manager());
             Cpu::Halt();
         }
 
@@ -241,13 +253,16 @@ bool Thread::Run() {
             v8::Local<v8::Value> filename { arr->Get(1) };
             RT_ASSERT(code->IsString());
             RT_ASSERT(filename->IsString());
-            filename_ = V8Utils::ToString(filename->ToString());
+            if (filename_.empty()) {
+                filename_ = V8Utils::ToString(filename->ToString());
+            }
 
             v8::ScriptOrigin origin(filename);
             v8::ScriptCompiler::Source source(code->ToString(), origin);
             v8::Local<v8::Script> script = v8::ScriptCompiler::Compile(iv8_, &source,
                 v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
             if (!script.IsEmpty()) {
+                RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
                 script->Run();
             }
         }
@@ -274,6 +289,7 @@ bool Thread::Run() {
                    unpacked,
                    v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
                 };
+                RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
                 fnwrap->Call(context->Global(), 4, argv);
             }
         }
@@ -303,6 +319,7 @@ bool Thread::Run() {
                    unpacked,
                    v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
                 };
+                RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
                 fnwrap->Call(handle_obj, 4, argv);
             }
         }
@@ -315,6 +332,7 @@ bool Thread::Run() {
                 v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index())) };
 
             resolver->Resolve(unpacked);
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             iv8_->RunMicrotasks();
         }
             break;
@@ -326,6 +344,7 @@ bool Thread::Run() {
                 v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index())) };
 
             resolver->Reject(unpacked);
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             iv8_->RunMicrotasks();
         }
             break;
@@ -349,6 +368,7 @@ bool Thread::Run() {
                 thread_mgr_->SetTimeout(this, AddTimeoutData(std::move(data)), data.delay());
             }
 
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             fn->Call(context->Global(), 0, nullptr);
         }
             break;
@@ -357,6 +377,7 @@ bool Thread::Run() {
                 GetIRQData(message->recv_index())) };
             RT_ASSERT(fnv->IsFunction());
             v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             fn->Call(context->Global(), 0, nullptr);
         }
             break;

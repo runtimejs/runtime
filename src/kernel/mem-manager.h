@@ -20,6 +20,7 @@
 #include <kernel/boot-services.h>
 #include <kernel/dlmalloc.h>
 #include <kernel/x64/address-space-x64.h>
+#include <kernel/runtime-state.h>
 
 namespace rt {
 
@@ -370,37 +371,91 @@ private:
     DELETE_COPY_AND_ASSIGN(PageTableAllocator);
 };
 
+typedef void (*AllocatorTraceCallback)(void*);
+
 /**
  * Allocates memory in custom-size chunks
  */
 class MallocAllocator {
+private:
 public:
     MallocAllocator();
 
     inline void* Alloc(size_t size) {
-        ScopedLock lock(default_mspace_locker_);
-        return mspace_malloc(default_mspace_, size);
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (enter_callback_) { enter_callback_(callback_param_); }
+#endif
+        void* result;
+        {   ScopedLock lock(default_mspace_locker_);
+            result = mspace_malloc(default_mspace_, size);
+        }
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (exit_callback_) { exit_callback_(callback_param_); }
+#endif
+        return result;
     }
 
     inline void* AllocAligned(size_t alignment, size_t size) {
-        ScopedLock lock(default_mspace_locker_);
-        return mspace_memalign(default_mspace_, alignment, size);
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (enter_callback_) { enter_callback_(callback_param_); }
+#endif
+        void* result;
+        {	ScopedLock lock(default_mspace_locker_);
+            result =  mspace_memalign(default_mspace_, alignment, size);
+        }
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (exit_callback_) { exit_callback_(callback_param_); }
+#endif
+        return result;
     }
 
     inline void* Calloc(size_t elements, size_t element_size) {
-        ScopedLock lock(default_mspace_locker_);
-        return mspace_calloc(default_mspace_, elements, element_size);
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (enter_callback_) { enter_callback_(callback_param_); }
+#endif
+        void* result;
+        {   ScopedLock lock(default_mspace_locker_);
+            result = mspace_calloc(default_mspace_, elements, element_size);
+        }
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (exit_callback_) { exit_callback_(callback_param_); }
+#endif
+        return result;
     }
 
     inline void* Realloc(void* ptr, size_t new_size) {
-        ScopedLock lock(default_mspace_locker_);
-        return mspace_realloc(default_mspace_, ptr, new_size);
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (enter_callback_) { enter_callback_(callback_param_); }
+#endif
+        void* result;
+        {   ScopedLock lock(default_mspace_locker_);
+            result = mspace_realloc(default_mspace_, ptr, new_size);
+        }
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (exit_callback_) { exit_callback_(callback_param_); }
+#endif
+        return result;
     }
 
     inline void Free(void* ptr) {
-        ScopedLock lock(default_mspace_locker_);
-        mspace_free(default_mspace_, ptr);
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (enter_callback_) { enter_callback_(callback_param_); }
+#endif
+        {   ScopedLock lock(default_mspace_locker_);
+            mspace_free(default_mspace_, ptr);
+        }
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+        if (exit_callback_) { exit_callback_(callback_param_); }
+#endif
     }
+
+#ifdef RUNTIME_ALLOCATOR_CALLBACKS
+    void SetTraceCallbacks(AllocatorTraceCallback enter, AllocatorTraceCallback exit, void* param) {
+        enter_callback_ = enter;
+        exit_callback_ = exit;
+        callback_param_ = param;
+    }
+#endif
 
     /**
      * Initialize allocator per-cpu data
@@ -414,6 +469,9 @@ public:
 private:
     Locker default_mspace_locker_;
     mspace default_mspace_;
+    AllocatorTraceCallback enter_callback_;
+    AllocatorTraceCallback exit_callback_;
+    void* callback_param_;
     DELETE_COPY_AND_ASSIGN(MallocAllocator);
 };
 

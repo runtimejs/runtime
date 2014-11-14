@@ -33,8 +33,28 @@ using ::common::Nullable;
 template<typename T>
 using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
 
+NATIVE_FUNCTION(NativesObject, StartProfiling) {
+    PROLOGUE_NOTHIS;
+    printf("[PROFILER] started");
+    GLOBAL_platform()->profiler().Enable();
+}
+
+NATIVE_FUNCTION(NativesObject, StopProfiling) {
+    PROLOGUE_NOTHIS;
+    printf("[PROFILER] stopped");
+    GLOBAL_platform()->profiler().Disable();
+}
+
+NATIVE_FUNCTION(NativesObject, GetCommandLine) {
+    PROLOGUE_NOTHIS;
+    printf("[PROFILER] started");
+    auto cmd = GLOBAL_platform()->GetCommandLine();
+    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8, cmd.c_str()));
+}
+
 NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
     PROLOGUE_NOTHIS;
+    RuntimeStateScope<RuntimeState::HANDLE_CALL> handle_call_state(th->thread_manager());
 
     if (args.IsConstructCall()) {
         THROW_ERROR("function is not a constructor");
@@ -78,7 +98,11 @@ NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
-    v8::Local<v8::Promise::Resolver> promise_resolver { v8::Promise::Resolver::New(iv8) };
+    v8::Local<v8::Promise::Resolver> promise_resolver;
+    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
+        promise_resolver = v8::Promise::Resolver::New(iv8);
+    }
+
     uint32_t promise_index = th->AddPromise(
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
 
@@ -93,6 +117,7 @@ NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
 
 NATIVE_FUNCTION(NativesObject, CallHandler) {
     PROLOGUE_NOTHIS;
+    RuntimeStateScope<RuntimeState::RPC_CALL> rpc_call_state(th->thread_manager());
 
     if (args.IsConstructCall()) {
         THROW_ERROR("function is not a constructor");
@@ -118,8 +143,10 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
-    v8::Local<v8::Promise::Resolver> promise_resolver {
-        v8::Promise::Resolver::New(iv8) };
+    v8::Local<v8::Promise::Resolver> promise_resolver;
+    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
+        promise_resolver = v8::Promise::Resolver::New(iv8);
+    }
 
     uint32_t promise_index = th->AddPromise(
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
@@ -1315,7 +1342,11 @@ NATIVE_FUNCTION(IsolatesManagerObject, Create) {
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
-    auto promise_resolver = v8::Promise::Resolver::New(iv8);
+    v8::Local<v8::Promise::Resolver> promise_resolver;
+    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
+        promise_resolver = v8::Promise::Resolver::New(iv8);
+    }
+
     auto promise_index = th->AddPromise(
         v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
 

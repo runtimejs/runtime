@@ -236,4 +236,11 @@
 
   prompt.setInputHandler(inputHandler);
   prompt.display();
+
+  var cmd = kernel.getCommandLine().trim().split(' ');
+  if (cmd.length > 1) {
+    var command = cmd.slice(1).join(' ');
+    print('Starting ' + command + '\n');
+    inputHandler(command);
+  }
 })();

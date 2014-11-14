@@ -54,6 +54,13 @@ public:
     DECLARE_NATIVE(BufferAddress);
 
     /**
+     * Kernel utils
+     */
+    DECLARE_NATIVE(StartProfiling);
+    DECLARE_NATIVE(StopProfiling);
+    DECLARE_NATIVE(GetCommandLine);
+
+    /**
      * Super basic encoder/decoder support
      * https://encoding.spec.whatwg.org/
      */

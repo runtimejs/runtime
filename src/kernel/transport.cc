@@ -25,6 +25,7 @@ TransportData::SerializeError TransportData::MoveValue(Thread* exporter,
                                                        Thread* recv,
                                                        v8::Local<v8::Value> value) {
     RT_ASSERT(exporter);
+    RuntimeStateScope<RuntimeState::TRANSPORT_SERIALIZER> ts_state(exporter->thread_manager());
     Clear();
     thread_ = exporter;
     allow_ref_ = recv == exporter;
@@ -41,6 +42,7 @@ TransportData::SerializeError TransportData::MoveArgs(Thread* exporter,
                                                       Thread* recv,
                                                       const v8::FunctionCallbackInfo<v8::Value>& args) {
     RT_ASSERT(exporter);
+    RuntimeStateScope<RuntimeState::TRANSPORT_SERIALIZER> ts_state(exporter->thread_manager());
     Clear();
     thread_ = exporter;
     allow_ref_ = recv == exporter;
@@ -285,6 +287,7 @@ v8::Local<v8::Value> TransportData::Unpack(Thread* thread) const {
 
 v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader& reader) const {
     RT_ASSERT(thread);
+    RuntimeStateScope<RuntimeState::TRANSPORT_DESERIALIZER> td_state(thread->thread_manager());
     v8::Isolate* iv8 { thread->IsolateV8() };
     RT_ASSERT(iv8);
 

@@ -78,7 +78,10 @@ void MemManager::PageFault(void* fault_address, uint64_t error_code) {
 }
 
 MallocAllocator::MallocAllocator()
-    :	default_mspace_(nullptr) {}
+    :	default_mspace_(nullptr),
+        enter_callback_(nullptr),
+        exit_callback_(nullptr),
+        callback_param_(nullptr) {}
 
 void MallocAllocator::InitCpu() {}
 

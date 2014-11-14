@@ -23,3 +23,7 @@
 #define DELETE_COPY_AND_ASSIGN(TypeName)           \
     TypeName(const TypeName&) = delete;            \
     TypeName& operator=(const TypeName&) = delete
+
+#define RUNTIME_PROFILER
+#define RUNTIME_TRACK_STATE
+#define RUNTIME_ALLOCATOR_CALLBACKS

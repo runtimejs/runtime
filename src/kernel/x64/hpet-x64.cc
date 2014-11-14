@@ -19,7 +19,8 @@
 namespace rt {
 
 HpetX64::HpetX64(void* address)
-    :   registers_(reinterpret_cast<HPETRegisters*>(address)),
+    :   address_(address),
+        registers_(reinterpret_cast<HPETRegisters*>(address)),
         counter_(reinterpret_cast<uint64_t*>(
             reinterpret_cast<uint8_t*>(address) + kCounterOffset)),
         frequency_(0),
@@ -42,6 +43,21 @@ HpetX64::HpetX64(void* address)
     RT_ASSERT(frequency_ >= 1000000);
     us_div_ = frequency_ / 1000000;
     RT_ASSERT(us_div_ > 0);
+
+#if 0
+    // Setup periodic profiler timer
+    uint64_t interval = (100 * us_div_); /* 100 microseconds */
+
+    auto timer_config = GetTimerConfig(0);
+    uint32_t irq_bits = timer_config->config >> 32;
+    uint32_t irq_number = __builtin_ctz(irq_bits);
+
+    RT_ASSERT(0x10 == (timer_config->config & 0x10) && "HPET No periodic support");
+
+//    timer_config->config = (irq_number << 9) | (1 << 2) | (1 << 3) | (1 << 6);
+//    timer_config->comparatorValue = interval;
+//    timer_config->comparatorValue = interval;
+#endif
 
     ResetCounter();
     Cpu::WaitPause();

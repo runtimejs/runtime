@@ -100,6 +100,7 @@ config = {
             'src/arch',
             'src/kernel',
             'src/kernel/x64',
+            'src/kernel/profiler',
             'src/common',
             'test/cc',
         ],
