@@ -9,6 +9,7 @@ libs_config = {
             'musl/arch/x86_64/bits',
             'libcxx/include',
             'eastl/include',
+            'concurrentqueue',
             'printf',
             'v8/src',
             'v8',

@@ -120,6 +120,7 @@ config = {
         'deps/libcxx/include',
         'deps/v8/include',
         'deps/v8',
+        'deps/concurrentqueue',
         'deps/acpica/source/include',
         'deps/printf',
         'src',
