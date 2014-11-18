@@ -73,7 +73,6 @@ def startCommand(params):
 
 def buildCommand():
   shell("scons")
-  print bcolors.OKGREEN + 'Done.' + bcolors.ENDC
   return
 
 def initrdCommand():
