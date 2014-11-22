@@ -15,12 +15,8 @@
 "use strict";
 
 function echoHandler(socket, writePipe, readPipe) {
-  readPipe.pull(function pf(buffers) {
-    for (var i = 0; i < buffers.length; ++i) {
-      var buf = buffers[i];
-      writePipe.push(buf);
-    }
-
+  readPipe.pull(function pf(buf) {
+    writePipe.push(buf);
     readPipe.pull(pf);
   });
 }

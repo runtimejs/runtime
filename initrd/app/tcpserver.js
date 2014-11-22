@@ -40,22 +40,18 @@ function httpHandler(socket, writePipe, readPipe) {
   var enc = new TextEncoder('utf-8');
   var dec = new TextDecoder('utf-8');
 
-  readPipe.pull(function(buffers) {
-    for (var i = 0; i < buffers.length; ++i) {
-      var buf = buffers[i];
-      var message = dec.decode(buf);
-      // isolate.env.stdout(message.split('\r\n').join('\n'));
+  readPipe.pull(function(buf) {
+    var message = dec.decode(buf);
+    // isolate.env.stdout(message.split('\r\n').join('\n'));
 
-      var response = enc.encode(cachedResponse).buffer;
-      writePipe.push(response);
-      writePipe.close();
+    var response = enc.encode(cachedResponse).buffer;
+    writePipe.push(response);
+    writePipe.close();
 
-      if (expectRequests === ++requestCount) {
-        // Timeout to make sure system is done with a connection
-        setTimeout(kernel.stopProfiling, 500);
-      }
+    if (expectRequests === ++requestCount) {
+      // Timeout to make sure system is done with a connection
+      setTimeout(kernel.stopProfiling, 500);
     }
-
   });
 }
 
