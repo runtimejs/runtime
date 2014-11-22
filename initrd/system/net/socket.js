@@ -92,10 +92,10 @@ var tcpSockets = (function() {
      * @param {function} onMessage Message received callback
      * @param {function} onError Socket error callback
      */
-    createSocket: function(onConnection, onError) {
+    createSocket: function() {
       var socketHandle = tcpListenersSocketPool.createHandle();
       var connPipe = isolate.createPipe();
-      sockets.set(socketHandle, new tcpSocket.TCPServerSocket(onConnection, connPipe));
+      sockets.set(socketHandle, new tcpSocket.TCPServerSocket(connPipe));
       return Promise.resolve({ socket: socketHandle, pipe: connPipe });
     },
   };

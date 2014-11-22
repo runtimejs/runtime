@@ -28,22 +28,7 @@ var tcpConnections = new Map();
 /**
  * Handle pool for connection sockets
  */
-var tcpConnectionsSocketPool = intfc.createHandlePool({
-  // read: function() {
-  //   var socket = tcpConnections.get(this);
-  //   return new Promise(function(resolve, reject) {
-  //     socket.read(resolve, reject);
-  //   });
-  // },
-  // write: function(buf) {
-  //   var socket = tcpConnections.get(this);
-  //   socket.sendData(buf);
-  // },
-  // close: function() {
-  //   var socket = tcpConnections.get(this);
-  //   socket.close();
-  // }
-});
+var tcpConnectionsSocketPool = intfc.createHandlePool();
 
 /**
  * Note: No listening to IP address support (0.0.0.0 assumed)
@@ -74,8 +59,7 @@ var listeningTable = (function() {
   };
 })();
 
-function TCPServerSocket(onConnection, connPipe) {
-  // this.onConnection = onConnection || emptyFunction;
+function TCPServerSocket(connPipe) {
   this.connPipe = connPipe;
   this.listeningPort = 0;
   this.isListening = false;
@@ -143,8 +127,6 @@ TCPServerSocket.prototype.recv = function(intf, ip4Header, tcpHeader, buf, len, 
     if (socket) {
       var writePipe = isolate.createPipe();
       var readPipe = isolate.createPipe();
-      // var writePipe = null;
-      // var readPipe = null;
       var socketHandle = tcpConnectionsSocketPool.createHandle();
       tcpConnections.set(socketHandle, socket);
       socket.writePipe = writePipe;
@@ -159,7 +141,6 @@ TCPServerSocket.prototype.recv = function(intf, ip4Header, tcpHeader, buf, len, 
         writePipe.pull(wpp);
       });
 
-      // this.onConnection(socketHandle);
       this.connPipe.push([socketHandle, writePipe, readPipe]);
     }
 
