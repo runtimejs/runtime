@@ -57,6 +57,10 @@ public:
             return v8_snapshot();
         }
 
+        if (0 == strcmp(name, "deopt")) {
+            return stdout_get();
+        }
+
         RT_ASSERT(!"Trying to open unknown file.");
         return nullptr;
     }

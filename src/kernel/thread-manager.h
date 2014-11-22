@@ -281,7 +281,7 @@ template<RuntimeState state>
 class RuntimeStateScope {
 public:
     RuntimeStateScope(ThreadManager* thread_mgr) {}
-}
+};
 
 #endif
 

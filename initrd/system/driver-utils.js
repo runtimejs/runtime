@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('driverUtils', ['resources'],
-function(resources) {
-  "use strict";
+"use strict";
+var resources = require('resources.js')();
 
-  return {
-    physicalMemory: function(address, byteLength) {
-      return resources.memoryRange.block(address >>> 0,
-                         byteLength >>> 0);
-    },
-    irq: function(number) {
-      return resources.irqRange.irq(number >>> 0);
-    },
-    ioPort: function(number) {
-      return resources.ioRange.port(number >>> 0);
-    },
-  };
-});
+module.exports = {
+  physicalMemory: function(address, byteLength) {
+    return resources.memoryRange.block(address >>> 0, byteLength >>> 0);
+  },
+  irq: function(number) {
+    return resources.irqRange.irq(number >>> 0);
+  },
+  ioPort: function(number) {
+    return resources.ioRange.port(number >>> 0);
+  },
+};

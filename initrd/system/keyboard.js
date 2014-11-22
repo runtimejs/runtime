@@ -15,33 +15,30 @@
 /**
  * Keyboard service
  */
-define('keyboard', [],
-function() {
-  "use strict";
+"use strict";
 
-  var listeners = [];
+var listeners = [];
 
-  return {
-    /**
-     * Driver interface
-     */
-    driver: {
-      register: function(data) {
-        // Not implemented yet
-      },
-      event: function(keyinfo) {
-        listeners.forEach(function(listener) {
-          listener(keyinfo);
-        });
-      },
+module.exports = {
+  /**
+   * Driver interface
+   */
+  driver: {
+    register: function(data) {
+      // Not implemented yet
     },
-    /**
-     * Client interface
-     */
-    client: {
-      addListener: function(fn) {
-        listeners.push(fn);
-      },
+    event: function(keyinfo) {
+      listeners.forEach(function(listener) {
+        listener(keyinfo);
+      });
     },
-  };
-});
+  },
+  /**
+   * Client interface
+   */
+  client: {
+    addListener: function(fn) {
+      listeners.push(fn);
+    },
+  },
+};

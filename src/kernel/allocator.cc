@@ -16,12 +16,4 @@
 
 namespace rt {
 
-bool operator==(const DefaultEASTLAlloc& a, const DefaultEASTLAlloc& b) {
-    return true;
-}
-
-bool operator!=(const DefaultEASTLAlloc& a, const DefaultEASTLAlloc& b) {
-    return false;
-}
-
 } // namespace rt

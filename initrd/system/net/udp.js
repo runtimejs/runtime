@@ -12,37 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('net/udp', [],
-function() {
-  "use strict";
+"use strict";
+var headerLength = 8;
 
-  var headerLength = 8;
+function writeHeader(view, offset, opts) {
+  var len = view.byteLength - offset;
+  view.setUint16(offset + 0, opts.srcPort, false);
+  view.setUint16(offset + 2, opts.destPort, false);
+  view.setUint16(offset + 4, len, false);
+  view.setUint16(offset + 6, 0, false); // no checksum
+}
 
-  function writeHeader(view, offset, opts) {
-    var len = view.byteLength - offset;
-    view.setUint16(offset + 0, opts.srcPort, false);
-    view.setUint16(offset + 2, opts.destPort, false);
-    view.setUint16(offset + 4, len, false);
-    view.setUint16(offset + 6, 0, false); // no checksum
-  }
-
-  function parse(reader) {
-    var srcPort = reader.readUint16();
-    var destPort = reader.readUint16();
-    var dataLength = reader.readUint16();
-    reader.readUint16(); // Checksum
-    // TODO: verify checksum
-
-    return {
-      srcPort: srcPort,
-      destPort: destPort,
-      dataLength: dataLength
-    };
-  }
+function parse(reader) {
+  var srcPort = reader.readUint16();
+  var destPort = reader.readUint16();
+  var dataLength = reader.readUint16();
+  reader.readUint16(); // Checksum
+  // TODO: verify checksum
 
   return {
-    writeHeader: writeHeader,
-    headerLength: headerLength,
-    parse: parse,
+    srcPort: srcPort,
+    destPort: destPort,
+    dataLength: dataLength
   };
-});
+}
+
+module.exports = {
+  writeHeader: writeHeader,
+  headerLength: headerLength,
+  parse: parse,
+};

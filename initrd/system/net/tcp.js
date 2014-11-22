@@ -12,88 +12,92 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('net/tcp', [],
-function() {
-  "use strict";
+"use strict";
+var headerLength = 20;
 
-  var headerLength = 20;
+var flags = {
+  FIN: 1 << 0, // Finish
+  SYN: 1 << 1, // Sync
+  RST: 1 << 2, // Reset
+  PSH: 1 << 3, // Push
+  ACK: 1 << 4, // Ack
+  URG: 1 << 5, // Urgent
+};
 
-  var flags = {
-    FIN: 1 << 0, // Finish
-    SYN: 1 << 1, // Sync
-    RST: 1 << 2, // Reset
-    PSH: 1 << 3, // Push
-    ACK: 1 << 4, // Ack
-    URG: 1 << 5, // Urgent
-  };
-
-  function checksum(view, offset, len, extraSum) {
-    var count = len >>> 1;
-    var acc = (extraSum >>> 0);
-    var ov = 0;
-    for (var i = 0; i < count; ++i) {
-      acc += view.getUint16(offset + i * 2, false);
-    }
-
-    if (count * 2 !== len) {
-      acc += view.getUint8(offset + count * 2) << 8;
-    }
-
-    acc = (acc & 0xffff) + (acc >>> 16);
-    acc += (acc >>> 16);
-    return ((~acc) & 0xffff) >>> 0;
+function checksum(view, offset, len, extraSum) {
+  var count = len >>> 1;
+  var acc = (extraSum >>> 0);
+  var ov = 0;
+  for (var i = 0; i < count; ++i) {
+    acc += view.getUint16(offset + i * 2, false);
   }
 
-  function writeHeader(view, offset, opts) {
-    var len = view.byteLength - offset;
-    view.setUint16(offset + 0, opts.srcPort, false);
-    view.setUint16(offset + 2, opts.destPort, false);
-    view.setUint32(offset + 4, opts.seqNumber, false);
-    view.setUint32(offset + 8, opts.ackNumber, false);
-    var dataOffsetWords = 5;
-    view.setUint8(offset + 12, dataOffsetWords << 4);
-    view.setUint8(offset + 13, opts.flags);
-    view.setUint16(offset + 14, opts.windowSize, false);
-    view.setUint16(offset + 16, 0, false); // checksum
-    view.setUint16(offset + 18, 0, false); // urgent ptr
+  if (count * 2 !== len) {
+    acc += view.getUint8(offset + count * 2) << 8;
   }
 
-  function writeHeaderChecksum(view, headerOffset, value) {
-    view.setUint16(headerOffset + 16, value & 0xffff, false);
-  }
+  acc = (acc & 0xffff) + (acc >>> 16);
+  acc += (acc >>> 16);
+  return ((~acc) & 0xffff) >>> 0;
+}
 
-  function parse(reader) {
-    var srcPort = reader.readUint16();
-    var destPort = reader.readUint16();
-    var seqNumber = reader.readUint32();
-    var ackNumber = reader.readUint32();
-    reader.readUint8();
-    var flags = reader.readUint8();
-    var windowSize = reader.readUint16();
-    var checksum = reader.readUint16();
-    var urgentPtr = reader.readUint16();
+function checksumPartial(extraSum) {
+  var acc = (extraSum >>> 0);
+  acc = (acc & 0xffff) + (acc >>> 16);
+  acc += (acc >>> 16);
+  return ((~acc) & 0xffff) >>> 0;
+}
 
-    return {
-      srcPort: srcPort,
-      destPort: destPort,
-      seqNumber: seqNumber,
-      ackNumber: ackNumber,
-      flags: flags,
-      windowSize: windowSize,
-    };
-  }
+function writeHeader(view, offset, opts) {
+  var len = view.byteLength - offset;
+  view.setUint16(offset + 0, opts.srcPort, false);
+  view.setUint16(offset + 2, opts.destPort, false);
+  view.setUint32(offset + 4, opts.seqNumber, false);
+  view.setUint32(offset + 8, opts.ackNumber, false);
+  var dataOffsetWords = 5;
+  view.setUint8(offset + 12, dataOffsetWords << 4);
+  view.setUint8(offset + 13, opts.flags);
+  view.setUint16(offset + 14, opts.windowSize, false);
+  view.setUint16(offset + 16, 0, false); // checksum
+  view.setUint16(offset + 18, 0, false); // urgent ptr
+}
+
+function writeHeaderChecksum(view, headerOffset, value) {
+  view.setUint16(headerOffset + 16, value & 0xffff, false);
+}
+
+function parse(reader) {
+  var srcPort = reader.readUint16();
+  var destPort = reader.readUint16();
+  var seqNumber = reader.readUint32();
+  var ackNumber = reader.readUint32();
+  reader.readUint8();
+  var flags = reader.readUint8();
+  var windowSize = reader.readUint16();
+  var checksum = reader.readUint16();
+  var urgentPtr = reader.readUint16();
 
   return {
-    writeHeader: writeHeader,
-    writeHeaderChecksum: writeHeaderChecksum,
-    headerLength: headerLength,
-    parse: parse,
+    srcPort: srcPort,
+    destPort: destPort,
+    seqNumber: seqNumber,
+    ackNumber: ackNumber,
     flags: flags,
-    checksum: checksum,
-    SEQ_INC: function(seq, value) { return (seq + (value >>> 0)) >>> 0; },
-    SEQ_LT: function(a, b) { return ((a - b) | 0) <  0; },
-    SEQ_LTE: function(a, b) { return ((a - b) | 0) <= 0; },
-    SEQ_GT: function(a, b) { return ((a - b) | 0) >  0; },
-    SEQ_GTE: function(a, b) { return ((a - b) | 0) >= 0; }
+    windowSize: windowSize,
   };
-});
+}
+
+module.exports = {
+  writeHeader: writeHeader,
+  writeHeaderChecksum: writeHeaderChecksum,
+  headerLength: headerLength,
+  parse: parse,
+  flags: flags,
+  checksum: checksum,
+  checksumPartial: checksumPartial,
+  SEQ_INC: function(seq, value) { return (seq + (value >>> 0)) >>> 0; },
+  SEQ_LT: function(a, b) { return ((a - b) | 0) <  0; },
+  SEQ_LTE: function(a, b) { return ((a - b) | 0) <= 0; },
+  SEQ_GT: function(a, b) { return ((a - b) | 0) >  0; },
+  SEQ_GTE: function(a, b) { return ((a - b) | 0) >= 0; }
+};

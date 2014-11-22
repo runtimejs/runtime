@@ -20,35 +20,6 @@
 namespace rt {
 
 /**
- * Default allocator for EASTL containers.
- */
-class DefaultEASTLAlloc {
-public:
-    explicit inline DefaultEASTLAlloc(const char* name = "DefaultEASTLAlloc") { }
-    inline DefaultEASTLAlloc(const DefaultEASTLAlloc& alloc) { }
-    inline DefaultEASTLAlloc(const DefaultEASTLAlloc&, const char* name) { }
-    inline DefaultEASTLAlloc& operator=(const DefaultEASTLAlloc& alloc) { return *this; }
-
-    inline void* allocate(size_t n, int flags = 0) {
-        return malloc(n);
-    }
-
-    inline void* allocate(size_t n, size_t alignment, size_t offset, int flags = 0) {
-        return memalign(alignment, n);
-    }
-
-    inline void deallocate(void* p, size_t n) {
-        free(p);
-    }
-
-    inline const char* get_name() const { return "DefaultEASTLAlloc"; }
-    inline void set_name(const char* name) { }
-};
-
-bool operator==(const DefaultEASTLAlloc& a, const DefaultEASTLAlloc& b);
-bool operator!=(const DefaultEASTLAlloc& a, const DefaultEASTLAlloc& b);
-
-/**
  * Default allocator for STL containers.
  */
 template <class T>

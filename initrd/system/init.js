@@ -56,98 +56,98 @@ var console = (function(undef) {
 })();
 
 // CommonJS loader
-var exports;
-var module = {};
-
-var require = (function() {
-  var cache = {'': {exports: {}}};
-  var requireStack = [''];
-  exports = module.exports = cache[''].exports;
-
-  function pushExports(path) {
-    // save current exports state
-    var currentPath = requireStack[requireStack.length - 1];
-    cache[currentPath].exports = module.exports;
-
-    // load new exports
-    if ('undefined' === typeof cache[path]) {
-      cache[path] = {exports: {}};
-    }
-
-    requireStack.push(path);
-    module = {};
-    exports = module.exports = cache[path].exports;
-  }
-
-  function popExports() {
-    // save current exports state
-    var currentPath = requireStack.pop();
-    var result = cache[currentPath].exports = module.exports;
-
-    // restore previous state
-    var path = requireStack[requireStack.length - 1];
-    module = {};
-    exports = module.exports = cache[path].exports;
-
-    return result;
-  }
-
-  function canonicalize(path) {
-    var currentPath = requireStack[requireStack.length - 1];
-    var dirComponents = currentPath.split('/').slice(0, -1);
-    var pathComponents = path.split('/').filter(function(x) {
-      return '' !== x;
-    });
-
-    if (0 === pathComponents.length) {
-      throw new Error('INVALID_PATH');
-    }
-
-    var loadPath;
-    if ('.' === pathComponents[0]) {
-      loadPath = dirComponents.concat(pathComponents);
-    } else {
-      loadPath = pathComponents;
-    }
-
-    return loadPath.filter(function(x) { return '.' !== x }).join('/');
-  }
-
-  function readFile(path) {
-    try {
-      return runtime.syncRPC(isolate.system.fs.current({
-        action: 'readFile',
-        path: path,
-      }));
-    } catch (err) {
-      if ('NOT_FOUND' === err.message) {
-        throw new Error('require: file "'+ path +'" not found')
-      }
-
-      throw err;
-    }
-  }
-
-  return function require(path) {
-    path = canonicalize(path) + '.js';
-
-    var result;
-    if ('undefined' === typeof cache[path]) {
-      var fileContent = readFile(path);
-      pushExports(path);
-      isolate.eval(fileContent, path);
-      result = popExports();
-
-      if ('undefined' === typeof result) {
-        cache[path] = {};
-      }
-    } else {
-      result = cache[path].exports;
-    }
-
-    return result;
-  };
-})();
+// var exports;
+// var module = {};
+//
+// var require = (function() {
+//   var cache = {'': {exports: {}}};
+//   var requireStack = [''];
+//   exports = module.exports = cache[''].exports;
+//
+//   function pushExports(path) {
+//     // save current exports state
+//     var currentPath = requireStack[requireStack.length - 1];
+//     cache[currentPath].exports = module.exports;
+//
+//     // load new exports
+//     if ('undefined' === typeof cache[path]) {
+//       cache[path] = {exports: {}};
+//     }
+//
+//     requireStack.push(path);
+//     module = {};
+//     exports = module.exports = cache[path].exports;
+//   }
+//
+//   function popExports() {
+//     // save current exports state
+//     var currentPath = requireStack.pop();
+//     var result = cache[currentPath].exports = module.exports;
+//
+//     // restore previous state
+//     var path = requireStack[requireStack.length - 1];
+//     module = {};
+//     exports = module.exports = cache[path].exports;
+//
+//     return result;
+//   }
+//
+//   function canonicalize(path) {
+//     var currentPath = requireStack[requireStack.length - 1];
+//     var dirComponents = currentPath.split('/').slice(0, -1);
+//     var pathComponents = path.split('/').filter(function(x) {
+//       return '' !== x;
+//     });
+//
+//     if (0 === pathComponents.length) {
+//       throw new Error('INVALID_PATH');
+//     }
+//
+//     var loadPath;
+//     if ('.' === pathComponents[0]) {
+//       loadPath = dirComponents.concat(pathComponents);
+//     } else {
+//       loadPath = pathComponents;
+//     }
+//
+//     return loadPath.filter(function(x) { return '.' !== x }).join('/');
+//   }
+//
+//   function readFile(path) {
+//     try {
+//       return runtime.syncRPC(isolate.system.fs.current({
+//         action: 'readFile',
+//         path: path,
+//       }));
+//     } catch (err) {
+//       if ('NOT_FOUND' === err.message) {
+//         throw new Error('require: file "'+ path +'" not found')
+//       }
+//
+//       throw err;
+//     }
+//   }
+//
+//   return function require(path) {
+//     path = canonicalize(path) + '.js';
+//
+//     var result;
+//     if ('undefined' === typeof cache[path]) {
+//       var fileContent = readFile(path);
+//       pushExports(path);
+//       isolate.eval(fileContent, path);
+//       result = popExports();
+//
+//       if ('undefined' === typeof result) {
+//         cache[path] = {};
+//       }
+//     } else {
+//       result = cache[path].exports;
+//     }
+//
+//     return result;
+//   };
+// })();
 
 (function(__native) {
   "use strict";

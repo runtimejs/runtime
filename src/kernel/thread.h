@@ -220,14 +220,19 @@ public:
         return exports_.Add(fn, ethread_);
     }
 
-    uint32_t AddIRQData(v8::UniquePersistent<v8::Value> v) {
+    uint32_t PutObject(v8::UniquePersistent<v8::Value> v) {
         Ref();
-        return irq_data_.Push(std::move(v));
+        return object_handles_.Push(std::move(v));
     }
 
-    v8::Local<v8::Value> GetIRQData(uint32_t index) {
+    v8::Local<v8::Value> GetObject(uint32_t index) {
         v8::EscapableHandleScope scope(iv8_);
-        return scope.Escape(irq_data_.GetLocal(iv8_, index));
+        return scope.Escape(object_handles_.GetLocal(iv8_, index));
+    }
+
+    v8::Local<v8::Value> TakeObject(uint32_t index) {
+        v8::EscapableHandleScope scope(iv8_);
+        return scope.Escape(v8::Local<v8::Value>::New(iv8_, object_handles_.Take(index)));
     }
 
     uint32_t AddTimeoutData(TimeoutData data) {
@@ -367,7 +372,7 @@ private:
     std::string filename_;
 
     IndexedPool<TimeoutData> timeout_data_;
-    UniquePersistentIndexedPool<v8::Value> irq_data_;
+    UniquePersistentIndexedPool<v8::Value> object_handles_;
     UniquePersistentIndexedPool<v8::Promise::Resolver> promises_;
 };
 

@@ -35,14 +35,18 @@ using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
 
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
     PROLOGUE_NOTHIS;
+#ifdef RUNTIME_PROFILER
     printf("[PROFILER] started");
     GLOBAL_platform()->profiler().Enable();
+#endif
 }
 
 NATIVE_FUNCTION(NativesObject, StopProfiling) {
     PROLOGUE_NOTHIS;
+#ifdef RUNTIME_PROFILER
     printf("[PROFILER] stopped");
     GLOBAL_platform()->profiler().Disable();
+#endif
 }
 
 NATIVE_FUNCTION(NativesObject, GetCommandLine) {
@@ -50,6 +54,57 @@ NATIVE_FUNCTION(NativesObject, GetCommandLine) {
     printf("[PROFILER] started");
     auto cmd = GLOBAL_platform()->GetCommandLine();
     args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8, cmd.c_str()));
+}
+
+
+uint16_t swap16(uint16_t x) {
+    return x << 8 | x >> 8;
+}
+
+uint16_t ComputeChecksum(uint32_t start_with, const uint8_t* buffer, size_t length) {
+    uint32_t i;
+    uint32_t sum = start_with;
+
+    for (i = 0; i < (length & ~1U); i += 2) {
+        sum += (uint16_t)swap16(*((uint16_t *)(buffer + i)));
+    }
+
+    if (i < length) {
+        sum += buffer[i] << 8;
+    }
+
+    sum = (sum & 0xffff) + (sum >> 16);
+    sum += (sum >> 16);
+    return ~sum & 0xffff;
+}
+
+NATIVE_FUNCTION(NativesObject, NetChecksum) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    USEARG(1);
+    USEARG(2);
+    USEARG(3);
+    VALIDATEARG(0, ARRAYBUFFER, "argument 0 is not an ArrayBuffer");
+    VALIDATEARG(1, UINT32, "argument 1 is not a Uint32");
+    VALIDATEARG(2, UINT32, "argument 2 is not a Uint32");
+    VALIDATEARG(3, UINT32, "argument 3 is not a Uint32");
+    RT_ASSERT(arg0->IsArrayBuffer());
+    auto abv8 = arg0.As<v8::ArrayBuffer>();
+    if (0 == abv8->ByteLength()) {
+        THROW_ERROR("ArrayBuffer should not be empty");
+    }
+
+    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
+    uint32_t offset = arg1->Uint32Value();
+    uint32_t len = arg2->Uint32Value();
+    uint32_t extra = arg3->Uint32Value();
+
+    if (offset + len > ab->size()) {
+        THROW_ERROR("incorrect buffer offset/length");
+    }
+
+    uint16_t ck = ComputeChecksum(extra, reinterpret_cast<uint8_t*>(ab->data()) + offset, len);
+    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, ck));
 }
 
 NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
@@ -91,10 +146,9 @@ NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
 
     HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
     RT_ASSERT(pool);
-    RT_ASSERT(pool->thread());
 
     TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, pool->thread(), args) };
+    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -135,11 +189,8 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
     ExternalFunction* efn { static_cast<ExternalFunction*>(ptr) };
     RT_ASSERT(efn);
 
-    Thread* recv { efn->recv().get()->thread() };
-    RT_ASSERT(recv);
-
     TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, recv, args) };
+    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -155,7 +206,7 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
             ThreadMessage::Type::FUNCTION_CALL,
             th->handle(),
             std::move(data), efn, promise_index));
-        efn->recv().get()->PushMessage(std::move(msg));
+        efn->recv().getUnsafe()->PushMessage(std::move(msg));
     }
 
     args.GetReturnValue().Set(promise_resolver);
@@ -291,12 +342,8 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
     RT_ASSERT(val);
     ResourceHandle<EngineThread> thread(static_cast<EngineThread*>(val));
 
-    LockingPtr<EngineThread> lptr { thread.get() };
-    Thread* recv { lptr->thread() };
-    RT_ASSERT(recv);
-
     TransportData data;
-    {	TransportData::SerializeError err { data.MoveValue(th, recv, arg3) };
+    {	TransportData::SerializeError err { data.MoveValue(th, arg3) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -306,7 +353,7 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
                 ThreadMessage::Type::FUNCTION_RETURN_REJECT,
             th->handle(),
             std::move(data), nullptr, arg2->Uint32Value()));
-        lptr->PushMessage(std::move(msg));
+        thread.getUnsafe()->PushMessage(std::move(msg));
     }
 }
 
@@ -382,6 +429,8 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
 
     InitrdFile file = GLOBAL_initrd()->Get(filename_buf);
     if (file.IsEmpty()) {
+        printf("required file not found '%s'\n", filename_buf);
+        RT_ASSERT(!"not found");
         args.GetReturnValue().SetNull();
         return;
     }
@@ -489,6 +538,19 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, low));
     arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, high));
     args.GetReturnValue().Set(arr);
+}
+
+NATIVE_FUNCTION(NativesObject, CreatePipe) {
+    PROLOGUE_NOTHIS;
+
+    RuntimeStateScope<RuntimeState::PIPE_CREATE> pipe_scope(th->thread_manager());
+    Pipe* pipe = GLOBAL_engines()->pipe_manager().CreatePipe();
+    RT_ASSERT(pipe);
+
+    RT_ASSERT(th->template_cache());
+    args.GetReturnValue().Set((new PipeObject(pipe))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(NativesObject, ToBuffer) {
@@ -1115,15 +1177,7 @@ NATIVE_FUNCTION(AcpiHandleObject, GetRootBridgeBusNumber) {
 NATIVE_FUNCTION(AcpiManagerObject, EnterSleepState) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-
-    uint32_t state = arg0->Uint32Value();
-    RT_ASSERT(state <= ACPI_S_STATES_MAX);
-
-    uint8_t sleep_state = state & 0xff;
-    AcpiEnterSleepStatePrep(sleep_state);
-    Cpu::DisableInterrupts();
-    AcpiEnterSleepState(sleep_state);
-    Cpu::HangSystem();
+    GLOBAL_platform()->EnterSleepState(arg0->Uint32Value());
 }
 
 NATIVE_FUNCTION(AcpiManagerObject, SystemReset) {
@@ -1298,7 +1352,7 @@ NATIVE_FUNCTION(ResourceIRQObject, On) {
 
     auto irq_number = that->irq_number_;
 
-    uint32_t index { th->AddIRQData(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
+    uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
     GLOBAL_platform()->irq_dispatcher().Bind(irq_number, thread, index);
 
     printf("[IRQ MANAGER] Bind %d (recv %d)\n", irq_number, index);
@@ -1333,12 +1387,12 @@ NATIVE_FUNCTION(IsolatesManagerObject, Create) {
     RT_ASSERT(first_engine);
 
     TransportData td_code;
-    {	TransportData::SerializeError err { td_code.MoveValue(th, nullptr, arg0) };
+    {	TransportData::SerializeError err { td_code.MoveValue(th, arg0) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
     TransportData td_args;
-    {	TransportData::SerializeError err { td_args.MoveValue(th, nullptr, arg1) };
+    {	TransportData::SerializeError err { td_args.MoveValue(th, arg1) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
@@ -1443,6 +1497,64 @@ NATIVE_FUNCTION(HandlePoolObject, Has) {
 
     RT_ASSERT(handle_object->handle_id() < that->max_handle_id_);
     args.GetReturnValue().Set(v8::True(iv8));
+}
+
+NATIVE_FUNCTION(PipeObject, Push) {
+    PROLOGUE;
+    USEARG(0);
+    RT_ASSERT(that->pipe_);
+
+    TransportData data;
+    {	TransportData::SerializeError err { data.MoveValue(th, arg0) };
+        if (TransportData::ThrowError(iv8, err)) return;
+    }
+
+    RuntimeStateScope<RuntimeState::PIPE_PUSH> pipe_scope(th->thread_manager());
+    bool result = that->pipe_->Push(std::move(data));
+    args.GetReturnValue().Set(v8::Boolean::New(iv8, result));
+}
+
+NATIVE_FUNCTION(PipeObject, Pull) {
+    PROLOGUE;
+    USEARG(0);
+    RT_ASSERT(that->pipe_);
+    ResourceHandle<EngineThread> thread { th->handle() };
+    RT_ASSERT(!thread.empty());
+
+    uint32_t index = 0;
+    uint32_t count = 0;
+    if (arg0->IsNumber()) {
+        USEARG(1);
+        VALIDATEARG(1, FUNCTION, "argument 1 is not a function");
+        count = arg0->Uint32Value();
+        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg1));
+    } else {
+        VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
+        count = 1;
+        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0));
+    }
+
+    RT_ASSERT(count > 0);
+    RuntimeStateScope<RuntimeState::PIPE_PULL> pipe_scope(th->thread_manager());
+    that->pipe_->Pull(thread, index, count);
+}
+
+NATIVE_FUNCTION(PipeObject, Wait) {
+    PROLOGUE;
+    USEARG(0);
+    VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
+
+    RT_ASSERT(that->pipe_);
+    ResourceHandle<EngineThread> thread { th->handle() };
+    RT_ASSERT(!thread.empty());
+    uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
+    that->pipe_->Wait(thread, index);
+}
+
+NATIVE_FUNCTION(PipeObject, Close) {
+    PROLOGUE;
+    RT_ASSERT(that->pipe_);
+    that->pipe_->Close();
 }
 
 } // namespace rt

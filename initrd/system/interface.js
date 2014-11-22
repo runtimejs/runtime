@@ -12,19 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('interface', ['vfs', 'resources'],
-function(vfs, resources) {
-  "use strict";
+"use strict";
+var vfs = require('vfs.js');
+var resources = require('resources.js')();
 
-  /**
-   * Export interface methods into system namespace
-   */
-  function registerInterface(name, methods) {
-    vfs.setSystem(name, methods);
-  }
+/**
+ * Export interface methods into system namespace
+ */
+function registerInterface(name, methods) {
+  vfs.setSystem(name, methods);
+}
 
-  return {
-    registerInterface: registerInterface,
-    createHandlePool: resources.natives.createHandlePool,
-  };
-});
+module.exports = {
+  registerInterface: registerInterface,
+  createHandlePool: resources.natives.createHandlePool,
+};

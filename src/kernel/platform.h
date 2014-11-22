@@ -101,6 +101,8 @@ public:
         return command_line_;
     }
 
+    void EnterSleepState(uint32_t state) const;
+
     /**
      * Print current stack backtrace
      */

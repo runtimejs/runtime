@@ -165,6 +165,7 @@ void KernelMain::InitSystemBSP(void* mbt) {
         MakeV8Snapshot();
         GLOBAL_boot_services()->logger()->SetMode(LoggerMode::VIDEO);
         printf("Snapshot done.\n\nNow you can shutdown the system.\n");
+        GLOBAL_platform()->EnterSleepState(5); // S5 poweroff
         Cpu::HangSystem();
     }
 

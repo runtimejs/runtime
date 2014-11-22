@@ -36,6 +36,11 @@ public:
     ByteStream(ByteStream&& other)
         :	data_(std::move(other.data_)) {}
 
+    ByteStream& operator=(ByteStream&& other) {
+        data_ = std::move(other.data_);
+        return *this;
+    }
+
     /**
      * Memcpy value into stream
      */
@@ -65,8 +70,9 @@ public:
         return data_.data() + size;
     }
 
+    bool empty() const { return data_.empty(); }
 private:
-    SharedSTLVector<uint8_t> data_;
+    std::vector<uint8_t> data_;
     DELETE_COPY_AND_ASSIGN(ByteStream);
 };
 
@@ -103,7 +109,6 @@ public:
         pos_ += len;
         return p;
     }
-
 private:
     const ByteStream& stream_;
     size_t pos_;
@@ -124,15 +129,9 @@ public:
     };
 
     /**
-     * Construct empty transport data object. Deserialize returns
-     * undefined
+     * Construct empty transport data object
      */
-    TransportData()
-        :	thread_(nullptr),
-            allow_ref_(false),
-            err_(SerializeError::NONE) {
-        SetUndefined();
-    }
+    TransportData() {}
 
     /**
      * Deserialize to undefined
@@ -142,25 +141,31 @@ public:
         AppendType(Type::UNDEFINED);
     }
 
+    void SetArray(uint32_t size) {
+        Clear();
+        AppendType(Type::ARRAY);
+        stream_.AppendValue<uint32_t>(size);
+    }
+
+    TransportData::SerializeError PushArrayElement(Thread* exporter, v8::Local<v8::Value> value);
+
+    /**
+     * Check if TransportData is empty
+     */
+    bool empty() const { return stream_.empty(); }
+
     /**
      * Append v8 string value
      */
     void AppendString(v8::Local<v8::Value> value) {
         RT_ASSERT(value->IsString());
-        if (allow_ref_) {
-            // Strings are immutable, its safe to pass by reference
-            // for same-isolate calls
-            AppendType(Type::STRING_REF);
-            stream_.AppendValue<uint32_t>(AddRef(value));
-        } else {
-            AppendType(Type::STRING_16);
-            v8::Local<v8::String> s { value->ToString() };
-            int len = s->Length();
-            RT_ASSERT(len >= 0);
-            stream_.AppendValue<uint32_t>(len);
-            void* place { stream_.AppendBuffer((len + 1) * sizeof(uint16_t)) };
-            s->Write(reinterpret_cast<uint16_t*>(place), 0, len);
-        }
+        AppendType(Type::STRING_16);
+        v8::Local<v8::String> s { value->ToString() };
+        int len = s->Length();
+        RT_ASSERT(len >= 0);
+        stream_.AppendValue<uint32_t>(len);
+        void* place { stream_.AppendBuffer((len + 1) * sizeof(uint16_t)) };
+        s->Write(reinterpret_cast<uint16_t*>(place), 0, len);
     }
 
     /**
@@ -222,23 +227,20 @@ public:
     /**
      * Serialize value to transport it
      */
-    SerializeError MoveValue(Thread* exporter,
-                             Thread* recv,
-                             v8::Local<v8::Value> value);
+    SerializeError MoveValue(Thread* exporter, v8::Local<v8::Value> value);
 
     /**
      * Serialize v8 arguments array to transport it
      */
-    SerializeError MoveArgs(Thread* exporter,
-                            Thread* recv,
-                            const v8::FunctionCallbackInfo<v8::Value>& args);
+    SerializeError MoveArgs(Thread* exporter, const v8::FunctionCallbackInfo<v8::Value>& args);
 
     TransportData(TransportData&& other)
-        :	thread_(other.thread_),
-            allow_ref_(other.allow_ref_),
-            err_(other.err_),
-            stream_(std::move(other.stream_)),
-            refs_(std::move(other.refs_)) {}
+        :	stream_(std::move(other.stream_)) {}
+
+    TransportData& operator=(TransportData&& other) {
+        stream_ = std::move(other.stream_);
+        return *this;
+    }
 
     /**
      * Deserialize data to V8 value
@@ -297,8 +299,6 @@ private:
         NUL,
         STRING_16,
         STRING_UTF8,
-        STRING_REF,
-        OBJECT_REF,
         INT32,
         UINT32,
         DOUBLE,
@@ -315,12 +315,7 @@ private:
         RESOURCES_FN,
     };
 
-    void Clear() {
-        thread_ = nullptr;
-        err_ = SerializeError::NONE;
-        allow_ref_ = false;
-        stream_.Clear();
-    }
+    void Clear() { stream_.Clear(); }
 
     SerializeError SerializeValue(Thread* exporter, v8::Local<v8::Value> value, uint32_t stack_level);
     v8::Local<v8::Value> UnpackValue(Thread* thread, ByteStreamReader& reader) const;
@@ -329,21 +324,12 @@ private:
         return static_cast<Type>(reader.ReadValue<uint8_t>());
     }
 
-    v8::Local<v8::Value> GetRef(v8::Isolate* iv8, uint32_t index) const;
-    uint32_t AddRef(v8::Local<v8::Value> value);
-
     void AppendType(Type type) {
         stream_.AppendValue<uint8_t>(static_cast<uint8_t>(type));
     }
 
     static const uint32_t kMaxStackSize = 128;
-
-    Thread* thread_;
-    bool allow_ref_;
-    SerializeError err_;
     ByteStream stream_;
-    SharedSTLVector<v8::UniquePersistent<v8::Value>> refs_;
-
     DELETE_COPY_AND_ASSIGN(TransportData);
 };
 

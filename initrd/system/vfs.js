@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+"use strict";
+var resources = require('resources.js')();
+
 var vfs = (function() {
   "use strict";
 
@@ -351,175 +354,170 @@ var vfs = (function() {
 /**
  * Virtual file system component
  */
-define('vfs', ['resources'],
-function(resources) {
-  "use strict";
+var fsRoot = vfs.createFsRoot();
+var fsInitrd = vfs.createFsInitrd(resources.natives.initrdList(),
+                  resources.natives.initrdText);
 
-  var fsRoot = vfs.createFsRoot();
-  var fsInitrd = vfs.createFsInitrd(resources.natives.initrdList(),
-                    resources.natives.initrdText);
+var ret = vfs.init(fsRoot, fsInitrd);
+var root = ret.root;
+var initrdRoot = ret.initrd;
 
-  var ret = vfs.init(fsRoot, fsInitrd);
-  var root = ret.root;
-  var initrdRoot = ret.initrd;
+var spawnSystem = {};
 
-  var spawnSystem = {};
+var spawnKernelData = {
+  lspci: function() { return new Error('NOT_READY') },
+  listNetworkInterfaces: function() { return new Error('NOT_READY') },
+  systemInfo: resources.natives.systemInfo,
+  isolatesInfo: resources.natives.isolatesInfo,
+  reboot: resources.natives.reboot,
+  enterSleepState: resources.acpi.enterSleepState,
+};
 
-  var spawnKernelData = {
-    lspci: function() { return new Error('NOT_READY') },
-    listNetworkInterfaces: function() { return new Error('NOT_READY') },
-    systemInfo: resources.natives.systemInfo,
-    isolatesInfo: resources.natives.isolatesInfo,
-    reboot: resources.natives.reboot,
-    enterSleepState: resources.acpi.enterSleepState,
-  };
-
+/**
+ * Accessor provides access to vfsnode for outside world
+ */
+function createNodeAccessor(vfsnodeRoot) {
   /**
-   * Accessor provides access to vfsnode for outside world
-   */
-  function createNodeAccessor(vfsnodeRoot) {
+  * Actions on this node. Required params for all actions:
+  * @param {object} opts.action - action name to execute
+  * @param {object} opts.path - path to lookup on node
+  */
+  var actions = {
     /**
-    * Actions on this node. Required params for all actions:
-    * @param {object} opts.action - action name to execute
-    * @param {object} opts.path - path to lookup on node
-    */
-    var actions = {
-      /**
-       * Get node stats info
-       */
-      stat: function(vfsnode, opts, resolve, reject) {
-        vfsnode.stat(resolve);
-      },
-      /**
-       * Read file content
-       */
-      readFile: function(vfsnode, opts, resolve, reject) {
-        vfsnode.readFile(opts, resolve);
-      },
-      /**
-       * List files under directory
-       */
-      list: function(vfsnode, opts, resolve, reject) {
-        vfsnode.list(function(data) {
-          var names = [];
-          for (var i = 0; i < data.length; ++i) {
-            names.push(data[i].name);
-          }
-
-          resolve(names);
-        });
-      },
-      /**
-       * Execute file as a program
-       * @param {object} opts.data [optional] - program data (objects, interfaces, command line etc)
-       * @param {object} opts.env [optional] - inherited program environment (objects, interfaces etc)
-       * @param {object} opts.system [optional] - overwrite program system data
-       * @param {object} opts.onExit [optional] - function to call on program exit
-       */
-      spawn: function(vfsnode, opts, resolve, reject) {
-        var argsData = opts.data || {};
-        var argsEnv = opts.env || {};
-        var argsSystem = opts.system || spawnSystem;
-        var onExit = opts.onExit || function() {};
-
-        if (Object(argsSystem) !== argsSystem) {
-          argsSystem = spawnSystem;
+     * Get node stats info
+     */
+    stat: function(vfsnode, opts, resolve, reject) {
+      vfsnode.stat(resolve);
+    },
+    /**
+     * Read file content
+     */
+    readFile: function(vfsnode, opts, resolve, reject) {
+      vfsnode.readFile(opts, resolve);
+    },
+    /**
+     * List files under directory
+     */
+    list: function(vfsnode, opts, resolve, reject) {
+      vfsnode.list(function(data) {
+        var names = [];
+        for (var i = 0; i < data.length; ++i) {
+          names.push(data[i].name);
         }
 
-        vfsnode.stat(function(stats) {
-          if ('file' !== stats.type) {
-            reject(new Error('NOT_A_FILE'));
-            return;
-          }
+        resolve(names);
+      });
+    },
+    /**
+     * Execute file as a program
+     * @param {object} opts.data [optional] - program data (objects, interfaces, command line etc)
+     * @param {object} opts.env [optional] - inherited program environment (objects, interfaces etc)
+     * @param {object} opts.system [optional] - overwrite program system data
+     * @param {object} opts.onExit [optional] - function to call on program exit
+     */
+    spawn: function(vfsnode, opts, resolve, reject) {
+      var argsData = opts.data || {};
+      var argsEnv = opts.env || {};
+      var argsSystem = opts.system || spawnSystem;
+      var onExit = opts.onExit || function() {};
 
-          var workDir = vfsnode.parent;
-          if (null === workDir) {
-            reject(new Error('NO_PARENT'));
-            return;
-          }
+      if (Object(argsSystem) !== argsSystem) {
+        argsSystem = spawnSystem;
+      }
 
-          vfsnode.readFile(null, function(fileContent) {
-            // FS accessors
-            argsSystem.fs = argsSystem.fs || {
-              current: createNodeAccessor(workDir),
-            };
-
-            argsSystem.kernel = argsSystem.kernel || spawnKernelData;
-
-            resources.isolatesManager.create([fileContent, vfsnode.name],
-              [argsData, argsEnv, argsSystem]).then(function(value) {
-              onExit(value);
-            }, reject);
-          });
-        });
-      },
-    };
-
-    return function(opts) {
-      return new Promise(function(resolve, reject) {
-        function error(message) {
-          reject(new Error(message));
+      vfsnode.stat(function(stats) {
+        if ('file' !== stats.type) {
+          reject(new Error('NOT_A_FILE'));
+          return;
         }
 
-        if ('string' !== typeof opts.path) {
-          return error('NO_PATH');
+        var workDir = vfsnode.parent;
+        if (null === workDir) {
+          reject(new Error('NO_PARENT'));
+          return;
         }
 
-        if ('string' !== typeof opts.action) {
-          return error('NO_ACTION');
-        }
+        vfsnode.readFile(null, function(fileContent) {
+          // FS accessors
+          argsSystem.fs = argsSystem.fs || {
+            current: createNodeAccessor(workDir),
+          };
 
-        var action = opts.action;
+          argsSystem.kernel = argsSystem.kernel || spawnKernelData;
 
-        if ('undefined' === typeof actions[action]) {
-          return error('UNKNOWN_ACTION');
-        }
-
-        var pathComponents = vfs.parsePathString(opts.path);
-        vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
-          if (null === vfsnode) {
-            return error('NOT_FOUND');
-          }
-
-          actions[action](vfsnode, opts, function(result) {
-            resolve(result);
-          }, function(err) {
-            reject(err);
-          });
+          resources.isolatesManager.create([fileContent, vfsnode.name],
+            [argsData, argsEnv, argsSystem]).then(function(value) {
+            onExit(value);
+          }, reject);
         });
       });
-    };
-  };
-
-  var rootAccessor = createNodeAccessor(root);
-  var initrdRootAccessor = createNodeAccessor(initrdRoot);
-
-  return {
-    /**
-     * Get VFS global root node
-     */
-    getRoot: function() { return rootAccessor; },
-    /**
-     * Get VFS initrd filesystem root node
-     */
-    getInitrdRoot: function() { return initrdRootAccessor; },
-    /**
-     * Expose kernel value to all new programs
-     */
-    setKernelValue: function(key, value) {
-      spawnKernelData[key] = value;
-    },
-    /**
-     * Get kernel value
-     */
-    getKernelValue: function(key) {
-      return spawnKernelData[key];
-    },
-    /**
-     * Set system namespace value
-     */
-    setSystem: function(name, value) {
-      spawnSystem[name] = value;
     },
   };
-});
+
+  return function(opts) {
+    return new Promise(function(resolve, reject) {
+      function error(message) {
+        reject(new Error(message));
+      }
+
+      if ('string' !== typeof opts.path) {
+        return error('NO_PATH');
+      }
+
+      if ('string' !== typeof opts.action) {
+        return error('NO_ACTION');
+      }
+
+      var action = opts.action;
+
+      if ('undefined' === typeof actions[action]) {
+        return error('UNKNOWN_ACTION');
+      }
+
+      var pathComponents = vfs.parsePathString(opts.path);
+      vfs.pathLookup(vfsnodeRoot, pathComponents, function(vfsnode) {
+        if (null === vfsnode) {
+          return error('NOT_FOUND');
+        }
+
+        actions[action](vfsnode, opts, function(result) {
+          resolve(result);
+        }, function(err) {
+          reject(err);
+        });
+      });
+    });
+  };
+};
+
+var rootAccessor = createNodeAccessor(root);
+var initrdRootAccessor = createNodeAccessor(initrdRoot);
+
+module.exports = {
+  /**
+   * Get VFS global root node
+   */
+  getRoot: function() { return rootAccessor; },
+  /**
+   * Get VFS initrd filesystem root node
+   */
+  getInitrdRoot: function() { return initrdRootAccessor; },
+  /**
+   * Expose kernel value to all new programs
+   */
+  setKernelValue: function(key, value) {
+    spawnKernelData[key] = value;
+  },
+  /**
+   * Get kernel value
+   */
+  getKernelValue: function(key) {
+    return spawnKernelData[key];
+  },
+  /**
+   * Set system namespace value
+   */
+  setSystem: function(name, value) {
+    spawnSystem[name] = value;
+  },
+};

@@ -25,6 +25,7 @@
 namespace rt {
 
 class Thread;
+class PipeObject;
 
 class ThreadMessage {
 public:
@@ -39,16 +40,18 @@ public:
         HANDLE_METHOD_CALL,
         FUNCTION_RETURN_RESOLVE,
         FUNCTION_RETURN_REJECT,
+        PIPE_PULL,
+        PIPE_WAIT
     };
 
     ThreadMessage(Type type, ResourceHandle<EngineThread> sender,
         TransportData data,
-        ExternalFunction* efn = nullptr,
+        void* ptr = nullptr,
         size_t recv_index = 0, size_t recv_index2 = 0, size_t recv_index3 = 0)
         :	type_(type),
             sender_(sender),
             data_(std::move(data)),
-            efn_(efn),
+            ptr_(ptr),
             recv_index_(recv_index),
             recv_index2_(recv_index2),
             recv_index3_(recv_index3),
@@ -61,9 +64,9 @@ public:
     Type type() const { return type_; }
     const TransportData& data() { return data_; }
 
-    ExternalFunction* exported_func() {
-        RT_ASSERT(efn_);
-        return efn_;
+    void* ptr() {
+        RT_ASSERT(ptr_);
+        return ptr_;
     }
 
     ResourceHandle<EngineThread> sender() {
@@ -84,7 +87,7 @@ private:
     Type type_;
     ResourceHandle<EngineThread> sender_;
     TransportData data_;
-    ExternalFunction* efn_;
+    void* ptr_;
     size_t recv_index_;
     size_t recv_index2_;
     size_t recv_index3_;

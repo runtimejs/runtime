@@ -45,6 +45,7 @@ enum class NativeTypeId : uint32_t {
     TYPEID_ALLOCATOR,
     TYPEID_HANDLE,
     TYPEID_HANDLE_POOL,
+    TYPEID_PIPE,
     TYPEID_FUNCTION,
 
     LAST // Keep it as the last element

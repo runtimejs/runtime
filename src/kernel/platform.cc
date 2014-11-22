@@ -15,6 +15,8 @@
 #include <kernel/platform.h>
 #include <kernel/kernel.h>
 #include <unwind.h>
+#include <acpi.h>
+#include <accommon.h>
 
 namespace rt {
 
@@ -28,6 +30,15 @@ _Unwind_Reason_Code TraceFn(_Unwind_Context *ctx, void *d) {
 void Platform::PrintBacktrace() {
     int depth = 0;
     _Unwind_Backtrace(&TraceFn, &depth);
+}
+
+void Platform::EnterSleepState(uint32_t state) const {
+    RT_ASSERT(state <= ACPI_S_STATES_MAX);
+    uint8_t sleep_state = state & 0xff;
+    AcpiEnterSleepStatePrep(sleep_state);
+    Cpu::DisableInterrupts();
+    AcpiEnterSleepState(sleep_state);
+    Cpu::HangSystem();
 }
 
 } // namespace rt

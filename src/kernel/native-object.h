@@ -20,6 +20,7 @@
 #include <acpi.h>
 #include <common/utils.h>
 #include <kernel/handle.h>
+#include <kernel/pipes.h>
 
 using common::Range;
 using common::MemoryBlock;
@@ -52,6 +53,8 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
     DECLARE_NATIVE(BufferAddress);
+    DECLARE_NATIVE(CreatePipe);
+    DECLARE_NATIVE(NetChecksum);
 
     /**
      * Kernel utils
@@ -131,6 +134,7 @@ public:
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
         obj.SetCallback("handleIndex", HandleIndex);
+        obj.SetCallback("netChecksum", NetChecksum);
     }
 
     JsObjectWrapperBase* Clone() const {
@@ -450,6 +454,37 @@ public:
 private:
     HandlePool* pool_;
     uint32_t max_handle_id_;
+};
+
+class PipeObject : public JsObjectWrapper<PipeObject,
+    NativeTypeId::TYPEID_PIPE> {
+public:
+    PipeObject(Pipe* pipe) : JsObjectWrapper(), pipe_(pipe) {
+        RT_ASSERT(pipe_);
+    }
+
+    DECLARE_NATIVE(Push);
+    DECLARE_NATIVE(Pull);
+    DECLARE_NATIVE(Wait);
+    DECLARE_NATIVE(Close);
+
+    void ObjectInit(ExportBuilder obj) {
+        obj.SetCallback("push", Push);
+        obj.SetCallback("pull", Pull);
+        obj.SetCallback("wait", Wait);
+        obj.SetCallback("close", Close);
+    }
+
+    ~PipeObject() {
+        pipe_->Unref();
+    }
+
+    JsObjectWrapperBase* Clone() const {
+        pipe_->Ref();
+        return new PipeObject(pipe_);
+    }
+private:
+    Pipe* pipe_;
 };
 
 } // namespace rt

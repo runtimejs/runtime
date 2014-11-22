@@ -45,7 +45,9 @@ ThreadManager::ThreadManager(Engine* engine)
         current_thread_index_(0),
         ev_done_total_(0),
         ev_done_checkpoint_(0) {
+#ifdef RUNTIME_TRACK_STATE
     state_stack().Push(RuntimeState::INIT);
+#endif
     RT_ASSERT(engine);
     threads_.reserve(128);
     ticks_counter_.Set(1);

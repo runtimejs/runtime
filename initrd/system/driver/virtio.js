@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+"use strict";
+var net = require('net/net.js');
+var eth = require('net/eth.js');
+var ip4 = require('net/ip4.js');
+var tcp = require('net/tcp.js');
+
 // Virtio ring
 var VRing = (function() {
   function DescriptorTable(buffer, byteOffset, ringSize) {
@@ -290,16 +296,17 @@ var virtioHeader = (function() {
   var OFFSET_GSO_SIZE = 4;
   var OFFSET_CSUM_START = 6;
   var OFFSET_CSUM_OFFSET = 8;
-  var opts = {};
+  var optsEmpty = {};
   var offset = 0;
 
-  function writeVirtioHeader(view) {
+  function writeVirtioHeader(view, opts) {
+    opts = opts || optsEmpty;
     view.setUint8(offset + OFFSET_FLAGS, opts.flags >>> 0);
     view.setUint8(offset + OFFSET_GSO_TYPE, opts.gsoType >>> 0);
-    view.setUint16(offset + OFFSET_HDR_LEN, opts.hdrLen >>> 0, true);
-    view.setUint16(offset + OFFSET_GSO_SIZE, opts.gsoSize >>> 0, true);
-    view.setUint16(offset + OFFSET_CSUM_START, opts.csumStart >>> 0, true);
-    view.setUint16(offset + OFFSET_CSUM_OFFSET, opts.csumOffset >>> 0, true);
+    // view.setUint16(offset + OFFSET_HDR_LEN, opts.hdrLen >>> 0, true);
+    // view.setUint16(offset + OFFSET_GSO_SIZE, opts.gsoSize >>> 0, true);
+    view.setUint16(offset + OFFSET_CSUM_START, opts.csumStart >>> 0, false);
+    view.setUint16(offset + OFFSET_CSUM_OFFSET, opts.csumOffset >>> 0, false);
   }
 
   return {
@@ -479,11 +486,21 @@ function initializeNetworkDevice(pci, allocator) {
   var driverFeatures = {
     VIRTIO_NET_F_MAC: true,    // able to read MAC address
     VIRTIO_NET_F_STATUS: true, // able to check network status
+    // VIRTIO_NET_F_CSUM: true,   // checksum offload
+    // VIRTIO_NET_F_GUEST_CSUM: true,   // ok without cksum
+    // VIRTIO_NET_F_GSO: true,
   };
 
   var deviceFeatures = dev.readDeviceFeatures(features);
   isolate.log(JSON.stringify(deviceFeatures));
+
+  if (deviceFeatures.VIRTIO_NET_F_GSO) {
+    // deviceFeatures.VIRTIO_NET_F_CSUM = true;
+    // deviceFeatures.VIRTIO_NET_F_GUEST_CSUM = true;
+  }
+
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
+    console.log('[virtio] driver is unable to start');
     return;
   }
 
@@ -548,26 +565,33 @@ function initializeNetworkDevice(pci, allocator) {
     fillReceiveQueue();
   });
 
-  isolate.system.kernel.addNetworkInterface({
+  networkInterfaceReady(net.addNetworkInterface({
     hw: hwAddr,
     packetHeaderLength: virtioHeader.length,
-    sendPacket: function(buf, offset, len) {
-      virtioHeader.write(new DataView(buf));
+    sendPacketTCP: function(packet) {
+      // var VIRTIO_NET_HDR_F_NEEDS_CSUM = 1;
+      // var ckOffset = eth.headerLength + ip4.getHeaderLength();
+      // var ckLen = 16;
+      var buf = packet;
+      // virtioHeader.write(new DataView(buf), { flags: VIRTIO_NET_HDR_F_NEEDS_CSUM, csumStart: ckOffset, csumOffset: ckLen, gsoType: 1 });
       transmitQueue.placeBuffers([buf], false);
       dev.queueNotify(QUEUE_ID_TRANSMIT);
     },
-  }).then(networkInterfaceReady);
+    sendPacket: function(packet) {
+      var buf = packet;
+      // virtioHeader.write(new DataView(buf));
+      transmitQueue.placeBuffers([buf], false);
+      dev.queueNotify(QUEUE_ID_TRANSMIT);
+    },
+  }));
 }
 
 // Virtio devices driver
-(function() {
-  "use strict";
-  isolate.log('[virtio] driver started');
 
-  var subsystemId = isolate.data.pci.subsystemData.subsystemId;
-  var pci = isolate.data.pci;
-  var allocator = isolate.data.allocator;
-
+module.exports = function(args) {
+  var pci = args.pci;
+  var allocator = args.allocator;
+  var subsystemId = pci.subsystemData.subsystemId;
   switch (subsystemId) {
     case 1: // Network card
       initializeNetworkDevice(pci, allocator);
@@ -575,4 +599,4 @@ function initializeNetworkDevice(pci, allocator) {
     default:
       throw new Error('unknown virtio device');
   }
-})();
+};

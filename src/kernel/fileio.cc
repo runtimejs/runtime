@@ -43,7 +43,8 @@ void fileio_printer(void* p, char c, size_t offset) {
 
 void StdoutWriteByte(char c) {
     Logger* log = GLOBAL_boot_services()->logger();
-    log->__tmp_Putch(c);
+//    log->__tmp_Putch(c);
+    log->Printf(LogDataType::DEFAULT, "%c", c); // TODO: make sure this works with a snapshot
 }
 
 void StderrWriteByte(char c) {

@@ -14,120 +14,121 @@
 
 isolate.log('Loading system...');
 
-function Injector() {
-  "use strict";
+var resources = isolate.data();
+console.log = isolate.log;
 
-  var modules = new Map();
+// CommonJS kernel loader
+var exports;
+var module = {};
 
-  function getModule(name) {
-    if (modules.has(name)) {
-      return modules.get(name);
+var require = (function() {
+  var cache = {'': {exports: {}}};
+  var requireStack = [''];
+  exports = module.exports = cache[''].exports;
+
+  function pushExports(path) {
+    // save current exports state
+    var currentPath = requireStack[requireStack.length - 1];
+    cache[currentPath].exports = module.exports;
+
+    // load new exports
+    if ('undefined' === typeof cache[path]) {
+      cache[path] = {exports: {}};
     }
 
-    var d = {
-      name: name,
-      resolve: null,
-      reject: null,
-      promise: null,
-    };
-
-    d.promise = new Promise(function(resolve, reject) {
-      d.resolve = resolve;
-      d.reject = reject;
-    });
-
-    modules.set(name, d);
-    return d;
+    requireStack.push(path);
+    module = {};
+    exports = module.exports = cache[path].exports;
   }
 
-  this.set = function(name, inject, fn) {
-    if ('string' !== typeof name) {
-      throw new Error('invalid module name');
-    }
+  function popExports() {
+    // save current exports state
+    var currentPath = requireStack.pop();
+    var result = cache[currentPath].exports = module.exports;
 
-    if (!Array.isArray(inject)) {
-      throw new Error('invalid module dependency list');
-    }
+    // restore previous state
+    var path = requireStack[requireStack.length - 1];
+    module = {};
+    exports = module.exports = cache[path].exports;
 
-    Promise.all(inject.map(function(depName) {
-      if ('string' !== typeof depName) {
-        throw new Error('invalid dependency service name');
-      }
+    return result;
+  }
 
-      return getModule(depName).promise;
-    })).then(function(deps) {
-      getModule(name).resolve(fn.apply(null, deps));
-    }).catch(function(err) {
-      isolate.log(err.stack);
-    });
-  };
-
-  this.get = function(value) {
-    if (Array.isArray(value)) {
-      return Promise.all(value.map(function(name) {
-        return getModule(name).promise;
-      }));
-    }
-
-    if ('string' !== typeof value) {
-      throw new Error('invalid module name');
-    }
-
-    return getModule(value).promise;
-  };
-}
-
-// Global define function
-var define;
-
-(function() {
-  "use strict";
-
-  /**
-   * Create DI injector
-   */
-  var injector = new Injector();
-
-  /**
-   * Pretend this is an AMD loader
-   */
-  define = injector.set;
-  define.amd = {};
-
-  /**
-   * Component provides access to kernel resources
-   */
-  define('resources', [],
-  function() {
-    return isolate.data();
-  });
-
-  /**
-   * Kernel bootstrap component. This loads kernel loader,
-   * because it can't load itself
-   */
-  define('bootstrap', ['resources'],
-  function(resources) {
-    resources.loader('/system/kernel-loader.js');
-  });
-
-  /**
-   * Main kernel component
-   */
-  define('kernel', ['resources', 'vga', 'keyboard', 'vfs'],
-  function(resources, vga, keyboard, vfs) {
-
-    vfs.getInitrdRoot()({
-      action: 'spawn',
-      path: '/app/terminal.js',
-      env: {
-        textVideo: vga.client,
-        keyboard: keyboard.client,
-      }
-    }).catch(function(err) {
-      isolate.log(err.stack);
+  function canonicalize(path) {
+    var currentPath = requireStack[requireStack.length - 1];
+    var dirComponents = currentPath.split('/').slice(0, -1);
+    var pathComponents = path.split('/').filter(function(x) {
+      return '' !== x;
     });
 
-    return {};
-  });
+    if (0 === pathComponents.length) {
+      throw new Error('INVALID_PATH');
+    }
+
+    var loadPath;
+    if ('.' === pathComponents[0]) {
+      loadPath = dirComponents.concat(pathComponents);
+    } else {
+      loadPath = pathComponents;
+    }
+
+    return loadPath.filter(function(x) { return '.' !== x }).join('/');
+  }
+
+  function readFile(path) {
+    return resources.natives.initrdText('/system/' + path);
+  }
+  
+  function evalFile(content, path) {
+    try {
+      isolate.eval('(function(){' + content + '})()', path);
+    } catch (err) {
+      console.log('Load error \'' + path + '\': ' + err.stack);
+      throw new Error('loader errors');
+    }
+  }
+
+  return function require(path) {
+    path = canonicalize(path);
+
+    var result;
+    if ('undefined' === typeof cache[path]) {
+      var fileContent = readFile(path);
+      pushExports(path);
+      evalFile(fileContent, path);
+      result = popExports();
+
+      if ('undefined' === typeof result) {
+        cache[path] = {};
+      }
+    } else {
+      result = cache[path].exports;
+    }
+
+    return result;
+  };
 })();
+
+// Configure resources module
+resources = require('resources.js')();
+
+// Components
+var keyboard = require('keyboard.js');
+var vga = require('driver/vga.js');
+var vfs = require('vfs.js');
+var net = require('net/net.js');
+var pci = require('pci/pci.js');
+
+// Drivers
+var ps2kbd = require('driver/ps2kbd.js');
+
+vfs.getInitrdRoot()({
+  action: 'spawn',
+  path: '/app/terminal.js',
+  env: {
+    textVideo: vga.client,
+    keyboard: keyboard.client,
+  }
+}).catch(function(err) {
+  isolate.log(err.stack);
+});

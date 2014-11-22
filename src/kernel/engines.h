@@ -24,6 +24,7 @@
 #include <kernel/initrd.h>
 #include <kernel/v8platform.h>
 #include <kernel/handle.h>
+#include <kernel/pipes.h>
 
 namespace rt {
 
@@ -79,7 +80,7 @@ public:
         arraybuffer_allocator_ = new MallocArrayBufferAllocator();
         v8::V8::SetArrayBufferAllocator(arraybuffer_allocator_);
 
-        const char flags[] = "--trace-deopt";
+        const char flags[] = "--trace-deopt --redirect_code_traces_to=deopt";
         v8::V8::SetFlagsFromString(flags, sizeof(flags));
     }
 
@@ -237,6 +238,7 @@ public:
     AcpiManager* acpi_manager();
 
     HandlePoolManager& handle_pools() { return handle_pools_; }
+    PipeManager& pipe_manager() { return pipe_manager_; }
 
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
@@ -251,6 +253,7 @@ private:
     Atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
     HandlePoolManager handle_pools_;
+    PipeManager pipe_manager_;
 
     mutable Locker _platform_locker;
 };

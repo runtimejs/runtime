@@ -17,10 +17,22 @@
 var requestCount = 0;
 var expectRequests = 100;
 
+var body = '<html><body>Hello World!</body></html>';
+var response = [
+  'HTTP/1.1 200 OK',
+  'Content-Type: text/html',
+  'Connection: close',
+  'Content-Length: ' + body.length,
+  '',
+  body
+];
+
+var cachedResponse = response.join('\r\n');
+
 /**
  * Handle HTTP request
  */
-function httpHandler(socket) {
+function httpHandler(socket, writePipe, readPipe) {
   if (0 === requestCount) {
     kernel.startProfiling();
   }
@@ -28,26 +40,15 @@ function httpHandler(socket) {
   var enc = new TextEncoder('utf-8');
   var dec = new TextDecoder('utf-8');
 
-  socket.read().then(function(buffers) {
+  readPipe.pull(function(buffers) {
     for (var i = 0; i < buffers.length; ++i) {
       var buf = buffers[i];
       var message = dec.decode(buf);
-      isolate.env.stdout(message.split('\r\n').join('\n'));
+      // isolate.env.stdout(message.split('\r\n').join('\n'));
 
-      var body = '<html><body>Hello World!</body></html>';
-
-      var response = [
-        'HTTP/1.1 200 OK',
-        'Content-Type: text/html',
-        'Connection: close',
-        'Content-Length: ' + body.length,
-        'Date: ' + new Date().toUTCString(),
-        '',
-        body
-      ];
-
-      socket.write(enc.encode(response.join('\r\n')).buffer);
-      socket.close();
+      var response = enc.encode(cachedResponse).buffer;
+      writePipe.push(response);
+      writePipe.close();
 
       if (expectRequests === ++requestCount) {
         // Timeout to make sure system is done with a connection
@@ -55,33 +56,21 @@ function httpHandler(socket) {
       }
     }
 
-  }).catch(function(err) {
-    console.log(err.stack);
   });
 }
 
-/**
- * Echo data back
- */
-function echoHandler(socket) {
-  socket.read().then(function(buffers) {
-    for (var i = 0; i < buffers.length; ++i) {
-      var buf = buffers[i];
-      socket.write(buf);
-    }
+isolate.system.tcpSocket.createSocket().then(function(data) {
+  var socket = data.socket;
+  var pipe = data.pipe;
 
-    echoHandler(socket);
-  }).catch(function(err) {
-    console.log(err.stack);
+  pipe.pull(function pp(data) {
+    var socket = data[0];
+    var writePipe = data[1];
+    var readPipe = data[2];
+    httpHandler(socket, writePipe, readPipe);
+    pipe.pull(pp);
   });
-}
 
-function onConnection(socket) {
-  // echoHandler(socket);
-  httpHandler(socket);
-}
-
-isolate.system.tcpSocket.createSocket(onConnection).then(function(socket) {
   return socket.listen(9000);
 }).then(function() {
   console.log('tcp server listening to port 9000');

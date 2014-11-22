@@ -1,7 +1,7 @@
 #!/bin/bash
 
 exec qemu-system-x86_64                                     \
-    -m 512                                                  \
+    -m 700                                                  \
     -smp 1                                                  \
     -s                                                      \
     -boot order=d                                           \

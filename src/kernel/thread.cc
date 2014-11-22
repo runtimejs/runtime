@@ -104,21 +104,20 @@ void Thread::TearDown() {
         auto promise_id = parent_promise_id();
         auto thread = parent_thread();
 
-        LockingPtr<EngineThread> lptr { thread.get() };
-        Thread* recv { lptr->thread() };
-        RT_ASSERT(recv);
-
         TransportData data;
         if (!exit_value_.IsEmpty()) {
-            TransportData::SerializeError err { data.MoveValue(this, recv,
+            TransportData::SerializeError err { data.MoveValue(this,
                 v8::Local<v8::Value>::New(iv8_, exit_value_)) };
+        } else {
+            data.SetUndefined();
         }
 
+        RT_ASSERT(!data.empty());
         {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
                 ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
                 handle(),
                 std::move(data), nullptr, promise_id));
-            lptr->PushMessage(std::move(msg));
+            thread.getUnsafe()->PushMessage(std::move(msg));
         }
     }
 
@@ -126,7 +125,7 @@ void Thread::TearDown() {
     RT_ASSERT(this == thread_mgr_->current_thread());
 
     timeout_data_.Clear();
-    irq_data_.Clear();
+    object_handles_.Clear();
     promises_.Clear();
 
     context_.Reset();
@@ -271,7 +270,7 @@ bool Thread::Run() {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
 
-            ExternalFunction* efn { message->exported_func() };
+            ExternalFunction* efn = static_cast<ExternalFunction*>(message->ptr());
             RT_ASSERT(efn);
 
             v8::Local<v8::Value> fnval { exports_.Get(efn->index(), efn->export_id()) };
@@ -374,9 +373,48 @@ bool Thread::Run() {
             break;
         case ThreadMessage::Type::IRQ_RAISE: {
             v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
-                GetIRQData(message->recv_index())) };
+                GetObject(message->recv_index())) };
             RT_ASSERT(fnv->IsFunction());
             v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+            fn->Call(context->Global(), 0, nullptr);
+        }
+            break;
+        case ThreadMessage::Type::PIPE_PULL: {
+            v8::Local<v8::Value> unpacked;
+            if (!message->data().empty()) {
+                unpacked = message->data().Unpack(this);
+            } else if (message->recv_index2() > 0 && message->ptr()){
+                TransportData* dataarray = static_cast<TransportData*>(message->ptr());
+                size_t data_size = message->recv_index2();
+                RT_ASSERT(data_size > 0);
+                auto array = v8::Array::New(iv8_, data_size);
+                for (uint32_t i = 0; i < data_size; ++i) {
+                    array->Set(i, dataarray[i].Unpack(this));
+                }
+                unpacked = array;
+                delete[] dataarray;
+            }
+
+            if (unpacked.IsEmpty()) {
+                // Yield undefined in this case (pipe is closed)
+                unpacked = v8::Undefined(iv8_);
+            }
+
+            auto fnv = TakeObject(message->recv_index());
+            RT_ASSERT(fnv->IsFunction());
+            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+            v8::Local<v8::Value> argv[] { unpacked };
+            fn->Call(context->Global(), 1, argv);
+        }
+            break;
+        case ThreadMessage::Type::PIPE_WAIT: {
+            auto fnv = TakeObject(message->recv_index());
+            RT_ASSERT(fnv->IsFunction());
+            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             fn->Call(context->Global(), 0, nullptr);
         }

@@ -12,394 +12,405 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-define('net', ['vfs', 'net/eth', 'net/ip4', 'net/udp', 'net/tcp', 'net/socket', 'net/dhcp', 'net/arp'],
-function(vfs, eth, ip4, udp, tcp, socket, dhcp, arp) {
-  "use strict";
+"use strict";
+var vfs = require('vfs.js');
+var eth = require('net/eth.js');
+var ip4 = require('net/ip4.js');
+var udp = require('net/udp.js');
+var tcp = require('net/tcp.js');
+var socket = require('net/socket.js');
+var dhcp = require('net/dhcp.js');
+var arp = require('net/arp.js');
 
-  var ethIndex = 0;
-  var interfaces = [];
-  var interfaceByName = {};
+var ethIndex = 0;
+var interfaces = [];
+var interfaceByName = {};
 
-  // TODO: replace this with routing table
-  var GLOBAL_routerIP = null;
-  var GLOBAL_netmask = null;
-  var GLOBAL_myIP = null;
-  function applyMask(ip, mask) {
-    return [ip[0] & mask[0], ip[1] & mask[1], ip[2] & mask[2], ip[3] & mask[3]];
+// TODO: replace this with routing table
+var GLOBAL_routerIP = null;
+var GLOBAL_netmask = null;
+var GLOBAL_myIP = null;
+function applyMask(ip, mask) {
+  return [ip[0] & mask[0], ip[1] & mask[1], ip[2] & mask[2], ip[3] & mask[3]];
+}
+
+function compareIPs(ip1, ip2) {
+  return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
+    ip1[2] === ip2[2] && ip1[3] === ip2[3];
+}
+
+function route(destIP) {
+  if (null === GLOBAL_routerIP || null === GLOBAL_netmask) {
+    // send directly
+    return destIP;
   }
 
-  function compareIPs(ip1, ip2) {
-    return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
-      ip1[2] === ip2[2] && ip1[3] === ip2[3];
+  // Are we one the same network?
+  if (compareIPs(applyMask(destIP, GLOBAL_netmask), applyMask(GLOBAL_myIP, GLOBAL_netmask))) {
+    // send directly
+    return destIP;
   }
 
-  function route(destIP) {
-    if (null === GLOBAL_routerIP || null === GLOBAL_netmask) {
-      // send directly
-      return destIP;
-    }
+  // Send through router
+  return GLOBAL_routerIP;
+}
 
-    // Are we one the same network?
-    if (compareIPs(applyMask(destIP, GLOBAL_netmask), applyMask(GLOBAL_myIP, GLOBAL_netmask))) {
-      // send directly
-      return destIP;
-    }
+function PacketReader(buf, len, offset) {
+  this.buf = buf;
+  this.len = len;
+  this.offset = offset;
+  this.view = new DataView(buf);
+}
 
-    // Send through router
-    return GLOBAL_routerIP;
+PacketReader.prototype.readUint8 = function() {
+  return this.view.getUint8(this.offset++);
+}
+
+PacketReader.prototype.readUint16 = function() {
+  var value = this.view.getUint16(this.offset, false);
+  this.offset += 2;
+  return value;
+}
+
+PacketReader.prototype.readUint32 = function() {
+  var value = this.view.getUint32(this.offset, false);
+  this.offset += 4;
+  return value;
+}
+
+function Interface(name, hwAddr) {
+  this.name = name;
+  this.hwAddr = hwAddr;
+  this.arpResolver = new arp.ARPResolver(this);
+  this.ip = null;
+  this.netmask = null;
+  this.gateway = null;
+  this.dnsArray = null;
+  this.ip6 = null;
+  this.netmask6 = null;
+  this.packetHeaderLength = 0;
+  this.enabled = false;
+  this.sendPacket = null;
+  this.sendPacketTCP = null;
+
+  // Packets without full ethernet header
+  this.sendQueue = [];
+}
+
+Interface.prototype.matchHwAddr = function(hwAddr) {
+  var a = this.hwAddr, b = hwAddr;
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] &&
+    a[3] === b[3] && a[4] === b[4] && a[5] === b[5];
+};
+
+Interface.prototype.matchIPAddr = function(ip) {
+  var a = this.ip, b = ip;
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] &&
+    a[3] === b[3];
+};
+
+Interface.prototype.sendEthBroadcast = function(etherType, sendBuf) {
+  var self = this;
+  var view = new DataView(sendBuf);
+
+  eth.writeHeader(view, self.packetHeaderLength,
+    [0xff, 0xff, 0xff, 0xff, 0xff, 0xff], self.hwAddr, etherType);
+
+  self.sendPacket(sendBuf);
+};
+
+Interface.prototype.sendEthUnicast = function(destIP, viaIP, sendBuf, isTCP) {
+  var self = this;
+  var view = new DataView(sendBuf);
+
+  if (!self.ip) {
+    isolate.log('[send] drop packet, no ip assigned');
+    return;
   }
 
-  function PacketReader(buf, len, offset) {
-    this.buf = buf;
-    this.len = len;
-    this.offset = offset;
-    this.view = new DataView(buf);
+  var destHW = self.arpResolver.getAddressForIPNoRequest(viaIP);
+
+  // Fast path (no callback allocated)
+  if (destHW) {
+    self._sendEthHW(destHW, sendBuf, view, isTCP);
+    return;
   }
 
-  PacketReader.prototype.readUint8 = function() {
-    return this.view.getUint8(this.offset++);
-  }
+  self.arpResolver.getAddressForIP(viaIP, function(destHW) {
+    self._sendEthHW(destHW, sendBuf, view, isTCP);
+  });
+};
 
-  PacketReader.prototype.readUint16 = function() {
-    var value = this.view.getUint16(this.offset, false);
-    this.offset += 2;
-    return value;
-  }
-
-  PacketReader.prototype.readUint32 = function() {
-    var value = this.view.getUint32(this.offset, false);
-    this.offset += 4;
-    return value;
-  }
-
-  function Interface(name, hwAddr, sendPacket) {
-    this.name = name;
-    this.hwAddr = hwAddr;
-    this.arpResolver = new arp.ARPResolver(this);
-    this.ip = null;
-    this.netmask = null;
-    this.gateway = null;
-    this.dnsArray = null;
-    this.ip6 = null;
-    this.netmask6 = null;
-    this.sendPacket = sendPacket;
-    this.packetHeaderLength = 0;
-    this.enabled = false;
-
-    // Packets without full ethernet header
-    this.sendQueue = [];
-  }
-
-  Interface.prototype.matchHwAddr = function(hwAddr) {
-    var a = this.hwAddr, b = hwAddr;
-    return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] &&
-      a[3] === b[3] && a[4] === b[4] && a[5] === b[5];
-  };
-
-  Interface.prototype.matchIPAddr = function(ip) {
-    var a = this.ip, b = ip;
-    return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] &&
-      a[3] === b[3];
-  };
-
-  Interface.prototype.sendEthBroadcast = function(etherType, sendBuf) {
-    var self = this;
-    var view = new DataView(sendBuf);
-
-    eth.writeHeader(view, self.packetHeaderLength,
-      [0xff, 0xff, 0xff, 0xff, 0xff, 0xff], self.hwAddr, etherType);
-
-    self.sendPacket(sendBuf);
-  };
-
-  Interface.prototype.sendEthUnicast = function(destIP, viaIP, sendBuf) {
-    var self = this;
-    var view = new DataView(sendBuf);
-
-    if (!self.ip) {
-      isolate.log('[send] drop packet, no ip assigned');
-      return;
-    }
-
-    var destHW = self.arpResolver.getAddressForIPNoRequest(viaIP);
-
-    // Fast path (no callback allocated)
-    if (destHW) {
-      self._sendEthHW(destHW, sendBuf, view);
-      return;
-    }
-
-    self.arpResolver.getAddressForIP(viaIP, function(destHW) {
-      self._sendEthHW(destHW, sendBuf, view);
-    });
-  };
-
-  Interface.prototype._sendEthHW = function(destHW, sendBuf, view) {
-    eth.writeHeader(view, this.packetHeaderLength, destHW, this.hwAddr, eth.etherType.IPv4);
+Interface.prototype._sendEthHW = function(destHW, sendBuf, view, isTCP) {
+  eth.writeHeader(view, this.packetHeaderLength, destHW, this.hwAddr, eth.etherType.IPv4);
+  if (isTCP) {
+    this.sendPacketTCP(sendBuf);
+  } else {
     this.sendPacket(sendBuf);
-  };
+  }
+};
 
-  Interface.prototype.sendIP4Broadcast = function(protocol, sendBuf) {
-    var self = this;
-    var view = new DataView(sendBuf);
+Interface.prototype.sendIP4Broadcast = function(protocol, sendBuf) {
+  var self = this;
+  var view = new DataView(sendBuf);
 
-    ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
-      protocol,
-      self.ip || [0, 0, 0, 0], // src IP
-      [255, 255, 255, 255]   // dest IP
-    );
+  ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
+    protocol,
+    self.ip || [0, 0, 0, 0], // src IP
+    [255, 255, 255, 255]   // dest IP
+  );
 
-    self.sendEthBroadcast(eth.etherType.IPv4, sendBuf);
-  };
+  self.sendEthBroadcast(eth.etherType.IPv4, sendBuf);
+};
 
-  Interface.prototype.sendIP4Unicast = function(protocol, destIP, viaIP, sendBuf) {
-    var self = this;
-    var view = new DataView(sendBuf);
-    var srcIP = self.ip || [0, 0, 0, 0];
+Interface.prototype.sendIP4Unicast = function(protocol, destIP, viaIP, sendBuf) {
+  var self = this;
+  var view = new DataView(sendBuf);
+  var srcIP = self.ip || [0, 0, 0, 0];
 
-    ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
-      protocol,
-      srcIP,
-      destIP
-    );
+  ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
+    protocol,
+    srcIP,
+    destIP
+  );
 
-    // Checksum
-    if (protocol === 'TCP') {
-      var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
-      var segmentLength = sendBuf.byteLength - tcpHeaderOffset;
-      var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
-          ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
-          segmentLength + 0x06 /*protocol id*/;
+  // Checksum
+  if (protocol === 'TCP') {
+    var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+    var segmentLength = sendBuf.byteLength - tcpHeaderOffset;
+    var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
+        ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
+        segmentLength + 0x06 /*protocol id*/;
 
-      var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
-      tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
-    }
-
-    self.sendEthUnicast(destIP, viaIP, sendBuf);
-  };
-
-  Interface.prototype.sendIP4 = function(protocol, destIP, sendBuf) {
-    var self = this;
-    var b0 = Number(destIP[0]);
-
-    if (0 === b0) {
-      isolate.log('drop 0.x.x.x');
-      return;
-    }
-
-    // Multicast
-    if (b0 >= 224 && b0 <= 239) {
-      isolate.log('drop multicast / not implemented');
-      return;
-    }
-
-    // Broadcast
-    if (255 === b0 && 255 === Number(destIP[1]) &&
-      255 === Number(destIP[2]) && 255 === Number(destIP[3])) {
-      return self.sendIP4Broadcast(protocol, sendBuf);
-    }
-
-    // TODO: use routing table
-    var viaIP = route(destIP);
-
-    return self.sendIP4Unicast(protocol, destIP, viaIP, sendBuf);
+    var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
+    // Native checksum computation function for benchmarks
+    // var ck = resources.natives.netChecksum(sendBuf, tcpHeaderOffset, segmentLength, extraSum);
+    tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
+    return self.sendEthUnicast(destIP, viaIP, sendBuf, true);
   }
 
-  Interface.prototype.createEthPacket = function(buf) {
-    var self = this;
-    var dataLength = buf.byteLength >>> 0;
-    var headersLength = self.packetHeaderLength + eth.headerLength;
-    var totalLength = headersLength + dataLength;
+  self.sendEthUnicast(destIP, viaIP, sendBuf, false);
+};
 
-    var sendBuf = new ArrayBuffer(totalLength);
-    new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
-    return sendBuf;
-  };
+Interface.prototype.sendIP4 = function(protocol, destIP, sendBuf) {
+  var self = this;
+  var b0 = Number(destIP[0]);
 
-  Interface.prototype.createUDPPacket = function(srcPort, destPort, buf) {
-    var self = this;
-
-    var dataLength = buf.byteLength >>> 0;
-    var ipHeadersLength = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
-    var headersLength = ipHeadersLength + udp.headerLength;
-    var totalLength = headersLength + dataLength;
-
-    var sendBuf = new ArrayBuffer(totalLength);
-    var view = new DataView(sendBuf);
-
-    udp.writeHeader(view, ipHeadersLength, {
-      srcPort: srcPort,
-      destPort: destPort,
-    });
-
-    new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
-    return sendBuf;
-  };
-
-  Interface.prototype.createTCPPacket = function(tcpOpts, buf) {
-    var self = this;
-
-    var dataLength = buf ? (buf.byteLength >>> 0) : 0;
-    var ipHeadersLength = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
-    var headersLength = ipHeadersLength + tcp.headerLength;
-    var totalLength = headersLength + dataLength;
-
-    var sendBuf = new ArrayBuffer(totalLength);
-    var view = new DataView(sendBuf);
-
-    tcp.writeHeader(view, ipHeadersLength, tcpOpts);
-
-    if (buf && dataLength > 0) {
-      new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
-    }
-
-    return sendBuf;
-  };
-
-  function parseIPv4(intf, reader) {
-    var ip4Header = ip4.parse(reader);
-    if (null === ip4Header) {
-      return;
-    }
-
-    switch (ip4Header.protocol) {
-      case 'UDP':
-        var udpHeader = udp.parse(reader);
-        // isolate.log(JSON.stringify(ip4Header), JSON.stringify(udpHeader));
-        socket.recvUDP4(ip4Header, udpHeader, reader.buf, reader.len, reader.offset);
-        break;
-      case 'TCP':
-        var tcpHeader = tcp.parse(reader);
-        // isolate.log(JSON.stringify(ip4Header), JSON.stringify(tcpHeader));
-        socket.recvTCP4(intf, ip4Header, tcpHeader, reader.buf, reader.len, reader.offset);
-        break;
-      case 'ICMP':
-      default: return null;
-    }
+  if (0 === b0) {
+    isolate.log('drop 0.x.x.x');
+    return;
   }
 
-  function getInterfaceByName(intfName) {
-    var intf = null;
-    if ('string' !== typeof intfName) {
-      return null;
-    }
-
-    if ('undefined' === typeof interfaceByName[intfName]) {
-      return null;
-    }
-
-    return interfaceByName[intfName];
+  // Multicast
+  if (b0 >= 224 && b0 <= 239) {
+    isolate.log('drop multicast / not implemented');
+    return;
   }
 
-  socket.setup({getInterfaceByName: getInterfaceByName});
-
-  Interface.prototype.recv = function(buf, len, offset) {
-    var self = this;
-    var reader = new PacketReader(buf, len, offset + self.packetHeaderLength);
-    var ethHeader = eth.parse(reader);
-
-    if (null === ethHeader) {
-      return;
-    }
-
-    switch (ethHeader.etherType) {
-      case 'IPv4':
-        parseIPv4(this, reader);
-        break;
-      case 'ARP':
-        self.arpResolver.recv(reader);
-        break;
-      default:
-        isolate.log('drop unknown packet');
-
-    }
-  };
-
-  Interface.prototype.configure = function(ip, netmask, gateway, dnsArray) {
-    this.ip = ip;
-    this.netmask = netmask;
-    this.gateway = gateway;
-    this.dnsArray = dnsArray;
-    this.enabled = true;
-
-    // TODO: Put into routing table
-    GLOBAL_routerIP = gateway;
-    GLOBAL_netmask = netmask;
-    GLOBAL_myIP = ip;
+  // Broadcast
+  if (255 === b0 && 255 === Number(destIP[1]) &&
+    255 === Number(destIP[2]) && 255 === Number(destIP[3])) {
+    return self.sendIP4Broadcast(protocol, sendBuf);
   }
 
-  Interface.prototype.send = function(buf, len) {
-    return this.sendPacket(buf, len);
-  };
+  // TODO: use routing table
+  var viaIP = route(destIP);
 
-  function addInterface(name, hwAddr, sendPacket) {
-    var ifc = new Interface(name, hwAddr, sendPacket);
-    interfaces.push(ifc);
-    interfaceByName[name] = ifc;
+  return self.sendIP4Unicast(protocol, destIP, viaIP, sendBuf);
+}
 
-    return ifc;
-  }
+Interface.prototype.createEthPacket = function(buf) {
+  var self = this;
+  var dataLength = buf.byteLength >>> 0;
+  var headersLength = self.packetHeaderLength + eth.headerLength;
+  var totalLength = headersLength + dataLength;
 
-  function enableInterface(ifc) {
-    if (null !== ifc.hwAddr) {
-      new dhcp.DHCPClient(ifc.name, ifc.hwAddr, function(config) {
-        isolate.log('DHCP autoconfig', JSON.stringify(config));
-        ifc.configure(config.yourIP, config.subnetMask, config.routerIPList[0], config.dnsIPList)
-      }, function(err) {
-        isolate.log(err.stack);
-      }).start();
-    }
-  }
+  var sendBuf = new ArrayBuffer(totalLength);
+  new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
+  return sendBuf;
+};
 
-  function listInterfaces() {
-    var result = [];
-    for (var i = 0; i < interfaces.length; ++i) {
-      var ifc = interfaces[i];
+Interface.prototype.createUDPPacket = function(srcPort, destPort, buf) {
+  var self = this;
 
-      result.push({
-        name: ifc.name,
-        hwAddr: ifc.hwAddr,
-        ip: ifc.ip,
-        netmask: ifc.netmask,
-        gateway: ifc.gateway,
-      });
-    }
+  var dataLength = buf.byteLength >>> 0;
+  var ipHeadersLength = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+  var headersLength = ipHeadersLength + udp.headerLength;
+  var totalLength = headersLength + dataLength;
 
-    return result;
-  }
+  var sendBuf = new ArrayBuffer(totalLength);
+  var view = new DataView(sendBuf);
 
-  // Loopback interface
-  var loopback = addInterface('loopback', null, function() {});
-  loopback.configure([127, 0, 0, 1], [255, 0, 0, 0], null, null);
-
-  // Expose network management functions
-  vfs.setKernelValue('listNetworkInterfaces', listInterfaces);
-  vfs.setKernelValue('createSocket', socket.createSocket);
-  vfs.setKernelValue('addNetworkInterface', function(opts) {
-    // Hardware address
-    var hw = opts.hw || null;
-
-    // Send packet handler function
-    var sendPacket = opts.sendPacket || function() { throw new Error('unable to send packet') };
-
-    // Extra space required for network interface packet header
-    // in every buffer (useful for virio 10 bytes header)
-    var packetHeaderLength = opts.packetHeaderLength || 0;
-
-    var ifc = addInterface('eth' + ethIndex++, hw, sendPacket);
-    ifc.packetHeaderLength = packetHeaderLength;
-
-    var result = {
-      recv: function(buf, len, offset) {
-        return ifc.recv(buf, len, offset);
-      },
-      enable: function() {
-        enableInterface(ifc);
-      },
-    };
-
-    return Promise.resolve(result);
+  udp.writeHeader(view, ipHeadersLength, {
+    srcPort: srcPort,
+    destPort: destPort,
   });
 
-  return {};
-});
+  new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
+  return sendBuf;
+};
+
+Interface.prototype.createTCPPacket = function(tcpOpts, buf) {
+  var self = this;
+
+  var dataLength = buf ? (buf.byteLength >>> 0) : 0;
+  var ipHeadersLength = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+  var headersLength = ipHeadersLength + tcp.headerLength;
+  var totalLength = headersLength + dataLength;
+
+  var sendBuf = new ArrayBuffer(totalLength);
+  var view = new DataView(sendBuf);
+
+  tcp.writeHeader(view, ipHeadersLength, tcpOpts);
+
+  if (buf && dataLength > 0) {
+    new Uint8Array(sendBuf).set(new Uint8Array(buf), headersLength);
+  }
+
+  return sendBuf;
+};
+
+function parseIPv4(intf, reader) {
+  var ip4Header = ip4.parse(reader);
+  if (null === ip4Header) {
+    return;
+  }
+
+  switch (ip4Header.protocol) {
+    case 'UDP':
+      var udpHeader = udp.parse(reader);
+      // isolate.log(JSON.stringify(ip4Header), JSON.stringify(udpHeader));
+      socket.recvUDP4(ip4Header, udpHeader, reader.buf, reader.len, reader.offset);
+      break;
+    case 'TCP':
+      var tcpHeader = tcp.parse(reader);
+      // isolate.log(JSON.stringify(ip4Header), JSON.stringify(tcpHeader));
+      socket.recvTCP4(intf, ip4Header, tcpHeader, reader.buf, reader.len, reader.offset);
+      break;
+    case 'ICMP':
+    default: return null;
+  }
+}
+
+function getInterfaceByName(intfName) {
+  var intf = null;
+  if ('string' !== typeof intfName) {
+    return null;
+  }
+
+  if ('undefined' === typeof interfaceByName[intfName]) {
+    return null;
+  }
+
+  return interfaceByName[intfName];
+}
+
+socket.setup({getInterfaceByName: getInterfaceByName});
+
+Interface.prototype.recv = function(buf, len, offset) {
+  var self = this;
+  var reader = new PacketReader(buf, len, offset + self.packetHeaderLength);
+  var ethHeader = eth.parse(reader);
+
+  if (null === ethHeader) {
+    return;
+  }
+
+  switch (ethHeader.etherType) {
+    case 'IPv4':
+      parseIPv4(this, reader);
+      break;
+    case 'ARP':
+      self.arpResolver.recv(reader);
+      break;
+    default:
+      isolate.log('drop unknown packet');
+
+  }
+};
+
+Interface.prototype.configure = function(ip, netmask, gateway, dnsArray) {
+  this.ip = ip;
+  this.netmask = netmask;
+  this.gateway = gateway;
+  this.dnsArray = dnsArray;
+  this.enabled = true;
+
+  // TODO: Put into routing table
+  GLOBAL_routerIP = gateway;
+  GLOBAL_netmask = netmask;
+  GLOBAL_myIP = ip;
+}
+
+function addInterface(name, hwAddr) {
+  var ifc = new Interface(name, hwAddr);
+  interfaces.push(ifc);
+  interfaceByName[name] = ifc;
+
+  return ifc;
+}
+
+function enableInterface(ifc) {
+  if (null !== ifc.hwAddr) {
+    new dhcp.DHCPClient(ifc.name, ifc.hwAddr, function(config) {
+      isolate.log('DHCP autoconfig', JSON.stringify(config));
+      ifc.configure(config.yourIP, config.subnetMask, config.routerIPList[0], config.dnsIPList)
+    }, function(err) {
+      isolate.log(err.stack);
+    }).start();
+  }
+}
+
+function listInterfaces() {
+  var result = [];
+  for (var i = 0; i < interfaces.length; ++i) {
+    var ifc = interfaces[i];
+
+    result.push({
+      name: ifc.name,
+      hwAddr: ifc.hwAddr,
+      ip: ifc.ip,
+      netmask: ifc.netmask,
+      gateway: ifc.gateway,
+    });
+  }
+
+  return result;
+}
+
+// Loopback interface
+var loopback = addInterface('loopback', null, function() {});
+loopback.configure([127, 0, 0, 1], [255, 0, 0, 0], null, null);
+
+// Expose network management functions
+vfs.setKernelValue('listNetworkInterfaces', listInterfaces);
+vfs.setKernelValue('createSocket', socket.createSocket);
+
+function addNetworkInterface(opts) {
+  // Hardware address
+  var hw = opts.hw || null;
+
+  // Extra space required for network interface packet header
+  // in every buffer (useful for virio 10 bytes header)
+  var packetHeaderLength = opts.packetHeaderLength || 0;
+
+  var ifc = addInterface('eth' + ethIndex++, hw);
+  ifc.packetHeaderLength = packetHeaderLength;
+  ifc.sendPacket = opts.sendPacket || function() { throw new Error('send driver error') };
+  ifc.sendPacketTCP = opts.sendPacketTCP || ifc.sendPacket;
+
+  var result = {
+    recv: function(buf, len, offset) {
+      return ifc.recv(buf, len, offset);
+    },
+    enable: function() {
+      enableInterface(ifc);
+    },
+  };
+
+  return result;
+}
+
+module.exports = {
+  addNetworkInterface: addNetworkInterface
+};
