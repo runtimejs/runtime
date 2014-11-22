@@ -16,7 +16,7 @@
 var net = require('net/net.js');
 var eth = require('net/eth.js');
 var ip4 = require('net/ip4.js');
-var tcp = require('net/tcp.js');
+var tcp = require('net/tcp/tcp.js');
 
 // Virtio ring
 var VRing = (function() {

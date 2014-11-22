@@ -253,6 +253,7 @@ def BuildProject(env_base, mkinitrd):
         env.Depends(initrd, Glob('initrd/*.*'))
         env.Depends(initrd, Glob('initrd/*/*.*'))
         env.Depends(initrd, Glob('initrd/*/*/*.*'))
+        env.Depends(initrd, Glob('initrd/*/*/*/*.*'))
         env.Depends(initrd, mkinitrd)
         env.Depends(output_bin, initrd);
     return

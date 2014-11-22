@@ -14,7 +14,7 @@
 
 "use strict";
 var netUtils = require('net/utils.js');
-var tcp = require('net/tcp.js');
+var tcp = require('net/tcp/tcp.js');
 
 var socketState = {
   CLOSED: 0,

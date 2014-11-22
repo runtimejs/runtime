@@ -14,8 +14,8 @@
 
 var resources = require('resources.js')();
 var netUtils = require('net/utils.js');
-var tcpConn = require('net/tcpconn.js');
-var tcp = require('net/tcp.js');
+var tcpConn = require('net/tcp/tcpconn.js');
+var tcp = require('net/tcp/tcp.js');
 var intfc = require('interface.js');
 
 "use strict";

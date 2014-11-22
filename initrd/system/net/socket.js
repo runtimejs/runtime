@@ -14,11 +14,11 @@
 
 var resources = require('resources.js')();
 var udp = require('net/udp.js');
-var tcp = require('net/tcp.js');
+var tcp = require('net/tcp/tcp.js');
 var netUtils = require('net/utils.js');
 var intfc = require('interface.js');
-var tcpSocket = require('net/tcpsocket.js');
-var tcpConn = require('net/tcpconn.js');
+var tcpSocket = require('net/tcp/tcpsocket.js');
+var tcpConn = require('net/tcp/tcpconn.js');
 
 "use strict";
 
