@@ -4,13 +4,12 @@ import os
 import sys
 import subprocess
 
-class bcolors:
-  HEADER = '\033[95m'
-  OKBLUE = '\033[94m'
-  OKGREEN = '\033[92m'
-  WARNING = '\033[93m'
-  FAIL = '\033[91m'
-  ENDC = '\033[0m'
+COLOR_HEADER = '\033[95m'
+COLOR_OKBLUE = '\033[94m'
+COLOR_OKGREEN = '\033[92m'
+COLOR_WARNING = '\033[93m'
+COLOR_FAIL = '\033[91m'
+COLOR_ENDC = '\033[0m'
 
 def shell(cmd):
   subprocess.call(cmd, shell=True)
@@ -26,7 +25,7 @@ def which(program):
 def startCommand(params):
   qemu = which('qemu-system-x86_64')
   if None == qemu:
-    print bcolors.FAIL + 'error: qemu is not installed (not found qemu-system-x86_64)'
+    print COLOR_FAIL + 'error: qemu is not installed (not found qemu-system-x86_64)'
 
   args = [qemu]
 
@@ -80,16 +79,16 @@ def initrdCommand():
   return
 
 if len(sys.argv) < 2:
-  print bcolors.WARNING + 'usage: runtime [command]' + bcolors.ENDC
+  print COLOR_WARNING + 'usage: runtime [command]' + COLOR_ENDC
   print ''
-  print bcolors.WARNING + 'Available commands:' + bcolors.ENDC
-  print bcolors.WARNING + 'start [flag [flag ...]] ' + bcolors.ENDC + '- use QEMU to run runtime.js'
-  print bcolors.WARNING + '  net ' + bcolors.ENDC + '- enable network'
-  print bcolors.WARNING + '  netdump ' + bcolors.ENDC + '- dump network packets into a file'
-  print bcolors.WARNING + '  kvm ' + bcolors.ENDC + '- enable KVM'
-  print bcolors.WARNING + '  curses ' + bcolors.ENDC + '- run without GUI'
-  print bcolors.WARNING + 'build ' + bcolors.ENDC + '- run build system and make initrd image'
-  print bcolors.WARNING + 'initrd ' + bcolors.ENDC + '- make initrd image'
+  print COLOR_WARNING + 'Available commands:' + COLOR_ENDC
+  print COLOR_WARNING + 'start [flag [flag ...]] ' + COLOR_ENDC + '- use QEMU to run runtime.js'
+  print COLOR_WARNING + '  net ' + COLOR_ENDC + '- enable network'
+  print COLOR_WARNING + '  netdump ' + COLOR_ENDC + '- dump network packets into a file'
+  print COLOR_WARNING + '  kvm ' + COLOR_ENDC + '- enable KVM'
+  print COLOR_WARNING + '  curses ' + COLOR_ENDC + '- run without GUI'
+  print COLOR_WARNING + 'build ' + COLOR_ENDC + '- run build system and make initrd image'
+  print COLOR_WARNING + 'initrd ' + COLOR_ENDC + '- make initrd image'
   sys.exit(1);
 
 command = sys.argv[1]
@@ -100,5 +99,5 @@ elif 'build' == command:
 elif 'initrd' == command:
   initrdCommand()
 else:
-  print bcolors.FAIL + 'error: unknown command'
+  print COLOR_FAIL + 'error: unknown command'
   sys.exit(1)
