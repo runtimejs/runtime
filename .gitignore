@@ -19,4 +19,5 @@ qt_rtproj.*
 /test-host
 *.autosave
 initrd/benchmarks
+runtime.log
 *.pcap
