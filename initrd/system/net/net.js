@@ -150,16 +150,43 @@ Interface.prototype._sendEthHW = function(destHW, sendBuf, view, isTCP) {
   }
 };
 
-Interface.prototype.sendIP4Broadcast = function(protocol, sendBuf) {
+Interface.prototype.setChecksum = function(sendBuf, protocol, destIP, srcIP) {
   var self = this;
   var view = new DataView(sendBuf);
 
-  ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
-    protocol,
-    self.ip || [0, 0, 0, 0], // src IP
-    [255, 255, 255, 255]   // dest IP
-  );
+  if (protocol === 'TCP') {
+    var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+    var segmentLength = sendBuf.byteLength - tcpHeaderOffset;
+    var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
+        ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
+        segmentLength + 0x06 /*protocol id*/;
 
+    var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
+    // Native checksum computation function for benchmarks
+    // var ck = resources.natives.netChecksum(sendBuf, tcpHeaderOffset, segmentLength, extraSum);
+    tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
+  } else if (protocol === 'UDP') {
+    var udpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
+    var dglen = sendBuf.byteLength - udpHeaderOffset;
+    var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
+        ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
+        dglen + 0x11 /*protocol id*/;
+
+    var ck = tcp.checksum(view, udpHeaderOffset, dglen, extraSum);
+    udp.writeHeaderChecksum(view, udpHeaderOffset, ck);
+  }
+}
+
+Interface.prototype.sendIP4Broadcast = function(protocol, sendBuf) {
+  var self = this;
+  var view = new DataView(sendBuf);
+  var destIP = [255, 255, 255, 255];
+  var srcIP = self.ip || [0, 0, 0, 0];
+
+  ip4.writeHeader(view, self.packetHeaderLength + eth.headerLength,
+    protocol, srcIP, destIP);
+
+  self.setChecksum(sendBuf, protocol, destIP, srcIP);
   self.sendEthBroadcast(eth.etherType.IPv4, sendBuf);
 };
 
@@ -174,22 +201,8 @@ Interface.prototype.sendIP4Unicast = function(protocol, destIP, viaIP, sendBuf) 
     destIP
   );
 
-  // Checksum
-  if (protocol === 'TCP') {
-    var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
-    var segmentLength = sendBuf.byteLength - tcpHeaderOffset;
-    var extraSum = ((destIP[0] << 8) | destIP[1]) + ((destIP[2] << 8) | destIP[3]) +
-        ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
-        segmentLength + 0x06 /*protocol id*/;
-
-    var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
-    // Native checksum computation function for benchmarks
-    // var ck = resources.natives.netChecksum(sendBuf, tcpHeaderOffset, segmentLength, extraSum);
-    tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
-    return self.sendEthUnicast(destIP, viaIP, sendBuf, true);
-  }
-
-  self.sendEthUnicast(destIP, viaIP, sendBuf, false);
+  self.setChecksum(sendBuf, protocol, destIP, srcIP);
+  self.sendEthUnicast(destIP, viaIP, sendBuf, protocol === 'TCP');
 };
 
 Interface.prototype.sendIP4 = function(protocol, destIP, sendBuf) {

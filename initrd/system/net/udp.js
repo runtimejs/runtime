@@ -37,8 +37,13 @@ function parse(reader) {
   };
 }
 
+function writeHeaderChecksum(view, headerOffset, value) {
+  view.setUint16(headerOffset + 6, value & 0xffff, false);
+}
+
 module.exports = {
   writeHeader: writeHeader,
+  writeHeaderChecksum: writeHeaderChecksum,
   headerLength: headerLength,
   parse: parse,
 };
