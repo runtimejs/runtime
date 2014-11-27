@@ -212,7 +212,7 @@ function DHCPClient(intfName, intfHWAddr, success, failed) {
   this.enabled = false;
 }
 
-DHCPClient.prototype._sendPacket = function(type, serverIp) {
+DHCPClient.prototype._sendPacket = function(type, serverIp, yourIP) {
   if (!(this instanceof DHCPClient)) {
     throw new Error('instanceof check failed');
   }
@@ -231,7 +231,7 @@ DHCPClient.prototype._sendPacket = function(type, serverIp) {
 
   var options = null;
   if (serverIp) {
-    options = [opt0, {id: 54, bytes: serverIp}];
+    options = [opt0, {id: 54, bytes: serverIp}, {id: 50, bytes: yourIP}];
   } else {
     options = [opt0];
   }
@@ -251,15 +251,15 @@ DHCPClient.prototype._sendDiscoverPacket = function() {
     throw new Error('instanceof check failed');
   }
 
-  return this._sendPacket(packetType.DISCOVER, null);
+  return this._sendPacket(packetType.DISCOVER, null, null);
 };
 
-DHCPClient.prototype._sendRequestPacket = function(serverIp) {
+DHCPClient.prototype._sendRequestPacket = function(serverIp, yourIP) {
   if (!(this instanceof DHCPClient)) {
     throw new Error('instanceof check failed');
   }
 
-  return this._sendPacket(packetType.REQUEST, serverIp);
+  return this._sendPacket(packetType.REQUEST, serverIp, yourIP);
 };
 
 DHCPClient.prototype._onMessage = function(data) {
@@ -284,7 +284,7 @@ DHCPClient.prototype._onMessage = function(data) {
       serverIp = data.srcIP.split('.');
     }
 
-    self._sendRequestPacket(serverIp);
+    self._sendRequestPacket(serverIp, dhcpResponse.yourIP);
     return;
   }
 
