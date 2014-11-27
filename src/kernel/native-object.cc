@@ -1365,7 +1365,8 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Buffer) {
     auto length = that->memory_block_.size();
     RT_ASSERT(ptr);
     RT_ASSERT(length > 0);
-    args.GetReturnValue().Set(v8::ArrayBuffer::New(iv8, ptr, length));
+    auto abv8 = ArrayBuffer::FromBuffer(iv8, ptr, length)->GetInstance();
+    args.GetReturnValue().Set(abv8);
 }
 
 NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
