@@ -14,6 +14,7 @@
 
 "use strict";
 var eth = require('net/eth.js');
+var ipAddress = require('net/ip-address.js');
 
 var HARDWARE_TYPE_ETHERNET = 1;
 var PROTOCOL_IP4 = 0x0800;
@@ -64,6 +65,7 @@ function parse(reader) {
     senderProtocol: senderProtocol,
     targetHardware: targetHardware,
     targetProtocol: targetProtocol,
+    operation: op
   };
 }
 
@@ -135,6 +137,14 @@ ARPResolver.prototype.getAddressForIP = function(targetIpAddr, cb) {
   self.intf.sendEthBroadcast(eth.etherType.ARP, packet);
 };
 
+ARPResolver.prototype.reply = function(targetHW, targetIpAddr) {
+  var self = this;
+  var packet = self.intf.createEthPacket(
+    createARPPacket(OPERATION_REPLY, self.intf.hwAddr,
+            self.intf.ip, targetHW, targetIpAddr));
+  self.intf.sendEthBroadcast(eth.etherType.ARP, packet);
+};
+
 ARPResolver.prototype.recv = function(reader) {
   var self = this;
   var result = parse(reader);
@@ -144,19 +154,31 @@ ARPResolver.prototype.recv = function(reader) {
 
   var senderHw = result.senderHardware;
   var senderIP = result.senderProtocol;
+  var targetIP = result.targetProtocol;
+  var selfIP = self.intf.ip;
   var key = ipToInt(senderIP);
 
-  // Update cache
-  self.arpCacheTable.set(key, senderHw);
-
-  // Resolve all pending requests
-  var requestInfo = self.arpRequests.get(key);
-  if (requestInfo) {
-    for (var i = 0; i < requestInfo.length; ++i) {
-      requestInfo[i](senderHw);
+  switch (result.operation) {
+  case OPERATION_REQEUST:
+    // Somebody requested this machine IP
+    if (selfIP && ipAddress.compareIP4(selfIP, targetIP)) {
+      self.reply(senderHw, targetIP);
     }
+    break;
+  case OPERATION_REPLY:
+    // Update cache
+    self.arpCacheTable.set(key, senderHw);
 
-    self.arpRequests.delete(key);
+    // Resolve all pending requests
+    var requestInfo = self.arpRequests.get(key);
+    if (requestInfo) {
+      for (var i = 0; i < requestInfo.length; ++i) {
+        requestInfo[i](senderHw);
+      }
+
+      self.arpRequests.delete(key);
+    }
+    break;
   }
 
   isolate.log(JSON.stringify(result));
