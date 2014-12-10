@@ -79,19 +79,41 @@ namespace moodycamel { namespace details {
 } }
 #endif
 
+// Exceptions
+#ifndef MOODYCAMEL_EXCEPTIONS_ENABLED
+#if (defined(_MSC_VER) && defined(_CPPUNWIND)) || (defined(__GNUC__) && defined(__EXCEPTIONS)) || (!defined(_MSC_VER) && !defined(__GNUC__))
+#define MOODYCAMEL_EXCEPTIONS_ENABLED
+#define MOODYCAMEL_TRY try
+#define MOODYCAMEL_CATCH(...) catch(__VA_ARGS__)
+#define MOODYCAMEL_RETHROW throw
+#else
+#define MOODYCAMEL_TRY if (false)
+#define MOODYCAMEL_CATCH(...) else if (false)
+#define MOODYCAMEL_RETHROW
+#endif
+#endif
+
 #ifndef MOODYCAMEL_NOEXCEPT
-#if defined(_MSC_VER) && defined(_NOEXCEPT)
+#if !defined(MOODYCAMEL_EXCEPTIONS_ENABLED)
+#define MOODYCAMEL_NOEXCEPT
+#define MOODYCAMEL_NOEXCEPT_CTOR(type, valueType, expr) true
+#define MOODYCAMEL_NOEXCEPT_ASSIGN(type, valueType, expr) true
+#elif defined(_MSC_VER) && defined(_NOEXCEPT) && _MSC_VER < 1900
 #define MOODYCAMEL_NOEXCEPT _NOEXCEPT
+#define MOODYCAMEL_NOEXCEPT_CTOR(type, valueType, expr) (std::is_rvalue_reference<valueType>::value && std::is_move_constructible<type>::value ? std::is_trivially_move_constructible<type>::value || std::is_nothrow_move_constructible<type>::value : std::is_trivially_copy_constructible<type>::value || std::is_nothrow_copy_constructible<type>::value)
+#define MOODYCAMEL_NOEXCEPT_ASSIGN(type, valueType, expr) ((std::is_rvalue_reference<valueType>::value && std::is_move_assignable<type>::value ? std::is_trivially_move_assignable<type>::value || std::is_nothrow_move_assignable<type>::value : std::is_trivially_copy_assignable<type>::value || std::is_nothrow_copy_assignable<type>::value) && MOODYCAMEL_NOEXCEPT_CTOR(type, valueType, expr))
 #else
 #define MOODYCAMEL_NOEXCEPT noexcept
+#define MOODYCAMEL_NOEXCEPT_CTOR(type, valueType, expr) noexcept(expr)
+#define MOODYCAMEL_NOEXCEPT_ASSIGN(type, valueType, expr) noexcept(expr)
 #endif
 #endif
 
 // Compiler-specific likely/unlikely hints
 namespace moodycamel { namespace details {
 #if defined(__GNUC__)
-	inline bool likely(bool x) { return __builtin_expect(x, true); }
-	inline bool unlikely(bool x) { return __builtin_expect(x, false); }
+	inline bool likely(bool x) { return __builtin_expect((x), true); }
+	inline bool unlikely(bool x) { return __builtin_expect((x), false); }
 #else
 	inline bool likely(bool x) { return x; }
 	inline bool unlikely(bool x) { return x; }
@@ -240,8 +262,15 @@ namespace details
 	template<typename T>
 	static inline bool circular_less_than(T a, T b)
 	{
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4554)
+#endif
 		static_assert(std::is_integral<T>::value && !std::numeric_limits<T>::is_signed, "circular_less_than is intended to be used only with unsigned integer types");
 		return static_cast<T>(a - b) > static_cast<T>(static_cast<T>(1) << static_cast<T>(sizeof(T) * CHAR_BIT - 1));
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 	}
 	
 	template<typename U>
@@ -274,6 +303,39 @@ namespace details
 		T temp = std::move(left.load(std::memory_order_relaxed));
 		left.store(std::move(right.load(std::memory_order_relaxed)), std::memory_order_relaxed);
 		right.store(std::move(temp), std::memory_order_relaxed);
+	}
+	
+	template<typename T>
+	static inline T const& nomove(T const& x)
+	{
+		return x;
+	}
+	
+	template<bool Enable>
+	struct nomove_if
+	{
+		template<typename T>
+		static inline T const& eval(T const& x)
+		{
+			return x;
+		}
+	};
+	
+	template<>
+	struct nomove_if<false>
+	{
+		template<typename U>
+		static inline auto eval(U&& x)
+			-> decltype(std::forward<U>(x))
+		{
+			return std::forward<U>(x);
+		}
+	};
+	
+	template<typename It>
+	static inline auto deref_noexcept(It& it) MOODYCAMEL_NOEXCEPT -> decltype(*it)
+	{
+		return *it;
 	}
 	
 	template<typename T> struct static_is_lock_free_num { enum { value = 0 }; };
@@ -418,9 +480,9 @@ public:
 	static_assert(!std::numeric_limits<index_t>::is_signed && std::is_integral<index_t>::value, "Traits::index_t must be an unsigned integral type");
 	static_assert(sizeof(index_t) >= sizeof(size_t), "Traits::index_t must be at least as wide as Traits::size_t");
 	static_assert((BLOCK_SIZE > 1) && !(BLOCK_SIZE & (BLOCK_SIZE - 1)), "Traits::BLOCK_SIZE must be a power of 2 (and at least 2)");
-	static_assert((EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD > 1) && !(EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD & (EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD - 1)), "Traits::EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD must be a power of 2");
-	static_assert((EXPLICIT_INITIAL_INDEX_SIZE > 1) && !(EXPLICIT_INITIAL_INDEX_SIZE & (EXPLICIT_INITIAL_INDEX_SIZE - 1)), "Traits::EXPLICIT_INITIAL_INDEX_SIZE must be a power of 2");
-	static_assert((IMPLICIT_INITIAL_INDEX_SIZE > 1) && !(IMPLICIT_INITIAL_INDEX_SIZE & (IMPLICIT_INITIAL_INDEX_SIZE - 1)), "Traits::IMPLICIT_INITIAL_INDEX_SIZE must be a power of 2");
+	static_assert((EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD > 1) && !(EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD & (EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD - 1)), "Traits::EXPLICIT_BLOCK_EMPTY_COUNTER_THRESHOLD must be a power of 2 (and greater than 1)");
+	static_assert((EXPLICIT_INITIAL_INDEX_SIZE > 1) && !(EXPLICIT_INITIAL_INDEX_SIZE & (EXPLICIT_INITIAL_INDEX_SIZE - 1)), "Traits::EXPLICIT_INITIAL_INDEX_SIZE must be a power of 2 (and greater than 1)");
+	static_assert((IMPLICIT_INITIAL_INDEX_SIZE > 1) && !(IMPLICIT_INITIAL_INDEX_SIZE & (IMPLICIT_INITIAL_INDEX_SIZE - 1)), "Traits::IMPLICIT_INITIAL_INDEX_SIZE must be a power of 2 (and greater than 1)");
 	static_assert((INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) || !(INITIAL_IMPLICIT_PRODUCER_HASH_SIZE & (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE - 1)), "Traits::INITIAL_IMPLICIT_PRODUCER_HASH_SIZE must be a power of 2");
 	static_assert(INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0 || INITIAL_IMPLICIT_PRODUCER_HASH_SIZE >= 1, "Traits::INITIAL_IMPLICIT_PRODUCER_HASH_SIZE must be at least 1 (or 0 to disable implicit enqueueing)");
 
@@ -587,7 +649,7 @@ public:
 	inline bool enqueue(T&& item)
 	{
 		if (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		return inner_enqueue<CanAlloc>(std::forward<T>(item));
+		return inner_enqueue<CanAlloc>(std::move(item));
 	}
 	
 	// Enqueues a single item (by copying it) using an explicit producer token.
@@ -603,7 +665,7 @@ public:
 	// Thread-safe.
 	inline bool enqueue(producer_token_t const& token, T&& item)
 	{
-		return inner_enqueue<CanAlloc>(token, std::forward<T>(item));
+		return inner_enqueue<CanAlloc>(token, std::move(item));
 	}
 	
 	// Enqueues several items.
@@ -648,7 +710,7 @@ public:
 	inline bool try_enqueue(T&& item)
 	{
 		if (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		return inner_enqueue<CannotAlloc>(std::forward<T>(item));
+		return inner_enqueue<CannotAlloc>(std::move(item));
 	}
 	
 	// Enqueues a single item (by copying it) using an explicit producer token.
@@ -664,7 +726,7 @@ public:
 	// Thread-safe.
 	inline bool try_enqueue(producer_token_t const& token, T&& item)
 	{
-		return inner_enqueue<CannotAlloc>(token, std::forward<T>(item));
+		return inner_enqueue<CannotAlloc>(token, std::move(item));
 	}
 	
 	// Enqueues several items.
@@ -833,12 +895,12 @@ public:
 		
 		size_t count = static_cast<ProducerBase*>(token.currentProducer)->dequeue_bulk(itemFirst, max);
 		if (count == max) {
-			if ((token.itemsConsumedFromCurrent += max) >= EXPLICIT_CONSUMER_CONSUMPTION_QUOTA_BEFORE_ROTATE) {
+			if ((token.itemsConsumedFromCurrent += static_cast<std::uint32_t>(max)) >= EXPLICIT_CONSUMER_CONSUMPTION_QUOTA_BEFORE_ROTATE) {
 				globalExplicitConsumerOffset.fetch_add(1, std::memory_order_relaxed);
 			}
 			return max;
 		}
-		token.itemsConsumedFromCurrent += count;
+		token.itemsConsumedFromCurrent += static_cast<std::uint32_t>(count);
 		max -= count;
 		
 		auto tail = producerListTail.load(std::memory_order_acquire);
@@ -851,7 +913,7 @@ public:
 			count += dequeued;
 			if (dequeued != 0) {
 				token.currentProducer = ptr;
-				token.itemsConsumedFromCurrent = dequeued;
+				token.itemsConsumedFromCurrent = static_cast<std::uint32_t>(dequeued);
 			}
 			if (dequeued == max) {
 				break;
@@ -1193,7 +1255,7 @@ private:
 				// Set flags
 				std::atomic_thread_fence(std::memory_order_release);
 				i = BLOCK_SIZE - 1 - static_cast<size_t>(i & static_cast<index_t>(BLOCK_SIZE - 1)) - count + 1;
-                for (size_t j = 0; j != count; ++j) {
+				for (size_t j = 0; j != count; ++j) {
 					assert(!emptyFlags[i + j].load(std::memory_order_relaxed));
 					emptyFlags[i + j].store(true, std::memory_order_relaxed);
 				}
@@ -1237,8 +1299,8 @@ private:
 			}
 		}
 		
-		inline T* operator[](index_t idx) { return reinterpret_cast<T*>(elements) + static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1)); }
-		inline T const* operator[](index_t idx) const { return reinterpret_cast<T*>(elements) + static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1)); }
+		inline T* operator[](index_t idx) MOODYCAMEL_NOEXCEPT { return reinterpret_cast<T*>(elements) + static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1)); }
+		inline T const* operator[](index_t idx) const MOODYCAMEL_NOEXCEPT { return reinterpret_cast<T*>(elements) + static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1)); }
 		
 	public:
 		Block* next;
@@ -1426,9 +1488,10 @@ private:
 			index_t newTailIndex = 1 + currentTailIndex;
 			if ((currentTailIndex & static_cast<index_t>(BLOCK_SIZE - 1)) == 0) {
 				// We reached the end of a block, start a new one
+				auto startBlock = this->tailBlock;
+				auto originalBlockIndexSlotsUsed = pr_blockIndexSlotsUsed;
 				if (this->tailBlock != nullptr && this->tailBlock->next->template is_empty<explicit_context>()) {
-					// We can re-use the block ahead of us, it's empty!
-					
+					// We can re-use the block ahead of us, it's empty!					
 					this->tailBlock = this->tailBlock->next;
 					this->tailBlock->template reset_empty<explicit_context>();
 					
@@ -1477,12 +1540,36 @@ private:
 					++pr_blockIndexSlotsUsed;
 				}
 				
+				if (!MOODYCAMEL_NOEXCEPT_CTOR(T, U, new (nullptr) T(std::forward<U>(element)))) {
+					// The constructor may throw. We want the element not to appear in the queue in
+					// that case (without corrupting the queue):
+					MOODYCAMEL_TRY {
+						new ((*this->tailBlock)[currentTailIndex]) T(std::forward<U>(element));
+					}
+					MOODYCAMEL_CATCH (...) {
+						// Revert change to the current block, but leave the new block available
+						// for next time
+						pr_blockIndexSlotsUsed = originalBlockIndexSlotsUsed;
+						this->tailBlock = startBlock == nullptr ? this->tailBlock : startBlock;
+						MOODYCAMEL_RETHROW;
+					}
+				}
+				else {
+					(void)startBlock;
+					(void)originalBlockIndexSlotsUsed;
+				}
+				
 				// Add block to block index
 				auto& entry = blockIndex.load(std::memory_order_relaxed)->entries[pr_blockIndexFront];
 				entry.base = currentTailIndex;
 				entry.block = this->tailBlock;
 				blockIndex.load(std::memory_order_relaxed)->front.store(pr_blockIndexFront, std::memory_order_release);
 				pr_blockIndexFront = (pr_blockIndexFront + 1) & (pr_blockIndexSize - 1);
+				
+				if (!MOODYCAMEL_NOEXCEPT_CTOR(T, U, new (nullptr) T(std::forward<U>(element)))) {
+					this->tailIndex.store(newTailIndex, std::memory_order_release);
+					return true;
+				}
 			}
 			
 			// Enqueue
@@ -1552,10 +1639,27 @@ private:
 					
 					// Dequeue
 					auto& el = *((*block)[index]);
-					element = std::move(el);
-					el.~T();
-					
-					block->template set_empty<explicit_context>(index);
+					if (!MOODYCAMEL_NOEXCEPT_ASSIGN(T, T&&, element = std::move(el))) {
+						// Make sure the element is still fully dequeued and destroyed even if the assignment
+						// throws
+						struct Guard {
+							Block* block;
+							index_t index;
+							
+							~Guard()
+							{
+								(*block)[index]->~T();
+								block->template set_empty<explicit_context>(index);
+							}
+						} guard = { block, index };
+						
+						element = std::move(el);
+					}
+					else {
+						element = std::move(el);
+						el.~T();
+						block->template set_empty<explicit_context>(index);
+					}
 					
 					return true;
 				}
@@ -1651,8 +1755,8 @@ private:
 					pr_blockIndexFront = (pr_blockIndexFront + 1) & (pr_blockIndexSize - 1);
 				}
 				
-				// Excellent, all allocations succeeded. Publish the new block index front, and reset each block's
-				// emptiness before we fill them up
+				// Excellent, all allocations succeeded. Reset each block's emptiness before we fill them up, and
+				// publish the new block index front
 				auto block = firstAllocatedBlock;
 				while (true) {
 					block->template reset_empty<explicit_context>();
@@ -1662,7 +1766,9 @@ private:
 					block = block->next;
 				}
 				
-				blockIndex.load(std::memory_order_relaxed)->front.store((pr_blockIndexFront - 1) & (pr_blockIndexSize - 1), std::memory_order_release);
+				if (MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst)))) {
+					blockIndex.load(std::memory_order_relaxed)->front.store((pr_blockIndexFront - 1) & (pr_blockIndexSize - 1), std::memory_order_release);
+				}
 			}
 			
 			// Enqueue, one block at a time
@@ -1679,8 +1785,59 @@ private:
 				if (details::circular_less_than<index_t>(newTailIndex, stopIndex)) {
 					stopIndex = newTailIndex;
 				}
-				while (currentTailIndex != stopIndex) {
-					new ((*this->tailBlock)[currentTailIndex++]) T(*itemFirst++);
+				if (MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst)))) {
+					while (currentTailIndex != stopIndex) {
+						new ((*this->tailBlock)[currentTailIndex++]) T(*itemFirst++);
+					}
+				}
+				else {
+					MOODYCAMEL_TRY {
+						while (currentTailIndex != stopIndex) {
+							// Must use copy constructor even if move constructor is available
+							// because we may have to revert if there's an exception.
+							// Sorry about the horrible templated next line, but it was the only way
+							// to disable moving *at compile time*, which is important because a type
+							// may only define a (noexcept) move constructor, and so calls to the
+							// cctor will not compile, even if they are in an if branch that will never
+							// be executed
+							new ((*this->tailBlock)[currentTailIndex]) T(details::nomove_if<(bool)!MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst)))>::eval(*itemFirst));
+							++currentTailIndex;
+							++itemFirst;
+						}
+					}
+					MOODYCAMEL_CATCH (...) {
+						// Oh dear, an exception's been thrown -- destroy the elements that
+						// were enqueued so far and revert the entire bulk operation (we'll keep
+						// any allocated blocks in our linked list for later, though).
+						auto constructedStopIndex = currentTailIndex;
+						auto lastBlockEnqueued = this->tailBlock;
+						
+						pr_blockIndexFront = originalBlockIndexFront;
+						pr_blockIndexSlotsUsed = originalBlockIndexSlotsUsed;
+						this->tailBlock = startBlock == nullptr ? firstAllocatedBlock : startBlock;
+						
+						if (!std::is_trivially_destructible<T>::value) {
+							auto block = startBlock;
+							if ((startTailIndex & static_cast<index_t>(BLOCK_SIZE - 1)) == 0) {
+								block = firstAllocatedBlock;
+							}
+							currentTailIndex = startTailIndex;
+							while (true) {
+								auto stopIndex = (currentTailIndex & ~static_cast<index_t>(BLOCK_SIZE - 1)) + static_cast<index_t>(BLOCK_SIZE);
+								if (details::circular_less_than<index_t>(constructedStopIndex, stopIndex)) {
+									stopIndex = constructedStopIndex;
+								}
+								while (currentTailIndex != stopIndex) {
+									(*block)[currentTailIndex++]->~T();
+								}
+								if (block == lastBlockEnqueued) {
+									break;
+								}
+								block = block->next;
+							}
+						}
+						MOODYCAMEL_RETHROW;
+					}
 				}
 				
 				if (this->tailBlock == endBlock) {
@@ -1688,6 +1845,10 @@ private:
 					break;
 				}
 				this->tailBlock = this->tailBlock->next;
+			}
+			
+			if (!MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst))) && firstAllocatedBlock != nullptr) {
+				blockIndex.load(std::memory_order_relaxed)->front.store((pr_blockIndexFront - 1) & (pr_blockIndexSize - 1), std::memory_order_release);
 			}
 			
 			this->tailIndex.store(newTailIndex, std::memory_order_release);
@@ -1735,11 +1896,43 @@ private:
 						auto endIndex = (index & ~static_cast<index_t>(BLOCK_SIZE - 1)) + static_cast<index_t>(BLOCK_SIZE);
 						endIndex = details::circular_less_than<index_t>(firstIndex + static_cast<index_t>(actualCount), endIndex) ? firstIndex + static_cast<index_t>(actualCount) : endIndex;
 						auto block = localBlockIndex->entries[indexIndex].block;
-						while (index != endIndex) {
-							auto& el = *((*block)[index]);
-							*itemFirst++ = std::move(el);
-							el.~T();
-							++index;
+						if (MOODYCAMEL_NOEXCEPT_ASSIGN(T, T&&, details::deref_noexcept(itemFirst) = std::move((*(*block)[index])))) {
+							while (index != endIndex) {
+								auto& el = *((*block)[index]);
+								*itemFirst++ = std::move(el);
+								el.~T();
+								++index;
+							}
+						}
+						else {
+							MOODYCAMEL_TRY {
+								while (index != endIndex) {
+									auto& el = *((*block)[index]);
+									*itemFirst = std::move(el);
+									++itemFirst;
+									el.~T();
+									++index;
+								}
+							}
+							MOODYCAMEL_CATCH (...) {
+								// It's too late to revert the dequeue, but we can make sure that all
+								// the dequeued objects are properly destroyed and the block index
+								// (and empty count) are properly updated before we propagate the exception
+								do {
+									block = localBlockIndex->entries[indexIndex].block;
+									while (index != endIndex) {
+										(*block)[index++]->~T();
+									}
+									block->template set_many_empty<explicit_context>(firstIndexInBlock, static_cast<size_t>(endIndex - firstIndexInBlock));
+									indexIndex = (indexIndex + 1) & (localBlockIndex->size - 1);
+									
+									firstIndexInBlock = index;
+									endIndex = (index & ~static_cast<index_t>(BLOCK_SIZE - 1)) + static_cast<index_t>(BLOCK_SIZE);
+									endIndex = details::circular_less_than<index_t>(firstIndex + static_cast<index_t>(actualCount), endIndex) ? firstIndex + static_cast<index_t>(actualCount) : endIndex;
+								} while (index != firstIndex + actualCount);
+								
+								MOODYCAMEL_RETHROW;
+							}
 						}
 						block->template set_many_empty<explicit_context>(firstIndexInBlock, static_cast<size_t>(endIndex - firstIndexInBlock));
 						indexIndex = (indexIndex + 1) & (localBlockIndex->size - 1);
@@ -1921,10 +2114,28 @@ private:
 #endif
 				newBlock->template reset_empty<implicit_context>();
 				
+				if (!MOODYCAMEL_NOEXCEPT_CTOR(T, U, new (nullptr) T(std::forward<U>(element)))) {
+					// May throw, try to insert now before we publish the fact that we have this new block
+					MOODYCAMEL_TRY {
+						new ((*newBlock)[currentTailIndex]) T(std::forward<U>(element));
+					}
+					MOODYCAMEL_CATCH (...) {
+						rewind_block_index_tail();
+						idxEntry->value.store(nullptr, std::memory_order_relaxed);
+						this->parent->add_block_to_free_list(newBlock);
+						MOODYCAMEL_RETHROW;
+					}
+				}
+				
 				// Insert the new block into the index
 				idxEntry->value.store(newBlock, std::memory_order_relaxed);
 				
 				this->tailBlock = newBlock;
+				
+				if (!MOODYCAMEL_NOEXCEPT_CTOR(T, U, new (nullptr) T(std::forward<U>(element)))) {
+					this->tailIndex.store(newTailIndex, std::memory_order_release);
+					return true;
+				}
 			}
 			
 			// Enqueue
@@ -1954,19 +2165,46 @@ private:
 					
 					// Dequeue
 					auto block = entry->value.load(std::memory_order_relaxed);
-                    auto& el = *((*block)[index]);
-                    element = std::move(el);
-					el.~T();
+					auto& el = *((*block)[index]);
 					
-					if (block->template set_empty<implicit_context>(index)) {
-						{
+					if (!MOODYCAMEL_NOEXCEPT_ASSIGN(T, T&&, element = std::move(el))) {
 #if MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
-							debug::DebugLock lock(mutex);
+						// Note: Acquiring the mutex with every dequeue instead of only when a block
+						// is released is very sub-optimal, but it is, after all, purely debug code.
+						debug::DebugLock lock(producer->mutex);
 #endif
-							// Add the block back into the global free pool (and remove from block index)
-							entry->value.store(nullptr, std::memory_order_relaxed);
+						struct Guard {
+							Block* block;
+							index_t index;
+							BlockIndexEntry* entry;
+							ConcurrentQueue* parent;
+							
+							~Guard()
+							{
+								(*block)[index]->~T();
+								if (block->template set_empty<implicit_context>(index)) {
+									entry->value.store(nullptr, std::memory_order_relaxed);
+									parent->add_block_to_free_list(block);
+								}
+							}
+						} guard = { block, index, entry, this->parent };
+						
+						element = std::move(el);
+					}
+					else {
+						element = std::move(el);
+						el.~T();
+					
+						if (block->template set_empty<implicit_context>(index)) {
+							{
+#if MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
+								debug::DebugLock lock(mutex);
+#endif
+								// Add the block back into the global free pool (and remove from block index)
+								entry->value.store(nullptr, std::memory_order_relaxed);
+							}
+							this->parent->add_block_to_free_list(block);		// releases the above store
 						}
-						this->parent->add_block_to_free_list(block);		// releases the above store
 					}
 					
 					return true;
@@ -2025,8 +2263,8 @@ private:
 							idxEntry = get_block_index_entry_for_index(currentTailIndex);
 							idxEntry->value.store(nullptr, std::memory_order_relaxed);
 							rewind_block_index_tail();
-							this->parent->add_block_to_free_list(block);
 						}
+						this->parent->add_blocks_to_free_list(firstAllocatedBlock);
 						this->tailBlock = startBlock;
 						
 						return false;
@@ -2066,8 +2304,55 @@ private:
 				if (details::circular_less_than<index_t>(newTailIndex, stopIndex)) {
 					stopIndex = newTailIndex;
 				}
-				while (currentTailIndex != stopIndex) {
-					new ((*this->tailBlock)[currentTailIndex++]) T(*itemFirst++);
+				if (MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst)))) {
+					while (currentTailIndex != stopIndex) {
+						new ((*this->tailBlock)[currentTailIndex++]) T(*itemFirst++);
+					}
+				}
+				else {
+					MOODYCAMEL_TRY {
+						while (currentTailIndex != stopIndex) {
+							new ((*this->tailBlock)[currentTailIndex]) T(details::nomove_if<(bool)!MOODYCAMEL_NOEXCEPT_CTOR(T, decltype(*itemFirst), new (nullptr) T(details::deref_noexcept(itemFirst)))>::eval(*itemFirst));
+							++currentTailIndex;
+							++itemFirst;
+						}
+					}
+					MOODYCAMEL_CATCH (...) {
+						auto constructedStopIndex = currentTailIndex;
+						auto lastBlockEnqueued = this->tailBlock;
+						
+						if (!std::is_trivially_destructible<T>::value) {
+							auto block = startBlock;
+							if ((startTailIndex & static_cast<index_t>(BLOCK_SIZE - 1)) == 0) {
+								block = firstAllocatedBlock;
+							}
+							currentTailIndex = startTailIndex;
+							while (true) {
+								auto stopIndex = (currentTailIndex & ~static_cast<index_t>(BLOCK_SIZE - 1)) + static_cast<index_t>(BLOCK_SIZE);
+								if (details::circular_less_than<index_t>(constructedStopIndex, stopIndex)) {
+									stopIndex = constructedStopIndex;
+								}
+								while (currentTailIndex != stopIndex) {
+									(*block)[currentTailIndex++]->~T();
+								}
+								if (block == lastBlockEnqueued) {
+									break;
+								}
+								block = block->next;
+							}
+						}
+						
+						currentTailIndex = (startTailIndex - 1) & ~static_cast<index_t>(BLOCK_SIZE - 1);
+						for (auto block = firstAllocatedBlock; block != nullptr; block = block->next) {
+							currentTailIndex += static_cast<index_t>(BLOCK_SIZE);
+							auto idxEntry = get_block_index_entry_for_index(currentTailIndex);
+							idxEntry->value.store(nullptr, std::memory_order_relaxed);
+							rewind_block_index_tail();
+						}
+						this->parent->add_blocks_to_free_list(firstAllocatedBlock);
+						this->tailBlock = startBlock;
+						MOODYCAMEL_RETHROW;
+					}
 				}
 				
 				if (this->tailBlock == endBlock) {
@@ -2116,11 +2401,48 @@ private:
 						
 						auto entry = localBlockIndex->index[indexIndex];
 						auto block = entry->value.load(std::memory_order_relaxed);
-						while (index != endIndex) {
-							auto& el = *((*block)[index]);
-							*itemFirst++ = std::move(el);
-							el.~T();
-							++index;
+						if (MOODYCAMEL_NOEXCEPT_ASSIGN(T, T&&, details::deref_noexcept(itemFirst) = std::move((*(*block)[index])))) {
+							while (index != endIndex) {
+								auto& el = *((*block)[index]);
+								*itemFirst++ = std::move(el);
+								el.~T();
+								++index;
+							}
+						}
+						else {
+							MOODYCAMEL_TRY {
+								while (index != endIndex) {
+									auto& el = *((*block)[index]);
+									*itemFirst = std::move(el);
+									++itemFirst;
+									el.~T();
+									++index;
+								}
+							}
+							MOODYCAMEL_CATCH (...) {
+								do {
+									entry = localBlockIndex->index[indexIndex];
+									block = entry->value.load(std::memory_order_relaxed);
+									while (index != endIndex) {
+										(*block)[index++]->~T();
+									}
+									
+									if (block->template set_many_empty<implicit_context>(blockStartIndex, static_cast<size_t>(endIndex - blockStartIndex))) {
+#if MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
+										debug::DebugLock lock(mutex);
+#endif
+										entry->value.store(nullptr, std::memory_order_relaxed);
+										this->parent->add_block_to_free_list(block);
+									}
+									indexIndex = (indexIndex + 1) & (localBlockIndex->capacity - 1);
+									
+									blockStartIndex = index;
+									endIndex = (index & ~static_cast<index_t>(BLOCK_SIZE - 1)) + static_cast<index_t>(BLOCK_SIZE);
+									endIndex = details::circular_less_than<index_t>(firstIndex + static_cast<index_t>(actualCount), endIndex) ? firstIndex + static_cast<index_t>(actualCount) : endIndex;
+								} while (index != firstIndex + actualCount);
+								
+								MOODYCAMEL_RETHROW;
+							}
 						}
 						if (block->template set_many_empty<implicit_context>(blockStartIndex, static_cast<size_t>(endIndex - blockStartIndex))) {
 							{
@@ -2318,6 +2640,15 @@ private:
 		block->owner = nullptr;
 #endif
 		freeList.add(block);
+	}
+	
+	inline void add_blocks_to_free_list(Block* block)
+	{
+		while (block != nullptr) {
+			auto next = block->next;
+			add_block_to_free_list(block);
+			block = next;
+		}
 	}
 	
 	inline Block* try_get_block_from_free_list()
