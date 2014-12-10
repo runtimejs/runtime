@@ -259,6 +259,7 @@ TCPConnectionSocket.prototype.insertPacket = function(seq, buf, dataOffset, data
     if (dataLen > 0) {
       // TODO: avoid this copy, shrink buffer inplace
       this.readPipe.push(buf.slice(dataOffset, dataOffset + dataLen));
+      // this.readPipe.push(runtime.bufferSliceInplace(buf, dataOffset, dataOffset + dataLen));
     }
 
     this.remoteWindow.ackedSeqNumber = seqEnd;

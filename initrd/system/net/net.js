@@ -21,6 +21,7 @@ var tcp = require('net/tcp/tcp.js');
 var socket = require('net/socket.js');
 var dhcp = require('net/dhcp.js');
 var arp = require('net/arp.js');
+var checksum = require('net/checksum.js');
 
 var ethIndex = 0;
 var interfaces = [];
@@ -153,6 +154,7 @@ Interface.prototype._sendEthHW = function(destHW, sendBuf, view, isTCP) {
 Interface.prototype.setChecksum = function(sendBuf, protocol, destIP, srcIP) {
   var self = this;
   var view = new DataView(sendBuf);
+  var u8 = new Uint8Array(sendBuf);
 
   if (protocol === 'TCP') {
     var tcpHeaderOffset = self.packetHeaderLength + eth.headerLength + ip4.getHeaderLength();
@@ -161,7 +163,7 @@ Interface.prototype.setChecksum = function(sendBuf, protocol, destIP, srcIP) {
         ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
         segmentLength + 0x06 /*protocol id*/;
 
-    var ck = tcp.checksum(view, tcpHeaderOffset, segmentLength, extraSum);
+    var ck = checksum.full(u8, tcpHeaderOffset, segmentLength, extraSum);
     // Native checksum computation function for benchmarks
     // var ck = resources.natives.netChecksum(sendBuf, tcpHeaderOffset, segmentLength, extraSum);
     tcp.writeHeaderChecksum(view, tcpHeaderOffset, ck);
@@ -172,7 +174,7 @@ Interface.prototype.setChecksum = function(sendBuf, protocol, destIP, srcIP) {
         ((srcIP[0] << 8) | srcIP[1]) + ((srcIP[2] << 8) | srcIP[3]) +
         dglen + 0x11 /*protocol id*/;
 
-    var ck = tcp.checksum(view, udpHeaderOffset, dglen, extraSum);
+    var ck = checksum.full(u8, udpHeaderOffset, dglen, extraSum);
     udp.writeHeaderChecksum(view, udpHeaderOffset, ck);
   }
 }

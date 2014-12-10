@@ -21,3 +21,6 @@ qt_rtproj.*
 initrd/benchmarks
 runtime.log
 *.pcap
+disk/boot/initrd-downloaded
+disk/boot/runtime-downloaded
+netdump.txt

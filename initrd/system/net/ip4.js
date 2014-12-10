@@ -13,6 +13,7 @@
 // limitations under the License.
 
 "use strict";
+var checksum = require('net/checksum.js');
 var minHeaderLength = 20;
 var nextId = 0;
 
@@ -27,19 +28,6 @@ var protocolReverse = {
   0x06: 'TCP',
   0x11: 'UDP',
 };
-
-function checksum(view, offset, headerLength) {
-  var count = headerLength >>> 1;
-  var acc = 0xffff;
-  for (var i = 0; i < count; ++i) {
-    acc += view.getUint16(offset + i * 2, false);
-    if (acc > 0xffff) {
-      acc -= 0xffff;
-    }
-  }
-
-  return ((~acc) & 0xffff) >>> 0;
-}
 
 function writeHeader(view, offset, protocolId, srcIP, destIP) {
   var hdrLength = minHeaderLength;
@@ -71,7 +59,8 @@ function writeHeader(view, offset, protocolId, srcIP, destIP) {
     view.setUint8(offset + pos++, destIP[i]);
   }
 
-  view.setUint16(offset + 10, checksum(view, offset, hdrLength), false); // set header checksum
+  var cksum = checksum.full(new Uint8Array(view.buffer), offset, hdrLength, 0);
+  view.setUint16(offset + 10, cksum, false); // set header checksum
 }
 
 function parse(reader) {

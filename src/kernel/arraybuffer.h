@@ -49,6 +49,20 @@ public:
         return new ArrayBuffer(iv8, v8::ArrayBuffer::New(iv8, data, size), data, size);
     }
 
+    static ArrayBuffer* FromArrayBufferSlice(ArrayBuffer* ab, size_t offset, size_t size) {
+        RT_ASSERT(ab);
+        RT_ASSERT(ab->size_ > 0);
+        RT_ASSERT(ab->data_);
+        RT_ASSERT(ab->iv8_);
+        RT_ASSERT(offset + size <= ab->size_);
+        void* memoryData = ab->data();
+        size_t memorySize = ab->size();
+        void* newData = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(memoryData) + offset);
+        ab->Neuter();
+        // Construct new sliced v8 buffer, buf keep memory pointer and size the same
+        return new ArrayBuffer(ab->iv8_, v8::ArrayBuffer::New(ab->iv8_, newData, size), memoryData, memorySize);
+    }
+
     v8::Local<v8::ArrayBuffer> GetInstance() {
         RT_ASSERT(iv8_);
         RT_ASSERT(!buffer_.IsEmpty());

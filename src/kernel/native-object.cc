@@ -540,6 +540,34 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     args.GetReturnValue().Set(arr);
 }
 
+NATIVE_FUNCTION(NativesObject, BufferSliceInplace) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    USEARG(1);
+    USEARG(2);
+    VALIDATEARG(0, ARRAYBUFFER, "argument 0 is not an ArrayBuffer");
+    VALIDATEARG(1, NUMBER, "argument 1 is not a number");
+    VALIDATEARG(2, NUMBER, "argument 2 is not a number");
+    RT_ASSERT(arg0->IsArrayBuffer());
+    auto abv8 = arg0.As<v8::ArrayBuffer>();
+    if (0 == abv8->ByteLength()) {
+        // Return the same buffer in case it's empty
+        args.GetReturnValue().Set(arg0);
+        return;
+    }
+
+    uint32_t offset = arg1->Uint32Value();
+    uint32_t size = arg2->Uint32Value();
+
+    if (offset + size >= abv8->ByteLength()) {
+        THROW_ERROR("invalid offset and size");
+    }
+
+    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
+    auto abNew = ArrayBuffer::FromArrayBufferSlice(ab, offset, size);
+    args.GetReturnValue().Set(abNew->GetInstance());
+}
+
 NATIVE_FUNCTION(NativesObject, CreatePipe) {
     PROLOGUE_NOTHIS;
 

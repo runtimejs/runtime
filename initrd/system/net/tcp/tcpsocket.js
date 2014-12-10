@@ -66,6 +66,11 @@ function TCPServerSocket(connPipe) {
   this.connections = Object.create(null);
 }
 
+var pow32 = Math.pow(2, 32);
+function connHash(ip, port) {
+  return pow32 * port + (((ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]) >>> 0);
+}
+
 TCPServerSocket.prototype.listen = function(port) {
   if (!(this instanceof TCPServerSocket)) throw new Error('instanceof check failed');
 
@@ -100,7 +105,7 @@ TCPServerSocket.prototype.accept = function(intf, remoteIP, remotePort, seqNumbe
 
   var socket = new tcpConn.TCPConnectionSocket(intf);
   socket.accept(remoteIP, remotePort, this.listeningPort, seqNumber, windowSize);
-  this.connections[remoteIP + ':' + remotePort] = socket;
+  this.connections[connHash(remoteIP, remotePort)] = socket;
   return socket;
 };
 
@@ -110,7 +115,7 @@ TCPServerSocket.prototype.recv = function(intf, ip4Header, tcpHeader, buf, len, 
   var remoteIP = ip4Header.srcIP;
   var remotePort = tcpHeader.srcPort;
 
-  var conn = this.connections[remoteIP + ':' + remotePort];
+  var conn = this.connections[connHash(remoteIP, remotePort)];
   if (conn) {
     conn.recv(ip4Header, tcpHeader, buf, len, dataOffset);
     return;

@@ -24,30 +24,6 @@ var flags = {
   URG: 1 << 5, // Urgent
 };
 
-function checksum(view, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  var ov = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += view.getUint16(offset + i * 2, false);
-  }
-
-  if (count * 2 !== len) {
-    acc += view.getUint8(offset + count * 2) << 8;
-  }
-
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
-}
-
-function checksumPartial(extraSum) {
-  var acc = (extraSum >>> 0);
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
-}
-
 function writeHeader(view, offset, opts) {
   var len = view.byteLength - offset;
   view.setUint16(offset + 0, opts.srcPort, false);
@@ -74,7 +50,7 @@ function parse(reader) {
   reader.readUint8();
   var flags = reader.readUint8();
   var windowSize = reader.readUint16();
-  var checksum = reader.readUint16();
+  var csum = reader.readUint16();
   var urgentPtr = reader.readUint16();
 
   return {
@@ -93,8 +69,6 @@ module.exports = {
   headerLength: headerLength,
   parse: parse,
   flags: flags,
-  checksum: checksum,
-  checksumPartial: checksumPartial,
   SEQ_INC: function(seq, value) { return (seq + (value >>> 0)) >>> 0; },
   SEQ_LT: function(a, b) { return ((a - b) | 0) <  0; },
   SEQ_LTE: function(a, b) { return ((a - b) | 0) <= 0; },

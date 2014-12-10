@@ -55,6 +55,7 @@ public:
     DECLARE_NATIVE(BufferAddress);
     DECLARE_NATIVE(CreatePipe);
     DECLARE_NATIVE(NetChecksum);
+    DECLARE_NATIVE(BufferSliceInplace);
 
     /**
      * Kernel utils

@@ -20,7 +20,7 @@
 
 // Some profiler data
 var requestCount = 0;
-var expectRequests = 100;
+var expectRequests = 200;
 
 // Cached body
 var body = '<html><body>Hello World!</body></html>';
@@ -40,7 +40,7 @@ var cachedResponse = response.join('\r\n');
  */
 function httpHandler(socket, netsend, netrecv) {
   // Profiler (should be enabled in kernel, otherwise noop)
-  if (0 === requestCount) {
+  if (100 === requestCount) {
     kernel.startProfiling();
   }
 
