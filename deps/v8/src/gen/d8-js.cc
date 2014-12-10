@@ -11,7 +11,7 @@
 namespace v8 {
 namespace internal {
 
-  static const byte sources[] = { 10, 34, 117, 115, 101, 32, 115, 116, 114, 105, 99, 116, 34, 59, 10, 83, 116,
+  static const char sources[] = { 10, 34, 117, 115, 101, 32, 115, 116, 114, 105, 99, 116, 34, 59, 10, 83, 116,
 114, 105, 110, 103, 46, 112, 114, 111, 116, 111, 116, 121, 112, 101, 46, 115,
 116, 97, 114, 116, 115, 87, 105, 116, 104, 61, 102, 117, 110, 99, 116, 105, 111,
 110, 40, 97, 41, 123, 10, 105, 102, 40, 97, 46, 108, 101, 110, 103, 116, 104,
@@ -1854,8 +1854,6 @@ namespace internal {
 110, 100, 97, 114, 100, 32, 115, 104, 105, 116, 93, 34, 59, 10, 125, 10, 125,
 10, 10 };
 
-  static const char* raw_sources = reinterpret_cast<const char*>(sources);
-
   template <>
   int NativesCollection<D8>::GetBuiltinsCount() {
     return 1;
@@ -1873,13 +1871,8 @@ namespace internal {
   }
 
   template <>
-  int NativesCollection<D8>::GetRawScriptsSize() {
-    return 32057;
-  }
-
-  template <>
-  Vector<const char> NativesCollection<D8>::GetRawScriptSource(int index) {
-    if (index == 0) return Vector<const char>(raw_sources + 0, 32057);
+  Vector<const char> NativesCollection<D8>::GetScriptSource(int index) {
+    if (index == 0) return Vector<const char>(sources + 0, 32057);
     return Vector<const char>("", 0);
   }
 
@@ -1890,15 +1883,8 @@ namespace internal {
   }
 
   template <>
-  Vector<const byte> NativesCollection<D8>::GetScriptsSource() {
-    return Vector<const byte>(sources, 32057);
+  Vector<const char> NativesCollection<D8>::GetScriptsSource() {
+    return Vector<const char>(sources, 32057);
   }
-
-  template <>
-  void NativesCollection<D8>::SetRawScriptsSource(Vector<const char> raw_source) {
-    DCHECK(32057 == raw_source.length());
-    raw_sources = raw_source.start();
-  }
-
 }  // internal
 }  // v8
