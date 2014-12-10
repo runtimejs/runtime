@@ -40,6 +40,7 @@ Debug::Debug(Isolate* isolate)
       live_edit_enabled_(true),  // TODO(yangguo): set to false by default.
       has_break_points_(false),
       break_disabled_(false),
+      in_debug_event_listener_(false),
       break_on_exception_(false),
       break_on_uncaught_exception_(false),
       script_cache_(NULL),
@@ -872,7 +873,7 @@ void Debug::Break(Arguments args, JavaScriptFrame* frame) {
   LiveEdit::InitializeThreadLocal(this);
 
   // Just continue if breaks are disabled or debugger cannot be loaded.
-  if (break_disabled_) return;
+  if (break_disabled()) return;
 
   // Enter the debugger.
   DebugScope debug_scope(this);
@@ -1199,6 +1200,9 @@ void Debug::ClearAllBreakPoints() {
 
 void Debug::FloodWithOneShot(Handle<JSFunction> function,
                              BreakLocatorType type) {
+  // Do not ever break in native functions.
+  if (function->IsFromNativeScript()) return;
+
   PrepareForBreakPoints();
 
   // Make sure the function is compiled and has set up the debug info.
@@ -1225,7 +1229,48 @@ void Debug::FloodBoundFunctionWithOneShot(Handle<JSFunction> function) {
   if (!bindee.is_null() && bindee->IsJSFunction() &&
       !JSFunction::cast(*bindee)->IsFromNativeScript()) {
     Handle<JSFunction> bindee_function(JSFunction::cast(*bindee));
-    FloodWithOneShot(bindee_function);
+    FloodWithOneShotGeneric(bindee_function);
+  }
+}
+
+
+void Debug::FloodDefaultConstructorWithOneShot(Handle<JSFunction> function) {
+  DCHECK(function->shared()->is_default_constructor());
+  // Instead of stepping into the function we directly step into the super class
+  // constructor.
+  Isolate* isolate = function->GetIsolate();
+  PrototypeIterator iter(isolate, function);
+  Handle<Object> proto = PrototypeIterator::GetCurrent(iter);
+  if (!proto->IsJSFunction()) return;  // Object.prototype
+  Handle<JSFunction> function_proto = Handle<JSFunction>::cast(proto);
+  FloodWithOneShotGeneric(function_proto);
+}
+
+
+void Debug::FloodWithOneShotGeneric(Handle<JSFunction> function,
+                                    Handle<Object> holder) {
+  if (function->shared()->bound()) {
+    FloodBoundFunctionWithOneShot(function);
+  } else if (function->shared()->is_default_constructor()) {
+    FloodDefaultConstructorWithOneShot(function);
+  } else {
+    Isolate* isolate = function->GetIsolate();
+    // Don't allow step into functions in the native context.
+    if (function->shared()->code() ==
+            isolate->builtins()->builtin(Builtins::kFunctionApply) ||
+        function->shared()->code() ==
+            isolate->builtins()->builtin(Builtins::kFunctionCall)) {
+      // Handle function.apply and function.call separately to flood the
+      // function to be called and not the code for Builtins::FunctionApply or
+      // Builtins::FunctionCall. The receiver of call/apply is the target
+      // function.
+      if (!holder.is_null() && holder->IsJSFunction()) {
+        Handle<JSFunction> js_function = Handle<JSFunction>::cast(holder);
+        FloodWithOneShotGeneric(js_function);
+      }
+    } else {
+      FloodWithOneShot(function);
+    }
   }
 }
 
@@ -1464,13 +1509,7 @@ void Debug::PrepareStep(StepAction step_action,
 
       if (fun->IsJSFunction()) {
         Handle<JSFunction> js_function(JSFunction::cast(fun));
-        if (js_function->shared()->bound()) {
-          FloodBoundFunctionWithOneShot(js_function);
-        } else if (!js_function->IsFromNativeScript()) {
-          // Don't step into builtins.
-          // It will also compile target function if it's not compiled yet.
-          FloodWithOneShot(js_function);
-        }
+        FloodWithOneShotGeneric(js_function);
       }
     }
 
@@ -1612,32 +1651,7 @@ void Debug::HandleStepIn(Handle<Object> function_obj, Handle<Object> holder,
   // Flood the function with one-shot break points if it is called from where
   // step into was requested, or when stepping into a new frame.
   if (fp == thread_local_.step_into_fp_ || step_frame) {
-    if (function->shared()->bound()) {
-      // Handle Function.prototype.bind
-      FloodBoundFunctionWithOneShot(function);
-    } else if (!function->IsFromNativeScript()) {
-      // Don't allow step into functions in the native context.
-      if (function->shared()->code() ==
-          isolate->builtins()->builtin(Builtins::kFunctionApply) ||
-          function->shared()->code() ==
-          isolate->builtins()->builtin(Builtins::kFunctionCall)) {
-        // Handle function.apply and function.call separately to flood the
-        // function to be called and not the code for Builtins::FunctionApply or
-        // Builtins::FunctionCall. The receiver of call/apply is the target
-        // function.
-        if (!holder.is_null() && holder->IsJSFunction()) {
-          Handle<JSFunction> js_function = Handle<JSFunction>::cast(holder);
-          if (!js_function->IsFromNativeScript()) {
-            FloodWithOneShot(js_function);
-          } else if (js_function->shared()->bound()) {
-            // Handle Function.prototype.bind
-            FloodBoundFunctionWithOneShot(js_function);
-          }
-        }
-      } else {
-        FloodWithOneShot(function);
-      }
-    }
+    FloodWithOneShotGeneric(function, holder);
   }
 }
 
@@ -2107,7 +2121,10 @@ Object* Debug::FindSharedFunctionInfoInScript(Handle<Script> script,
   Heap* heap = isolate_->heap();
   while (!done) {
     { // Extra scope for iterator.
-      HeapIterator iterator(heap);
+      // If lazy compilation is off, we won't have duplicate shared function
+      // infos that need to be filtered.
+      HeapIterator iterator(heap, FLAG_lazy ? HeapIterator::kNoFiltering
+                                            : HeapIterator::kFilterUnreachable);
       for (HeapObject* obj = iterator.next();
            obj != NULL; obj = iterator.next()) {
         bool found_next_candidate = false;
@@ -2802,7 +2819,8 @@ void Debug::CallEventCallback(v8::DebugEvent event,
                               Handle<Object> exec_state,
                               Handle<Object> event_data,
                               v8::Debug::ClientData* client_data) {
-  DisableBreak no_break(this, true);
+  bool previous = in_debug_event_listener_;
+  in_debug_event_listener_ = true;
   if (event_listener_->IsForeign()) {
     // Invoke the C debug event listener.
     v8::Debug::EventCallback callback =
@@ -2826,6 +2844,7 @@ void Debug::CallEventCallback(v8::DebugEvent event,
     Execution::TryCall(Handle<JSFunction>::cast(event_listener_),
                        global, arraysize(argv), argv);
   }
+  in_debug_event_listener_ = previous;
 }
 
 
@@ -3079,7 +3098,7 @@ void Debug::HandleDebugBreak() {
   // Ignore debug break during bootstrapping.
   if (isolate_->bootstrapper()->IsActive()) return;
   // Just continue if breaks are disabled.
-  if (break_disabled_) return;
+  if (break_disabled()) return;
   // Ignore debug break if debugger is not active.
   if (!is_active()) return;
 

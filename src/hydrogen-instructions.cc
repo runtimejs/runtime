@@ -1155,12 +1155,10 @@ std::ostream& HReturn::PrintDataTo(std::ostream& os) const {  // NOLINT
 
 
 Representation HBranch::observed_input_representation(int index) {
-  static const ToBooleanStub::Types tagged_types(
-      ToBooleanStub::NULL_TYPE |
-      ToBooleanStub::SPEC_OBJECT |
-      ToBooleanStub::STRING |
-      ToBooleanStub::SYMBOL);
-  if (expected_input_types_.ContainsAnyOf(tagged_types)) {
+  if (expected_input_types_.Contains(ToBooleanStub::NULL_TYPE) ||
+      expected_input_types_.Contains(ToBooleanStub::SPEC_OBJECT) ||
+      expected_input_types_.Contains(ToBooleanStub::STRING) ||
+      expected_input_types_.Contains(ToBooleanStub::SYMBOL)) {
     return Representation::Tagged();
   }
   if (expected_input_types_.Contains(ToBooleanStub::UNDEFINED)) {
@@ -2662,8 +2660,7 @@ void HEnterInlined::RegisterReturnTarget(HBasicBlock* return_target,
 
 
 std::ostream& HEnterInlined::PrintDataTo(std::ostream& os) const {  // NOLINT
-  return os << function()->debug_name()->ToCString().get()
-            << ", id=" << function()->id().ToInt();
+  return os << function()->debug_name()->ToCString().get();
 }
 
 
@@ -2833,6 +2830,10 @@ void HConstant::Initialize(Representation r) {
     // Tagged representation later, because having Smi representation now
     // could cause heap object checks not to get emitted.
     object_ = Unique<Object>(Handle<Object>::null());
+  }
+  if (r.IsSmiOrInteger32()) {
+    // If it's not a heap object, it can't be in new space.
+    bit_field_ = IsNotInNewSpaceField::update(bit_field_, true);
   }
   set_representation(r);
   SetFlag(kUseGVN);
@@ -4637,6 +4638,14 @@ HObjectAccess HObjectAccess::ForContextSlot(int index) {
   Portion portion = kInobject;
   int offset = Context::kHeaderSize + index * kPointerSize;
   DCHECK_EQ(offset, Context::SlotOffset(index) + kHeapObjectTag);
+  return HObjectAccess(portion, offset, Representation::Tagged());
+}
+
+
+HObjectAccess HObjectAccess::ForScriptContext(int index) {
+  DCHECK(index >= 0);
+  Portion portion = kInobject;
+  int offset = ScriptContextTable::GetContextOffset(index);
   return HObjectAccess(portion, offset, Representation::Tagged());
 }
 

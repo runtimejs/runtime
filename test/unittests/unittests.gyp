@@ -39,17 +39,22 @@
         'compiler/change-lowering-unittest.cc',
         'compiler/common-operator-unittest.cc',
         'compiler/compiler-test-utils.h',
+        'compiler/control-equivalence-unittest.cc',
         'compiler/diamond-unittest.cc',
         'compiler/graph-reducer-unittest.cc',
         'compiler/graph-unittest.cc',
         'compiler/graph-unittest.h',
         'compiler/instruction-selector-unittest.cc',
         'compiler/instruction-selector-unittest.h',
+        'compiler/instruction-sequence-unittest.cc',
+        'compiler/instruction-sequence-unittest.h',
         'compiler/js-builtin-reducer-unittest.cc',
         'compiler/js-operator-unittest.cc',
         'compiler/js-typed-lowering-unittest.cc',
+        'compiler/load-elimination-unittest.cc',
         'compiler/machine-operator-reducer-unittest.cc',
-        'compiler/machine-operator-unittest.cc',
+        'compiler/move-optimizer-unittest.cc',
+        'compiler/node-matchers-unittest.cc',
         'compiler/node-test-utils.cc',
         'compiler/node-test-utils.h',
         'compiler/register-allocator-unittest.cc',
@@ -85,6 +90,11 @@
         ['v8_target_arch=="mipsel"', {
           'sources': [  ### gcmole(arch:mipsel) ###
             'compiler/mips/instruction-selector-mips-unittest.cc',
+          ],
+        }],
+        ['v8_target_arch=="mips64el"', {
+          'sources': [  ### gcmole(arch:mips64el) ###
+            'compiler/mips64/instruction-selector-mips64-unittest.cc',
           ],
         }],
         ['v8_target_arch=="x64"', {

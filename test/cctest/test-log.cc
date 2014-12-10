@@ -477,10 +477,9 @@ TEST(EquivalenceOfLoggingAndTraversal) {
         isolate, log.start(), v8::String::kNormalString, log.length());
     initialize_logger.env()->Global()->Set(v8_str("_log"), log_str);
 
-    i::Vector<const unsigned char> source = TestSources::GetScriptsSource();
+    i::Vector<const char> source = TestSources::GetScriptsSource();
     v8::Handle<v8::String> source_str = v8::String::NewFromUtf8(
-        isolate, reinterpret_cast<const char*>(source.start()),
-        v8::String::kNormalString, source.length());
+        isolate, source.start(), v8::String::kNormalString, source.length());
     v8::TryCatch try_catch;
     v8::Handle<v8::Script> script = CompileWithOrigin(source_str, "");
     if (script.IsEmpty()) {
@@ -496,7 +495,7 @@ TEST(EquivalenceOfLoggingAndTraversal) {
     }
     // The result either be a "true" literal or problem description.
     if (!result->IsTrue()) {
-      v8::Local<v8::String> s = result->ToString();
+      v8::Local<v8::String> s = result->ToString(isolate);
       i::ScopedVector<char> data(s->Utf8Length() + 1);
       CHECK_NE(NULL, data.start());
       s->WriteUtf8(data.start());

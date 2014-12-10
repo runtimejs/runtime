@@ -464,6 +464,11 @@ class TypeImpl : public Config::Base {
   double Min();
   double Max();
 
+  // Extracts a range from the type. If the type is a range, it just
+  // returns it; if it is a union, it returns the range component.
+  // Note that it does not contain range for constants.
+  RangeType* GetRange();
+
   int NumClasses();
   int NumConstants();
 
@@ -551,7 +556,6 @@ class TypeImpl : public Config::Base {
   static bool Contains(RangeType* lhs, RangeType* rhs);
   static bool Contains(RangeType* range, i::Object* val);
 
-  RangeType* GetRange();
   static int UpdateRange(
       RangeHandle type, UnionHandle result, int size, Region* region);
 
@@ -1031,7 +1035,7 @@ struct BoundsImpl {
     TypeHandle lower = Type::Union(b1.lower, b2.lower, region);
     TypeHandle upper = Type::Intersect(b1.upper, b2.upper, region);
     // Lower bounds are considered approximate, correct as necessary.
-    lower = Type::Intersect(lower, upper, region);
+    if (!lower->Is(upper)) lower = upper;
     return BoundsImpl(lower, upper);
   }
 
@@ -1043,14 +1047,16 @@ struct BoundsImpl {
   }
 
   static BoundsImpl NarrowLower(BoundsImpl b, TypeHandle t, Region* region) {
-    // Lower bounds are considered approximate, correct as necessary.
-    t = Type::Intersect(t, b.upper, region);
     TypeHandle lower = Type::Union(b.lower, t, region);
+    // Lower bounds are considered approximate, correct as necessary.
+    if (!lower->Is(b.upper)) lower = b.upper;
     return BoundsImpl(lower, b.upper);
   }
   static BoundsImpl NarrowUpper(BoundsImpl b, TypeHandle t, Region* region) {
-    TypeHandle lower = Type::Intersect(b.lower, t, region);
+    TypeHandle lower = b.lower;
     TypeHandle upper = Type::Intersect(b.upper, t, region);
+    // Lower bounds are considered approximate, correct as necessary.
+    if (!lower->Is(upper)) lower = upper;
     return BoundsImpl(lower, upper);
   }
 

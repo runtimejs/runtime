@@ -163,19 +163,9 @@ function GlobalParseFloat(string) {
 function GlobalEval(x) {
   if (!IS_STRING(x)) return x;
 
-  // For consistency with JSC we require the global object passed to
-  // eval to be the global object from which 'eval' originated. This
-  // is not mandated by the spec.
-  // We only throw if the global has been detached, since we need the
-  // receiver as this-value for the call.
-  if (!%IsAttachedGlobal(global)) {
-    throw new $EvalError('The "this" value passed to eval must ' +
-                         'be the global object from which eval originated');
-  }
-
   var global_proxy = %GlobalProxy(global);
 
-  var f = %CompileString(x, false);
+  var f = %CompileString(x, false, 0);
   if (!IS_FUNCTION(f)) return f;
 
   return %_CallFunction(global_proxy, f);
@@ -983,7 +973,7 @@ function ObjectGetPrototypeOf(obj) {
   if (!IS_SPEC_OBJECT(obj)) {
     throw MakeTypeError("called_on_non_object", ["Object.getPrototypeOf"]);
   }
-  return %GetPrototype(obj);
+  return %_GetPrototype(obj);
 }
 
 // ES6 section 19.1.2.19.
@@ -1041,6 +1031,7 @@ function ToNameArray(obj, trap, includeSymbols) {
 function ObjectGetOwnPropertyKeys(obj, filter) {
   var nameArrays = new InternalArray();
   filter |= PROPERTY_ATTRIBUTES_PRIVATE_SYMBOL;
+  var interceptorInfo = %GetInterceptorInfo(obj);
 
   // Find all the indexed properties.
 
@@ -1051,9 +1042,7 @@ function ObjectGetOwnPropertyKeys(obj, filter) {
       ownElementNames[i] = %_NumberToString(ownElementNames[i]);
     }
     nameArrays.push(ownElementNames);
-
     // Get names for indexed interceptor properties.
-    var interceptorInfo = %GetInterceptorInfo(obj);
     if ((interceptorInfo & 1) != 0) {
       var indexedInterceptorNames = %GetIndexedInterceptorElementNames(obj);
       if (!IS_UNDEFINED(indexedInterceptorNames)) {
@@ -1372,7 +1361,7 @@ function ObjectIs(obj1, obj2) {
 
 // ECMA-262, Edition 6, section B.2.2.1.1
 function ObjectGetProto() {
-  return %GetPrototype(ToObject(this));
+  return %_GetPrototype(ToObject(this));
 }
 
 
@@ -1829,7 +1818,7 @@ function FunctionBind(this_arg) { // Length is 1.
 }
 
 
-function NewFunctionString(arguments, function_token) {
+function NewFunctionFromString(arguments, function_token) {
   var n = arguments.length;
   var p = '';
   if (n > 1) {
@@ -1846,21 +1835,20 @@ function NewFunctionString(arguments, function_token) {
     // If the formal parameters include an unbalanced block comment, the
     // function must be rejected. Since JavaScript does not allow nested
     // comments we can include a trailing block comment to catch this.
-    p += '\n/' + '**/';
+    p += '\n\x2f**\x2f';
   }
   var body = (n > 0) ? ToString(arguments[n - 1]) : '';
-  return '(' + function_token + '(' + p + ') {\n' + body + '\n})';
+  var head = '(' + function_token + '(' + p + ') {\n';
+  var src = head + body + '\n})';
+  var global_proxy = %GlobalProxy(global);
+  var f = %_CallFunction(global_proxy, %CompileString(src, true, head.length));
+  %FunctionMarkNameShouldPrintAsAnonymous(f);
+  return f;
 }
 
 
 function FunctionConstructor(arg1) {  // length == 1
-  var source = NewFunctionString(arguments, 'function');
-  var global_proxy = %GlobalProxy(global);
-  // Compile the string in the constructor and not a helper so that errors
-  // appear to come from here.
-  var f = %_CallFunction(global_proxy, %CompileString(source, true));
-  %FunctionMarkNameShouldPrintAsAnonymous(f);
-  return f;
+  return NewFunctionFromString(arguments, 'function');
 }
 
 

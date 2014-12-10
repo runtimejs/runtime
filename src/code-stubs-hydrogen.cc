@@ -514,6 +514,40 @@ Handle<Code> CreateAllocationSiteStub::GenerateCode() {
 
 
 template <>
+HValue* CodeStubGraphBuilder<LoadScriptContextFieldStub>::BuildCodeStub() {
+  int context_index = casted_stub()->context_index();
+  int slot_index = casted_stub()->slot_index();
+
+  HValue* script_context = BuildGetScriptContext(context_index);
+  return Add<HLoadNamedField>(script_context, static_cast<HValue*>(NULL),
+                              HObjectAccess::ForContextSlot(slot_index));
+}
+
+
+Handle<Code> LoadScriptContextFieldStub::GenerateCode() {
+  return DoGenerateCode(this);
+}
+
+
+template <>
+HValue* CodeStubGraphBuilder<StoreScriptContextFieldStub>::BuildCodeStub() {
+  int context_index = casted_stub()->context_index();
+  int slot_index = casted_stub()->slot_index();
+
+  HValue* script_context = BuildGetScriptContext(context_index);
+  Add<HStoreNamedField>(script_context,
+                        HObjectAccess::ForContextSlot(slot_index),
+                        GetParameter(2), STORE_TO_INITIALIZED_ENTRY);
+  return GetParameter(2);
+}
+
+
+Handle<Code> StoreScriptContextFieldStub::GenerateCode() {
+  return DoGenerateCode(this);
+}
+
+
+template <>
 HValue* CodeStubGraphBuilder<LoadFastElementStub>::BuildCodeStub() {
   HInstruction* load = BuildUncheckedMonomorphicElementAccess(
       GetParameter(LoadDescriptor::kReceiverIndex),
@@ -538,7 +572,8 @@ HLoadNamedField* CodeStubGraphBuilderBase::BuildLoadNamedField(
   HObjectAccess access = index.is_inobject()
       ? HObjectAccess::ForObservableJSObjectOffset(offset, representation)
       : HObjectAccess::ForBackingStoreOffset(offset, representation);
-  if (index.is_double()) {
+  if (index.is_double() &&
+      (!FLAG_unbox_double_fields || !index.is_inobject())) {
     // Load the heap number.
     object = Add<HLoadNamedField>(
         object, static_cast<HValue*>(NULL),
@@ -705,30 +740,32 @@ void CodeStubGraphBuilderBase::BuildStoreNamedField(
           : HObjectAccess::ForBackingStoreOffset(offset, representation);
 
   if (representation.IsDouble()) {
-    HObjectAccess heap_number_access =
-        access.WithRepresentation(Representation::Tagged());
-    if (transition_to_field) {
-      // The store requires a mutable HeapNumber to be allocated.
-      NoObservableSideEffectsScope no_side_effects(this);
-      HInstruction* heap_number_size = Add<HConstant>(HeapNumber::kSize);
+    if (!FLAG_unbox_double_fields || !index.is_inobject()) {
+      HObjectAccess heap_number_access =
+          access.WithRepresentation(Representation::Tagged());
+      if (transition_to_field) {
+        // The store requires a mutable HeapNumber to be allocated.
+        NoObservableSideEffectsScope no_side_effects(this);
+        HInstruction* heap_number_size = Add<HConstant>(HeapNumber::kSize);
 
-      // TODO(hpayer): Allocation site pretenuring support.
-      HInstruction* heap_number =
-          Add<HAllocate>(heap_number_size, HType::HeapObject(), NOT_TENURED,
-                         MUTABLE_HEAP_NUMBER_TYPE);
-      AddStoreMapConstant(heap_number,
-                          isolate()->factory()->mutable_heap_number_map());
-      Add<HStoreNamedField>(heap_number, HObjectAccess::ForHeapNumberValue(),
-                            value);
-      // Store the new mutable heap number into the object.
-      access = heap_number_access;
-      value = heap_number;
-    } else {
-      // Load the heap number.
-      object = Add<HLoadNamedField>(object, static_cast<HValue*>(NULL),
-                                    heap_number_access);
-      // Store the double value into it.
-      access = HObjectAccess::ForHeapNumberValue();
+        // TODO(hpayer): Allocation site pretenuring support.
+        HInstruction* heap_number =
+            Add<HAllocate>(heap_number_size, HType::HeapObject(), NOT_TENURED,
+                           MUTABLE_HEAP_NUMBER_TYPE);
+        AddStoreMapConstant(heap_number,
+                            isolate()->factory()->mutable_heap_number_map());
+        Add<HStoreNamedField>(heap_number, HObjectAccess::ForHeapNumberValue(),
+                              value);
+        // Store the new mutable heap number into the object.
+        access = heap_number_access;
+        value = heap_number;
+      } else {
+        // Load the heap number.
+        object = Add<HLoadNamedField>(object, static_cast<HValue*>(NULL),
+                                      heap_number_access);
+        // Store the double value into it.
+        access = HObjectAccess::ForHeapNumberValue();
+      }
     }
   } else if (representation.IsHeapObject()) {
     BuildCheckHeapObject(value);
@@ -1520,8 +1557,8 @@ HValue* CodeStubGraphBuilder<FastNewClosureStub>::BuildCodeStub() {
 
   // Create a new closure from the given function info in new space
   HValue* size = Add<HConstant>(JSFunction::kSize);
-  HInstruction* js_function = Add<HAllocate>(size, HType::JSObject(),
-                                             NOT_TENURED, JS_FUNCTION_TYPE);
+  HInstruction* js_function =
+      Add<HAllocate>(size, HType::JSObject(), NOT_TENURED, JS_FUNCTION_TYPE);
 
   int map_index = Context::FunctionMapIndex(casted_stub()->strict_mode(),
                                             casted_stub()->kind());
@@ -1529,9 +1566,9 @@ HValue* CodeStubGraphBuilder<FastNewClosureStub>::BuildCodeStub() {
   // Compute the function map in the current native context and set that
   // as the map of the allocated object.
   HInstruction* native_context = BuildGetNativeContext();
-  HInstruction* map_slot_value = Add<HLoadNamedField>(
-      native_context, static_cast<HValue*>(NULL),
-      HObjectAccess::ForContextSlot(map_index));
+  HInstruction* map_slot_value =
+      Add<HLoadNamedField>(native_context, static_cast<HValue*>(NULL),
+                           HObjectAccess::ForContextSlot(map_index));
   Add<HStoreNamedField>(js_function, HObjectAccess::ForMap(), map_slot_value);
 
   // Initialize the rest of the function.
@@ -1543,9 +1580,8 @@ HValue* CodeStubGraphBuilder<FastNewClosureStub>::BuildCodeStub() {
                         empty_fixed_array);
   Add<HStoreNamedField>(js_function, HObjectAccess::ForPrototypeOrInitialMap(),
                         graph()->GetConstantHole());
-  Add<HStoreNamedField>(js_function,
-                        HObjectAccess::ForSharedFunctionInfoPointer(),
-                        shared_info);
+  Add<HStoreNamedField>(
+      js_function, HObjectAccess::ForSharedFunctionInfoPointer(), shared_info);
   Add<HStoreNamedField>(js_function, HObjectAccess::ForFunctionContextPointer(),
                         context());
 

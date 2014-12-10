@@ -118,6 +118,9 @@ base::Thread::LocalStorageKey Isolate::per_isolate_thread_data_key_;
 base::LazyMutex Isolate::thread_data_table_mutex_ = LAZY_MUTEX_INITIALIZER;
 Isolate::ThreadDataTable* Isolate::thread_data_table_ = NULL;
 base::Atomic32 Isolate::isolate_counter_ = 0;
+#if DEBUG
+base::Atomic32 Isolate::isolate_key_created_ = 0;
+#endif
 
 Isolate::PerIsolateThreadData*
     Isolate::FindOrAllocatePerThreadDataForThisThread() {
@@ -157,6 +160,9 @@ void Isolate::InitializeOncePerProcess() {
   base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
   CHECK(thread_data_table_ == NULL);
   isolate_key_ = base::Thread::CreateThreadLocalKey();
+#if DEBUG
+  base::NoBarrier_Store(&isolate_key_created_, 1);
+#endif
   thread_id_key_ = base::Thread::CreateThreadLocalKey();
   per_isolate_thread_data_key_ = base::Thread::CreateThreadLocalKey();
   thread_data_table_ = new Isolate::ThreadDataTable();
@@ -1485,11 +1491,6 @@ Handle<Context> Isolate::native_context() {
 }
 
 
-Handle<Context> Isolate::global_context() {
-  return handle(context()->global_object()->global_context());
-}
-
-
 Handle<Context> Isolate::GetCallingNativeContext() {
   JavaScriptFrameIterator it(this);
   if (debug_->in_debug_scope()) {
@@ -1650,6 +1651,9 @@ Isolate::Isolate(bool enable_serializer)
       optimizing_compiler_thread_(NULL),
       stress_deopt_count_(0),
       next_optimization_id_(0),
+#if TRACE_MAPS
+      next_unique_sfi_id_(0),
+#endif
       use_counter_callback_(NULL),
       basic_block_profiler_(NULL) {
   {
@@ -1745,11 +1749,7 @@ void Isolate::Deinit() {
     heap_.mark_compact_collector()->EnsureSweepingCompleted();
   }
 
-  if (turbo_statistics() != NULL) {
-    OFStream os(stdout);
-    os << *turbo_statistics() << std::endl;
-  }
-  if (FLAG_hydrogen_stats) GetHStatistics()->Print();
+  DumpAndResetCompilationStats();
 
   if (FLAG_print_deopt_stress) {
     PrintF(stdout, "=== Stress deopt counter: %u\n", stress_deopt_count_);
@@ -2251,6 +2251,19 @@ void Isolate::UnlinkDeferredHandles(DeferredHandles* deferred) {
 }
 
 
+void Isolate::DumpAndResetCompilationStats() {
+  if (turbo_statistics() != nullptr) {
+    OFStream os(stdout);
+    os << *turbo_statistics() << std::endl;
+  }
+  if (hstatistics() != nullptr) hstatistics()->Print();
+  delete turbo_statistics_;
+  turbo_statistics_ = nullptr;
+  delete hstatistics_;
+  hstatistics_ = nullptr;
+}
+
+
 HStatistics* Isolate::GetHStatistics() {
   if (hstatistics() == NULL) set_hstatistics(new HStatistics());
   return hstatistics();
@@ -2350,13 +2363,13 @@ Handle<JSObject> Isolate::GetSymbolRegistry() {
     Handle<JSObject> registry = factory()->NewJSObjectFromMap(map);
     heap()->set_symbol_registry(*registry);
 
-    static const char* nested[] = {
-      "for", "for_api", "for_intern", "keyFor", "private_api", "private_intern"
-    };
+    static const char* nested[] = {"for", "for_api", "keyFor", "private_api",
+                                   "private_intern"};
     for (unsigned i = 0; i < arraysize(nested); ++i) {
       Handle<String> name = factory()->InternalizeUtf8String(nested[i]);
       Handle<JSObject> obj = factory()->NewJSObjectFromMap(map);
-      JSObject::NormalizeProperties(obj, KEEP_INOBJECT_PROPERTIES, 8);
+      JSObject::NormalizeProperties(obj, KEEP_INOBJECT_PROPERTIES, 8,
+                                    "SetupSymbolRegistry");
       JSObject::SetProperty(registry, name, obj, STRICT).Assert();
     }
   }

@@ -18,6 +18,7 @@ BasicBlock::BasicBlock(Zone* zone, Id id)
       deferred_(false),
       dominator_depth_(-1),
       dominator_(NULL),
+      rpo_next_(NULL),
       loop_header_(NULL),
       loop_end_(NULL),
       loop_depth_(0),
@@ -59,16 +60,6 @@ void BasicBlock::set_control(Control control) {
 
 void BasicBlock::set_control_input(Node* control_input) {
   control_input_ = control_input;
-}
-
-
-void BasicBlock::set_dominator_depth(int32_t dominator_depth) {
-  dominator_depth_ = dominator_depth;
-}
-
-
-void BasicBlock::set_dominator(BasicBlock* dominator) {
-  dominator_ = dominator;
 }
 
 

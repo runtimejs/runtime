@@ -2858,6 +2858,7 @@ void LCodeGen::DoReturn(LReturn* instr) {
       __ Addu(sp, sp, Operand(sp_delta));
     }
   } else {
+    DCHECK(info()->IsStub());  // Functions would need to drop one more value.
     Register reg = ToRegister(instr->parameter_count());
     // The argument count parameter is a smi
     __ SmiUntag(reg);
@@ -3836,7 +3837,7 @@ void LCodeGen::DoMathPowHalf(LMathPowHalf* instr) {
   // Math.pow(-Infinity, 0.5) == Infinity
   // Math.sqrt(-Infinity) == NaN
   Label done;
-  __ Move(temp, -V8_INFINITY);
+  __ Move(temp, static_cast<double>(-V8_INFINITY));
   __ BranchF(USE_DELAY_SLOT, &done, NULL, eq, temp, input);
   // Set up Infinity in the delay slot.
   // result is overwritten if the branch is not taken.

@@ -8,7 +8,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/codegen.h"
 #include "src/compiler/diamond.h"
-#include "src/compiler/generic-node-inl.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-matchers.h"
@@ -120,85 +119,10 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
   switch (node->opcode()) {
     case IrOpcode::kProjection:
       return ReduceProjection(OpParameter<size_t>(node), node->InputAt(0));
-    case IrOpcode::kWord32And: {
-      Int32BinopMatcher m(node);
-      if (m.right().Is(0)) return Replace(m.right().node());  // x & 0  => 0
-      if (m.right().Is(-1)) return Replace(m.left().node());  // x & -1 => x
-      if (m.IsFoldable()) {                                   // K & K  => K
-        return ReplaceInt32(m.left().Value() & m.right().Value());
-      }
-      if (m.LeftEqualsRight()) return Replace(m.left().node());  // x & x => x
-      if (m.left().IsWord32And() && m.right().HasValue()) {
-        Int32BinopMatcher mleft(m.left().node());
-        if (mleft.right().HasValue()) {  // (x & K) & K => x & K
-          node->ReplaceInput(0, mleft.left().node());
-          node->ReplaceInput(
-              1, Int32Constant(m.right().Value() & mleft.right().Value()));
-          return Changed(node);
-        }
-      }
-      break;
-    }
-    case IrOpcode::kWord32Or: {
-      Int32BinopMatcher m(node);
-      if (m.right().Is(0)) return Replace(m.left().node());    // x | 0  => x
-      if (m.right().Is(-1)) return Replace(m.right().node());  // x | -1 => -1
-      if (m.IsFoldable()) {                                    // K | K  => K
-        return ReplaceInt32(m.left().Value() | m.right().Value());
-      }
-      if (m.LeftEqualsRight()) return Replace(m.left().node());  // x | x => x
-      if (m.left().IsWord32Shl() && m.right().IsWord32Shr()) {
-        Int32BinopMatcher mleft(m.left().node());
-        Int32BinopMatcher mright(m.right().node());
-        if (mleft.left().node() == mright.left().node()) {
-          // (x << y) | (x >> (32 - y)) => x ror y
-          if (mright.right().IsInt32Sub()) {
-            Int32BinopMatcher mrightright(mright.right().node());
-            if (mrightright.left().Is(32) &&
-                mrightright.right().node() == mleft.right().node()) {
-              node->set_op(machine()->Word32Ror());
-              node->ReplaceInput(0, mleft.left().node());
-              node->ReplaceInput(1, mleft.right().node());
-              return Changed(node);
-            }
-          }
-          // (x << K) | (x >> (32 - K)) => x ror K
-          if (mleft.right().IsInRange(0, 31) &&
-              mright.right().Is(32 - mleft.right().Value())) {
-            node->set_op(machine()->Word32Ror());
-            node->ReplaceInput(0, mleft.left().node());
-            node->ReplaceInput(1, mleft.right().node());
-            return Changed(node);
-          }
-        }
-      }
-      if (m.left().IsWord32Shr() && m.right().IsWord32Shl()) {
-        // (x >> (32 - y)) | (x << y)  => x ror y
-        Int32BinopMatcher mleft(m.left().node());
-        Int32BinopMatcher mright(m.right().node());
-        if (mleft.left().node() == mright.left().node()) {
-          if (mleft.right().IsInt32Sub()) {
-            Int32BinopMatcher mleftright(mleft.right().node());
-            if (mleftright.left().Is(32) &&
-                mleftright.right().node() == mright.right().node()) {
-              node->set_op(machine()->Word32Ror());
-              node->ReplaceInput(0, mright.left().node());
-              node->ReplaceInput(1, mright.right().node());
-              return Changed(node);
-            }
-          }
-          // (x >> (32 - K)) | (x << K) => x ror K
-          if (mright.right().IsInRange(0, 31) &&
-              mleft.right().Is(32 - mright.right().Value())) {
-            node->set_op(machine()->Word32Ror());
-            node->ReplaceInput(0, mright.left().node());
-            node->ReplaceInput(1, mright.right().node());
-            return Changed(node);
-          }
-        }
-      }
-      break;
-    }
+    case IrOpcode::kWord32And:
+      return ReduceWord32And(node);
+    case IrOpcode::kWord32Or:
+      return ReduceWord32Or(node);
     case IrOpcode::kWord32Xor: {
       Int32BinopMatcher m(node);
       if (m.right().Is(0)) return Replace(m.left().node());  // x ^ 0 => x
@@ -214,35 +138,15 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       }
       break;
     }
-    case IrOpcode::kWord32Shl: {
-      Int32BinopMatcher m(node);
-      if (m.right().Is(0)) return Replace(m.left().node());  // x << 0 => x
-      if (m.IsFoldable()) {                                  // K << K => K
-        return ReplaceInt32(m.left().Value() << m.right().Value());
-      }
-      if (m.right().IsInRange(1, 31)) {
-        // (x >>> K) << K => x & ~(2^K - 1)
-        // (x >> K) << K => x & ~(2^K - 1)
-        if (m.left().IsWord32Sar() || m.left().IsWord32Shr()) {
-          Int32BinopMatcher mleft(m.left().node());
-          if (mleft.right().Is(m.right().Value())) {
-            node->set_op(machine()->Word32And());
-            node->ReplaceInput(0, mleft.left().node());
-            node->ReplaceInput(
-                1, Uint32Constant(~((1U << m.right().Value()) - 1U)));
-            return Changed(node);
-          }
-        }
-      }
-      break;
-    }
+    case IrOpcode::kWord32Shl:
+      return ReduceWord32Shl(node);
     case IrOpcode::kWord32Shr: {
       Uint32BinopMatcher m(node);
       if (m.right().Is(0)) return Replace(m.left().node());  // x >>> 0 => x
       if (m.IsFoldable()) {                                  // K >>> K => K
         return ReplaceInt32(m.left().Value() >> m.right().Value());
       }
-      break;
+      return ReduceWord32Shifts(node);
     }
     case IrOpcode::kWord32Sar: {
       Int32BinopMatcher m(node);
@@ -250,7 +154,22 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       if (m.IsFoldable()) {                                  // K >> K => K
         return ReplaceInt32(m.left().Value() >> m.right().Value());
       }
-      break;
+      if (m.left().IsWord32Shl()) {
+        Int32BinopMatcher mleft(m.left().node());
+        if (mleft.left().IsLoad()) {
+          LoadRepresentation const rep =
+              OpParameter<LoadRepresentation>(mleft.left().node());
+          if (m.right().Is(24) && mleft.right().Is(24) && rep == kMachInt8) {
+            // Load[kMachInt8] << 24 >> 24 => Load[kMachInt8]
+            return Replace(mleft.left().node());
+          }
+          if (m.right().Is(16) && mleft.right().Is(16) && rep == kMachInt16) {
+            // Load[kMachInt16] << 16 >> 16 => Load[kMachInt8]
+            return Replace(mleft.left().node());
+          }
+        }
+      }
+      return ReduceWord32Shifts(node);
     }
     case IrOpcode::kWord32Ror: {
       Int32BinopMatcher m(node);
@@ -326,7 +245,8 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       if (m.right().IsPowerOf2()) {  // x * 2^n => x << n
         node->set_op(machine()->Word32Shl());
         node->ReplaceInput(1, Int32Constant(WhichPowerOf2(m.right().Value())));
-        return Changed(node);
+        Reduction reduction = ReduceWord32Shl(node);
+        return reduction.Changed() ? reduction : Changed(node);
       }
       break;
     }
@@ -787,6 +707,168 @@ Reduction MachineOperatorReducer::ReduceProjection(size_t index, Node* node) {
       break;
   }
   return NoChange();
+}
+
+
+Reduction MachineOperatorReducer::ReduceWord32Shifts(Node* node) {
+  DCHECK((node->opcode() == IrOpcode::kWord32Shl) ||
+         (node->opcode() == IrOpcode::kWord32Shr) ||
+         (node->opcode() == IrOpcode::kWord32Sar));
+  if (machine()->Word32ShiftIsSafe()) {
+    // Remove the explicit 'and' with 0x1f if the shift provided by the machine
+    // instruction matches that required by JavaScript.
+    Int32BinopMatcher m(node);
+    if (m.right().IsWord32And()) {
+      Int32BinopMatcher mright(m.right().node());
+      if (mright.right().Is(0x1f)) {
+        node->ReplaceInput(1, mright.left().node());
+        return Changed(node);
+      }
+    }
+  }
+  return NoChange();
+}
+
+
+Reduction MachineOperatorReducer::ReduceWord32Shl(Node* node) {
+  DCHECK_EQ(IrOpcode::kWord32Shl, node->opcode());
+  Int32BinopMatcher m(node);
+  if (m.right().Is(0)) return Replace(m.left().node());  // x << 0 => x
+  if (m.IsFoldable()) {                                  // K << K => K
+    return ReplaceInt32(m.left().Value() << m.right().Value());
+  }
+  if (m.right().IsInRange(1, 31)) {
+    // (x >>> K) << K => x & ~(2^K - 1)
+    // (x >> K) << K => x & ~(2^K - 1)
+    if (m.left().IsWord32Sar() || m.left().IsWord32Shr()) {
+      Int32BinopMatcher mleft(m.left().node());
+      if (mleft.right().Is(m.right().Value())) {
+        node->set_op(machine()->Word32And());
+        node->ReplaceInput(0, mleft.left().node());
+        node->ReplaceInput(1,
+                           Uint32Constant(~((1U << m.right().Value()) - 1U)));
+        Reduction reduction = ReduceWord32And(node);
+        return reduction.Changed() ? reduction : Changed(node);
+      }
+    }
+  }
+  return ReduceWord32Shifts(node);
+}
+
+
+Reduction MachineOperatorReducer::ReduceWord32And(Node* node) {
+  DCHECK_EQ(IrOpcode::kWord32And, node->opcode());
+  Int32BinopMatcher m(node);
+  if (m.right().Is(0)) return Replace(m.right().node());  // x & 0  => 0
+  if (m.right().Is(-1)) return Replace(m.left().node());  // x & -1 => x
+  if (m.IsFoldable()) {                                   // K & K  => K
+    return ReplaceInt32(m.left().Value() & m.right().Value());
+  }
+  if (m.LeftEqualsRight()) return Replace(m.left().node());  // x & x => x
+  if (m.left().IsWord32And() && m.right().HasValue()) {
+    Int32BinopMatcher mleft(m.left().node());
+    if (mleft.right().HasValue()) {  // (x & K) & K => x & K
+      node->ReplaceInput(0, mleft.left().node());
+      node->ReplaceInput(
+          1, Int32Constant(m.right().Value() & mleft.right().Value()));
+      Reduction reduction = ReduceWord32And(node);
+      return reduction.Changed() ? reduction : Changed(node);
+    }
+  }
+  if (m.left().IsInt32Add() && m.right().IsNegativePowerOf2()) {
+    Int32BinopMatcher mleft(m.left().node());
+    if (mleft.right().HasValue() &&
+        (mleft.right().Value() & m.right().Value()) == mleft.right().Value()) {
+      // (x + (K << L)) & (-1 << L) => (x & (-1 << L)) + (K << L)
+      return Replace(graph()->NewNode(
+          machine()->Int32Add(),
+          graph()->NewNode(machine()->Word32And(), mleft.left().node(),
+                           m.right().node()),
+          mleft.right().node()));
+    }
+    if (mleft.left().IsWord32Shl()) {
+      Int32BinopMatcher mleftleft(mleft.left().node());
+      if (mleftleft.right().Is(
+              base::bits::CountTrailingZeros32(m.right().Value()))) {
+        // (y << L + x) & (-1 << L) => (x & (-1 << L)) + y << L
+        return Replace(graph()->NewNode(
+            machine()->Int32Add(),
+            graph()->NewNode(machine()->Word32And(), mleft.right().node(),
+                             m.right().node()),
+            mleftleft.node()));
+      }
+    }
+    if (mleft.right().IsWord32Shl()) {
+      Int32BinopMatcher mleftright(mleft.right().node());
+      if (mleftright.right().Is(
+              base::bits::CountTrailingZeros32(m.right().Value()))) {
+        // (x + y << L) & (-1 << L) => (x & (-1 << L)) + y << L
+        return Replace(graph()->NewNode(
+            machine()->Int32Add(),
+            graph()->NewNode(machine()->Word32And(), mleft.left().node(),
+                             m.right().node()),
+            mleftright.node()));
+      }
+    }
+  }
+  return NoChange();
+}
+
+
+Reduction MachineOperatorReducer::ReduceWord32Or(Node* node) {
+  DCHECK_EQ(IrOpcode::kWord32Or, node->opcode());
+  Int32BinopMatcher m(node);
+  if (m.right().Is(0)) return Replace(m.left().node());    // x | 0  => x
+  if (m.right().Is(-1)) return Replace(m.right().node());  // x | -1 => -1
+  if (m.IsFoldable()) {                                    // K | K  => K
+    return ReplaceInt32(m.left().Value() | m.right().Value());
+  }
+  if (m.LeftEqualsRight()) return Replace(m.left().node());  // x | x => x
+
+  Node* shl = NULL;
+  Node* shr = NULL;
+  // Recognize rotation, we are matching either:
+  //  * x << y | x >>> (32 - y) => x ror (32 - y), i.e  x rol y
+  //  * x << (32 - y) | x >>> y => x ror y
+  // as well as their commuted form.
+  if (m.left().IsWord32Shl() && m.right().IsWord32Shr()) {
+    shl = m.left().node();
+    shr = m.right().node();
+  } else if (m.left().IsWord32Shr() && m.right().IsWord32Shl()) {
+    shl = m.right().node();
+    shr = m.left().node();
+  } else {
+    return NoChange();
+  }
+
+  Int32BinopMatcher mshl(shl);
+  Int32BinopMatcher mshr(shr);
+  if (mshl.left().node() != mshr.left().node()) return NoChange();
+
+  if (mshl.right().HasValue() && mshr.right().HasValue()) {
+    // Case where y is a constant.
+    if (mshl.right().Value() + mshr.right().Value() != 32) return NoChange();
+  } else {
+    Node* sub = NULL;
+    Node* y = NULL;
+    if (mshl.right().IsInt32Sub()) {
+      sub = mshl.right().node();
+      y = mshr.right().node();
+    } else if (mshr.right().IsInt32Sub()) {
+      sub = mshr.right().node();
+      y = mshl.right().node();
+    } else {
+      return NoChange();
+    }
+
+    Int32BinopMatcher msub(sub);
+    if (!msub.left().Is(32) || msub.right().node() != y) return NoChange();
+  }
+
+  node->set_op(machine()->Word32Ror());
+  node->ReplaceInput(0, mshl.left().node());
+  node->ReplaceInput(1, mshr.right().node());
+  return Changed(node);
 }
 
 

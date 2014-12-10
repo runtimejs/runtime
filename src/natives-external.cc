@@ -23,20 +23,26 @@ namespace internal {
  */
 class NativesStore {
  public:
-  ~NativesStore() {}
+  ~NativesStore() {
+    for (int i = 0; i < native_names_.length(); i++) {
+      native_names_[i].Dispose();
+    }
+  }
 
-  int GetBuiltinsCount() { return native_names_.length(); }
+  int GetBuiltinsCount() { return native_ids_.length(); }
   int GetDebuggerCount() { return debugger_count_; }
-  Vector<const char> GetScriptName(int index) { return native_names_[index]; }
-  Vector<const char> GetRawScriptSource(int index) {
+
+  Vector<const char> GetScriptSource(int index) {
     return native_source_[index];
   }
 
-  int GetIndex(const char* name) {
-    for (int i = 0; i < native_names_.length(); ++i) {
-      int native_name_length = native_names_[i].length();
-      if ((static_cast<int>(strlen(name)) == native_name_length) &&
-          (strncmp(name, native_names_[i].start(), native_name_length) == 0)) {
+  Vector<const char> GetScriptName(int index) { return native_names_[index]; }
+
+  int GetIndex(const char* id) {
+    for (int i = 0; i < native_ids_.length(); ++i) {
+      int native_id_length = native_ids_[i].length();
+      if ((static_cast<int>(strlen(id)) == native_id_length) &&
+          (strncmp(id, native_ids_[i].start(), native_id_length) == 0)) {
         return i;
       }
     }
@@ -44,14 +50,9 @@ class NativesStore {
     return -1;
   }
 
-  int GetRawScriptsSize() {
-    DCHECK(false);  // Used for compression. Doesn't really make sense here.
-    return 0;
-  }
-
-  Vector<const byte> GetScriptsSource() {
-    DCHECK(false);  // Used for compression. Doesn't really make sense here.
-    return Vector<const byte>();
+  Vector<const char> GetScriptsSource() {
+    DCHECK(false);  // Not implemented.
+    return Vector<const char>();
   }
 
   static NativesStore* MakeFromScriptsSource(SnapshotByteSource* source) {
@@ -75,24 +76,35 @@ class NativesStore {
  private:
   NativesStore() : debugger_count_(0) {}
 
+  Vector<const char> NameFromId(const byte* id, int id_length) {
+    Vector<char> name(Vector<char>::New(id_length + 11));
+    SimpleStringBuilder builder(name.start(), name.length());
+    builder.AddString("native ");
+    builder.AddSubstring(reinterpret_cast<const char*>(id), id_length);
+    builder.AddString(".js");
+    return Vector<const char>::cast(name);
+  }
+
   bool ReadNameAndContentPair(SnapshotByteSource* bytes) {
-    const byte* name;
-    int name_length;
+    const byte* id;
+    int id_length;
     const byte* source;
     int source_length;
-    bool success = bytes->GetBlob(&name, &name_length) &&
+    bool success = bytes->GetBlob(&id, &id_length) &&
                    bytes->GetBlob(&source, &source_length);
     if (success) {
-      Vector<const char> name_vector(
-          reinterpret_cast<const char*>(name), name_length);
+      Vector<const char> id_vector(reinterpret_cast<const char*>(id),
+                                   id_length);
       Vector<const char> source_vector(
           reinterpret_cast<const char*>(source), source_length);
-      native_names_.Add(name_vector);
+      native_ids_.Add(id_vector);
       native_source_.Add(source_vector);
+      native_names_.Add(NameFromId(id, id_length));
     }
     return success;
   }
 
+  List<Vector<const char> > native_ids_;
   List<Vector<const char> > native_names_;
   List<Vector<const char> > native_source_;
   int debugger_count_;
@@ -130,9 +142,8 @@ void SetNativesFromFile(StartupData* natives_blob) {
   DCHECK(natives_blob->data);
   DCHECK(natives_blob->raw_size > 0);
 
-  SnapshotByteSource bytes(
-      reinterpret_cast<const byte*>(natives_blob->data),
-      natives_blob->raw_size);
+  SnapshotByteSource bytes(reinterpret_cast<const byte*>(natives_blob->data),
+                           natives_blob->raw_size);
   NativesHolder<CORE>::set(NativesStore::MakeFromScriptsSource(&bytes));
   NativesHolder<EXPERIMENTAL>::set(NativesStore::MakeFromScriptsSource(&bytes));
   DCHECK(!bytes.HasMore());
@@ -160,14 +171,9 @@ int NativesCollection<type>::GetIndex(const char* name) {
   return NativesHolder<type>::get()->GetIndex(name);
 }
 
-template<NativeType type>
-int NativesCollection<type>::GetRawScriptsSize() {
-  return NativesHolder<type>::get()->GetRawScriptsSize();
-}
-
-template<NativeType type>
-Vector<const char> NativesCollection<type>::GetRawScriptSource(int index) {
-  return NativesHolder<type>::get()->GetRawScriptSource(index);
+template <NativeType type>
+Vector<const char> NativesCollection<type>::GetScriptSource(int index) {
+  return NativesHolder<type>::get()->GetScriptSource(index);
 }
 
 template<NativeType type>
@@ -175,15 +181,9 @@ Vector<const char> NativesCollection<type>::GetScriptName(int index) {
   return NativesHolder<type>::get()->GetScriptName(index);
 }
 
-template<NativeType type>
-Vector<const byte> NativesCollection<type>::GetScriptsSource() {
+template <NativeType type>
+Vector<const char> NativesCollection<type>::GetScriptsSource() {
   return NativesHolder<type>::get()->GetScriptsSource();
-}
-
-template<NativeType type>
-void NativesCollection<type>::SetRawScriptsSource(
-    Vector<const char> raw_source) {
-  CHECK(false);  // Use SetNativesFromFile for this implementation.
 }
 
 
@@ -191,8 +191,6 @@ void NativesCollection<type>::SetRawScriptsSource(
 // my chose to elide them. This we'll explicitly instantiate these.
 template class NativesCollection<CORE>;
 template class NativesCollection<EXPERIMENTAL>;
-template class NativesCollection<D8>;
-template class NativesCollection<TEST>;
 
 }  // namespace v8::internal
 }  // namespace v8

@@ -693,18 +693,28 @@ Handle<Context> Factory::NewNativeContext() {
 }
 
 
-Handle<Context> Factory::NewGlobalContext(Handle<JSFunction> function,
+Handle<Context> Factory::NewScriptContext(Handle<JSFunction> function,
                                           Handle<ScopeInfo> scope_info) {
   Handle<FixedArray> array =
       NewFixedArray(scope_info->ContextLength(), TENURED);
-  array->set_map_no_write_barrier(*global_context_map());
+  array->set_map_no_write_barrier(*script_context_map());
   Handle<Context> context = Handle<Context>::cast(array);
   context->set_closure(*function);
   context->set_previous(function->context());
   context->set_extension(*scope_info);
   context->set_global_object(function->context()->global_object());
-  DCHECK(context->IsGlobalContext());
+  DCHECK(context->IsScriptContext());
   return context;
+}
+
+
+Handle<ScriptContextTable> Factory::NewScriptContextTable() {
+  Handle<FixedArray> array = NewFixedArray(1);
+  array->set_map_no_write_barrier(*script_context_table_map());
+  Handle<ScriptContextTable> context_table =
+      Handle<ScriptContextTable>::cast(array);
+  context_table->set_used(0);
+  return context_table;
 }
 
 
@@ -792,6 +802,7 @@ Handle<CodeCache> Factory::NewCodeCache() {
       Handle<CodeCache>::cast(NewStruct(CODE_CACHE_TYPE));
   code_cache->set_default_cache(*empty_fixed_array(), SKIP_WRITE_BARRIER);
   code_cache->set_normal_type_cache(*undefined_value(), SKIP_WRITE_BARRIER);
+  code_cache->set_weak_cell_cache(*undefined_value(), SKIP_WRITE_BARRIER);
   return code_cache;
 }
 
@@ -1298,12 +1309,11 @@ Handle<JSFunction> Factory::NewFunction(Handle<String> name,
 }
 
 
-Handle<JSFunction> Factory::NewFunction(Handle<String> name,
-                                        Handle<Code> code,
+Handle<JSFunction> Factory::NewFunction(Handle<String> name, Handle<Code> code,
                                         Handle<Object> prototype,
-                                        InstanceType type,
-                                        int instance_size,
-                                        bool read_only_prototype) {
+                                        InstanceType type, int instance_size,
+                                        bool read_only_prototype,
+                                        bool install_constructor) {
   // Allocate the function
   Handle<JSFunction> function = NewFunction(
       name, code, prototype, read_only_prototype);
@@ -1311,8 +1321,13 @@ Handle<JSFunction> Factory::NewFunction(Handle<String> name,
   ElementsKind elements_kind =
       type == JS_ARRAY_TYPE ? FAST_SMI_ELEMENTS : FAST_HOLEY_SMI_ELEMENTS;
   Handle<Map> initial_map = NewMap(type, instance_size, elements_kind);
-  if (prototype->IsTheHole() && !function->shared()->is_generator()) {
-    prototype = NewFunctionPrototype(function);
+  if (!function->shared()->is_generator()) {
+    if (prototype->IsTheHole()) {
+      prototype = NewFunctionPrototype(function);
+    } else if (install_constructor) {
+      JSObject::AddProperty(Handle<JSObject>::cast(prototype),
+                            constructor_string(), function, DONT_ENUM);
+    }
   }
 
   JSFunction::SetInitialMap(function, initial_map,
@@ -1358,6 +1373,14 @@ Handle<JSObject> Factory::NewFunctionPrototype(Handle<JSFunction> function) {
 }
 
 
+static bool ShouldOptimizeNewClosure(Isolate* isolate,
+                                     Handle<SharedFunctionInfo> info) {
+  return isolate->use_crankshaft() && !info->is_toplevel() &&
+         info->is_compiled() && info->allows_lazy_compilation() &&
+         !info->optimization_disabled() && !isolate->DebuggerHasBreakPoints();
+}
+
+
 Handle<JSFunction> Factory::NewFunctionFromSharedFunctionInfo(
     Handle<SharedFunctionInfo> info,
     Handle<Context> context,
@@ -1395,13 +1418,7 @@ Handle<JSFunction> Factory::NewFunctionFromSharedFunctionInfo(
     return result;
   }
 
-  if (isolate()->use_crankshaft() &&
-      FLAG_always_opt &&
-      result->is_compiled() &&
-      !info->is_toplevel() &&
-      info->allows_lazy_compilation() &&
-      !info->optimization_disabled() &&
-      !isolate()->DebuggerHasBreakPoints()) {
+  if (FLAG_always_opt && ShouldOptimizeNewClosure(isolate(), info)) {
     result->MarkForOptimization();
   }
   return result;
@@ -1998,9 +2015,9 @@ void Factory::BecomeJSFunction(Handle<JSProxy> proxy) {
 }
 
 
-Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(int slot_count,
-                                                          int ic_slot_count) {
-  return TypeFeedbackVector::Allocate(isolate(), slot_count, ic_slot_count);
+Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(
+    const FeedbackVectorSpec& spec) {
+  return TypeFeedbackVector::Allocate(isolate(), spec);
 }
 
 
@@ -2075,8 +2092,13 @@ Handle<SharedFunctionInfo> Factory::NewSharedFunctionInfo(
   share->set_script(*undefined_value(), SKIP_WRITE_BARRIER);
   share->set_debug_info(*undefined_value(), SKIP_WRITE_BARRIER);
   share->set_inferred_name(*empty_string(), SKIP_WRITE_BARRIER);
-  Handle<TypeFeedbackVector> feedback_vector = NewTypeFeedbackVector(0, 0);
+  FeedbackVectorSpec empty_spec;
+  Handle<TypeFeedbackVector> feedback_vector =
+      NewTypeFeedbackVector(empty_spec);
   share->set_feedback_vector(*feedback_vector, SKIP_WRITE_BARRIER);
+#if TRACE_MAPS
+  share->set_unique_id(isolate()->GetNextUniqueSharedFunctionInfoId());
+#endif
   share->set_profiler_ticks(0);
   share->set_ast_node_count(0);
   share->set_counters(0);
@@ -2265,8 +2287,8 @@ Handle<JSFunction> Factory::CreateApiFunction(
         break;
     }
 
-    result = NewFunction(empty_string(), code, prototype, type,
-                         instance_size, obj->read_only_prototype());
+    result = NewFunction(empty_string(), code, prototype, type, instance_size,
+                         obj->read_only_prototype(), true);
   }
 
   result->shared()->set_length(obj->length());
@@ -2286,19 +2308,13 @@ Handle<JSFunction> Factory::CreateApiFunction(
     return result;
   }
 
-  if (prototype->IsTheHole()) {
 #ifdef DEBUG
-    LookupIterator it(handle(JSObject::cast(result->prototype())),
-                      constructor_string(),
-                      LookupIterator::OWN_SKIP_INTERCEPTOR);
-    MaybeHandle<Object> maybe_prop = Object::GetProperty(&it);
-    DCHECK(it.IsFound());
-    DCHECK(maybe_prop.ToHandleChecked().is_identical_to(result));
+  LookupIterator it(handle(JSObject::cast(result->prototype())),
+                    constructor_string(), LookupIterator::OWN_SKIP_INTERCEPTOR);
+  MaybeHandle<Object> maybe_prop = Object::GetProperty(&it);
+  DCHECK(it.IsFound());
+  DCHECK(maybe_prop.ToHandleChecked().is_identical_to(result));
 #endif
-  } else {
-    JSObject::AddProperty(handle(JSObject::cast(result->prototype())),
-                          constructor_string(), result, DONT_ENUM);
-  }
 
   // Down from here is only valid for API functions that can be used as a
   // constructor (don't set the "remove prototype" flag).
@@ -2407,35 +2423,42 @@ Handle<JSFunction> Factory::CreateApiFunction(
 }
 
 
-Handle<MapCache> Factory::AddToMapCache(Handle<Context> context,
-                                        Handle<FixedArray> keys,
-                                        Handle<Map> map) {
-  Handle<MapCache> map_cache = handle(MapCache::cast(context->map_cache()));
-  Handle<MapCache> result = MapCache::Put(map_cache, keys, map);
-  context->set_map_cache(*result);
-  return result;
-}
-
-
 Handle<Map> Factory::ObjectLiteralMapFromCache(Handle<Context> context,
-                                               Handle<FixedArray> keys) {
+                                               int number_of_properties,
+                                               bool* is_result_from_cache) {
+  const int kMapCacheSize = 128;
+
+  if (number_of_properties > kMapCacheSize) {
+    *is_result_from_cache = false;
+    return Map::Create(isolate(), number_of_properties);
+  }
+  *is_result_from_cache = true;
+  if (number_of_properties == 0) {
+    // Reuse the initial map of the Object function if the literal has no
+    // predeclared properties.
+    return handle(context->object_function()->initial_map(), isolate());
+  }
+  int cache_index = number_of_properties - 1;
   if (context->map_cache()->IsUndefined()) {
     // Allocate the new map cache for the native context.
-    Handle<MapCache> new_cache = MapCache::New(isolate(), 24);
+    Handle<FixedArray> new_cache = NewFixedArray(kMapCacheSize, TENURED);
     context->set_map_cache(*new_cache);
   }
   // Check to see whether there is a matching element in the cache.
-  Handle<MapCache> cache =
-      Handle<MapCache>(MapCache::cast(context->map_cache()));
-  Handle<Object> result = Handle<Object>(cache->Lookup(*keys), isolate());
-  if (result->IsMap()) return Handle<Map>::cast(result);
-  int length = keys->length();
-  // Create a new map and add it to the cache. Reuse the initial map of the
-  // Object function if the literal has no predeclared properties.
-  Handle<Map> map = length == 0
-                        ? handle(context->object_function()->initial_map())
-                        : Map::Create(isolate(), length);
-  AddToMapCache(context, keys, map);
+  Handle<FixedArray> cache(FixedArray::cast(context->map_cache()));
+  {
+    Object* result = cache->get(cache_index);
+    if (result->IsWeakCell()) {
+      WeakCell* cell = WeakCell::cast(result);
+      if (!cell->cleared()) {
+        return handle(Map::cast(cell->value()), isolate());
+      }
+    }
+  }
+  // Create a new map and add it to the cache.
+  Handle<Map> map = Map::Create(isolate(), number_of_properties);
+  Handle<WeakCell> cell = NewWeakCell(map);
+  cache->set(cache_index, *cell);
   return map;
 }
 
@@ -2453,6 +2476,7 @@ void Factory::SetRegExpAtomData(Handle<JSRegExp> regexp,
   store->set(JSRegExp::kAtomPatternIndex, *data);
   regexp->set_data(*store);
 }
+
 
 void Factory::SetRegExpIrregexpData(Handle<JSRegExp> regexp,
                                     JSRegExp::Type type,
@@ -2473,7 +2497,6 @@ void Factory::SetRegExpIrregexpData(Handle<JSRegExp> regexp,
              Smi::FromInt(capture_count));
   regexp->set_data(*store);
 }
-
 
 
 MaybeHandle<FunctionTemplateInfo> Factory::ConfigureInstance(

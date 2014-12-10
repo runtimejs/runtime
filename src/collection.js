@@ -56,7 +56,7 @@ function SetAddJS(key) {
   if (key === 0) {
     key = 0;
   }
-  return %SetAdd(this, key);
+  return %_SetAdd(this, key);
 }
 
 
@@ -65,7 +65,7 @@ function SetHasJS(key) {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Set.prototype.has', this]);
   }
-  return %SetHas(this, key);
+  return %_SetHas(this, key);
 }
 
 
@@ -74,7 +74,7 @@ function SetDeleteJS(key) {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Set.prototype.delete', this]);
   }
-  return %SetDelete(this, key);
+  return %_SetDelete(this, key);
 }
 
 
@@ -83,7 +83,7 @@ function SetGetSizeJS() {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Set.prototype.size', this]);
   }
-  return %SetGetSize(this);
+  return %_SetGetSize(this);
 }
 
 
@@ -193,7 +193,7 @@ function MapGetJS(key) {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Map.prototype.get', this]);
   }
-  return %MapGet(this, key);
+  return %_MapGet(this, key);
 }
 
 
@@ -209,7 +209,7 @@ function MapSetJS(key, value) {
   if (key === 0) {
     key = 0;
   }
-  return %MapSet(this, key, value);
+  return %_MapSet(this, key, value);
 }
 
 
@@ -218,7 +218,7 @@ function MapHasJS(key) {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Map.prototype.has', this]);
   }
-  return %MapHas(this, key);
+  return %_MapHas(this, key);
 }
 
 
@@ -227,7 +227,7 @@ function MapDeleteJS(key) {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Map.prototype.delete', this]);
   }
-  return %MapDelete(this, key);
+  return %_MapDelete(this, key);
 }
 
 
@@ -236,7 +236,7 @@ function MapGetSizeJS() {
     throw MakeTypeError('incompatible_method_receiver',
                         ['Map.prototype.size', this]);
   }
-  return %MapGetSize(this);
+  return %_MapGetSize(this);
 }
 
 
