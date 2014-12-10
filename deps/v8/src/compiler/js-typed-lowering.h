@@ -19,9 +19,9 @@ namespace compiler {
 class JSTypedLowering FINAL : public Reducer {
  public:
   explicit JSTypedLowering(JSGraph* jsgraph);
-  virtual ~JSTypedLowering();
+  ~JSTypedLowering() {}
 
-  virtual Reduction Reduce(Node* node) OVERRIDE;
+  Reduction Reduce(Node* node) OVERRIDE;
 
   JSGraph* jsgraph() { return jsgraph_; }
   Graph* graph() { return jsgraph_->graph(); }
@@ -31,23 +31,28 @@ class JSTypedLowering FINAL : public Reducer {
   friend class JSBinopReduction;
 
   Reduction ReplaceEagerly(Node* old, Node* node);
-  Reduction ReplaceWith(Node* node) { return Reducer::Replace(node); }
   Reduction ReduceJSAdd(Node* node);
   Reduction ReduceJSBitwiseOr(Node* node);
   Reduction ReduceJSMultiply(Node* node);
   Reduction ReduceJSComparison(Node* node);
   Reduction ReduceJSLoadProperty(Node* node);
   Reduction ReduceJSStoreProperty(Node* node);
+  Reduction ReduceJSLoadContext(Node* node);
+  Reduction ReduceJSStoreContext(Node* node);
   Reduction ReduceJSEqual(Node* node, bool invert);
   Reduction ReduceJSStrictEqual(Node* node, bool invert);
   Reduction ReduceJSToNumberInput(Node* input);
+  Reduction ReduceJSToNumber(Node* node);
   Reduction ReduceJSToStringInput(Node* input);
   Reduction ReduceJSToBooleanInput(Node* input);
+  Reduction ReduceJSToBoolean(Node* node);
   Reduction ReduceNumberBinop(Node* node, const Operator* numberOp);
   Reduction ReduceI32Binop(Node* node, bool left_signed, bool right_signed,
                            const Operator* intOp);
   Reduction ReduceI32Shift(Node* node, bool left_signed,
                            const Operator* shift_op);
+
+  Node* Word32Shl(Node* const lhs, int32_t const rhs);
 
   JSOperatorBuilder* javascript() { return jsgraph_->javascript(); }
   CommonOperatorBuilder* common() { return jsgraph_->common(); }
@@ -58,6 +63,8 @@ class JSTypedLowering FINAL : public Reducer {
   SimplifiedOperatorBuilder simplified_;
   Type* zero_range_;
   Type* one_range_;
+  Type* zero_thirtyone_range_;
+  Type* shifted_int32_ranges_[4];
 };
 
 }  // namespace compiler

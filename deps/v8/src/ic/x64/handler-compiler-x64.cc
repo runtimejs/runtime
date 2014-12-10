@@ -56,24 +56,16 @@ void PropertyHandlerCompiler::GenerateDictionaryNegativeLookup(
 
 
 void NamedLoadHandlerCompiler::GenerateDirectLoadGlobalFunctionPrototype(
-    MacroAssembler* masm, int index, Register prototype, Label* miss) {
-  Isolate* isolate = masm->isolate();
-  // Get the global function with the given index.
-  Handle<JSFunction> function(
-      JSFunction::cast(isolate->native_context()->get(index)));
-
-  // Check we're still in the same context.
-  Register scratch = prototype;
+    MacroAssembler* masm, int index, Register result, Label* miss) {
   const int offset = Context::SlotOffset(Context::GLOBAL_OBJECT_INDEX);
-  __ movp(scratch, Operand(rsi, offset));
-  __ movp(scratch, FieldOperand(scratch, GlobalObject::kNativeContextOffset));
-  __ Cmp(Operand(scratch, Context::SlotOffset(index)), function);
-  __ j(not_equal, miss);
-
+  __ movp(result, Operand(rsi, offset));
+  __ movp(result, FieldOperand(result, GlobalObject::kNativeContextOffset));
+  __ movp(result, Operand(result, Context::SlotOffset(index)));
   // Load its initial map. The global functions all have initial maps.
-  __ Move(prototype, Handle<Map>(function->initial_map()));
+  __ movp(result,
+          FieldOperand(result, JSFunction::kPrototypeOrInitialMapOffset));
   // Load the prototype from the initial map.
-  __ movp(prototype, FieldOperand(prototype, Map::kPrototypeOffset));
+  __ movp(result, FieldOperand(result, Map::kPrototypeOffset));
 }
 
 
@@ -324,12 +316,24 @@ void NamedStoreHandlerCompiler::GenerateRestoreName(Label* label,
 }
 
 
-void NamedStoreHandlerCompiler::GenerateRestoreNameAndMap(
-    Handle<Name> name, Handle<Map> transition) {
+void NamedStoreHandlerCompiler::GenerateRestoreName(Handle<Name> name) {
   __ Move(this->name(), name);
-  __ Move(StoreTransitionDescriptor::MapRegister(), transition);
 }
 
+
+void NamedStoreHandlerCompiler::GenerateRestoreMap(Handle<Map> transition,
+                                                   Register scratch,
+                                                   Label* miss) {
+  Handle<WeakCell> cell = Map::WeakCellForMap(transition);
+  Register map_reg = StoreTransitionDescriptor::MapRegister();
+  DCHECK(!map_reg.is(scratch));
+  __ LoadWeakValue(map_reg, cell, miss);
+  if (transition->CanBeDeprecated()) {
+    __ movl(scratch, FieldOperand(map_reg, Map::kBitField3Offset));
+    __ andl(scratch, Immediate(Map::Deprecated::kMask));
+    __ j(not_zero, miss);
+  }
+}
 
 void NamedStoreHandlerCompiler::GenerateConstantCheck(Object* constant,
                                                       Register value_reg,
@@ -413,18 +417,13 @@ Register PropertyHandlerCompiler::CheckPrototypes(
       reg = holder_reg;  // From now on the object will be in holder_reg.
       __ movp(reg, FieldOperand(scratch1, Map::kPrototypeOffset));
     } else {
-      bool in_new_space = heap()->InNewSpace(*prototype);
-      // Two possible reasons for loading the prototype from the map:
-      // (1) Can't store references to new space in code.
-      // (2) Handler is shared for all receivers with the same prototype
-      //     map (but not necessarily the same prototype instance).
-      bool load_prototype_from_map = in_new_space || depth == 1;
-      if (load_prototype_from_map) {
-        // Save the map in scratch1 for later.
-        __ movp(scratch1, FieldOperand(reg, HeapObject::kMapOffset));
-      }
+      Register map_reg = scratch1;
+      __ movp(map_reg, FieldOperand(reg, HeapObject::kMapOffset));
+
       if (depth != 1 || check == CHECK_ALL_MAPS) {
-        __ CheckMap(reg, current_map, miss, DONT_DO_SMI_CHECK);
+        Handle<WeakCell> cell = Map::WeakCellForMap(current_map);
+        __ CmpWeakValue(map_reg, cell, scratch2);
+        __ j(not_equal, miss);
       }
 
       // Check access rights to the global object.  This has to happen after
@@ -441,11 +440,7 @@ Register PropertyHandlerCompiler::CheckPrototypes(
       }
       reg = holder_reg;  // From now on the object will be in holder_reg.
 
-      if (load_prototype_from_map) {
-        __ movp(reg, FieldOperand(scratch1, Map::kPrototypeOffset));
-      } else {
-        __ Move(reg, prototype);
-      }
+      __ movp(reg, FieldOperand(map_reg, Map::kPrototypeOffset));
     }
 
     // Go to the next object in the prototype chain.
@@ -457,8 +452,10 @@ Register PropertyHandlerCompiler::CheckPrototypes(
   LOG(isolate(), IntEvent("check-maps-depth", depth + 1));
 
   if (depth != 0 || check == CHECK_ALL_MAPS) {
-    // Check the holder map.
-    __ CheckMap(reg, current_map, miss, DONT_DO_SMI_CHECK);
+    __ movp(scratch1, FieldOperand(reg, HeapObject::kMapOffset));
+    Handle<WeakCell> cell = Map::WeakCellForMap(current_map);
+    __ CmpWeakValue(scratch1, cell, scratch2);
+    __ j(not_equal, miss);
   }
 
   // Perform security check for access to the global object.

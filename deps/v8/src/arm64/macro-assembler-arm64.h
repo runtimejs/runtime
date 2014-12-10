@@ -761,9 +761,9 @@ class MacroAssembler : public Assembler {
   // it can be evidence of a potential bug because the ABI forbids accesses
   // below csp.
   //
-  // If StackPointer() is the system stack pointer (csp) or ALWAYS_ALIGN_CSP is
-  // enabled, then csp will be dereferenced to  cause the processor
-  // (or simulator) to abort if it is not properly aligned.
+  // If StackPointer() is the system stack pointer (csp), then csp will be
+  // dereferenced to cause the processor (or simulator) to abort if it is not
+  // properly aligned.
   //
   // If emit_debug_code() is false, this emits no code.
   void AssertStackConsistency();
@@ -831,9 +831,7 @@ class MacroAssembler : public Assembler {
   inline void BumpSystemStackPointer(const Operand& space);
 
   // Re-synchronizes the system stack pointer (csp) with the current stack
-  // pointer (according to StackPointer()).  This function will ensure the
-  // new value of the system stack pointer is remains aligned to 16 bytes, and
-  // is lower than or equal to the value of the current stack pointer.
+  // pointer (according to StackPointer()).
   //
   // This method asserts that StackPointer() is not csp, since the call does
   // not make sense in that context.
@@ -1489,6 +1487,13 @@ class MacroAssembler : public Assembler {
                    Handle<Code> success,
                    SmiCheckType smi_check_type);
 
+  // Compare the given value and the value of weak cell.
+  void CmpWeakValue(Register value, Handle<WeakCell> cell, Register scratch);
+
+  // Load the value of the weak cell in the value register. Branch to the given
+  // miss label if the weak cell was cleared.
+  void LoadWeakValue(Register value, Handle<WeakCell> cell, Label* miss);
+
   // Test the bitfield of the heap object map with mask and set the condition
   // flags. The object register is preserved.
   void TestMapBitfield(Register object, uint64_t mask);
@@ -1776,10 +1781,6 @@ class MacroAssembler : public Assembler {
                           const Register& scratch,
                           int mask,
                           Label* if_all_clear);
-
-  void CheckMapDeprecated(Handle<Map> map,
-                          Register scratch,
-                          Label* if_deprecated);
 
   // Check if object is in new space and jump accordingly.
   // Register 'object' is preserved.

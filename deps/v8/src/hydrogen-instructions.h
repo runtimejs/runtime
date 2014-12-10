@@ -6179,6 +6179,10 @@ class HObjectAccess FINAL {
     return HObjectAccess(kMaps, JSObject::kMapOffset);
   }
 
+  static HObjectAccess ForPrototype() {
+    return HObjectAccess(kMaps, Map::kPrototypeOffset);
+  }
+
   static HObjectAccess ForMapAsInteger32() {
     return HObjectAccess(kMaps, JSObject::kMapOffset,
                          Representation::Integer32());
@@ -6276,6 +6280,8 @@ class HObjectAccess FINAL {
 
   static HObjectAccess ForContextSlot(int index);
 
+  static HObjectAccess ForScriptContext(int index);
+
   // Create an access to the backing store of an object.
   static HObjectAccess ForBackingStoreOffset(int offset,
       Representation representation = Representation::Tagged());
@@ -6335,6 +6341,30 @@ class HObjectAccess FINAL {
 
   static HObjectAccess ForGlobalObjectNativeContext() {
     return HObjectAccess(kInobject, GlobalObject::kNativeContextOffset);
+  }
+
+  static HObjectAccess ForJSCollectionTable() {
+    return HObjectAccess::ForObservableJSObjectOffset(
+        JSCollection::kTableOffset);
+  }
+
+  template <typename CollectionType>
+  static HObjectAccess ForOrderedHashTableNumberOfBuckets() {
+    return HObjectAccess(kInobject, CollectionType::kNumberOfBucketsOffset,
+                         Representation::Smi());
+  }
+
+  template <typename CollectionType>
+  static HObjectAccess ForOrderedHashTableNumberOfElements() {
+    return HObjectAccess(kInobject, CollectionType::kNumberOfElementsOffset,
+                         Representation::Smi());
+  }
+
+  template <typename CollectionType>
+  static HObjectAccess ForOrderedHashTableNumberOfDeletedElements() {
+    return HObjectAccess(kInobject,
+                         CollectionType::kNumberOfDeletedElementsOffset,
+                         Representation::Smi());
   }
 
   inline bool Equals(HObjectAccess that) const {
@@ -6943,7 +6973,9 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
   }
 
   bool NeedsWriteBarrier() const {
-    DCHECK(!field_representation().IsDouble() || !has_transition());
+    DCHECK(!field_representation().IsDouble() ||
+           (FLAG_unbox_double_fields && access_.IsInobject()) ||
+           !has_transition());
     if (field_representation().IsDouble()) return false;
     if (field_representation().IsSmi()) return false;
     if (field_representation().IsInteger32()) return false;
@@ -7562,6 +7594,7 @@ class HFunctionLiteral FINAL : public HTemplateInstruction<1> {
   bool is_arrow() const { return IsArrowFunction(kind()); }
   bool is_generator() const { return IsGeneratorFunction(kind()); }
   bool is_concise_method() const { return IsConciseMethod(kind()); }
+  bool is_default_constructor() const { return IsDefaultConstructor(kind()); }
   FunctionKind kind() const { return FunctionKindField::decode(bit_field_); }
   StrictMode strict_mode() const { return StrictModeField::decode(bit_field_); }
 
@@ -7581,10 +7614,10 @@ class HFunctionLiteral FINAL : public HTemplateInstruction<1> {
 
   virtual bool IsDeletable() const OVERRIDE { return true; }
 
-  class FunctionKindField : public BitField<FunctionKind, 0, 3> {};
-  class PretenureField : public BitField<bool, 3, 1> {};
-  class HasNoLiteralsField : public BitField<bool, 4, 1> {};
-  class StrictModeField : public BitField<StrictMode, 5, 1> {};
+  class FunctionKindField : public BitField<FunctionKind, 0, 4> {};
+  class PretenureField : public BitField<bool, 5, 1> {};
+  class HasNoLiteralsField : public BitField<bool, 6, 1> {};
+  class StrictModeField : public BitField<StrictMode, 7, 1> {};
 
   Handle<SharedFunctionInfo> shared_info_;
   uint32_t bit_field_;

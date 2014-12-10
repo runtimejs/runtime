@@ -175,10 +175,6 @@ class MacroAssembler: public Assembler {
                      Label* condition_met,
                      Label::Distance condition_met_distance = Label::kFar);
 
-  void CheckMapDeprecated(Handle<Map> map,
-                          Register scratch,
-                          Label* if_deprecated);
-
   // Check if object is in new space.  Jumps if the object is not in new space.
   // The register scratch can be object itself, but scratch will be clobbered.
   void JumpIfNotInNewSpace(Register object,
@@ -846,6 +842,13 @@ class MacroAssembler: public Assembler {
 
   // Load a global cell into a register.
   void LoadGlobalCell(Register dst, Handle<Cell> cell);
+
+  // Compare the given value and the value of weak cell.
+  void CmpWeakValue(Register value, Handle<WeakCell> cell, Register scratch);
+
+  // Load the value of the weak cell in the value register. Branch to the given
+  // miss label if the weak cell was cleared.
+  void LoadWeakValue(Register value, Handle<WeakCell> cell, Label* miss);
 
   // Emit code to discard a non-negative number of pointer-sized elements
   // from the stack, clobbering only the rsp register.

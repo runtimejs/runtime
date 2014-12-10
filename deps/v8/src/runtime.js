@@ -6,9 +6,7 @@
 
 // CAUTION: Some of the functions specified in this file are called
 // directly from compiled code. These are the functions with names in
-// ALL CAPS. The compiled code passes the first argument in 'this' and
-// it does not push the function onto the stack. This means that you
-// cannot use contexts in all these functions.
+// ALL CAPS. The compiled code passes the first argument in 'this'.
 
 
 /* -----------------------------------
@@ -324,8 +322,13 @@ function IN(x) {
   if (!IS_SPEC_OBJECT(x)) {
     throw %MakeTypeError('invalid_in_operator_use', [this, x]);
   }
-  return %_IsNonNegativeSmi(this) ?
-    %HasElement(x, this) : %HasProperty(x, %ToName(this));
+  if (%_IsNonNegativeSmi(this)) {
+    if (IS_ARRAY(x) && %_HasFastPackedElements(x)) {
+      return this < x.length;
+    }
+    return %HasElement(x, this);
+  }
+  return %HasProperty(x, %ToName(this));
 }
 
 

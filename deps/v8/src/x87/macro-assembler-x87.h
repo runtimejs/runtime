@@ -93,10 +93,6 @@ class MacroAssembler: public Assembler {
       Label* condition_met,
       Label::Distance condition_met_distance = Label::kFar);
 
-  void CheckMapDeprecated(Handle<Map> map,
-                          Register scratch,
-                          Label* if_deprecated);
-
   // Check if object is in new space.  Jumps if the object is not in new space.
   // The register scratch can be object itself, but scratch will be clobbered.
   void JumpIfNotInNewSpace(Register object,
@@ -276,6 +272,9 @@ class MacroAssembler: public Assembler {
       cmp(reg, Immediate(object));
     }
   }
+
+  void CmpWeakValue(Register value, Handle<WeakCell> cell, Register scratch);
+  void LoadWeakValue(Register value, Handle<WeakCell> cell, Label* miss);
 
   // ---------------------------------------------------------------------------
   // JavaScript invokes

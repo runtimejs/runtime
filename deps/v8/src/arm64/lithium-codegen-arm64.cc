@@ -557,11 +557,6 @@ void LCodeGen::RecordSafepoint(LPointerMap* pointers,
       safepoint.DefinePointerRegister(ToRegister(pointer), zone());
     }
   }
-
-  if (kind & Safepoint::kWithRegisters) {
-    // Register cp always contains a pointer to the context.
-    safepoint.DefinePointerRegister(cp, zone());
-  }
 }
 
 void LCodeGen::RecordSafepoint(LPointerMap* pointers,
@@ -3665,6 +3660,7 @@ void LCodeGen::DoLoadNamedField(LLoadNamedField* instr) {
   }
 
   if (instr->hydrogen()->representation().IsDouble()) {
+    DCHECK(access.IsInobject());
     FPRegister result = ToDoubleRegister(instr->result());
     __ Ldr(result, FieldMemOperand(object, offset));
     return;
@@ -4771,6 +4767,7 @@ void LCodeGen::DoReturn(LReturn* instr) {
     int parameter_count = ToInteger32(instr->constant_parameter_count());
     __ Drop(parameter_count + 1);
   } else {
+    DCHECK(info()->IsStub());  // Functions would need to drop one more value.
     Register parameter_count = ToRegister(instr->parameter_count());
     __ DropBySMI(parameter_count);
   }
@@ -5022,7 +5019,6 @@ void LCodeGen::DoDeclareGlobals(LDeclareGlobals* instr) {
   Register scratch2 = x6;
   DCHECK(instr->IsMarkedAsCall());
 
-  ASM_UNIMPLEMENTED_BREAK("DoDeclareGlobals");
   // TODO(all): if Mov could handle object in new space then it could be used
   // here.
   __ LoadHeapObject(scratch1, instr->hydrogen()->pairs());
@@ -5354,7 +5350,7 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
 
   __ AssertNotSmi(object);
 
-  if (representation.IsDouble()) {
+  if (!FLAG_unbox_double_fields && representation.IsDouble()) {
     DCHECK(access.IsInobject());
     DCHECK(!instr->hydrogen()->has_transition());
     DCHECK(!instr->hydrogen()->NeedsWriteBarrier());
@@ -5362,8 +5358,6 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
     __ Str(value, FieldMemOperand(object, offset));
     return;
   }
-
-  Register value = ToRegister(instr->value());
 
   DCHECK(!representation.IsSmi() ||
          !instr->value()->IsConstantOperand() ||
@@ -5396,8 +5390,12 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
     destination = temp0;
   }
 
-  if (representation.IsSmi() &&
-     instr->hydrogen()->value()->representation().IsInteger32()) {
+  if (FLAG_unbox_double_fields && representation.IsDouble()) {
+    DCHECK(access.IsInobject());
+    FPRegister value = ToDoubleRegister(instr->value());
+    __ Str(value, FieldMemOperand(object, offset));
+  } else if (representation.IsSmi() &&
+             instr->hydrogen()->value()->representation().IsInteger32()) {
     DCHECK(instr->hydrogen()->store_mode() == STORE_TO_INITIALIZED_ENTRY);
 #ifdef DEBUG
     Register temp0 = ToRegister(instr->temp0());
@@ -5412,12 +5410,15 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
 #endif
     STATIC_ASSERT(static_cast<unsigned>(kSmiValueSize) == kWRegSizeInBits);
     STATIC_ASSERT(kSmiTag == 0);
+    Register value = ToRegister(instr->value());
     __ Store(value, UntagSmiFieldMemOperand(destination, offset),
              Representation::Integer32());
   } else {
+    Register value = ToRegister(instr->value());
     __ Store(value, FieldMemOperand(destination, offset), representation);
   }
   if (instr->hydrogen()->NeedsWriteBarrier()) {
+    Register value = ToRegister(instr->value());
     __ RecordWriteField(destination,
                         offset,
                         value,                        // Clobbered.

@@ -47,9 +47,8 @@ void InstructionSelector::SelectInstructions() {
       if (phi->opcode() != IrOpcode::kPhi) continue;
 
       // Mark all inputs as used.
-      Node::Inputs inputs = phi->inputs();
-      for (InputIter k = inputs.begin(); k != inputs.end(); ++k) {
-        MarkAsUsed(*k);
+      for (Node* const k : phi->inputs()) {
+        MarkAsUsed(k);
       }
     }
   }
@@ -126,6 +125,31 @@ Instruction* InstructionSelector::Emit(
     size_t temp_count, InstructionOperand** temps) {
   size_t output_count = output == NULL ? 0 : 1;
   InstructionOperand* inputs[] = {a, b, c, d};
+  size_t input_count = arraysize(inputs);
+  return Emit(opcode, output_count, &output, input_count, inputs, temp_count,
+              temps);
+}
+
+
+Instruction* InstructionSelector::Emit(
+    InstructionCode opcode, InstructionOperand* output, InstructionOperand* a,
+    InstructionOperand* b, InstructionOperand* c, InstructionOperand* d,
+    InstructionOperand* e, size_t temp_count, InstructionOperand** temps) {
+  size_t output_count = output == NULL ? 0 : 1;
+  InstructionOperand* inputs[] = {a, b, c, d, e};
+  size_t input_count = arraysize(inputs);
+  return Emit(opcode, output_count, &output, input_count, inputs, temp_count,
+              temps);
+}
+
+
+Instruction* InstructionSelector::Emit(
+    InstructionCode opcode, InstructionOperand* output, InstructionOperand* a,
+    InstructionOperand* b, InstructionOperand* c, InstructionOperand* d,
+    InstructionOperand* e, InstructionOperand* f, size_t temp_count,
+    InstructionOperand** temps) {
+  size_t output_count = output == NULL ? 0 : 1;
+  InstructionOperand* inputs[] = {a, b, c, d, e, f};
   size_t input_count = arraysize(inputs);
   return Emit(opcode, output_count, &output, input_count, inputs, temp_count,
               temps);
@@ -295,7 +319,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
                                                bool call_code_immediate,
                                                bool call_address_immediate) {
   OperandGenerator g(this);
-  DCHECK_EQ(call->op()->OutputCount(),
+  DCHECK_EQ(call->op()->ValueOutputCount(),
             static_cast<int>(buffer->descriptor->ReturnCount()));
   DCHECK_EQ(
       call->op()->ValueInputCount(),
@@ -384,11 +408,10 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
   // arguments require an explicit push instruction before the call and do
   // not appear as arguments to the call. Everything else ends up
   // as an InstructionOperand argument to the call.
-  InputIter iter(call->inputs().begin());
+  auto iter(call->inputs().begin());
   int pushed_count = 0;
   for (size_t index = 0; index < input_count; ++iter, ++index) {
     DCHECK(iter != call->inputs().end());
-    DCHECK(index == static_cast<size_t>(iter.index()));
     DCHECK((*iter)->op()->opcode() != IrOpcode::kFrameState);
     if (index == 0) continue;  // The first argument (callee) is already done.
     InstructionOperand* op =
@@ -537,6 +560,10 @@ MachineType InstructionSelector::GetMachineType(Node* node) {
     case IrOpcode::kLoad:
       return OpParameter<LoadRepresentation>(node);
     case IrOpcode::kStore:
+      return kMachNone;
+    case IrOpcode::kCheckedLoad:
+      return OpParameter<MachineType>(node);
+    case IrOpcode::kCheckedStore:
       return kMachNone;
     case IrOpcode::kWord32And:
     case IrOpcode::kWord32Or:
@@ -808,6 +835,13 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsDouble(node), VisitFloat64RoundTiesAway(node);
     case IrOpcode::kLoadStackPointer:
       return VisitLoadStackPointer(node);
+    case IrOpcode::kCheckedLoad: {
+      MachineType rep = OpParameter<MachineType>(node);
+      MarkAsRepresentation(rep, node);
+      return VisitCheckedLoad(node);
+    }
+    case IrOpcode::kCheckedStore:
+      return VisitCheckedStore(node);
     default:
       V8_Fatal(__FILE__, __LINE__, "Unexpected operator #%d:%s @ node #%d",
                node->opcode(), node->op()->mnemonic(), node->id());
@@ -925,16 +959,15 @@ void InstructionSelector::VisitParameter(Node* node) {
 
 
 void InstructionSelector::VisitPhi(Node* node) {
-  // TODO(bmeurer): Emit a PhiInstruction here.
+  const int input_count = node->op()->ValueInputCount();
   PhiInstruction* phi = new (instruction_zone())
-      PhiInstruction(instruction_zone(), GetVirtualRegister(node));
+      PhiInstruction(instruction_zone(), GetVirtualRegister(node),
+                     static_cast<size_t>(input_count));
   sequence()->InstructionBlockAt(current_block_->GetRpoNumber())->AddPhi(phi);
-  const int input_count = node->op()->InputCount();
-  phi->operands().reserve(static_cast<size_t>(input_count));
   for (int i = 0; i < input_count; ++i) {
     Node* const input = node->InputAt(i);
     MarkAsUsed(input);
-    phi->operands().push_back(GetVirtualRegister(input));
+    phi->Extend(instruction_zone(), GetVirtualRegister(input));
   }
 }
 
@@ -967,14 +1000,9 @@ void InstructionSelector::VisitConstant(Node* node) {
 
 
 void InstructionSelector::VisitGoto(BasicBlock* target) {
-  if (IsNextInAssemblyOrder(target)) {
-    // fall through to the next block.
-    Emit(kArchNop, NULL)->MarkAsControl();
-  } else {
-    // jump to the next block.
-    OperandGenerator g(this);
-    Emit(kArchJmp, NULL, g.Label(target))->MarkAsControl();
-  }
+  // jump to the next block.
+  OperandGenerator g(this);
+  Emit(kArchJmp, NULL, g.Label(target))->MarkAsControl();
 }
 
 

@@ -148,7 +148,8 @@ namespace internal {
   V(Map, with_context_map, WithContextMap)                                     \
   V(Map, block_context_map, BlockContextMap)                                   \
   V(Map, module_context_map, ModuleContextMap)                                 \
-  V(Map, global_context_map, GlobalContextMap)                                 \
+  V(Map, script_context_map, ScriptContextMap)                                 \
+  V(Map, script_context_table_map, ScriptContextTableMap)                      \
   V(Map, undefined_map, UndefinedMap)                                          \
   V(Map, the_hole_map, TheHoleMap)                                             \
   V(Map, null_map, NullMap)                                                    \
@@ -209,7 +210,6 @@ namespace internal {
   V(callee_string, "callee")                               \
   V(constructor_string, "constructor")                     \
   V(dot_result_string, ".result")                          \
-  V(dot_for_string, ".for.")                               \
   V(eval_string, "eval")                                   \
   V(empty_string, "")                                      \
   V(function_string, "function")                           \
@@ -299,6 +299,15 @@ namespace internal {
   V(class_start_position_symbol)    \
   V(class_end_position_symbol)
 
+#define PUBLIC_SYMBOL_LIST(V)                                    \
+  V(has_instance_symbol, symbolHasInstance, Symbol.hasInstance)  \
+  V(is_concat_spreadable_symbol, symbolIsConcatSpreadable,       \
+    Symbol.isConcatSpreadable)                                   \
+  V(is_regexp_symbol, symbolIsRegExp, Symbol.isRegExp)           \
+  V(iterator_symbol, symbolIterator, Symbol.iterator)            \
+  V(to_string_tag_symbol, symbolToStringTag, Symbol.toStringTag) \
+  V(unscopables_symbol, symbolUnscopables, Symbol.unscopables)
+
 // Heap roots that are known to be immortal immovable, for which we can safely
 // skip write barriers. This list is not complete and has omissions.
 #define IMMORTAL_IMMOVABLE_ROOT_LIST(V) \
@@ -341,7 +350,7 @@ namespace internal {
   V(WithContextMap)                     \
   V(BlockContextMap)                    \
   V(ModuleContextMap)                   \
-  V(GlobalContextMap)                   \
+  V(ScriptContextMap)                   \
   V(UndefinedMap)                       \
   V(TheHoleMap)                         \
   V(NullMap)                            \
@@ -809,6 +818,11 @@ class Heap {
   PRIVATE_SYMBOL_LIST(SYMBOL_ACCESSOR)
 #undef SYMBOL_ACCESSOR
 
+#define SYMBOL_ACCESSOR(name, varname, description) \
+  Symbol* name() { return Symbol::cast(roots_[k##name##RootIndex]); }
+  PUBLIC_SYMBOL_LIST(SYMBOL_ACCESSOR)
+#undef SYMBOL_ACCESSOR
+
   // The hidden_string is special because it is the empty string, but does
   // not match the empty string.
   String* hidden_string() { return hidden_string_; }
@@ -1090,6 +1104,7 @@ class Heap {
   void DisableInlineAllocation();
 
   // Implements the corresponding V8 API function.
+  bool IdleNotification(double deadline_in_seconds);
   bool IdleNotification(int idle_time_in_ms);
 
   // Declare all the root indices.  This defines the root list order.
@@ -1104,6 +1119,10 @@ class Heap {
 
 #define SYMBOL_INDEX_DECLARATION(name) k##name##RootIndex,
     PRIVATE_SYMBOL_LIST(SYMBOL_INDEX_DECLARATION)
+#undef SYMBOL_INDEX_DECLARATION
+
+#define SYMBOL_INDEX_DECLARATION(name, varname, description) k##name##RootIndex,
+    PUBLIC_SYMBOL_LIST(SYMBOL_INDEX_DECLARATION)
 #undef SYMBOL_INDEX_DECLARATION
 
 // Utility type maps
@@ -1177,6 +1196,7 @@ class Heap {
 
   inline void IncrementYoungSurvivorsCounter(int survived) {
     DCHECK(survived >= 0);
+    survived_last_scavenge_ = survived;
     survived_since_last_expansion_ += survived;
   }
 
@@ -1274,6 +1294,8 @@ class Heap {
   void FreeQueuedChunks();
 
   int gc_count() const { return gc_count_; }
+
+  bool RecentIdleNotifcationHappened();
 
   // Completely clear the Instanceof cache (to stop it keeping objects alive
   // around a GC).
@@ -1487,6 +1509,9 @@ class Heap {
   // For keeping track of how much data has survived
   // scavenge since last new space expansion.
   int survived_since_last_expansion_;
+
+  // ... and since the last scavenge.
+  int survived_last_scavenge_;
 
   // For keeping track on when to flush RegExp code.
   int sweep_generation_;
@@ -1708,6 +1733,8 @@ class Heap {
     return (pretenure == TENURED) ? preferred_old_space : NEW_SPACE;
   }
 
+  HeapObject* DoubleAlignForDeserialization(HeapObject* object, int size);
+
   // Allocate an uninitialized object.  The memory is non-executable if the
   // hardware and OS allow.  This is the single choke-point for allocations
   // performed by the runtime and should not be bypassed (to extend this to
@@ -1909,6 +1936,7 @@ class Heap {
 
   // Code to be run before and after mark-compact.
   void MarkCompactPrologue();
+  void MarkCompactEpilogue();
 
   void ProcessNativeContexts(WeakObjectRetainer* retainer);
   void ProcessArrayBuffers(WeakObjectRetainer* retainer);
@@ -1983,8 +2011,8 @@ class Heap {
 
   void IdleMarkCompact(const char* message);
 
-  void TryFinalizeIdleIncrementalMarking(
-      size_t idle_time_in_ms, size_t size_of_objects,
+  bool TryFinalizeIdleIncrementalMarking(
+      double idle_time_in_ms, size_t size_of_objects,
       size_t mark_compact_speed_in_bytes_per_ms);
 
   bool WorthActivatingIncrementalMarking();
@@ -2031,6 +2059,9 @@ class Heap {
 
   // Cumulative GC time spent in sweeping
   double sweeping_time_;
+
+  // Last time an idle notification happened
+  double last_idle_notification_time_;
 
   MarkCompactCollector mark_compact_collector_;
 

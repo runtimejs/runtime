@@ -24,6 +24,18 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
   Arm64OperandConverter(CodeGenerator* gen, Instruction* instr)
       : InstructionOperandConverter(gen, instr) {}
 
+  DoubleRegister InputFloat32Register(int index) {
+    return InputDoubleRegister(index).S();
+  }
+
+  DoubleRegister InputFloat64Register(int index) {
+    return InputDoubleRegister(index);
+  }
+
+  DoubleRegister OutputFloat32Register() { return OutputDoubleRegister().S(); }
+
+  DoubleRegister OutputFloat64Register() { return OutputDoubleRegister(); }
+
   Register InputRegister32(int index) {
     return ToRegister(instr_->InputAt(index)).W();
   }
@@ -106,9 +118,8 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
     return MemOperand(no_reg);
   }
 
-  MemOperand MemoryOperand() {
-    int index = 0;
-    return MemoryOperand(&index);
+  MemOperand MemoryOperand(int first_index = 0) {
+    return MemoryOperand(&first_index);
   }
 
   Operand ToOperand(InstructionOperand* op) {
@@ -142,6 +153,9 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
         return Operand(constant.ToExternalReference());
       case Constant::kHeapObject:
         return Operand(constant.ToHeapObject());
+      case Constant::kRpoNumber:
+        UNREACHABLE();  // TODO(dcarney): RPO immediates on arm64.
+        break;
     }
     UNREACHABLE();
     return Operand(-1);
@@ -160,6 +174,100 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
 };
 
 
+namespace {
+
+class OutOfLineLoadFloat32 FINAL : public OutOfLineCode {
+ public:
+  OutOfLineLoadFloat32(CodeGenerator* gen, DoubleRegister result)
+      : OutOfLineCode(gen), result_(result) {}
+
+  void Generate() FINAL {
+    __ Fmov(result_, std::numeric_limits<float>::quiet_NaN());
+  }
+
+ private:
+  DoubleRegister const result_;
+};
+
+
+class OutOfLineLoadFloat64 FINAL : public OutOfLineCode {
+ public:
+  OutOfLineLoadFloat64(CodeGenerator* gen, DoubleRegister result)
+      : OutOfLineCode(gen), result_(result) {}
+
+  void Generate() FINAL {
+    __ Fmov(result_, std::numeric_limits<double>::quiet_NaN());
+  }
+
+ private:
+  DoubleRegister const result_;
+};
+
+
+class OutOfLineLoadInteger FINAL : public OutOfLineCode {
+ public:
+  OutOfLineLoadInteger(CodeGenerator* gen, Register result)
+      : OutOfLineCode(gen), result_(result) {}
+
+  void Generate() FINAL { __ Mov(result_, 0); }
+
+ private:
+  Register const result_;
+};
+
+}  // namespace
+
+
+#define ASSEMBLE_CHECKED_LOAD_FLOAT(width)                           \
+  do {                                                               \
+    auto result = i.OutputFloat##width##Register();                  \
+    auto offset = i.InputRegister32(0);                              \
+    auto length = i.InputOperand32(1);                               \
+    __ Cmp(offset, length);                                          \
+    auto ool = new (zone()) OutOfLineLoadFloat##width(this, result); \
+    __ B(hs, ool->entry());                                          \
+    __ Ldr(result, i.MemoryOperand(2));                              \
+    __ Bind(ool->exit());                                            \
+  } while (0)
+
+
+#define ASSEMBLE_CHECKED_LOAD_INTEGER(asm_instr)                \
+  do {                                                          \
+    auto result = i.OutputRegister32();                         \
+    auto offset = i.InputRegister32(0);                         \
+    auto length = i.InputOperand32(1);                          \
+    __ Cmp(offset, length);                                     \
+    auto ool = new (zone()) OutOfLineLoadInteger(this, result); \
+    __ B(hs, ool->entry());                                     \
+    __ asm_instr(result, i.MemoryOperand(2));                   \
+    __ Bind(ool->exit());                                       \
+  } while (0)
+
+
+#define ASSEMBLE_CHECKED_STORE_FLOAT(width)                       \
+  do {                                                            \
+    auto offset = i.InputRegister32(0);                           \
+    auto length = i.InputOperand32(1);                            \
+    __ Cmp(offset, length);                                       \
+    Label done;                                                   \
+    __ B(hs, &done);                                              \
+    __ Str(i.InputFloat##width##Register(2), i.MemoryOperand(3)); \
+    __ Bind(&done);                                               \
+  } while (0)
+
+
+#define ASSEMBLE_CHECKED_STORE_INTEGER(asm_instr)           \
+  do {                                                      \
+    auto offset = i.InputRegister32(0);                     \
+    auto length = i.InputOperand32(1);                      \
+    __ Cmp(offset, length);                                 \
+    Label done;                                             \
+    __ B(hs, &done);                                        \
+    __ asm_instr(i.InputRegister32(2), i.MemoryOperand(3)); \
+    __ Bind(&done);                                         \
+  } while (0)
+
+
 #define ASSEMBLE_SHIFT(asm_instr, width)                                       \
   do {                                                                         \
     if (instr->InputAt(1)->IsRegister()) {                                     \
@@ -172,12 +280,10 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
   } while (0)
 
 
-#define ASSEMBLE_TEST_AND_BRANCH(asm_instr, width)           \
-  do {                                                       \
-    bool fallthrough = IsNextInAssemblyOrder(i.InputRpo(3)); \
-    __ asm_instr(i.InputRegister##width(0), i.InputInt6(1),  \
-                 GetLabel(i.InputRpo(2)));                   \
-    if (!fallthrough) __ B(GetLabel(i.InputRpo(3)));         \
+#define ASSEMBLE_BRANCH_TO(target)                    \
+  do {                                                \
+    bool fallthrough = IsNextInAssemblyOrder(target); \
+    if (!fallthrough) __ B(GetLabel(target));         \
   } while (0)
 
 
@@ -216,7 +322,7 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     }
     case kArchJmp:
-      __ B(GetLabel(i.InputRpo(0)));
+      AssembleArchJump(i.InputRpo(0));
       break;
     case kArchNop:
       // don't emit code for nops.
@@ -418,6 +524,12 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kArm64Mov32:
       __ Mov(i.OutputRegister32(), i.InputRegister32(0));
       break;
+    case kArm64Sxtb32:
+      __ Sxtb(i.OutputRegister32(), i.InputRegister32(0));
+      break;
+    case kArm64Sxth32:
+      __ Sxth(i.OutputRegister32(), i.InputRegister32(0));
+      break;
     case kArm64Sxtw:
       __ Sxtw(i.OutputRegister(), i.InputRegister32(0));
       break;
@@ -430,16 +542,28 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
               i.InputInt8(2));
       break;
     case kArm64Tbz:
-      ASSEMBLE_TEST_AND_BRANCH(Tbz, 64);
+      __ Tbz(i.InputRegister64(0), i.InputInt6(1), GetLabel(i.InputRpo(2)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
       break;
     case kArm64Tbz32:
-      ASSEMBLE_TEST_AND_BRANCH(Tbz, 32);
+      __ Tbz(i.InputRegister32(0), i.InputInt5(1), GetLabel(i.InputRpo(2)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
       break;
     case kArm64Tbnz:
-      ASSEMBLE_TEST_AND_BRANCH(Tbnz, 64);
+      __ Tbnz(i.InputRegister64(0), i.InputInt6(1), GetLabel(i.InputRpo(2)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
       break;
     case kArm64Tbnz32:
-      ASSEMBLE_TEST_AND_BRANCH(Tbnz, 32);
+      __ Tbnz(i.InputRegister32(0), i.InputInt5(1), GetLabel(i.InputRpo(2)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
+      break;
+    case kArm64Cbz32:
+      __ Cbz(i.InputRegister32(0), GetLabel(i.InputRpo(1)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(2));
+      break;
+    case kArm64Cbnz32:
+      __ Cbnz(i.InputRegister32(0), GetLabel(i.InputRpo(1)));
+      ASSEMBLE_BRANCH_TO(i.InputRpo(2));
       break;
     case kArm64Claim: {
       int words = MiscField::decode(instr->opcode());
@@ -597,26 +721,52 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       }
       break;
     }
+    case kCheckedLoadInt8:
+      ASSEMBLE_CHECKED_LOAD_INTEGER(Ldrsb);
+      break;
+    case kCheckedLoadUint8:
+      ASSEMBLE_CHECKED_LOAD_INTEGER(Ldrb);
+      break;
+    case kCheckedLoadInt16:
+      ASSEMBLE_CHECKED_LOAD_INTEGER(Ldrsh);
+      break;
+    case kCheckedLoadUint16:
+      ASSEMBLE_CHECKED_LOAD_INTEGER(Ldrh);
+      break;
+    case kCheckedLoadWord32:
+      ASSEMBLE_CHECKED_LOAD_INTEGER(Ldr);
+      break;
+    case kCheckedLoadFloat32:
+      ASSEMBLE_CHECKED_LOAD_FLOAT(32);
+      break;
+    case kCheckedLoadFloat64:
+      ASSEMBLE_CHECKED_LOAD_FLOAT(64);
+      break;
+    case kCheckedStoreWord8:
+      ASSEMBLE_CHECKED_STORE_INTEGER(Strb);
+      break;
+    case kCheckedStoreWord16:
+      ASSEMBLE_CHECKED_STORE_INTEGER(Strh);
+      break;
+    case kCheckedStoreWord32:
+      ASSEMBLE_CHECKED_STORE_INTEGER(Str);
+      break;
+    case kCheckedStoreFloat32:
+      ASSEMBLE_CHECKED_STORE_FLOAT(32);
+      break;
+    case kCheckedStoreFloat64:
+      ASSEMBLE_CHECKED_STORE_FLOAT(64);
+      break;
   }
 }
 
 
 // Assemble branches after this instruction.
-void CodeGenerator::AssembleArchBranch(Instruction* instr,
-                                       FlagsCondition condition) {
+void CodeGenerator::AssembleArchBranch(Instruction* instr, BranchInfo* branch) {
   Arm64OperandConverter i(this, instr);
-  Label done;
-
-  // Emit a branch. The true and false targets are always the last two inputs
-  // to the instruction.
-  BasicBlock::RpoNumber tblock =
-      i.InputRpo(static_cast<int>(instr->InputCount()) - 2);
-  BasicBlock::RpoNumber fblock =
-      i.InputRpo(static_cast<int>(instr->InputCount()) - 1);
-  bool fallthru = IsNextInAssemblyOrder(fblock);
-  Label* tlabel = GetLabel(tblock);
-  Label* flabel = fallthru ? &done : GetLabel(fblock);
-  switch (condition) {
+  Label* tlabel = branch->true_label;
+  Label* flabel = branch->false_label;
+  switch (branch->condition) {
     case kUnorderedEqual:
       __ B(vs, flabel);
     // Fall through.
@@ -672,8 +822,12 @@ void CodeGenerator::AssembleArchBranch(Instruction* instr,
       __ B(vc, tlabel);
       break;
   }
-  if (!fallthru) __ B(flabel);  // no fallthru to flabel.
-  __ Bind(&done);
+  if (!branch->fallthru) __ B(flabel);  // no fallthru to flabel.
+}
+
+
+void CodeGenerator::AssembleArchJump(BasicBlock::RpoNumber target) {
+  if (!IsNextInAssemblyOrder(target)) __ B(GetLabel(target));
 }
 
 
@@ -757,7 +911,7 @@ void CodeGenerator::AssembleArchBoolean(Instruction* instr,
       cc = vc;
       break;
   }
-  __ bind(&check);
+  __ Bind(&check);
   __ Cset(reg, cc);
   __ Bind(&done);
 }
@@ -792,23 +946,6 @@ void CodeGenerator::AssemblePrologue() {
     __ Prologue(info->IsCodePreAgingActive());
     frame()->SetRegisterSaveAreaSize(
         StandardFrameConstants::kFixedFrameSizeFromFp);
-
-    // Sloppy mode functions and builtins need to replace the receiver with the
-    // global proxy when called as functions (without an explicit receiver
-    // object).
-    // TODO(mstarzinger/verwaest): Should this be moved back into the CallIC?
-    if (info->strict_mode() == SLOPPY && !info->is_native()) {
-      Label ok;
-      // +2 for return address and saved frame pointer.
-      int receiver_slot = info->scope()->num_parameters() + 2;
-      __ Ldr(x10, MemOperand(fp, receiver_slot * kXRegSize));
-      __ JumpIfNotRoot(x10, Heap::kUndefinedValueRootIndex, &ok);
-      __ Ldr(x10, GlobalObjectMemOperand());
-      __ Ldr(x10, FieldMemOperand(x10, GlobalObject::kGlobalProxyOffset));
-      __ Str(x10, MemOperand(fp, receiver_slot * kXRegSize));
-      __ Bind(&ok);
-    }
-
   } else {
     __ SetStackPointer(jssp);
     __ StubPrologue();
@@ -966,8 +1103,8 @@ void CodeGenerator::AssembleSwap(InstructionOperand* source,
     }
   } else if (source->IsStackSlot() || source->IsDoubleStackSlot()) {
     UseScratchRegisterScope scope(masm());
-    CPURegister temp_0 = scope.AcquireX();
-    CPURegister temp_1 = scope.AcquireX();
+    DoubleRegister temp_0 = scope.AcquireD();
+    DoubleRegister temp_1 = scope.AcquireD();
     MemOperand src = g.ToMemOperand(source, masm());
     MemOperand dst = g.ToMemOperand(destination, masm());
     __ Ldr(temp_0, src);

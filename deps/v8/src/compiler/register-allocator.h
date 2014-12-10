@@ -12,8 +12,6 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-class PipelineStatistics;
-
 enum RegisterKind {
   UNALLOCATED_REGISTERS,
   GENERAL_REGISTERS,
@@ -173,6 +171,7 @@ class UsePosition FINAL : public ZoneObject {
   DISALLOW_COPY_AND_ASSIGN(UsePosition);
 };
 
+class SpillRange;
 
 // Representation of SSA values' live ranges as a collection of (continuous)
 // intervals over the instruction ordering.
@@ -265,6 +264,10 @@ class LiveRange FINAL : public ZoneObject {
   InstructionOperand* GetSpillOperand() const { return spill_operand_; }
   void SetSpillOperand(InstructionOperand* operand);
 
+  void SetSpillRange(SpillRange* spill_range) { spill_range_ = spill_range; }
+  SpillRange* GetSpillRange() const { return spill_range_; }
+  void CommitSpillOperand(InstructionOperand* operand);
+
   void SetSpillStartIndex(int start) {
     spill_start_index_ = Min(start, spill_start_index_);
   }
@@ -291,6 +294,7 @@ class LiveRange FINAL : public ZoneObject {
 
  private:
   void ConvertOperands(Zone* zone);
+  void ConvertUsesToOperand(InstructionOperand* op);
   UseInterval* FirstSearchIntervalForPosition(LifetimePosition position) const;
   void AdvanceLastProcessedMarker(UseInterval* to_start_of,
                                   LifetimePosition but_not_past) const;
@@ -313,6 +317,7 @@ class LiveRange FINAL : public ZoneObject {
   InstructionOperand* current_hint_operand_;
   InstructionOperand* spill_operand_;
   int spill_start_index_;
+  SpillRange* spill_range_;
 
   friend class RegisterAllocator;  // Assigns to kind_.
 
@@ -320,19 +325,39 @@ class LiveRange FINAL : public ZoneObject {
 };
 
 
-class RegisterAllocator FINAL {
+class SpillRange : public ZoneObject {
+ public:
+  SpillRange(LiveRange* range, int id, Zone* zone);
+  bool TryMerge(SpillRange* other, Zone* zone);
+  void SetOperand(InstructionOperand* op);
+  bool IsEmpty() { return live_ranges_.length() == 0; }
+  int id() const { return id_; }
+  UseInterval* interval() { return use_interval_; }
+  RegisterKind Kind() const { return live_ranges_.at(0)->Kind(); }
+  LifetimePosition End() const { return end_position_; }
+  bool IsIntersectingWith(SpillRange* other);
+
+ private:
+  int id_;
+  ZoneList<LiveRange*> live_ranges_;
+  UseInterval* use_interval_;
+  LifetimePosition end_position_;
+
+  // Merge intervals, making sure the use intervals are sorted
+  void MergeDisjointIntervals(UseInterval* other, Zone* zone);
+};
+
+
+class RegisterAllocator FINAL : public ZoneObject {
  public:
   explicit RegisterAllocator(const RegisterConfiguration* config,
                              Zone* local_zone, Frame* frame,
                              InstructionSequence* code,
                              const char* debug_name = nullptr);
 
-  bool Allocate(PipelineStatistics* stats = NULL);
   bool AllocationOk() { return allocation_ok_; }
-  BitVector* assigned_registers() { return assigned_registers_; }
-  BitVector* assigned_double_registers() { return assigned_double_registers_; }
 
-  const ZoneList<LiveRange*>& live_ranges() const { return live_ranges_; }
+  const ZoneVector<LiveRange*>& live_ranges() const { return live_ranges_; }
   const ZoneVector<LiveRange*>& fixed_live_ranges() const {
     return fixed_live_ranges_;
   }
@@ -342,6 +367,33 @@ class RegisterAllocator FINAL {
   InstructionSequence* code() const { return code_; }
   // This zone is for datastructures only needed during register allocation.
   Zone* local_zone() const { return local_zone_; }
+
+  // Phase 1 : insert moves to account for fixed register operands.
+  void MeetRegisterConstraints();
+
+  // Phase 2: deconstruct SSA by inserting moves in successors and the headers
+  // of blocks containing phis.
+  void ResolvePhis();
+
+  // Phase 3: compute liveness of all virtual register.
+  void BuildLiveRanges();
+  bool ExistsUseWithoutDefinition();
+
+  // Phase 4: compute register assignments.
+  void AllocateGeneralRegisters();
+  void AllocateDoubleRegisters();
+
+  // Phase 5: reassign spill splots for maximal reuse.
+  void ReuseSpillSlots();
+
+  // Phase 6: compute values for pointer maps.
+  void PopulatePointerMaps();  // TODO(titzer): rename to PopulateReferenceMaps.
+
+  // Phase 7: reconnect split ranges with moves.
+  void ConnectRanges();
+
+  // Phase 8: insert moves to connect ranges across basic blocks.
+  void ResolveControlFlow();
 
  private:
   int GetVirtualRegister() {
@@ -365,18 +417,13 @@ class RegisterAllocator FINAL {
   // allocation.
   Zone* code_zone() const { return code()->zone(); }
 
+  BitVector* assigned_registers() { return assigned_registers_; }
+  BitVector* assigned_double_registers() { return assigned_double_registers_; }
+
 #ifdef DEBUG
   void Verify() const;
 #endif
 
-  void MeetRegisterConstraints();
-  void ResolvePhis();
-  void BuildLiveRanges();
-  void AllocateGeneralRegisters();
-  void AllocateDoubleRegisters();
-  void ConnectRanges();
-  void ResolveControlFlow();
-  void PopulatePointerMaps();  // TODO(titzer): rename to PopulateReferenceMaps.
   void AllocateRegisters();
   bool CanEagerlyResolveControlFlow(const InstructionBlock* block) const;
   bool SafePointsAreInOrder() const;
@@ -417,12 +464,14 @@ class RegisterAllocator FINAL {
   void ActiveToInactive(LiveRange* range);
   void InactiveToHandled(LiveRange* range);
   void InactiveToActive(LiveRange* range);
-  void FreeSpillSlot(LiveRange* range);
-  InstructionOperand* TryReuseSpillSlot(LiveRange* range);
 
   // Helper methods for allocating registers.
+  bool TryReuseSpillForPhi(LiveRange* range);
   bool TryAllocateFreeReg(LiveRange* range);
   void AllocateBlockedReg(LiveRange* range);
+  SpillRange* AssignSpillRangeToLiveRange(LiveRange* range);
+  void FreeSpillSlot(LiveRange* range);
+  InstructionOperand* TryReuseSpillSlot(LiveRange* range);
 
   // Live range splitting helpers.
 
@@ -468,9 +517,9 @@ class RegisterAllocator FINAL {
 
   // Helper methods for resolving control flow.
   void ResolveControlFlow(const InstructionBlock* block,
-                          const LiveRange* cur_cover,
+                          InstructionOperand* cur_op,
                           const InstructionBlock* pred,
-                          const LiveRange* pred_cover);
+                          InstructionOperand* pred_op);
 
   void SetLiveRangeAssignedRegister(LiveRange* range, int reg);
 
@@ -498,6 +547,15 @@ class RegisterAllocator FINAL {
   const char* debug_name() const { return debug_name_; }
   const RegisterConfiguration* config() const { return config_; }
 
+  struct PhiMapValue {
+    PhiMapValue(PhiInstruction* phi, const InstructionBlock* block)
+        : phi(phi), block(block) {}
+    PhiInstruction* const phi;
+    const InstructionBlock* const block;
+  };
+  typedef std::map<int, PhiMapValue, std::less<int>,
+                   zone_allocator<std::pair<int, PhiMapValue>>> PhiMap;
+
   Zone* const local_zone_;
   Frame* const frame_;
   InstructionSequence* const code_;
@@ -505,12 +563,14 @@ class RegisterAllocator FINAL {
 
   const RegisterConfiguration* config_;
 
+  PhiMap phi_map_;
+
   // During liveness analysis keep a mapping from block id to live_in sets
   // for blocks already analyzed.
-  ZoneList<BitVector*> live_in_sets_;
+  ZoneVector<BitVector*> live_in_sets_;
 
   // Liveness analysis results.
-  ZoneList<LiveRange*> live_ranges_;
+  ZoneVector<LiveRange*> live_ranges_;
 
   // Lists of live ranges
   ZoneVector<LiveRange*> fixed_live_ranges_;
@@ -519,6 +579,7 @@ class RegisterAllocator FINAL {
   ZoneList<LiveRange*> active_live_ranges_;
   ZoneList<LiveRange*> inactive_live_ranges_;
   ZoneList<LiveRange*> reusable_slots_;
+  ZoneList<SpillRange*> spill_ranges_;
 
   RegisterKind mode_;
   int num_registers_;
@@ -536,8 +597,8 @@ class RegisterAllocator FINAL {
   DISALLOW_COPY_AND_ASSIGN(RegisterAllocator);
 };
 
-}
-}
-}  // namespace v8::internal::compiler
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_REGISTER_ALLOCATOR_H_

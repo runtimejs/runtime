@@ -274,28 +274,6 @@
               'inputs': [
                 '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)mksnapshot<(EXECUTABLE_SUFFIX)',
               ],
-              'conditions': [
-                ['want_separate_host_toolset==1', {
-                  'target_conditions': [
-                    ['_toolset=="host"', {
-                      'outputs': [
-                        '<(INTERMEDIATE_DIR)/snapshot.cc',
-                        '<(PRODUCT_DIR)/snapshot_blob_host.bin',
-                      ],
-                    }, {
-                      'outputs': [
-                        '<(INTERMEDIATE_DIR)/snapshot.cc',
-                        '<(PRODUCT_DIR)/snapshot_blob.bin',
-                      ],
-                    }],
-                  ],
-                }, {
-                  'outputs': [
-                    '<(INTERMEDIATE_DIR)/snapshot.cc',
-                    '<(PRODUCT_DIR)/snapshot_blob.bin',
-                  ],
-                }],
-              ],
               'variables': {
                 'mksnapshot_flags': [
                   '--log-snapshot-positions',
@@ -307,11 +285,45 @@
                   }],
                 ],
               },
-              'action': [
-                '<@(_inputs)',
-                '<@(mksnapshot_flags)',
-                '<@(INTERMEDIATE_DIR)/snapshot.cc',
-                '--startup_blob', '<(PRODUCT_DIR)/snapshot_blob.bin',
+              'conditions': [
+                ['want_separate_host_toolset==1', {
+                  'target_conditions': [
+                    ['_toolset=="host"', {
+                      'outputs': [
+                        '<(INTERMEDIATE_DIR)/snapshot.cc',
+                        '<(PRODUCT_DIR)/snapshot_blob_host.bin',
+                      ],
+                      'action': [
+                        '<@(_inputs)',
+                        '<@(mksnapshot_flags)',
+                        '<@(INTERMEDIATE_DIR)/snapshot.cc',
+                        '--startup_blob', '<(PRODUCT_DIR)/snapshot_blob_host.bin',
+                      ],
+                    }, {
+                      'outputs': [
+                        '<(INTERMEDIATE_DIR)/snapshot.cc',
+                        '<(PRODUCT_DIR)/snapshot_blob.bin',
+                      ],
+                      'action': [
+                        '<@(_inputs)',
+                        '<@(mksnapshot_flags)',
+                        '<@(INTERMEDIATE_DIR)/snapshot.cc',
+                        '--startup_blob', '<(PRODUCT_DIR)/snapshot_blob.bin',
+                      ],
+                    }],
+                  ],
+                }, {
+                  'outputs': [
+                    '<(INTERMEDIATE_DIR)/snapshot.cc',
+                    '<(PRODUCT_DIR)/snapshot_blob.bin',
+                  ],
+                  'action': [
+                    '<@(_inputs)',
+                    '<@(mksnapshot_flags)',
+                    '<@(INTERMEDIATE_DIR)/snapshot.cc',
+                    '--startup_blob', '<(PRODUCT_DIR)/snapshot_blob.bin',
+                  ],
+                }],
               ],
             },
           ],
@@ -347,6 +359,8 @@
         '../../src/assembler.h',
         '../../src/assert-scope.h',
         '../../src/assert-scope.cc',
+        '../../src/ast-this-access-visitor.cc',
+        '../../src/ast-this-access-visitor.h',
         '../../src/ast-value-factory.cc',
         '../../src/ast-value-factory.h',
         '../../src/ast-numbering.cc',
@@ -409,17 +423,14 @@
         '../../src/compiler/common-operator.h',
         '../../src/compiler/control-builders.cc',
         '../../src/compiler/control-builders.h',
+        '../../src/compiler/control-equivalence.h',
         '../../src/compiler/control-reducer.cc',
         '../../src/compiler/control-reducer.h',
         '../../src/compiler/diamond.h',
         '../../src/compiler/frame.h',
         '../../src/compiler/gap-resolver.cc',
         '../../src/compiler/gap-resolver.h',
-        '../../src/compiler/generic-algorithm-inl.h',
         '../../src/compiler/generic-algorithm.h',
-        '../../src/compiler/generic-graph.h',
-        '../../src/compiler/generic-node-inl.h',
-        '../../src/compiler/generic-node.h',
         '../../src/compiler/graph-builder.cc',
         '../../src/compiler/graph-builder.h',
         '../../src/compiler/graph-inl.h',
@@ -453,15 +464,21 @@
         '../../src/compiler/js-operator.h',
         '../../src/compiler/js-typed-lowering.cc',
         '../../src/compiler/js-typed-lowering.h',
+        '../../src/compiler/jump-threading.cc',
+        '../../src/compiler/jump-threading.h',
         '../../src/compiler/linkage-impl.h',
         '../../src/compiler/linkage.cc',
         '../../src/compiler/linkage.h',
+        '../../src/compiler/load-elimination.cc',
+        '../../src/compiler/load-elimination.h',
         '../../src/compiler/machine-operator-reducer.cc',
         '../../src/compiler/machine-operator-reducer.h',
         '../../src/compiler/machine-operator.cc',
         '../../src/compiler/machine-operator.h',
         '../../src/compiler/machine-type.cc',
         '../../src/compiler/machine-type.h',
+        '../../src/compiler/move-optimizer.cc',
+        '../../src/compiler/move-optimizer.h',
         '../../src/compiler/node-aux-data-inl.h',
         '../../src/compiler/node-aux-data.h',
         '../../src/compiler/node-cache.cc',
@@ -476,7 +493,6 @@
         '../../src/compiler/operator-properties.h',
         '../../src/compiler/operator.cc',
         '../../src/compiler/operator.h',
-        '../../src/compiler/phi-reducer.h',
         '../../src/compiler/pipeline.cc',
         '../../src/compiler/pipeline.h',
         '../../src/compiler/pipeline-statistics.cc',
@@ -485,6 +501,8 @@
         '../../src/compiler/raw-machine-assembler.h',
         '../../src/compiler/register-allocator.cc',
         '../../src/compiler/register-allocator.h',
+        '../../src/compiler/register-allocator-verifier.cc',
+        '../../src/compiler/register-allocator-verifier.h',
         '../../src/compiler/register-configuration.cc',
         '../../src/compiler/register-configuration.h',
         '../../src/compiler/representation-change.h',
@@ -692,6 +710,9 @@
         '../../src/jsregexp-inl.h',
         '../../src/jsregexp.cc',
         '../../src/jsregexp.h',
+	'../../src/layout-descriptor-inl.h',
+	'../../src/layout-descriptor.cc',
+	'../../src/layout-descriptor.h',
         '../../src/list-inl.h',
         '../../src/list.h',
         '../../src/lithium-allocator-inl.h',
@@ -786,7 +807,6 @@
         '../../src/runtime/runtime-utils.h',
         '../../src/runtime/runtime.cc',
         '../../src/runtime/runtime.h',
-        '../../src/runtime/string-builder.h',
         '../../src/safepoint-table.cc',
         '../../src/safepoint-table.h',
         '../../src/sampler.cc',
@@ -806,6 +826,8 @@
         '../../src/snapshot.h',
         '../../src/snapshot-source-sink.cc',
         '../../src/snapshot-source-sink.h',
+        '../../src/string-builder.cc',
+        '../../src/string-builder.h',
         '../../src/string-search.cc',
         '../../src/string-search.h',
         '../../src/string-stream.cc',
@@ -1111,6 +1133,10 @@
             '../../src/mips64/regexp-macro-assembler-mips64.cc',
             '../../src/mips64/regexp-macro-assembler-mips64.h',
             '../../src/mips64/simulator-mips64.cc',
+            '../../src/compiler/mips64/code-generator-mips64.cc',
+            '../../src/compiler/mips64/instruction-codes-mips64.h',
+            '../../src/compiler/mips64/instruction-selector-mips64.cc',
+            '../../src/compiler/mips64/linkage-mips64.cc',
             '../../src/ic/mips64/access-compiler-mips64.cc',
             '../../src/ic/mips64/handler-compiler-mips64.cc',
             '../../src/ic/mips64/ic-mips64.cc',
@@ -1161,18 +1187,6 @@
             '../../src/compiler/x64/linkage-x64.cc',
           ],
         }],
-        ['OS=="linux"', {
-            'link_settings': {
-              'conditions': [
-                ['v8_compress_startup_data=="bz2"', {
-                  'libraries': [
-                    '-lbz2',
-                  ]
-                }],
-              ],
-            },
-          }
-        ],
         ['OS=="win"', {
           'variables': {
             'gyp_generators': '<!(echo $GYP_GENERATORS)',
@@ -1422,7 +1436,7 @@
         ['OS=="solaris"', {
             'link_settings': {
               'libraries': [
-                '-lnsl',
+                '-lnsl -lrt',
             ]},
             'sources': [
               '../../src/base/platform/platform-solaris.cc',
@@ -1623,6 +1637,7 @@
           '../../src/harmony-tostring.js',
           '../../src/harmony-typedarray.js',
           '../../src/harmony-classes.js',
+          '../../src/harmony-templates.js'
         ],
         'libraries_bin_file': '<(SHARED_INTERMEDIATE_DIR)/libraries.bin',
         'libraries_experimental_bin_file': '<(SHARED_INTERMEDIATE_DIR)/libraries-experimental.bin',
@@ -1643,7 +1658,6 @@
             '../../tools/js2c.py',
             '<(SHARED_INTERMEDIATE_DIR)/libraries.cc',
             'CORE',
-            '<(v8_compress_startup_data)',
             '<@(library_files)',
             '<@(i18n_library_files)',
           ],
@@ -1670,7 +1684,6 @@
             '../../tools/js2c.py',
             '<(SHARED_INTERMEDIATE_DIR)/experimental-libraries.cc',
             'EXPERIMENTAL',
-            '<(v8_compress_startup_data)',
             '<@(experimental_library_files)'
           ],
           'conditions': [
@@ -1733,11 +1746,6 @@
           'toolsets': ['host'],
         }, {
           'toolsets': ['target'],
-        }],
-        ['v8_compress_startup_data=="bz2"', {
-          'libraries': [
-            '-lbz2',
-          ]
         }],
       ],
     },

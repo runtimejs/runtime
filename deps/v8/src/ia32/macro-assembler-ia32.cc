@@ -1356,10 +1356,10 @@ void MacroAssembler::LoadFromNumberDictionary(Label* miss,
   }
 
   bind(&done);
-  // Check that the value is a normal propety.
+  // Check that the value is a field property.
   const int kDetailsOffset =
       SeededNumberDictionary::kElementsStartOffset + 2 * kPointerSize;
-  DCHECK_EQ(NORMAL, 0);
+  DCHECK_EQ(FIELD, 0);
   test(FieldOperand(elements, r2, times_pointer_size, kDetailsOffset),
        Immediate(PropertyDetails::TypeField::kMask << kSmiTagSize));
   j(not_zero, miss);
@@ -2580,6 +2580,21 @@ void MacroAssembler::PushHeapObject(Handle<HeapObject> object) {
 }
 
 
+void MacroAssembler::CmpWeakValue(Register value, Handle<WeakCell> cell,
+                                  Register scratch) {
+  mov(scratch, cell);
+  cmp(value, FieldOperand(scratch, WeakCell::kValueOffset));
+}
+
+
+void MacroAssembler::LoadWeakValue(Register value, Handle<WeakCell> cell,
+                                   Label* miss) {
+  mov(value, cell);
+  mov(value, FieldOperand(value, WeakCell::kValueOffset));
+  JumpIfSmi(value, miss);
+}
+
+
 void MacroAssembler::Ret() {
   ret(0);
 }
@@ -3154,18 +3169,6 @@ void MacroAssembler::CheckPageFlagForMap(
     test(Operand::StaticVariable(reference), Immediate(mask));
   }
   j(cc, condition_met, condition_met_distance);
-}
-
-
-void MacroAssembler::CheckMapDeprecated(Handle<Map> map,
-                                        Register scratch,
-                                        Label* if_deprecated) {
-  if (map->CanBeDeprecated()) {
-    mov(scratch, map);
-    mov(scratch, FieldOperand(scratch, Map::kBitField3Offset));
-    and_(scratch, Immediate(Map::Deprecated::kMask));
-    j(not_zero, if_deprecated);
-  }
 }
 
 

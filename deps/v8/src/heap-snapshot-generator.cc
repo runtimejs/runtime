@@ -1167,13 +1167,10 @@ void V8HeapExplorer::ExtractJSObjectReferences(
                          "native_context", global_obj->native_context(),
                          GlobalObject::kNativeContextOffset);
     SetInternalReference(global_obj, entry,
-                         "global_context", global_obj->global_context(),
-                         GlobalObject::kGlobalContextOffset);
-    SetInternalReference(global_obj, entry,
                          "global_proxy", global_obj->global_proxy(),
                          GlobalObject::kGlobalProxyOffset);
     STATIC_ASSERT(GlobalObject::kHeaderSize - JSObject::kHeaderSize ==
-                 4 * kPointerSize);
+                 3 * kPointerSize);
   } else if (obj->IsJSArrayBufferView()) {
     JSArrayBufferView* view = JSArrayBufferView::cast(obj);
     SetInternalReference(view, entry, "buffer", view->buffer(),
@@ -1282,7 +1279,7 @@ void V8HeapExplorer::ExtractContextReferences(int entry, Context* context) {
                   Context::FIRST_WEAK_SLOT);
     STATIC_ASSERT(Context::NEXT_CONTEXT_LINK + 1 ==
                   Context::NATIVE_CONTEXT_SLOTS);
-    STATIC_ASSERT(Context::FIRST_WEAK_SLOT + 5 ==
+    STATIC_ASSERT(Context::FIRST_WEAK_SLOT + 4 ==
                   Context::NATIVE_CONTEXT_SLOTS);
   }
 }
@@ -1673,9 +1670,6 @@ void V8HeapExplorer::ExtractPropertyReferences(JSObject* js_obj, int entry) {
           ExtractAccessorPairProperty(
               js_obj, entry,
               descs->GetKey(i), descs->GetValue(i));
-          break;
-        case NORMAL:  // only in slow mode
-          UNREACHABLE();
           break;
       }
     }
@@ -2164,6 +2158,9 @@ const char* V8HeapExplorer::GetStrongGcSubrootName(Object* object) {
 #undef STRING_NAME
 #define SYMBOL_NAME(name) NAME_ENTRY(name)
     PRIVATE_SYMBOL_LIST(SYMBOL_NAME)
+#undef SYMBOL_NAME
+#define SYMBOL_NAME(name, varname, description) NAME_ENTRY(name)
+    PUBLIC_SYMBOL_LIST(SYMBOL_NAME)
 #undef SYMBOL_NAME
 #undef NAME_ENTRY
     CHECK(!strong_gc_subroot_names_.is_empty());

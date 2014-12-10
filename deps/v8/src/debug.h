@@ -390,6 +390,9 @@ class Debug {
   void FloodWithOneShot(Handle<JSFunction> function,
                         BreakLocatorType type = ALL_BREAK_LOCATIONS);
   void FloodBoundFunctionWithOneShot(Handle<JSFunction> function);
+  void FloodDefaultConstructorWithOneShot(Handle<JSFunction> function);
+  void FloodWithOneShotGeneric(Handle<JSFunction> function,
+                               Handle<Object> holder = Handle<Object>());
   void FloodHandlerWithOneShot();
   void ChangeBreakOnException(ExceptionBreakType type, bool enable);
   bool IsBreakOnException(ExceptionBreakType type);
@@ -500,6 +503,8 @@ class Debug {
     return reinterpret_cast<Address>(&thread_local_.step_into_fp_);
   }
 
+  StepAction last_step_action() { return thread_local_.last_step_action_; }
+
  private:
   explicit Debug(Isolate* isolate);
 
@@ -512,6 +517,9 @@ class Debug {
   // Check whether there are commands in the command queue.
   inline bool has_commands() const { return !command_queue_.IsEmpty(); }
   inline bool ignore_events() const { return is_suppressed_ || !is_active_; }
+  inline bool break_disabled() const {
+    return break_disabled_ || in_debug_event_listener_;
+  }
 
   void OnException(Handle<Object> exception, bool uncaught,
                    Handle<Object> promise);
@@ -589,6 +597,7 @@ class Debug {
   bool live_edit_enabled_;
   bool has_break_points_;
   bool break_disabled_;
+  bool in_debug_event_listener_;
   bool break_on_exception_;
   bool break_on_uncaught_exception_;
 
@@ -699,14 +708,21 @@ class DebugScope BASE_EMBEDDED {
 class DisableBreak BASE_EMBEDDED {
  public:
   explicit DisableBreak(Debug* debug, bool disable_break)
-    : debug_(debug), old_state_(debug->break_disabled_) {
+      : debug_(debug),
+        previous_break_disabled_(debug->break_disabled_),
+        previous_in_debug_event_listener_(debug->in_debug_event_listener_) {
     debug_->break_disabled_ = disable_break;
+    debug_->in_debug_event_listener_ = disable_break;
   }
-  ~DisableBreak() { debug_->break_disabled_ = old_state_; }
+  ~DisableBreak() {
+    debug_->break_disabled_ = previous_break_disabled_;
+    debug_->in_debug_event_listener_ = previous_in_debug_event_listener_;
+  }
 
  private:
   Debug* debug_;
-  bool old_state_;
+  bool previous_break_disabled_;
+  bool previous_in_debug_event_listener_;
   DISALLOW_COPY_AND_ASSIGN(DisableBreak);
 };
 
