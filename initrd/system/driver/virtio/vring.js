@@ -143,6 +143,11 @@ AvailableRing.prototype.incrementIdx = function() {
   ++self.availableRing[self.AVAILABLE_RING_INDEX_IDX];
 };
 
+AvailableRing.prototype.setEventIdx = function(value) {
+  var self = this;
+  self.availableRing[self.AVAILABLE_RING_INDEX_USED_EVENT] = value >>> 0;
+};
+
 AvailableRing.prototype.setRing = function(index, value) {
   var self = this;
   self.availableRing[self.AVAILABLE_RING_INDEX_RING + index] = value;
@@ -222,6 +227,8 @@ function VRing(mem, byteOffset, ringSize) {
   this.descriptorTable = new DescriptorTable(mem.buffer, byteOffset, ringSize);
   this.availableRing = new AvailableRing(mem.buffer, byteOffset + offsetAvailableRing, ringSize);
   this.usedRing = new UsedRing(mem.buffer, byteOffset + offsetUsedRing, ringSize);
+  this.availableRing.setEventIdx(this.usedRing.lastUsedIndex);
+  this.availableRing.enableInterrupts();
 }
 
 
@@ -249,7 +256,6 @@ VRing.prototype.getBuffer = function() {
   var self = this;
   var VRING_DESC_F_NEXT = 1;
 
-  self.availableRing.disableInterrupts();
   var hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
   self.availableRing.enableInterrupts();
 
@@ -261,6 +267,8 @@ VRing.prototype.getBuffer = function() {
   if (null === used) {
     return null;
   }
+
+  self.availableRing.setEventIdx(self.usedRing.lastUsedIndex);
 
   var descriptorId = used.id;
 

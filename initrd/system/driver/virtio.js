@@ -65,6 +65,8 @@ function initializeNetworkDevice(pci, allocator) {
     VIRTIO_NET_F_CTRL_RX: 18,
     VIRTIO_NET_F_CTRL_VLAN: 19,
     VIRTIO_NET_F_GUEST_ANNOUNCE: 21,
+
+    VIRTIO_RING_F_EVENT_IDX: 29,
   };
 
   var dev = new VirtioDevice('net', pci, allocator);
@@ -76,6 +78,7 @@ function initializeNetworkDevice(pci, allocator) {
     // VIRTIO_NET_F_CSUM: true,   // checksum offload
     // VIRTIO_NET_F_GUEST_CSUM: true,   // ok without cksum
     // VIRTIO_NET_F_GSO: true,
+    VIRTIO_RING_F_EVENT_IDX: true, // able to suppress interrupts
   };
 
   var deviceFeatures = dev.readDeviceFeatures(features);
