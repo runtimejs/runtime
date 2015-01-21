@@ -26,14 +26,14 @@
 
   function factor(n) {
     var a = [],
-        lim = ~~n,
-        cofactor;
+      lim = ~~n,
+      cofactor;
     for (var d = 2; d <= lim; d++) {
-        cofactor = ~~(lim / d);
-        if (cofactor * d === lim) {
-            lim = cofactor;
-            a.push(d--);
-        }
+      cofactor = ~~(lim / d);
+      if (cofactor * d === lim) {
+        lim = cofactor;
+        a.push(d--);
+      }
     }
     return a;
   }
