@@ -98,6 +98,8 @@ Documentation
 ----
 [Wiki pages](https://github.com/runtimejs/runtime/wiki)
 
+[Developer CLI](https://www.npmjs.com/package/runtime-cli)
+
 License
 ----
 Apache License, Version 2.0
