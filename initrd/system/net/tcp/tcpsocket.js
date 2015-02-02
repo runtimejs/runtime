@@ -96,6 +96,14 @@ TCPServerSocket.prototype.close = function() {
   this.listeningPort = 0;
 };
 
+TCPServerSocket.prototype.connGet = function(remoteIP, remotePort) {
+  return this.connections[connHash(remoteIP, remotePort)];
+};
+
+TCPServerSocket.prototype.connSet = function(remoteIP, remotePort, socket) {
+  this.connections[connHash(remoteIP, remotePort)] = socket;
+};
+
 TCPServerSocket.prototype.accept = function(intf, remoteIP, remotePort, seqNumber, windowSize) {
   if (!(this instanceof TCPServerSocket)) throw new Error('instanceof check failed');
 
@@ -105,21 +113,57 @@ TCPServerSocket.prototype.accept = function(intf, remoteIP, remotePort, seqNumbe
 
   var socket = new tcpConn.TCPConnectionSocket(intf);
   socket.accept(remoteIP, remotePort, this.listeningPort, seqNumber, windowSize);
-  this.connections[connHash(remoteIP, remotePort)] = socket;
+  this.connSet(remoteIP, remotePort, socket);
   return socket;
 };
+
+function socketInit(connPipe, socket) {
+  var writePipe = isolate.createPipe();
+  var readPipe = isolate.createPipe();
+  var socketHandle = tcpConnectionsSocketPool.createHandle();
+  tcpConnections.set(socketHandle, socket);
+  socket.writePipe = writePipe;
+  socket.readPipe = readPipe;
+
+  function read() {
+    writePipe.pull(wpp);
+  }
+
+  function wpp(v) {
+    if (!v) {
+      return socket.close();
+    }
+
+    socket.sendData(v);
+    read();
+  }
+
+  read();
+  connPipe.push([socketHandle, writePipe, readPipe]);
+}
+
+TCPServerSocket.prototype.recvAccept = function(intf, ip4Header, tcpHeader) {
+  var remoteIP = ip4Header.srcIP;
+  var remotePort = tcpHeader.srcPort;
+  var socket = this.accept(intf, remoteIP, remotePort, tcpHeader.seqNumber, tcpHeader.windowSize);
+  if (socket) {
+    socketInit(this.connPipe, socket);
+  }
+}
+
+TCPServerSocket.prototype.recvData = function(ip4Header, tcpHeader, buf, len, dataOffset) {
+  var remoteIP = ip4Header.srcIP;
+  var remotePort = tcpHeader.srcPort;
+  var conn = this.connGet(remoteIP, remotePort);
+  if (conn) {
+    conn.recv(ip4Header, tcpHeader, buf, len, dataOffset);
+  }
+}
 
 TCPServerSocket.prototype.recv = function(intf, ip4Header, tcpHeader, buf, len, dataOffset) {
   if (!(this instanceof TCPServerSocket)) throw new Error('instanceof check failed');
 
-  var remoteIP = ip4Header.srcIP;
-  var remotePort = tcpHeader.srcPort;
-
-  var conn = this.connections[connHash(remoteIP, remotePort)];
-  if (conn) {
-    conn.recv(ip4Header, tcpHeader, buf, len, dataOffset);
-    return;
-  }
+  var self = this;
 
   if (!this.isListening) {
     // TODO: Send reset
@@ -127,29 +171,13 @@ TCPServerSocket.prototype.recv = function(intf, ip4Header, tcpHeader, buf, len, 
   }
 
   if (tcpHeader.flags & tcp.flags.SYN) {
-    var socket = this.accept(intf, remoteIP, remotePort, tcpHeader.seqNumber, tcpHeader.windowSize);
-
-    if (socket) {
-      var writePipe = isolate.createPipe();
-      var readPipe = isolate.createPipe();
-      var socketHandle = tcpConnectionsSocketPool.createHandle();
-      tcpConnections.set(socketHandle, socket);
-      socket.writePipe = writePipe;
-      socket.readPipe = readPipe;
-
-      writePipe.pull(function wpp(v) {
-        if (!v) {
-          return socket.close();
-        }
-
-        socket.sendData(v);
-        writePipe.pull(wpp);
-      });
-
-      this.connPipe.push([socketHandle, writePipe, readPipe]);
-    }
-
-    return;
+    (function() {
+      self.recvAccept(intf, ip4Header, tcpHeader);
+    })();
+  } else {
+    (function() {
+      self.recvData(ip4Header, tcpHeader, buf, len, dataOffset);
+    })();
   }
 };
 
