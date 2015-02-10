@@ -47,13 +47,28 @@ class CPU FINAL {
   static const int NVIDIA = 0x4e;
   static const int QUALCOMM = 0x51;
   int architecture() const { return architecture_; }
+  int variant() const { return variant_; }
+  static const int NVIDIA_DENVER = 0x0;
   int part() const { return part_; }
+
+  // ARM-specific part codes
   static const int ARM_CORTEX_A5 = 0xc05;
   static const int ARM_CORTEX_A7 = 0xc07;
   static const int ARM_CORTEX_A8 = 0xc08;
   static const int ARM_CORTEX_A9 = 0xc09;
   static const int ARM_CORTEX_A12 = 0xc0c;
   static const int ARM_CORTEX_A15 = 0xc0f;
+
+  // PPC-specific part codes
+  enum {
+    PPC_POWER5,
+    PPC_POWER6,
+    PPC_POWER7,
+    PPC_POWER8,
+    PPC_G4,
+    PPC_G5,
+    PPC_PA6T
+  };
 
   // General features
   bool has_fpu() const { return has_fpu_; }
@@ -68,8 +83,10 @@ class CPU FINAL {
   bool has_ssse3() const { return has_ssse3_; }
   bool has_sse41() const { return has_sse41_; }
   bool has_sse42() const { return has_sse42_; }
+  bool has_osxsave() const { return has_osxsave_; }
   bool has_avx() const { return has_avx_; }
   bool has_fma3() const { return has_fma3_; }
+  bool is_atom() const { return is_atom_; }
 
   // arm features
   bool has_idiva() const { return has_idiva_; }
@@ -92,6 +109,7 @@ class CPU FINAL {
   int type_;
   int implementer_;
   int architecture_;
+  int variant_;
   int part_;
   bool has_fpu_;
   bool has_cmov_;
@@ -103,6 +121,8 @@ class CPU FINAL {
   bool has_ssse3_;
   bool has_sse41_;
   bool has_sse42_;
+  bool is_atom_;
+  bool has_osxsave_;
   bool has_avx_;
   bool has_fma3_;
   bool has_idiva_;

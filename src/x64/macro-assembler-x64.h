@@ -846,6 +846,8 @@ class MacroAssembler: public Assembler {
   // Compare the given value and the value of weak cell.
   void CmpWeakValue(Register value, Handle<WeakCell> cell, Register scratch);
 
+  void GetWeakValue(Register value, Handle<WeakCell> cell);
+
   // Load the value of the weak cell in the value register. Branch to the given
   // miss label if the weak cell was cleared.
   void LoadWeakValue(Register value, Handle<WeakCell> cell, Label* miss);
@@ -893,6 +895,8 @@ class MacroAssembler: public Assembler {
 
   void Move(XMMRegister dst, uint32_t src);
   void Move(XMMRegister dst, uint64_t src);
+  void Move(XMMRegister dst, float src) { Move(dst, bit_cast<uint32_t>(src)); }
+  void Move(XMMRegister dst, double src) { Move(dst, bit_cast<uint64_t>(src)); }
 
   // Control Flow
   void Jump(Address destination, RelocInfo::Mode rmode);
@@ -992,14 +996,12 @@ class MacroAssembler: public Assembler {
                 Label* fail,
                 SmiCheckType smi_check_type);
 
-  // Check if the map of an object is equal to a specified map and branch to a
-  // specified target if equal. Skip the smi check if not required (object is
-  // known to be a heap object)
-  void DispatchMap(Register obj,
-                   Register unused,
-                   Handle<Map> map,
-                   Handle<Code> success,
-                   SmiCheckType smi_check_type);
+  // Check if the map of an object is equal to a specified weak map and branch
+  // to a specified target if equal. Skip the smi check if not required
+  // (object is known to be a heap object)
+  void DispatchWeakMap(Register obj, Register scratch1, Register scratch2,
+                       Handle<WeakCell> cell, Handle<Code> success,
+                       SmiCheckType smi_check_type);
 
   // Check if the object in register heap_object is a string. Afterwards the
   // register map contains the object map and the register instance_type
@@ -1046,6 +1048,8 @@ class MacroAssembler: public Assembler {
   void LoadInstanceDescriptors(Register map, Register descriptors);
   void EnumLength(Register dst, Register map);
   void NumberOfOwnDescriptors(Register dst, Register map);
+  void LoadAccessor(Register dst, Register holder, int accessor_index,
+                    AccessorComponent accessor);
 
   template<typename Field>
   void DecodeField(Register reg) {
@@ -1327,24 +1331,6 @@ class MacroAssembler: public Assembler {
 
   // Jump to a runtime routine.
   void JumpToExternalReference(const ExternalReference& ext, int result_size);
-
-  // Prepares stack to put arguments (aligns and so on).  WIN64 calling
-  // convention requires to put the pointer to the return value slot into
-  // rcx (rcx must be preserverd until CallApiFunctionAndReturn).  Saves
-  // context (rsi).  Clobbers rax.  Allocates arg_stack_space * kPointerSize
-  // inside the exit frame (not GCed) accessible via StackSpaceOperand.
-  void PrepareCallApiFunction(int arg_stack_space);
-
-  // Calls an API function.  Allocates HandleScope, extracts returned value
-  // from handle and propagates exceptions.  Clobbers r14, r15, rbx and
-  // caller-save registers.  Restores context.  On return removes
-  // stack_space * kPointerSize (GCed).
-  void CallApiFunctionAndReturn(Register function_address,
-                                ExternalReference thunk_ref,
-                                Register thunk_last_arg,
-                                int stack_space,
-                                Operand return_value_operand,
-                                Operand* context_restore_operand);
 
   // Before calling a C-function from generated code, align arguments on stack.
   // After aligning the frame, arguments must be stored in rsp[0], rsp[8],

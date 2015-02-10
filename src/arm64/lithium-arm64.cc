@@ -142,6 +142,20 @@ void LInnerAllocatedObject::PrintDataTo(StringStream* stream) {
 }
 
 
+void LCallFunction::PrintDataTo(StringStream* stream) {
+  context()->PrintTo(stream);
+  stream->Add(" ");
+  function()->PrintTo(stream);
+  if (hydrogen()->HasVectorAndSlot()) {
+    stream->Add(" (type-feedback-vector ");
+    temp_vector()->PrintTo(stream);
+    stream->Add(" ");
+    temp_slot()->PrintTo(stream);
+    stream->Add(")");
+  }
+}
+
+
 void LInvokeFunction::PrintDataTo(StringStream* stream) {
   stream->Add("= ");
   function()->PrintTo(stream);
@@ -1053,7 +1067,15 @@ LInstruction* LChunkBuilder::DoCallWithDescriptor(
 LInstruction* LChunkBuilder::DoCallFunction(HCallFunction* instr) {
   LOperand* context = UseFixed(instr->context(), cp);
   LOperand* function = UseFixed(instr->function(), x1);
-  LCallFunction* call = new(zone()) LCallFunction(context, function);
+  LOperand* slot = NULL;
+  LOperand* vector = NULL;
+  if (instr->HasVectorAndSlot()) {
+    slot = FixedTemp(x3);
+    vector = FixedTemp(x2);
+  }
+
+  LCallFunction* call =
+      new (zone()) LCallFunction(context, function, slot, vector);
   return MarkAsCall(DefineFixed(call, x0), instr);
 }
 
@@ -1564,9 +1586,17 @@ LInstruction* LChunkBuilder::DoTailCallThroughMegamorphicCache(
       UseFixed(instr->receiver(), LoadDescriptor::ReceiverRegister());
   LOperand* name_register =
       UseFixed(instr->name(), LoadDescriptor::NameRegister());
+  LOperand* slot = NULL;
+  LOperand* vector = NULL;
+  if (FLAG_vector_ics) {
+    slot = UseFixed(instr->slot(), VectorLoadICDescriptor::SlotRegister());
+    vector =
+        UseFixed(instr->vector(), VectorLoadICDescriptor::VectorRegister());
+  }
+
   // Not marked as call. It can't deoptimize, and it never returns.
   return new (zone()) LTailCallThroughMegamorphicCache(
-      context, receiver_register, name_register);
+      context, receiver_register, name_register, slot, vector);
 }
 
 
@@ -1675,7 +1705,7 @@ LInstruction* LChunkBuilder::DoLoadGlobalGeneric(HLoadGlobalGeneric* instr) {
   LOperand* global_object =
       UseFixed(instr->global_object(), LoadDescriptor::ReceiverRegister());
   LOperand* vector = NULL;
-  if (FLAG_vector_ics) {
+  if (instr->HasVectorAndSlot()) {
     vector = FixedTemp(VectorLoadICDescriptor::VectorRegister());
   }
 
@@ -1738,7 +1768,7 @@ LInstruction* LChunkBuilder::DoLoadKeyedGeneric(HLoadKeyedGeneric* instr) {
       UseFixed(instr->object(), LoadDescriptor::ReceiverRegister());
   LOperand* key = UseFixed(instr->key(), LoadDescriptor::NameRegister());
   LOperand* vector = NULL;
-  if (FLAG_vector_ics) {
+  if (instr->HasVectorAndSlot()) {
     vector = FixedTemp(VectorLoadICDescriptor::VectorRegister());
   }
 
@@ -1760,7 +1790,7 @@ LInstruction* LChunkBuilder::DoLoadNamedGeneric(HLoadNamedGeneric* instr) {
   LOperand* object =
       UseFixed(instr->object(), LoadDescriptor::ReceiverRegister());
   LOperand* vector = NULL;
-  if (FLAG_vector_ics) {
+  if (instr->HasVectorAndSlot()) {
     vector = FixedTemp(VectorLoadICDescriptor::VectorRegister());
   }
 
@@ -1955,7 +1985,9 @@ LInstruction* LChunkBuilder::DoMul(HMul* instr) {
                                        : UseRegisterAtStart(least_const);
         LInstruction* result =
             DefineAsRegister(new(zone()) LMulConstIS(left, right));
-        if ((bailout_on_minus_zero && constant <= 0) || can_overflow) {
+        if ((bailout_on_minus_zero && constant <= 0) ||
+            (can_overflow && constant != 1 &&
+             base::bits::IsPowerOfTwo32(constant_abs))) {
           result = AssignEnvironment(result);
         }
         return result;

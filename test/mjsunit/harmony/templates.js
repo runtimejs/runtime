@@ -253,7 +253,7 @@ var obj = {
   //   The TRV of CharacterEscapeSequence :: NonEscapeCharacter is the CV of the
   //   NonEscapeCharacter.
   calls = 0;
-  (function(s) { calls++; assertEquals("\u005Cx", s.raw[0]); })`\x`;
+  (function(s) { calls++; assertEquals("\u005Cz", s.raw[0]); })`\z`;
   assertEquals(1, calls);
 
   // The TRV of LineTerminatorSequence :: <LF> is the code unit value 0x000A.
@@ -470,4 +470,51 @@ var obj = {
   {
     // block
   }`jkl`;
+})();
+
+
+(function testLegacyOctal() {
+  assertEquals('\u0000', `\0`);
+  assertEquals('\u0000a', `\0a`);
+  for (var i = 0; i < 8; i++) {
+    var code = "`\\0" + i + "`";
+    assertThrows(code, SyntaxError);
+    code = "(function(){})" + code;
+    assertThrows(code, SyntaxError);
+  }
+
+  assertEquals('\\0', String.raw`\0`);
+})();
+
+
+(function testSyntaxErrorsNonEscapeCharacter() {
+  assertThrows("`\\x`", SyntaxError);
+  assertThrows("`\\u`", SyntaxError);
+  for (var i = 1; i < 8; i++) {
+    var code = "`\\" + i + "`";
+    assertThrows(code, SyntaxError);
+    code = "(function(){})" + code;
+    assertThrows(code, SyntaxError);
+  }
+})();
+
+
+(function testValidNumericEscapes() {
+  assertEquals("8", `\8`);
+  assertEquals("9", `\9`);
+  assertEquals("\u00008", `\08`);
+  assertEquals("\u00009", `\09`);
+})();
+
+
+(function testLegacyOctalEscapesInExpressions() {
+  // Allowed in sloppy expression
+  assertEquals("\x07", `${"\07"}`);
+
+  // Disallowed in template tail
+  assertThrows("`${\"\\07\"}\\07`", SyntaxError);
+
+  // Disallowed in strict expression
+  assertThrows("`${(function() { \"use strict\"; return \"\\07\"; })()}`",
+               SyntaxError);
 })();

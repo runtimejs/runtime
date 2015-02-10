@@ -1024,7 +1024,8 @@ TEST(JSONStringifySliceMadeExternal) {
           "var underlying = 'abcdefghijklmnopqrstuvwxyz';"
           "underlying")->ToString(CcTest::isolate());
   v8::Handle<v8::String> slice = CompileRun(
-                                     "var slice = underlying.slice(1);"
+                                     "var slice = '';"
+                                     "slice = underlying.slice(1);"
                                      "slice")->ToString(CcTest::isolate());
   CHECK(v8::Utils::OpenHandle(*slice)->IsSlicedString());
   CHECK(v8::Utils::OpenHandle(*underlying)->IsSeqOneByteString());
@@ -1037,8 +1038,9 @@ TEST(JSONStringifySliceMadeExternal) {
   CHECK(v8::Utils::OpenHandle(*slice)->IsSlicedString());
   CHECK(v8::Utils::OpenHandle(*underlying)->IsExternalTwoByteString());
 
-  CHECK_EQ("\"bcdefghijklmnopqrstuvwxyz\"",
-           *v8::String::Utf8Value(CompileRun("JSON.stringify(slice)")));
+  CHECK_EQ(0,
+           strcmp("\"bcdefghijklmnopqrstuvwxyz\"",
+                  *v8::String::Utf8Value(CompileRun("JSON.stringify(slice)"))));
 }
 
 
@@ -1170,7 +1172,7 @@ TEST(TrivialSlice) {
   CHECK(result->IsString());
   string = v8::Utils::OpenHandle(v8::String::Cast(*result));
   CHECK(string->IsSlicedString());
-  CHECK_EQ("bcdefghijklmnopqrstuvwxy", string->ToCString().get());
+  CHECK_EQ(0, strcmp("bcdefghijklmnopqrstuvwxy", string->ToCString().get()));
 }
 
 
@@ -1183,7 +1185,7 @@ TEST(SliceFromSlice) {
   v8::Local<v8::Value> result;
   Handle<String> string;
   const char* init = "var str = 'abcdefghijklmnopqrstuvwxyz';";
-  const char* slice = "var slice = str.slice(1,-1); slice";
+  const char* slice = "var slice = ''; slice = str.slice(1,-1); slice";
   const char* slice_from_slice = "slice.slice(1,-1);";
 
   CompileRun(init);
@@ -1192,14 +1194,14 @@ TEST(SliceFromSlice) {
   string = v8::Utils::OpenHandle(v8::String::Cast(*result));
   CHECK(string->IsSlicedString());
   CHECK(SlicedString::cast(*string)->parent()->IsSeqString());
-  CHECK_EQ("bcdefghijklmnopqrstuvwxy", string->ToCString().get());
+  CHECK_EQ(0, strcmp("bcdefghijklmnopqrstuvwxy", string->ToCString().get()));
 
   result = CompileRun(slice_from_slice);
   CHECK(result->IsString());
   string = v8::Utils::OpenHandle(v8::String::Cast(*result));
   CHECK(string->IsSlicedString());
   CHECK(SlicedString::cast(*string)->parent()->IsSeqString());
-  CHECK_EQ("cdefghijklmnopqrstuvwx", string->ToCString().get());
+  CHECK_EQ(0, strcmp("cdefghijklmnopqrstuvwx", string->ToCString().get()));
 }
 
 
@@ -1262,7 +1264,7 @@ TEST(RobustSubStringStub) {
   // Ordinary HeapNumbers can be handled (in runtime).
   result = CompileRun("%_SubString(short, Math.sqrt(4), 5.1);");
   string = v8::Utils::OpenHandle(v8::String::Cast(*result));
-  CHECK_EQ("cde", string->ToCString().get());
+  CHECK_EQ(0, strcmp("cde", string->ToCString().get()));
 
   CompileRun("var long = 'abcdefghijklmnopqrstuvwxyz';");
   // Invalid indices.
@@ -1277,7 +1279,7 @@ TEST(RobustSubStringStub) {
   // Ordinary HeapNumbers within bounds can be handled (in runtime).
   result = CompileRun("%_SubString(long, Math.sqrt(4), 17.1);");
   string = v8::Utils::OpenHandle(v8::String::Cast(*result));
-  CHECK_EQ("cdefghijklmnopq", string->ToCString().get());
+  CHECK_EQ(0, strcmp("cdefghijklmnopq", string->ToCString().get()));
 
   // Test that out-of-bounds substring of a slice fails when the indices
   // would have been valid for the underlying string.
@@ -1444,6 +1446,7 @@ TEST(InvalidExternalString) {
     static const int invalid = String::kMaxLength + 1;                         \
     HandleScope scope(isolate);                                                \
     Vector<TYPE> dummy = Vector<TYPE>::New(invalid);                           \
+    memset(dummy.start(), 0x0, dummy.length() * sizeof(TYPE));                 \
     CHECK(isolate->factory()->FUN(Vector<const TYPE>::cast(dummy)).is_null()); \
     memset(dummy.start(), 0x20, dummy.length() * sizeof(TYPE));                \
     CHECK(isolate->has_pending_exception());                                   \

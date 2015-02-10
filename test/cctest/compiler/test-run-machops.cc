@@ -15,10 +15,6 @@
 #if V8_TURBOFAN_TARGET
 
 using namespace v8::base;
-
-#define CHECK_UINT32_EQ(x, y) \
-  CHECK_EQ(static_cast<int32_t>(x), static_cast<int32_t>(y))
-
 using namespace v8::internal;
 using namespace v8::internal::compiler;
 
@@ -451,6 +447,56 @@ TEST(RunLoopIncrementFloat64) {
 }
 
 
+TEST(RunSwitch1) {
+  RawMachineAssemblerTester<int32_t> m;
+
+  int constant = 11223344;
+
+  MLabel block0, block1, end;
+  MLabel* cases[] = {&block0, &block1};
+  m.Switch(m.IntPtrConstant(0), cases, arraysize(cases));
+  m.Bind(&block0);
+  m.Goto(&end);
+  m.Bind(&block1);
+  m.Goto(&end);
+  m.Bind(&end);
+  m.Return(m.Int32Constant(constant));
+
+  CHECK_EQ(constant, m.Call());
+}
+
+
+TEST(RunSwitch2) {
+  RawMachineAssemblerTester<int32_t> m(kMachInt32);
+
+  const size_t kNumCases = 255;
+  int32_t values[kNumCases];
+  m.main_isolate()->random_number_generator()->NextBytes(values,
+                                                         sizeof(values));
+  MLabel end;
+  MLabel* cases[kNumCases];
+  Node* results[kNumCases];
+  for (size_t i = 0; i < kNumCases; ++i) {
+    cases[i] = new (m.main_zone()->New(sizeof(MLabel))) MLabel;
+  }
+  m.Switch(m.ConvertInt32ToIntPtr(m.Parameter(0)), cases, arraysize(cases));
+  for (size_t i = 0; i < kNumCases; ++i) {
+    m.Bind(cases[i]);
+    results[i] = m.Int32Constant(values[i]);
+    m.Goto(&end);
+  }
+  m.Bind(&end);
+  const int num_results = static_cast<int>(arraysize(results));
+  Node* phi =
+      m.NewNode(m.common()->Phi(kMachInt32, num_results), num_results, results);
+  m.Return(phi);
+
+  for (size_t i = 0; i < kNumCases; ++i) {
+    CHECK_EQ(values[i], m.Call(static_cast<int>(i)));
+  }
+}
+
+
 TEST(RunLoadInt32) {
   RawMachineAssemblerTester<int32_t> m;
 
@@ -505,7 +551,7 @@ TEST(RunLoadStoreFloat64Offset) {
       p1 = *j;
       p2 = *j - 5;
       CHECK_EQ(magic, m.Call());
-      CHECK_EQ(p1, p2);
+      CheckDoubleEq(p1, p2);
     }
   }
 }
@@ -763,7 +809,7 @@ TEST(RunInt32AddInBranch) {
   static const int32_t constant = 987654321;
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32Equal(m.Int32Add(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -781,7 +827,7 @@ TEST(RunInt32AddInBranch) {
   }
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32NotEqual(m.Int32Add(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -810,7 +856,7 @@ TEST(RunInt32AddInBranch) {
       m.Return(m.Int32Constant(0 - constant));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i + *j) == 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -827,7 +873,7 @@ TEST(RunInt32AddInBranch) {
       m.Return(m.Int32Constant(0 - constant));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i + *j) != 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -885,7 +931,7 @@ TEST(RunInt32AddInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i + *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -897,7 +943,7 @@ TEST(RunInt32AddInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i + *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -908,7 +954,7 @@ TEST(RunInt32AddInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i + *j) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -919,7 +965,7 @@ TEST(RunInt32AddInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*j + *i) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -971,7 +1017,7 @@ TEST(RunInt32SubP) {
   FOR_UINT32_INPUTS(i) {
     FOR_UINT32_INPUTS(j) {
       uint32_t expected = static_cast<int32_t>(*i - *j);
-      CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+      CHECK_EQ(expected, bt.call(*i, *j));
     }
   }
 }
@@ -984,7 +1030,7 @@ TEST(RunInt32SubImm) {
       m.Return(m.Int32Sub(m.Int32Constant(*i), m.Parameter(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i - *j;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -994,7 +1040,7 @@ TEST(RunInt32SubImm) {
       m.Return(m.Int32Sub(m.Parameter(0), m.Int32Constant(*i)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *j - *i;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1072,8 +1118,8 @@ TEST(RunInt32SubAndWord32ShrP) {
       FOR_UINT32_INPUTS(j) {
         FOR_UINT32_SHIFTS(shift) {
           // Use uint32_t because signed overflow is UB in C.
-          int32_t expected = *i - (*j >> shift);
-          CHECK_UINT32_EQ(expected, m.Call(*i, *j, shift));
+          uint32_t expected = *i - (*j >> shift);
+          CHECK_EQ(expected, m.Call(*i, *j, shift));
         }
       }
     }
@@ -1087,7 +1133,7 @@ TEST(RunInt32SubAndWord32ShrP) {
       FOR_UINT32_SHIFTS(shift) {
         FOR_UINT32_INPUTS(k) {
           // Use uint32_t because signed overflow is UB in C.
-          int32_t expected = (*i >> shift) - *k;
+          uint32_t expected = (*i >> shift) - *k;
           CHECK_EQ(expected, m.Call(*i, shift, *k));
         }
       }
@@ -1100,7 +1146,7 @@ TEST(RunInt32SubInBranch) {
   static const int constant = 987654321;
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32Equal(m.Int32Sub(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -1118,7 +1164,7 @@ TEST(RunInt32SubInBranch) {
   }
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32NotEqual(m.Int32Sub(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -1146,7 +1192,7 @@ TEST(RunInt32SubInBranch) {
       m.Bind(&blockb);
       m.Return(m.Int32Constant(0 - constant));
       FOR_UINT32_INPUTS(j) {
-        int32_t expected = (*i - *j) == 0 ? constant : 0 - constant;
+        uint32_t expected = (*i - *j) == 0 ? constant : 0 - constant;
         CHECK_EQ(expected, m.Call(*j));
       }
     }
@@ -1222,7 +1268,7 @@ TEST(RunInt32SubInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i - *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1234,7 +1280,7 @@ TEST(RunInt32SubInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i - *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1245,7 +1291,7 @@ TEST(RunInt32SubInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i - *j) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1256,7 +1302,7 @@ TEST(RunInt32SubInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*j - *i) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1318,7 +1364,7 @@ TEST(RunInt32MulP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i * *j;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1346,7 +1392,7 @@ TEST(RunInt32MulImm) {
       m.Return(m.Int32Mul(m.Int32Constant(*i), m.Parameter(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i * *j;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1356,7 +1402,7 @@ TEST(RunInt32MulImm) {
       m.Return(m.Int32Mul(m.Parameter(0), m.Int32Constant(*i)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *j * *i;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1527,7 +1573,7 @@ TEST(RunUint32DivP) {
         uint32_t p0 = *i;
         uint32_t p1 = *j;
         if (p1 != 0) {
-          uint32_t expected = static_cast<uint32_t>(p0 / p1);
+          int32_t expected = bit_cast<int32_t>(p0 / p1);
           CHECK_EQ(expected, bt.call(p0, p1));
         }
       }
@@ -1542,7 +1588,7 @@ TEST(RunUint32DivP) {
         uint32_t p0 = *i;
         uint32_t p1 = *j;
         if (p1 != 0) {
-          uint32_t expected = static_cast<uint32_t>(p0 + (p0 / p1));
+          int32_t expected = bit_cast<int32_t>(p0 + (p0 / p1));
           CHECK_EQ(expected, bt.call(p0, p1));
         }
       }
@@ -1588,7 +1634,7 @@ TEST(RunInt32ModP) {
 TEST(RunUint32ModP) {
   {
     RawMachineAssemblerTester<int32_t> m;
-    Int32BinopTester bt(&m);
+    Uint32BinopTester bt(&m);
     bt.AddReturn(m.Uint32Mod(bt.param0, bt.param1));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
@@ -1603,7 +1649,7 @@ TEST(RunUint32ModP) {
   }
   {
     RawMachineAssemblerTester<int32_t> m;
-    Int32BinopTester bt(&m);
+    Uint32BinopTester bt(&m);
     bt.AddReturn(m.Int32Add(bt.param0, m.Uint32Mod(bt.param0, bt.param1)));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
@@ -1626,7 +1672,7 @@ TEST(RunWord32AndP) {
     bt.AddReturn(m.Word32And(bt.param0, bt.param1));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
-        uint32_t expected = *i & *j;
+        int32_t expected = *i & *j;
         CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
@@ -1637,7 +1683,7 @@ TEST(RunWord32AndP) {
     bt.AddReturn(m.Word32And(bt.param0, m.Word32Not(bt.param1)));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
-        uint32_t expected = *i & ~(*j);
+        int32_t expected = *i & ~(*j);
         CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
@@ -1648,7 +1694,7 @@ TEST(RunWord32AndP) {
     bt.AddReturn(m.Word32And(m.Word32Not(bt.param0), bt.param1));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
-        uint32_t expected = ~(*i) & *j;
+        int32_t expected = ~(*i) & *j;
         CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
@@ -1665,7 +1711,7 @@ TEST(RunWord32AndAndWord32ShlP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i << (*j & 0x1f);
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1677,7 +1723,7 @@ TEST(RunWord32AndAndWord32ShlP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i << (0x1f & *j);
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1693,7 +1739,7 @@ TEST(RunWord32AndAndWord32ShrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i >> (*j & 0x1f);
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1705,7 +1751,7 @@ TEST(RunWord32AndAndWord32ShrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i >> (0x1f & *j);
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1732,7 +1778,7 @@ TEST(RunWord32AndAndWord32SarP) {
         m.Word32Sar(bt.param0, m.Word32And(m.Int32Constant(0x1f), bt.param1)));
     FOR_INT32_INPUTS(i) {
       FOR_INT32_INPUTS(j) {
-        uint32_t expected = *i >> (0x1f & *j);
+        int32_t expected = *i >> (0x1f & *j);
         CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
@@ -1747,7 +1793,7 @@ TEST(RunWord32AndImm) {
       m.Return(m.Word32And(m.Int32Constant(*i), m.Parameter(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i & *j;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1757,7 +1803,7 @@ TEST(RunWord32AndImm) {
       m.Return(m.Word32And(m.Int32Constant(*i), m.Word32Not(m.Parameter(0))));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i & ~(*j);
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1768,7 +1814,7 @@ TEST(RunWord32AndInBranch) {
   static const int constant = 987654321;
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32Equal(m.Word32And(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -1786,7 +1832,7 @@ TEST(RunWord32AndInBranch) {
   }
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     MLabel blocka, blockb;
     m.Branch(
         m.Word32NotEqual(m.Word32And(bt.param0, bt.param1), m.Int32Constant(0)),
@@ -1891,7 +1937,7 @@ TEST(RunWord32AndInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i & *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1903,7 +1949,7 @@ TEST(RunWord32AndInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i & *j) == 0;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1914,7 +1960,7 @@ TEST(RunWord32AndInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i & *j) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1925,7 +1971,7 @@ TEST(RunWord32AndInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*j & *i) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1940,7 +1986,7 @@ TEST(RunWord32OrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i | *j;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1951,7 +1997,7 @@ TEST(RunWord32OrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i | ~(*j);
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1962,7 +2008,7 @@ TEST(RunWord32OrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = ~(*i) | *j;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -1976,7 +2022,7 @@ TEST(RunWord32OrImm) {
       m.Return(m.Word32Or(m.Int32Constant(*i), m.Parameter(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i | *j;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -1986,7 +2032,7 @@ TEST(RunWord32OrImm) {
       m.Return(m.Word32Or(m.Int32Constant(*i), m.Word32Not(m.Parameter(0))));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i | ~(*j);
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2113,7 +2159,7 @@ TEST(RunWord32OrInBranch) {
 TEST(RunWord32OrInComparison) {
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     bt.AddReturn(
         m.Word32Equal(m.Word32Or(bt.param0, bt.param1), m.Int32Constant(0)));
     FOR_UINT32_INPUTS(i) {
@@ -2125,7 +2171,7 @@ TEST(RunWord32OrInComparison) {
   }
   {
     RawMachineAssemblerTester<int32_t> m;
-    Uint32BinopTester bt(&m);
+    Int32BinopTester bt(&m);
     bt.AddReturn(
         m.Word32Equal(m.Int32Constant(0), m.Word32Or(bt.param0, bt.param1)));
     FOR_UINT32_INPUTS(i) {
@@ -2142,7 +2188,7 @@ TEST(RunWord32OrInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i | *j) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2153,7 +2199,7 @@ TEST(RunWord32OrInComparison) {
                              m.Int32Constant(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*j | *i) == 0;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2163,11 +2209,11 @@ TEST(RunWord32OrInComparison) {
 TEST(RunWord32XorP) {
   {
     FOR_UINT32_INPUTS(i) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(m.Word32Xor(m.Int32Constant(*i), m.Parameter(0)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i ^ *j;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2177,8 +2223,8 @@ TEST(RunWord32XorP) {
     bt.AddReturn(m.Word32Xor(bt.param0, bt.param1));
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
-        int32_t expected = *i ^ *j;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        uint32_t expected = *i ^ *j;
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -2210,7 +2256,7 @@ TEST(RunWord32XorP) {
       m.Return(m.Word32Xor(m.Int32Constant(*i), m.Word32Not(m.Parameter(0))));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *i ^ ~(*j);
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2233,7 +2279,7 @@ TEST(RunWord32XorInBranch) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i ^ *j) == 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -2251,7 +2297,7 @@ TEST(RunWord32XorInBranch) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i ^ *j) != 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, bt.call(*i, *j));
+        CHECK_EQ(expected, bt.call(*i, *j));
       }
     }
   }
@@ -2268,7 +2314,7 @@ TEST(RunWord32XorInBranch) {
       m.Return(m.Int32Constant(0 - constant));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i ^ *j) == 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2286,7 +2332,7 @@ TEST(RunWord32XorInBranch) {
       m.Return(m.Int32Constant(0 - constant));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = (*i ^ *j) != 0 ? constant : 0 - constant;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2342,7 +2388,7 @@ TEST(RunWord32ShlP) {
       m.Return(m.Word32Shl(m.Parameter(0), m.Int32Constant(shift)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *j << shift;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2353,7 +2399,7 @@ TEST(RunWord32ShlP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = *i << shift;
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
@@ -2369,7 +2415,7 @@ TEST(RunWord32ShlInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == (*i << shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
@@ -2381,31 +2427,31 @@ TEST(RunWord32ShlInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == (*i << shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Int32Constant(0),
                         m.Word32Shl(m.Parameter(0), m.Int32Constant(shift))));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == (*i << shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Word32Shl(m.Parameter(0), m.Int32Constant(shift)),
                         m.Int32Constant(0)));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == (*i << shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
@@ -2419,7 +2465,7 @@ TEST(RunWord32ShrP) {
       m.Return(m.Word32Shr(m.Parameter(0), m.Int32Constant(shift)));
       FOR_UINT32_INPUTS(j) {
         uint32_t expected = *j >> shift;
-        CHECK_UINT32_EQ(expected, m.Call(*j));
+        CHECK_EQ(expected, m.Call(*j));
       }
     }
   }
@@ -2430,10 +2476,10 @@ TEST(RunWord32ShrP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = *i >> shift;
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
-    CHECK_EQ(0x00010000, bt.call(0x80000000, 15));
+    CHECK_EQ(0x00010000u, bt.call(0x80000000, 15));
   }
 }
 
@@ -2447,7 +2493,7 @@ TEST(RunWord32ShrInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == (*i >> shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
@@ -2459,31 +2505,31 @@ TEST(RunWord32ShrInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == (*i >> shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Int32Constant(0),
                         m.Word32Shr(m.Parameter(0), m.Int32Constant(shift))));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == (*i >> shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Word32Shr(m.Parameter(0), m.Int32Constant(shift)),
                         m.Int32Constant(0)));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == (*i >> shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
@@ -2511,7 +2557,7 @@ TEST(RunWord32SarP) {
         CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
-    CHECK_EQ(0xFFFF0000, bt.call(0x80000000, 15));
+    CHECK_EQ(bit_cast<int32_t>(0xFFFF0000), bt.call(0x80000000, 15));
   }
 }
 
@@ -2560,7 +2606,7 @@ TEST(RunWord32SarInComparison) {
           m.Word32Equal(m.Word32Sar(m.Parameter(0), m.Int32Constant(shift)),
                         m.Int32Constant(0)));
       FOR_INT32_INPUTS(i) {
-        uint32_t expected = 0 == (*i >> shift);
+        int32_t expected = 0 == (*i >> shift);
         CHECK_EQ(expected, m.Call(*i));
       }
     }
@@ -2586,7 +2632,7 @@ TEST(RunWord32RorP) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = bits::RotateRight32(*i, shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
@@ -2602,7 +2648,7 @@ TEST(RunWord32RorInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == bits::RotateRight32(*i, shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
@@ -2614,31 +2660,31 @@ TEST(RunWord32RorInComparison) {
     FOR_UINT32_INPUTS(i) {
       FOR_UINT32_SHIFTS(shift) {
         uint32_t expected = 0 == bits::RotateRight32(*i, shift);
-        CHECK_UINT32_EQ(expected, bt.call(*i, shift));
+        CHECK_EQ(expected, bt.call(*i, shift));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Int32Constant(0),
                         m.Word32Ror(m.Parameter(0), m.Int32Constant(shift))));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == bits::RotateRight32(*i, shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
   {
     FOR_UINT32_SHIFTS(shift) {
-      RawMachineAssemblerTester<int32_t> m(kMachUint32);
+      RawMachineAssemblerTester<uint32_t> m(kMachUint32);
       m.Return(
           m.Word32Equal(m.Word32Ror(m.Parameter(0), m.Int32Constant(shift)),
                         m.Int32Constant(0)));
       FOR_UINT32_INPUTS(i) {
         uint32_t expected = 0 == bits::RotateRight32(*i, shift);
-        CHECK_UINT32_EQ(expected, m.Call(*i));
+        CHECK_EQ(expected, m.Call(*i));
       }
     }
   }
@@ -2964,7 +3010,7 @@ TEST(RunFloat64AddP) {
   FOR_FLOAT64_INPUTS(pl) {
     FOR_FLOAT64_INPUTS(pr) {
       double expected = *pl + *pr;
-      CHECK_EQ(expected, bt.call(*pl, *pr));
+      CheckDoubleEq(expected, bt.call(*pl, *pr));
     }
   }
 }
@@ -2979,7 +3025,7 @@ TEST(RunFloat64SubP) {
   FOR_FLOAT64_INPUTS(pl) {
     FOR_FLOAT64_INPUTS(pr) {
       double expected = *pl - *pr;
-      CHECK_EQ(expected, bt.call(*pl, *pr));
+      CheckDoubleEq(expected, bt.call(*pl, *pr));
     }
   }
 }
@@ -2999,7 +3045,7 @@ TEST(RunFloat64SubImm1) {
       input = *j;
       double expected = *i - input;
       CHECK_EQ(0, m.Call());
-      CHECK_EQ(expected, output);
+      CheckDoubleEq(expected, output);
     }
   }
 }
@@ -3019,7 +3065,7 @@ TEST(RunFloat64SubImm2) {
       input = *j;
       double expected = input - *i;
       CHECK_EQ(0, m.Call());
-      CHECK_EQ(expected, output);
+      CheckDoubleEq(expected, output);
     }
   }
 }
@@ -3034,7 +3080,7 @@ TEST(RunFloat64MulP) {
   FOR_FLOAT64_INPUTS(pl) {
     FOR_FLOAT64_INPUTS(pr) {
       double expected = *pl * *pr;
-      CHECK_EQ(expected, bt.call(*pl, *pr));
+      CheckDoubleEq(expected, bt.call(*pl, *pr));
     }
   }
 }
@@ -3063,7 +3109,7 @@ TEST(RunFloat64MulAndFloat64AddP) {
           volatile double temp = input_a * input_b;
           volatile double expected = temp + input_c;
           CHECK_EQ(0, m.Call());
-          CHECK_EQ(expected, output);
+          CheckDoubleEq(expected, output);
         }
       }
     }
@@ -3085,7 +3131,7 @@ TEST(RunFloat64MulAndFloat64AddP) {
           volatile double temp = input_b * input_c;
           volatile double expected = input_a + temp;
           CHECK_EQ(0, m.Call());
-          CHECK_EQ(expected, output);
+          CheckDoubleEq(expected, output);
         }
       }
     }
@@ -3115,7 +3161,7 @@ TEST(RunFloat64MulAndFloat64SubP) {
         volatile double temp = input_b * input_c;
         volatile double expected = input_a - temp;
         CHECK_EQ(0, m.Call());
-        CHECK_EQ(expected, output);
+        CheckDoubleEq(expected, output);
       }
     }
   }
@@ -3137,7 +3183,7 @@ TEST(RunFloat64MulImm) {
         input = *j;
         double expected = *i * input;
         CHECK_EQ(0, m.Call());
-        CHECK_EQ(expected, output);
+        CheckDoubleEq(expected, output);
       }
     }
   }
@@ -3152,7 +3198,7 @@ TEST(RunFloat64MulImm) {
         input = *j;
         double expected = input * *i;
         CHECK_EQ(0, m.Call());
-        CHECK_EQ(expected, output);
+        CheckDoubleEq(expected, output);
       }
     }
   }
@@ -3168,7 +3214,7 @@ TEST(RunFloat64DivP) {
   FOR_FLOAT64_INPUTS(pl) {
     FOR_FLOAT64_INPUTS(pr) {
       double expected = *pl / *pr;
-      CHECK_EQ(expected, bt.call(*pl, *pr));
+      CheckDoubleEq(expected, bt.call(*pl, *pr));
     }
   }
 }
@@ -3184,7 +3230,7 @@ TEST(RunFloat64ModP) {
     FOR_FLOAT64_INPUTS(j) {
       double expected = modulo(*i, *j);
       double found = bt.call(*i, *j);
-      CHECK_EQ(expected, found);
+      CheckDoubleEq(expected, found);
     }
   }
 }
@@ -3223,7 +3269,7 @@ TEST(RunChangeInt32ToFloat64_B) {
 
 
 TEST(RunChangeUint32ToFloat64_B) {
-  RawMachineAssemblerTester<int32_t> m(kMachUint32);
+  RawMachineAssemblerTester<uint32_t> m(kMachUint32);
   double output = 0;
 
   Node* convert = m.ChangeUint32ToFloat64(m.Parameter(0));
@@ -3404,7 +3450,7 @@ TEST(RunChangeFloat64ToInt32_spilled) {
 TEST(RunChangeFloat64ToUint32_spilled) {
   RawMachineAssemblerTester<uint32_t> m;
   const int kNumInputs = 32;
-  int32_t magic = 0x786234;
+  uint32_t magic = 0x786234;
   double input[kNumInputs];
   uint32_t result[kNumInputs];
   Node* input_node[kNumInputs];
@@ -3433,9 +3479,9 @@ TEST(RunChangeFloat64ToUint32_spilled) {
 
   for (int i = 0; i < kNumInputs; i++) {
     if (i % 2) {
-      CHECK_UINT32_EQ(result[i], static_cast<uint32_t>(100 + i + 2147483648u));
+      CHECK_EQ(result[i], static_cast<uint32_t>(100 + i + 2147483648u));
     } else {
-      CHECK_UINT32_EQ(result[i], static_cast<uint32_t>(100 + i));
+      CHECK_EQ(result[i], static_cast<uint32_t>(100 + i));
     }
   }
 }
@@ -3444,7 +3490,7 @@ TEST(RunChangeFloat64ToUint32_spilled) {
 TEST(RunTruncateFloat64ToFloat32_spilled) {
   RawMachineAssemblerTester<uint32_t> m;
   const int kNumInputs = 32;
-  int32_t magic = 0x786234;
+  uint32_t magic = 0x786234;
   double input[kNumInputs];
   float result[kNumInputs];
   Node* input_node[kNumInputs];
@@ -3890,7 +3936,7 @@ TEST(RunFloat64UnorderedCompare) {
                                  m.machine()->Float64LessThan(),
                                  m.machine()->Float64LessThanOrEqual()};
 
-  double nan = v8::base::OS::nan_value();
+  double nan = std::numeric_limits<double>::quiet_NaN();
 
   FOR_FLOAT64_INPUTS(i) {
     for (size_t o = 0; o < arraysize(operators); ++o) {
@@ -4368,7 +4414,7 @@ TEST(RunTruncateInt64ToInt32P) {
   FOR_UINT32_INPUTS(i) {
     FOR_UINT32_INPUTS(j) {
       expected = (static_cast<uint64_t>(*j) << 32) | *i;
-      CHECK_UINT32_EQ(expected, m.Call());
+      CHECK_EQ(static_cast<int32_t>(expected), m.Call());
     }
   }
 }
@@ -4385,9 +4431,9 @@ TEST(RunTruncateFloat64ToInt32P) {
                  {-1.5, -1},
                  {5.5, 5},
                  {-5.0, -5},
-                 {v8::base::OS::nan_value(), 0},
+                 {std::numeric_limits<double>::quiet_NaN(), 0},
                  {std::numeric_limits<double>::infinity(), 0},
-                 {-v8::base::OS::nan_value(), 0},
+                 {-std::numeric_limits<double>::quiet_NaN(), 0},
                  {-std::numeric_limits<double>::infinity(), 0},
                  {4.94065645841e-324, 0},
                  {-4.94065645841e-324, 0},
@@ -4504,7 +4550,7 @@ TEST(RunTruncateFloat64ToFloat32) {
     input = *i;
     volatile double expected = DoubleToFloat32(input);
     CHECK_EQ(0, m.Call());
-    CHECK_EQ(expected, actual);
+    CheckDoubleEq(expected, actual);
   }
 }
 

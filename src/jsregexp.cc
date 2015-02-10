@@ -31,6 +31,8 @@
 #include "src/arm64/regexp-macro-assembler-arm64.h"  // NOLINT
 #elif V8_TARGET_ARCH_ARM
 #include "src/arm/regexp-macro-assembler-arm.h"  // NOLINT
+#elif V8_TARGET_ARCH_PPC
+#include "src/ppc/regexp-macro-assembler-ppc.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS
 #include "src/mips/regexp-macro-assembler-mips.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS64
@@ -136,7 +138,7 @@ MaybeHandle<Object> RegExpImpl::Compile(Handle<JSRegExp> re,
                                         Handle<String> pattern,
                                         JSRegExp::Flags flags) {
   Isolate* isolate = re->GetIsolate();
-  Zone zone(isolate);
+  Zone zone;
   CompilationCache* compilation_cache = isolate->compilation_cache();
   MaybeHandle<FixedArray> maybe_cached =
       compilation_cache->LookupRegExp(pattern, flags);
@@ -153,8 +155,9 @@ MaybeHandle<Object> RegExpImpl::Compile(Handle<JSRegExp> re,
   PostponeInterruptsScope postpone(isolate);
   RegExpCompileData parse_result;
   FlatStringReader reader(isolate, pattern);
-  if (!RegExpParser::ParseRegExp(&reader, flags.is_multiline(),
-                                 &parse_result, &zone)) {
+  if (!RegExpParser::ParseRegExp(re->GetIsolate(), &zone, &reader,
+                                 flags.is_multiline(), flags.is_unicode(),
+                                 &parse_result)) {
     // Throw an exception if we fail to parse the pattern.
     return ThrowRegExpException(re,
                                 pattern,
@@ -369,7 +372,7 @@ bool RegExpImpl::CompileIrregexp(Handle<JSRegExp> re,
                                  bool is_one_byte) {
   // Compile the RegExp.
   Isolate* isolate = re->GetIsolate();
-  Zone zone(isolate);
+  Zone zone;
   PostponeInterruptsScope postpone(isolate);
   // If we had a compilation error the last time this is saved at the
   // saved code index.
@@ -400,9 +403,8 @@ bool RegExpImpl::CompileIrregexp(Handle<JSRegExp> re,
   pattern = String::Flatten(pattern);
   RegExpCompileData compile_data;
   FlatStringReader reader(isolate, pattern);
-  if (!RegExpParser::ParseRegExp(&reader, flags.is_multiline(),
-                                 &compile_data,
-                                 &zone)) {
+  if (!RegExpParser::ParseRegExp(isolate, &zone, &reader, flags.is_multiline(),
+                                 flags.is_unicode(), &compile_data)) {
     // Throw an exception if we fail to parse the pattern.
     // THIS SHOULD NOT HAPPEN. We already pre-parsed it successfully once.
     USE(ThrowRegExpException(re,
@@ -412,9 +414,9 @@ bool RegExpImpl::CompileIrregexp(Handle<JSRegExp> re,
     return false;
   }
   RegExpEngine::CompilationResult result = RegExpEngine::Compile(
-      &compile_data, flags.is_ignore_case(), flags.is_global(),
+      isolate, &zone, &compile_data, flags.is_ignore_case(), flags.is_global(),
       flags.is_multiline(), flags.is_sticky(), pattern, sample_subject,
-      is_one_byte, &zone);
+      is_one_byte);
   if (result.error_message != NULL) {
     // Unable to compile regexp.
     Handle<String> error_message = isolate->factory()->NewStringFromUtf8(
@@ -970,8 +972,8 @@ class FrequencyCollator {
 
 class RegExpCompiler {
  public:
-  RegExpCompiler(int capture_count, bool ignore_case, bool is_one_byte,
-                 Zone* zone);
+  RegExpCompiler(Isolate* isolate, Zone* zone, int capture_count,
+                 bool ignore_case, bool is_one_byte);
 
   int AllocateRegister() {
     if (next_register_ >= RegExpMacroAssembler::kMaxRegister) {
@@ -1004,6 +1006,8 @@ class RegExpCompiler {
 
   inline bool ignore_case() { return ignore_case_; }
   inline bool one_byte() { return one_byte_; }
+  inline bool optimize() { return optimize_; }
+  inline void set_optimize(bool value) { optimize_ = value; }
   FrequencyCollator* frequency_collator() { return &frequency_collator_; }
 
   int current_expansion_factor() { return current_expansion_factor_; }
@@ -1011,6 +1015,7 @@ class RegExpCompiler {
     current_expansion_factor_ = value;
   }
 
+  Isolate* isolate() const { return isolate_; }
   Zone* zone() const { return zone_; }
 
   static const int kNoRegister = -1;
@@ -1024,8 +1029,10 @@ class RegExpCompiler {
   bool ignore_case_;
   bool one_byte_;
   bool reg_exp_too_big_;
+  bool optimize_;
   int current_expansion_factor_;
   FrequencyCollator frequency_collator_;
+  Isolate* isolate_;
   Zone* zone_;
 };
 
@@ -1048,16 +1055,18 @@ static RegExpEngine::CompilationResult IrregexpRegExpTooBig(Isolate* isolate) {
 
 // Attempts to compile the regexp using an Irregexp code generator.  Returns
 // a fixed array or a null handle depending on whether it succeeded.
-RegExpCompiler::RegExpCompiler(int capture_count, bool ignore_case,
-                               bool one_byte, Zone* zone)
+RegExpCompiler::RegExpCompiler(Isolate* isolate, Zone* zone, int capture_count,
+                               bool ignore_case, bool one_byte)
     : next_register_(2 * (capture_count + 1)),
       work_list_(NULL),
       recursion_depth_(0),
       ignore_case_(ignore_case),
       one_byte_(one_byte),
       reg_exp_too_big_(false),
+      optimize_(FLAG_regexp_optimization),
       current_expansion_factor_(1),
       frequency_collator_(),
+      isolate_(isolate),
       zone_(zone) {
   accept_ = new(zone) EndNode(EndNode::ACCEPT, zone);
   DCHECK(next_register_ - 1 <= RegExpMacroAssembler::kMaxRegister);
@@ -1071,19 +1080,10 @@ RegExpEngine::CompilationResult RegExpCompiler::Assemble(
     Handle<String> pattern) {
   Heap* heap = pattern->GetHeap();
 
-  bool use_slow_safe_regexp_compiler = false;
-  if (heap->total_regexp_code_generated() >
-          RegExpImpl::kRegWxpCompiledLimit &&
-      heap->isolate()->memory_allocator()->SizeExecutable() >
-          RegExpImpl::kRegExpExecutableMemoryLimit) {
-    use_slow_safe_regexp_compiler = true;
-  }
-
-  macro_assembler->set_slow_safe(use_slow_safe_regexp_compiler);
-
 #ifdef DEBUG
   if (FLAG_trace_regexp_assembler)
-    macro_assembler_ = new RegExpMacroAssemblerTracer(macro_assembler);
+    macro_assembler_ =
+        new RegExpMacroAssemblerTracer(isolate(), macro_assembler);
   else
 #endif
     macro_assembler_ = macro_assembler;
@@ -1099,7 +1099,7 @@ RegExpEngine::CompilationResult RegExpCompiler::Assemble(
   while (!work_list.is_empty()) {
     work_list.RemoveLast()->Emit(this, &new_trace);
   }
-  if (reg_exp_too_big_) return IrregexpRegExpTooBig(zone_->isolate());
+  if (reg_exp_too_big_) return IrregexpRegExpTooBig(isolate_);
 
   Handle<HeapObject> code = macro_assembler_->GetCode(pattern);
   heap->IncreaseTotalRegexpCodeGenerated(code->Size());
@@ -1828,7 +1828,7 @@ static void EmitUseLookupTable(
   for (int i = j; i < kSize; i++) {
     templ[i] = bit;
   }
-  Factory* factory = masm->zone()->isolate()->factory();
+  Factory* factory = masm->isolate()->factory();
   // TODO(erikcorry): Cache these.
   Handle<ByteArray> ba = factory->NewByteArray(kSize, TENURED);
   for (int i = 0; i < kSize; i++) {
@@ -2236,8 +2236,7 @@ RegExpNode::LimitResult RegExpNode::LimitVersions(RegExpCompiler* compiler,
   // We are being asked to make a non-generic version.  Keep track of how many
   // non-generic versions we generate so as not to overdo it.
   trace_count_++;
-  if (FLAG_regexp_optimization &&
-      trace_count_ < kMaxCopiesCodeGenerated &&
+  if (compiler->optimize() && trace_count_ < kMaxCopiesCodeGenerated &&
       compiler->recursion_depth() <= RegExpCompiler::kMaxRecursion) {
     return CONTINUE;
   }
@@ -2508,7 +2507,7 @@ void TextNode::GetQuickCheckDetails(QuickCheckDetails* details,
                                     RegExpCompiler* compiler,
                                     int characters_filled_in,
                                     bool not_at_start) {
-  Isolate* isolate = compiler->macro_assembler()->zone()->isolate();
+  Isolate* isolate = compiler->macro_assembler()->isolate();
   DCHECK(characters_filled_in < details->characters());
   int characters = details->characters();
   int char_mask;
@@ -3209,7 +3208,7 @@ void TextNode::TextEmitPass(RegExpCompiler* compiler,
                             bool first_element_checked,
                             int* checked_up_to) {
   RegExpMacroAssembler* assembler = compiler->macro_assembler();
-  Isolate* isolate = assembler->zone()->isolate();
+  Isolate* isolate = assembler->isolate();
   bool one_byte = compiler->one_byte();
   Label* backtrack = trace->backtrack();
   QuickCheckDetails* quick_check = trace->quick_check_performed();
@@ -3370,7 +3369,7 @@ void Trace::AdvanceCurrentPositionInTrace(int by, RegExpCompiler* compiler) {
 }
 
 
-void TextNode::MakeCaseIndependent(bool is_one_byte) {
+void TextNode::MakeCaseIndependent(Isolate* isolate, bool is_one_byte) {
   int element_count = elms_->length();
   for (int i = 0; i < element_count; i++) {
     TextElement elm = elms_->at(i);
@@ -3382,7 +3381,7 @@ void TextNode::MakeCaseIndependent(bool is_one_byte) {
       ZoneList<CharacterRange>* ranges = cc->ranges(zone());
       int range_count = ranges->length();
       for (int j = 0; j < range_count; j++) {
-        ranges->at(j).AddCaseEquivalents(ranges, is_one_byte, zone());
+        ranges->at(j).AddCaseEquivalents(isolate, zone(), ranges, is_one_byte);
       }
     }
   }
@@ -3447,14 +3446,14 @@ int ChoiceNode::GreedyLoopTextLengthForAlternative(
 
 
 void LoopChoiceNode::AddLoopAlternative(GuardedAlternative alt) {
-  DCHECK_EQ(loop_node_, NULL);
+  DCHECK_NULL(loop_node_);
   AddAlternative(alt);
   loop_node_ = alt.node();
 }
 
 
 void LoopChoiceNode::AddContinueAlternative(GuardedAlternative alt) {
-  DCHECK_EQ(continue_node_, NULL);
+  DCHECK_NULL(continue_node_);
   AddAlternative(alt);
   continue_node_ = alt.node();
 }
@@ -3474,7 +3473,7 @@ void LoopChoiceNode::Emit(RegExpCompiler* compiler, Trace* trace) {
     macro_assembler->GoTo(trace->loop_label());
     return;
   }
-  DCHECK(trace->stop_node() == NULL);
+  DCHECK_NULL(trace->stop_node());
   if (!trace->is_trivial()) {
     trace->Flush(compiler, this);
     return;
@@ -3781,7 +3780,7 @@ void BoyerMooreLookahead::EmitSkipInstructions(RegExpMacroAssembler* masm) {
     return;
   }
 
-  Factory* factory = masm->zone()->isolate()->factory();
+  Factory* factory = masm->isolate()->factory();
   Handle<ByteArray> boolean_skip_table = factory->NewByteArray(kSize, TENURED);
   int skip_distance = GetSkipTable(
       min_lookahead, max_lookahead, boolean_skip_table);
@@ -4116,15 +4115,12 @@ void ChoiceNode::EmitChoices(RegExpCompiler* compiler,
     }
     alt_gen->expects_preload = preload->preload_is_current_;
     bool generate_full_check_inline = false;
-    if (FLAG_regexp_optimization &&
+    if (compiler->optimize() &&
         try_to_emit_quick_check_for_alternative(i == 0) &&
-        alternative.node()->EmitQuickCheck(compiler,
-                                           trace,
-                                           &new_trace,
-                                           preload->preload_has_checked_bounds_,
-                                           &alt_gen->possible_success,
-                                           &alt_gen->quick_check_details,
-                                           fall_through_on_failure)) {
+        alternative.node()->EmitQuickCheck(
+            compiler, trace, &new_trace, preload->preload_has_checked_bounds_,
+            &alt_gen->possible_success, &alt_gen->quick_check_details,
+            fall_through_on_failure)) {
       // Quick check was generated for this choice.
       preload->preload_is_current_ = true;
       preload->preload_has_checked_bounds_ = true;
@@ -4922,7 +4918,7 @@ RegExpNode* RegExpQuantifier::ToNode(int min,
 
   if (body_can_be_empty) {
     body_start_reg = compiler->AllocateRegister();
-  } else if (FLAG_regexp_optimization && !needs_capture_clearing) {
+  } else if (compiler->optimize() && !needs_capture_clearing) {
     // Only unroll if there are no captures and the body can't be
     // empty.
     {
@@ -5298,8 +5294,8 @@ void CharacterRange::Split(ZoneList<CharacterRange>* base,
                            ZoneList<CharacterRange>** included,
                            ZoneList<CharacterRange>** excluded,
                            Zone* zone) {
-  DCHECK_EQ(NULL, *included);
-  DCHECK_EQ(NULL, *excluded);
+  DCHECK_NULL(*included);
+  DCHECK_NULL(*excluded);
   DispatchTable table(zone);
   for (int i = 0; i < base->length(); i++)
     table.AddRange(base->at(i), CharacterRangeSplitter::kInBase, zone);
@@ -5312,9 +5308,9 @@ void CharacterRange::Split(ZoneList<CharacterRange>* base,
 }
 
 
-void CharacterRange::AddCaseEquivalents(ZoneList<CharacterRange>* ranges,
-                                        bool is_one_byte, Zone* zone) {
-  Isolate* isolate = zone->isolate();
+void CharacterRange::AddCaseEquivalents(Isolate* isolate, Zone* zone,
+                                        ZoneList<CharacterRange>* ranges,
+                                        bool is_one_byte) {
   uc16 bottom = from();
   uc16 top = to();
   if (is_one_byte && !RangeContainsLatin1Equivalents(*this)) {
@@ -5702,7 +5698,7 @@ OutSet* DispatchTable::Get(uc16 value) {
 
 
 void Analysis::EnsureAnalyzed(RegExpNode* that) {
-  StackLimitCheck check(that->zone()->isolate());
+  StackLimitCheck check(isolate());
   if (check.HasOverflowed()) {
     fail("Stack overflow");
     return;
@@ -5736,7 +5732,7 @@ void TextNode::CalculateOffsets() {
 
 void Analysis::VisitText(TextNode* that) {
   if (ignore_case_) {
-    that->MakeCaseIndependent(is_one_byte_);
+    that->MakeCaseIndependent(isolate(), is_one_byte_);
   }
   EnsureAnalyzed(that->on_success());
   if (!has_failed()) {
@@ -6012,13 +6008,16 @@ void DispatchTableConstructor::VisitAction(ActionNode* that) {
 
 
 RegExpEngine::CompilationResult RegExpEngine::Compile(
-    RegExpCompileData* data, bool ignore_case, bool is_global,
-    bool is_multiline, bool is_sticky, Handle<String> pattern,
-    Handle<String> sample_subject, bool is_one_byte, Zone* zone) {
+    Isolate* isolate, Zone* zone, RegExpCompileData* data, bool ignore_case,
+    bool is_global, bool is_multiline, bool is_sticky, Handle<String> pattern,
+    Handle<String> sample_subject, bool is_one_byte) {
   if ((data->capture_count + 1) * 2 - 1 > RegExpMacroAssembler::kMaxRegister) {
-    return IrregexpRegExpTooBig(zone->isolate());
+    return IrregexpRegExpTooBig(isolate);
   }
-  RegExpCompiler compiler(data->capture_count, ignore_case, is_one_byte, zone);
+  RegExpCompiler compiler(isolate, zone, data->capture_count, ignore_case,
+                          is_one_byte);
+
+  compiler.set_optimize(!TooMuchRegExpCode(pattern));
 
   // Sample some characters from the middle of the string.
   static const int kSampleSize = 128;
@@ -6076,11 +6075,11 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
 
   if (node == NULL) node = new(zone) EndNode(EndNode::BACKTRACK, zone);
   data->node = node;
-  Analysis analysis(ignore_case, is_one_byte);
+  Analysis analysis(isolate, ignore_case, is_one_byte);
   analysis.EnsureAnalyzed(node);
   if (analysis.has_failed()) {
     const char* error_message = analysis.error_message();
-    return CompilationResult(zone->isolate(), error_message);
+    return CompilationResult(isolate, error_message);
   }
 
   // Create the correct assembler for the architecture.
@@ -6092,26 +6091,29 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
                   : NativeRegExpMacroAssembler::UC16;
 
 #if V8_TARGET_ARCH_IA32
-  RegExpMacroAssemblerIA32 macro_assembler(mode, (data->capture_count + 1) * 2,
-                                           zone);
+  RegExpMacroAssemblerIA32 macro_assembler(isolate, zone, mode,
+                                           (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_X64
-  RegExpMacroAssemblerX64 macro_assembler(mode, (data->capture_count + 1) * 2,
-                                          zone);
+  RegExpMacroAssemblerX64 macro_assembler(isolate, zone, mode,
+                                          (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_ARM
-  RegExpMacroAssemblerARM macro_assembler(mode, (data->capture_count + 1) * 2,
-                                          zone);
+  RegExpMacroAssemblerARM macro_assembler(isolate, zone, mode,
+                                          (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_ARM64
-  RegExpMacroAssemblerARM64 macro_assembler(mode, (data->capture_count + 1) * 2,
-                                            zone);
+  RegExpMacroAssemblerARM64 macro_assembler(isolate, zone, mode,
+                                            (data->capture_count + 1) * 2);
+#elif V8_TARGET_ARCH_PPC
+  RegExpMacroAssemblerPPC macro_assembler(isolate, zone, mode,
+                                          (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_MIPS
-  RegExpMacroAssemblerMIPS macro_assembler(mode, (data->capture_count + 1) * 2,
-                                           zone);
+  RegExpMacroAssemblerMIPS macro_assembler(isolate, zone, mode,
+                                           (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_MIPS64
-  RegExpMacroAssemblerMIPS macro_assembler(mode, (data->capture_count + 1) * 2,
-                                           zone);
+  RegExpMacroAssemblerMIPS macro_assembler(isolate, zone, mode,
+                                           (data->capture_count + 1) * 2);
 #elif V8_TARGET_ARCH_X87
-  RegExpMacroAssemblerX87 macro_assembler(mode, (data->capture_count + 1) * 2,
-                                          zone);
+  RegExpMacroAssemblerX87 macro_assembler(isolate, zone, mode,
+                                          (data->capture_count + 1) * 2);
 #else
 #error "Unsupported architecture"
 #endif
@@ -6119,8 +6121,10 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
 #else  // V8_INTERPRETED_REGEXP
   // Interpreted regexp implementation.
   EmbeddedVector<byte, 1024> codes;
-  RegExpMacroAssemblerIrregexp macro_assembler(codes, zone);
+  RegExpMacroAssemblerIrregexp macro_assembler(isolate, codes, zone);
 #endif  // V8_INTERPRETED_REGEXP
+
+  macro_assembler.set_slow_safe(TooMuchRegExpCode(pattern));
 
   // Inserted here, instead of in Assembler, because it depends on information
   // in the AST that isn't replicated in the Node structure.
@@ -6145,4 +6149,14 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
 }
 
 
+bool RegExpEngine::TooMuchRegExpCode(Handle<String> pattern) {
+  Heap* heap = pattern->GetHeap();
+  bool too_much = pattern->length() > RegExpImpl::kRegExpTooLargeToOptimize;
+  if (heap->total_regexp_code_generated() > RegExpImpl::kRegExpCompiledLimit &&
+      heap->isolate()->memory_allocator()->SizeExecutable() >
+          RegExpImpl::kRegExpExecutableMemoryLimit) {
+    too_much = true;
+  }
+  return too_much;
+}
 }}  // namespace v8::internal

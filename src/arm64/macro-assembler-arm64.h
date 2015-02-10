@@ -881,6 +881,8 @@ class MacroAssembler : public Assembler {
   void EnumLengthUntagged(Register dst, Register map);
   void EnumLengthSmi(Register dst, Register map);
   void NumberOfOwnDescriptors(Register dst, Register map);
+  void LoadAccessor(Register dst, Register holder, int accessor_index,
+                    AccessorComponent accessor);
 
   template<typename Field>
   void DecodeField(Register dst, Register src) {
@@ -1129,24 +1131,6 @@ class MacroAssembler : public Assembler {
   void CallCFunction(Register function,
                      int num_reg_arguments,
                      int num_double_arguments);
-
-  // Calls an API function. Allocates HandleScope, extracts returned value
-  // from handle and propagates exceptions.
-  // 'stack_space' is the space to be unwound on exit (includes the call JS
-  // arguments space and the additional space allocated for the fast call).
-  // 'spill_offset' is the offset from the stack pointer where
-  // CallApiFunctionAndReturn can spill registers.
-  void CallApiFunctionAndReturn(Register function_address,
-                                ExternalReference thunk_ref,
-                                int stack_space,
-                                int spill_offset,
-                                MemOperand return_value_operand,
-                                MemOperand* context_restore_operand);
-
-  // The number of register that CallApiFunctionAndReturn will need to save on
-  // the stack. The space for these registers need to be allocated in the
-  // ExitFrame before calling CallApiFunctionAndReturn.
-  static const int kCallApiFunctionSpillSpace = 4;
 
   // Jump to a runtime routine.
   void JumpToExternalReference(const ExternalReference& builtin);
@@ -1478,17 +1462,17 @@ class MacroAssembler : public Assembler {
                 Label* fail,
                 SmiCheckType smi_check_type);
 
-  // Check if the map of an object is equal to a specified map and branch to a
-  // specified target if equal. Skip the smi check if not required (object is
-  // known to be a heap object)
-  void DispatchMap(Register obj,
-                   Register scratch,
-                   Handle<Map> map,
-                   Handle<Code> success,
-                   SmiCheckType smi_check_type);
+  // Check if the map of an object is equal to a specified weak map and branch
+  // to a specified target if equal. Skip the smi check if not required
+  // (object is known to be a heap object)
+  void DispatchWeakMap(Register obj, Register scratch1, Register scratch2,
+                       Handle<WeakCell> cell, Handle<Code> success,
+                       SmiCheckType smi_check_type);
 
   // Compare the given value and the value of weak cell.
   void CmpWeakValue(Register value, Handle<WeakCell> cell, Register scratch);
+
+  void GetWeakValue(Register value, Handle<WeakCell> cell);
 
   // Load the value of the weak cell in the value register. Branch to the given
   // miss label if the weak cell was cleared.

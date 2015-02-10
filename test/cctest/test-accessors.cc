@@ -150,20 +150,20 @@ static void XGetter(const Info& info, int offset) {
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = CcTest::isolate();
   CHECK_EQ(isolate, info.GetIsolate());
-  CHECK_EQ(x_receiver, info.This());
+  CHECK(x_receiver->Equals(info.This()));
   info.GetReturnValue().Set(v8_num(x_register[offset]));
 }
 
 
 static void XGetter(Local<String> name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
-  CHECK_EQ(x_holder, info.Holder());
+  CHECK(x_holder->Equals(info.Holder()));
   XGetter(info, 0);
 }
 
 
 static void XGetter(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  CHECK_EQ(x_receiver, info.Holder());
+  CHECK(x_receiver->Equals(info.Holder()));
   XGetter(info, 1);
 }
 
@@ -172,8 +172,8 @@ template<class Info>
 static void XSetter(Local<Value> value, const Info& info, int offset) {
   v8::Isolate* isolate = CcTest::isolate();
   CHECK_EQ(isolate, info.GetIsolate());
-  CHECK_EQ(x_holder, info.This());
-  CHECK_EQ(x_holder, info.Holder());
+  CHECK(x_holder->Equals(info.This()));
+  CHECK(x_holder->Equals(info.Holder()));
   x_register[offset] = value->Int32Value();
   info.GetReturnValue().Set(v8_num(-1));
 }
@@ -222,10 +222,10 @@ THREADED_TEST(AccessorIC) {
     "  result.push(obj[key_1]);"
     "}"
     "result"));
-  CHECK_EQ(80, array->Length());
+  CHECK_EQ(80u, array->Length());
   for (int i = 0; i < 80; i++) {
     v8::Handle<Value> entry = array->Get(v8::Integer::New(isolate, i));
-    CHECK_EQ(v8::Integer::New(isolate, i/2), entry);
+    CHECK(v8::Integer::New(isolate, i / 2)->Equals(entry));
   }
 }
 
@@ -407,7 +407,7 @@ THREADED_TEST(Regress1054726) {
       "for (var i = 0; i < 5; i++) {"
       "  try { obj.x; } catch (e) { result += e; }"
       "}; result"))->Run();
-  CHECK_EQ(v8_str("ggggg"), result);
+  CHECK(v8_str("ggggg")->Equals(result));
 
   result = Script::Compile(String::NewFromUtf8(
       isolate,
@@ -415,7 +415,7 @@ THREADED_TEST(Regress1054726) {
       "for (var i = 0; i < 5; i++) {"
       "  try { obj.x = i; } catch (e) { result += e; }"
       "}; result"))->Run();
-  CHECK_EQ(v8_str("01234"), result);
+  CHECK(v8_str("01234")->Equals(result));
 }
 
 
@@ -577,4 +577,31 @@ THREADED_TEST(GlobalObjectAccessor) {
       "for (var i = 0; i < 4; i++) { getter(); setter(); }");
   CHECK(v8::Utils::OpenHandle(*CompileRun("getter()"))->IsJSGlobalProxy());
   CHECK(v8::Utils::OpenHandle(*CompileRun("set_value"))->IsJSGlobalProxy());
+}
+
+
+static void EmptyGetter(Local<Name> name,
+                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  ApiTestFuzzer::Fuzz();
+}
+
+
+static void OneProperty(Local<String> name,
+                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  ApiTestFuzzer::Fuzz();
+  info.GetReturnValue().Set(v8_num(1));
+}
+
+
+THREADED_TEST(Regress433458) {
+  LocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+  v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New(isolate);
+  obj->SetHandler(v8::NamedPropertyHandlerConfiguration(EmptyGetter));
+  obj->SetNativeDataProperty(v8_str("prop"), OneProperty);
+  env->Global()->Set(v8_str("obj"), obj->NewInstance());
+  CompileRun(
+      "Object.defineProperty(obj, 'prop', { writable: false });"
+      "Object.defineProperty(obj, 'prop', { writable: true });");
 }

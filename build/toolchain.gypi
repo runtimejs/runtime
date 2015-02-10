@@ -31,7 +31,14 @@
   'variables': {
     'msvs_use_common_release': 0,
     'clang%': 0,
+    'asan%': 0,
+    'lsan%': 0,
+    'msan%': 0,
+    'tsan%': 0,
+    'ubsan%': 0,
+    'ubsan_vptr%': 0,
     'v8_target_arch%': '<(target_arch)',
+    'v8_host_byteorder%': '<!(python -c "import sys; print sys.byteorder")',
     # Native Client builds currently use the V8 ARM JIT and
     # arm/simulator-arm.cc to defer the significant effort required
     # for NaCl JIT support. The nacl_target_arch variable provides
@@ -91,7 +98,9 @@
     'android_webview_build%': '<(android_webview_build)',
   },
   'conditions': [
-    ['host_arch=="ia32" or host_arch=="x64" or clang==1', {
+    ['host_arch=="ia32" or host_arch=="x64" or \
+      host_arch=="ppc" or host_arch=="ppc64" or \
+      clang==1', {
       'variables': {
         'host_cxx_is_biarch%': 1,
        },
@@ -101,6 +110,7 @@
       },
     }],
     ['target_arch=="ia32" or target_arch=="x64" or target_arch=="x87" or \
+      target_arch=="ppc" or target_arch=="ppc64" or \
       clang==1', {
       'variables': {
         'target_cxx_is_biarch%': 1,
@@ -250,6 +260,38 @@
           'V8_TARGET_ARCH_ARM64',
         ],
       }],
+      ['v8_target_arch=="ppc" or v8_target_arch=="ppc64"', {
+        'defines': [
+          'V8_TARGET_ARCH_PPC',
+        ],
+        'conditions': [
+          ['v8_target_arch=="ppc64"', {
+            'defines': [
+              'V8_TARGET_ARCH_PPC64',
+            ],
+          }],
+          ['v8_host_byteorder=="little"', {
+            'defines': [
+              'V8_TARGET_ARCH_PPC_LE',
+            ],
+          }],
+          ['v8_host_byteorder=="big"', {
+            'defines': [
+              'V8_TARGET_ARCH_PPC_BE',
+            ],
+            'conditions': [
+              ['OS=="aix"', {
+                # Work around AIX ceil, trunc and round oddities.
+                'cflags': [ '-mcpu=power5+ -mfprnd' ],
+              }],
+              ['OS=="aix"', {
+                # Work around AIX assembler popcntb bug.
+                'cflags': [ '-mno-popcntb' ],
+              }],
+            ],
+          }],
+        ],
+      }],  # ppc
       ['v8_target_arch=="ia32"', {
         'defines': [
           'V8_TARGET_ARCH_IA32',
@@ -783,11 +825,20 @@
           },
         },
       }],
-      ['(OS=="linux" or OS=="freebsd"  or OS=="openbsd" or OS=="solaris" \
+      ['(OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
+         or OS=="netbsd" or OS=="mac" or OS=="android" or OS=="qnx") and \
+        v8_target_arch=="ia32"', {
+        'cflags': [
+          '-msse2',
+          '-mfpmath=sse',
+          '-mmmx',  # Allows mmintrin.h for MMX intrinsics.
+        ],
+      }],
+      ['(OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
          or OS=="netbsd" or OS=="mac" or OS=="android" or OS=="qnx") and \
         (v8_target_arch=="arm" or v8_target_arch=="ia32" or \
          v8_target_arch=="x87" or v8_target_arch=="mips" or \
-         v8_target_arch=="mipsel")', {
+         v8_target_arch=="mipsel" or v8_target_arch=="ppc")', {
         'target_conditions': [
           ['_toolset=="host"', {
             'conditions': [
@@ -820,7 +871,8 @@
         ],
       }],
       ['(OS=="linux" or OS=="android") and \
-        (v8_target_arch=="x64" or v8_target_arch=="arm64")', {
+        (v8_target_arch=="x64" or v8_target_arch=="arm64" or \
+         v8_target_arch=="ppc64")', {
         'target_conditions': [
           ['_toolset=="host"', {
             'conditions': [
@@ -847,7 +899,7 @@
          ],
       }],
       ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
-         or OS=="netbsd" or OS=="qnx"', {
+         or OS=="netbsd" or OS=="qnx" or OS=="aix"', {
         'conditions': [
           [ 'v8_no_strict_aliasing==1', {
             'cflags': [ '-fno-strict-aliasing' ],
@@ -862,6 +914,21 @@
       }],
       ['OS=="netbsd"', {
         'cflags': [ '-I/usr/pkg/include' ],
+      }],
+      ['OS=="aix"', {
+        'defines': [
+          # Support for malloc(0)
+          '_LINUX_SOURCE_COMPAT=1',
+          '_ALL_SOURCE=1'],
+        'conditions': [
+          [ 'v8_target_arch=="ppc"', {
+            'ldflags': [ '-Wl,-bmaxdata:0x60000000/dsa' ],
+          }],
+          [ 'v8_target_arch=="ppc64"', {
+            'cflags': [ '-maix64' ],
+            'ldflags': [ '-maix64' ],
+          }],
+        ],
       }],
     ],  # conditions
     'configurations': {
@@ -883,9 +950,12 @@
             'LinkIncremental': '2',
           },
         },
+        'variables': {
+          'v8_enable_slow_dchecks%': 1,
+        },
         'conditions': [
           ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" or \
-            OS=="qnx"', {
+            OS=="qnx" or OS=="aix"', {
             'cflags!': [
               '-O3',
               '-O2',
@@ -902,62 +972,15 @@
                'GCC_OPTIMIZATION_LEVEL': '0',  # -O0
             },
           }],
-        ],
-        'defines': [
-          'ENABLE_SLOW_DCHECKS',
+          ['v8_enable_slow_dchecks==1', {
+            'defines': [
+              'ENABLE_SLOW_DCHECKS',
+            ],
+          }],
         ],
       },  # DebugBase0
       # Abstract configuration for v8_optimized_debug == 1.
       'DebugBase1': {
-        'abstract': 1,
-        'msvs_settings': {
-          'VCCLCompilerTool': {
-            'Optimization': '1',
-            'InlineFunctionExpansion': '2',
-            'EnableIntrinsicFunctions': 'true',
-            'FavorSizeOrSpeed': '0',
-            'StringPooling': 'true',
-            'BasicRuntimeChecks': '0',
-            'conditions': [
-              ['component=="shared_library"', {
-                'RuntimeLibrary': '3',  # /MDd
-              }, {
-                'RuntimeLibrary': '1',  # /MTd
-              }],
-            ],
-          },
-          'VCLinkerTool': {
-            'LinkIncremental': '2',
-          },
-        },
-        'defines': [
-          'ENABLE_SLOW_DCHECKS',
-        ],
-        'conditions': [
-          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" or \
-            OS=="qnx"', {
-            'cflags!': [
-              '-O0',
-              '-O3', # TODO(2807) should be -O1.
-              '-O2',
-              '-Os',
-            ],
-            'cflags': [
-              '-fdata-sections',
-              '-ffunction-sections',
-              '-O1', # TODO(2807) should be -O3.
-            ],
-          }],
-          ['OS=="mac"', {
-            'xcode_settings': {
-               'GCC_OPTIMIZATION_LEVEL': '3',  # -O3
-               'GCC_STRICT_ALIASING': 'YES',
-            },
-          }],
-        ],
-      },  # DebugBase1
-      # Abstract configuration for v8_optimized_debug == 2.
-      'DebugBase2': {
         'abstract': 1,
         'msvs_settings': {
           'VCCLCompilerTool': {
@@ -981,9 +1004,12 @@
             'EnableCOMDATFolding': '2',
           },
         },
+        'variables': {
+          'v8_enable_slow_dchecks%': 0,
+        },
         'conditions': [
           ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" or \
-            OS=="qnx"', {
+            OS=="qnx" or OS=="aix"', {
             'cflags!': [
               '-O0',
               '-O1',
@@ -995,7 +1021,9 @@
             ],
             'conditions': [
               # TODO(crbug.com/272548): Avoid -O3 in NaCl
-              ['nacl_target_arch=="none"', {
+              # Don't use -O3 with sanitizers.
+              ['nacl_target_arch=="none" and asan==0 and msan==0 and lsan==0 \
+                and tsan==0 and ubsan==0 and ubsan_vptr==0', {
                 'cflags': ['-O3'],
                 'cflags!': ['-O2'],
                 }, {
@@ -1010,8 +1038,13 @@
               'GCC_STRICT_ALIASING': 'YES',
             },
           }],
+          ['v8_enable_slow_dchecks==1', {
+            'defines': [
+              'ENABLE_SLOW_DCHECKS',
+            ],
+          }],
         ],
-      },  # DebugBase2
+      },  # DebugBase1
       # Common settings for the Debug configuration.
       'DebugBaseCommon': {
         'abstract': 1,
@@ -1025,12 +1058,15 @@
         ],
         'conditions': [
           ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" or \
-            OS=="qnx"', {
+            OS=="qnx" or OS=="aix"', {
             'cflags': [ '-Woverloaded-virtual', '<(wno_array_bounds)', ],
           }],
           ['OS=="linux" and v8_enable_backtrace==1', {
             # Support for backtrace_symbols.
             'ldflags': [ '-rdynamic' ],
+          }],
+          ['OS=="aix"', {
+            'ldflags': [ '-Wl,-bbigtoc' ],
           }],
           ['OS=="android"', {
             'variables': {
@@ -1054,18 +1090,18 @@
         'conditions': [
           ['v8_optimized_debug==0', {
             'inherit_from': ['DebugBase0'],
-          }],
-          ['v8_optimized_debug==1', {
+          }, {
             'inherit_from': ['DebugBase1'],
-          }],
-          ['v8_optimized_debug==2', {
-            'inherit_from': ['DebugBase2'],
           }],
         ],
       },  # Debug
       'Release': {
+        'variables': {
+          'v8_enable_slow_dchecks%': 0,
+        },
         'conditions': [
-          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
+          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" \
+            or OS=="aix"', {
             'cflags!': [
               '-Os',
             ],
@@ -1076,7 +1112,9 @@
             ],
             'conditions': [
               # TODO(crbug.com/272548): Avoid -O3 in NaCl
-              ['nacl_target_arch=="none"', {
+              # Don't use -O3 with sanitizers.
+              ['nacl_target_arch=="none" and asan==0 and msan==0 and lsan==0 \
+                and tsan==0 and ubsan==0 and ubsan_vptr==0', {
                 'cflags': ['-O3'],
                 'cflags!': ['-O2'],
               }, {
@@ -1130,6 +1168,11 @@
               },
             },
           }],  # OS=="win"
+          ['v8_enable_slow_dchecks==1', {
+            'defines': [
+              'ENABLE_SLOW_DCHECKS',
+            ],
+          }],
         ],  # conditions
       },  # Release
     },  # configurations

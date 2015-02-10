@@ -13,7 +13,8 @@ namespace v8 {
 namespace internal {
 
 
-Handle<ScopeInfo> ScopeInfo::Create(Scope* scope, Zone* zone) {
+Handle<ScopeInfo> ScopeInfo::Create(Isolate* isolate, Zone* zone,
+                                    Scope* scope) {
   // Collect stack and context locals.
   ZoneList<Variable*> stack_locals(scope->StackLocalCount(), zone);
   ZoneList<Variable*> context_locals(scope->ContextLocalCount(), zone);
@@ -49,13 +50,13 @@ Handle<ScopeInfo> ScopeInfo::Create(Scope* scope, Zone* zone) {
       + parameter_count + stack_local_count + 2 * context_local_count
       + (has_function_name ? 2 : 0);
 
-  Factory* factory = zone->isolate()->factory();
+  Factory* factory = isolate->factory();
   Handle<ScopeInfo> scope_info = factory->NewScopeInfo(length);
 
   // Encode the flags.
   int flags = ScopeTypeField::encode(scope->scope_type()) |
               CallsEvalField::encode(scope->calls_eval()) |
-              StrictModeField::encode(scope->strict_mode()) |
+              LanguageModeField::encode(scope->language_mode()) |
               FunctionVariableField::encode(function_name_info) |
               FunctionVariableMode::encode(function_variable_mode) |
               AsmModuleField::encode(scope->asm_module()) |
@@ -145,8 +146,8 @@ bool ScopeInfo::CallsEval() {
 }
 
 
-StrictMode ScopeInfo::strict_mode() {
-  return length() > 0 ? StrictModeField::decode(Flags()) : SLOPPY;
+LanguageMode ScopeInfo::language_mode() {
+  return length() > 0 ? LanguageModeField::decode(Flags()) : SLOPPY;
 }
 
 

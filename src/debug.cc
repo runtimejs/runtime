@@ -573,7 +573,7 @@ void Debug::ThreadInit() {
   thread_local_.step_out_fp_ = 0;
   // TODO(isolates): frames_are_dropped_?
   base::NoBarrier_Store(&thread_local_.current_debug_scope_,
-                        static_cast<base::AtomicWord>(NULL));
+                        static_cast<base::AtomicWord>(0));
   thread_local_.restarter_frame_function_pointer_ = NULL;
 }
 
@@ -695,12 +695,11 @@ void ScriptCache::HandleWeakScript(
 }
 
 
-void Debug::HandleWeakDebugInfo(
-    const v8::WeakCallbackData<v8::Value, void>& data) {
+void Debug::HandlePhantomDebugInfo(
+    const v8::PhantomCallbackData<DebugInfoListNode>& data) {
   Debug* debug = reinterpret_cast<Isolate*>(data.GetIsolate())->debug();
-  DebugInfoListNode* node =
-      reinterpret_cast<DebugInfoListNode*>(data.GetParameter());
-  debug->RemoveDebugInfo(node->debug_info().location());
+  DebugInfoListNode* node = data.GetParameter();
+  debug->RemoveDebugInfo(node);
 #ifdef DEBUG
   for (DebugInfoListNode* n = debug->debug_info_list_;
        n != NULL;
@@ -715,9 +714,10 @@ DebugInfoListNode::DebugInfoListNode(DebugInfo* debug_info): next_(NULL) {
   // Globalize the request debug info object and make it weak.
   GlobalHandles* global_handles = debug_info->GetIsolate()->global_handles();
   debug_info_ = Handle<DebugInfo>::cast(global_handles->Create(debug_info));
-  GlobalHandles::MakeWeak(reinterpret_cast<Object**>(debug_info_.location()),
-                          this, Debug::HandleWeakDebugInfo,
-                          GlobalHandles::Phantom);
+  typedef PhantomCallbackData<void>::Callback Callback;
+  GlobalHandles::MakePhantom(
+      reinterpret_cast<Object**>(debug_info_.location()), this, 0,
+      reinterpret_cast<Callback>(Debug::HandlePhantomDebugInfo));
 }
 
 
@@ -744,8 +744,8 @@ bool Debug::CompileDebuggerScript(Isolate* isolate, int index) {
   // Compile the script.
   Handle<SharedFunctionInfo> function_info;
   function_info = Compiler::CompileScript(
-      source_code, script_name, 0, 0, false, context, NULL, NULL,
-      ScriptCompiler::kNoCompileOptions, NATIVES_CODE);
+      source_code, script_name, 0, 0, false, false, context, NULL, NULL,
+      ScriptCompiler::kNoCompileOptions, NATIVES_CODE, false);
 
   // Silently ignore stack overflows during compilation.
   if (function_info.is_null()) {
@@ -2240,10 +2240,21 @@ bool Debug::EnsureDebugInfo(Handle<SharedFunctionInfo> shared,
 }
 
 
-// This uses the location of a handle to look up the debug info in the debug
-// info list, but it doesn't use the actual debug info for anything.  Therefore
-// if the debug info has been collected by the GC, we can be sure that this
-// method will not attempt to resurrect it.
+void Debug::RemoveDebugInfo(DebugInfoListNode* prev, DebugInfoListNode* node) {
+  // Unlink from list. If prev is NULL we are looking at the first element.
+  if (prev == NULL) {
+    debug_info_list_ = node->next();
+  } else {
+    prev->set_next(node->next());
+  }
+  delete node;
+
+  // If there are no more debug info objects there are not more break
+  // points.
+  has_break_points_ = debug_info_list_ != NULL;
+}
+
+
 void Debug::RemoveDebugInfo(DebugInfo** debug_info) {
   DCHECK(debug_info_list_ != NULL);
   // Run through the debug info objects to find this one and remove it.
@@ -2251,18 +2262,25 @@ void Debug::RemoveDebugInfo(DebugInfo** debug_info) {
   DebugInfoListNode* current = debug_info_list_;
   while (current != NULL) {
     if (current->debug_info().location() == debug_info) {
-      // Unlink from list. If prev is NULL we are looking at the first element.
-      if (prev == NULL) {
-        debug_info_list_ = current->next();
-      } else {
-        prev->set_next(current->next());
-      }
-      delete current;
+      RemoveDebugInfo(prev, current);
+      return;
+    }
+    // Move to next in list.
+    prev = current;
+    current = current->next();
+  }
+  UNREACHABLE();
+}
 
-      // If there are no more debug info objects there are not more break
-      // points.
-      has_break_points_ = debug_info_list_ != NULL;
 
+void Debug::RemoveDebugInfo(DebugInfoListNode* node) {
+  DCHECK(debug_info_list_ != NULL);
+  // Run through the debug info objects to find this one and remove it.
+  DebugInfoListNode* prev = NULL;
+  DebugInfoListNode* current = debug_info_list_;
+  while (current != NULL) {
+    if (current == node) {
+      RemoveDebugInfo(prev, node);
       return;
     }
     // Move to next in list.
@@ -2333,7 +2351,7 @@ void Debug::SetAfterBreakTarget(JavaScriptFrame* frame) {
   // Handle the jump to continue execution after break point depending on the
   // break location.
   if (at_js_return) {
-    // If the break point as return is still active jump to the corresponding
+    // If the break point at return is still active jump to the corresponding
     // place in the original code. If not the break point was removed during
     // break point processing.
     if (break_at_js_return_active) {
@@ -2630,8 +2648,12 @@ void Debug::OnException(Handle<Object> exception, bool uncaught,
 
 
 void Debug::OnCompileError(Handle<Script> script) {
-  // No more to do if not debugging.
-  if (in_debug_scope() || ignore_events()) return;
+  if (ignore_events()) return;
+
+  if (in_debug_scope()) {
+    ProcessCompileEventInDebugScope(v8::CompileError, script);
+    return;
+  }
 
   HandleScope scope(isolate_);
   DebugScope debug_scope(this);
@@ -2692,8 +2714,12 @@ void Debug::OnAfterCompile(Handle<Script> script) {
   // Add the newly compiled script to the script cache.
   if (script_cache_ != NULL) script_cache_->Add(script);
 
-  // No more to do if not debugging.
-  if (in_debug_scope() || ignore_events()) return;
+  if (ignore_events()) return;
+
+  if (in_debug_scope()) {
+    ProcessCompileEventInDebugScope(v8::AfterCompile, script);
+    return;
+  }
 
   HandleScope scope(isolate_);
   DebugScope debug_scope(this);
@@ -2845,6 +2871,27 @@ void Debug::CallEventCallback(v8::DebugEvent event,
                        global, arraysize(argv), argv);
   }
   in_debug_event_listener_ = previous;
+}
+
+
+void Debug::ProcessCompileEventInDebugScope(v8::DebugEvent event,
+                                            Handle<Script> script) {
+  if (event_listener_.is_null()) return;
+
+  SuppressDebug while_processing(this);
+  DebugScope debug_scope(this);
+  if (debug_scope.failed()) return;
+
+  Handle<Object> event_data;
+  // Bail out and don't call debugger if exception.
+  if (!MakeCompileEvent(script, event).ToHandle(&event_data)) return;
+
+  // Create the execution state.
+  Handle<Object> exec_state;
+  // Bail out and don't call debugger if exception.
+  if (!MakeExecutionState().ToHandle(&exec_state)) return;
+
+  CallEventCallback(event, exec_state, event_data, NULL);
 }
 
 

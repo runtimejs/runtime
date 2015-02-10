@@ -339,6 +339,7 @@ enum Opcode {
 
   DADDI     =   ((3 << 3) + 0) << kOpcodeShift,  // This is also BNEC.
   SPECIAL2  =   ((3 << 3) + 4) << kOpcodeShift,
+  LABEL     =   ((3 << 3) + 5) << kOpcodeShift,
   SPECIAL3  =   ((3 << 3) + 7) << kOpcodeShift,
 
   LB        =   ((4 << 3) + 0) << kOpcodeShift,
@@ -924,6 +925,7 @@ class Instruction {
 // C/C++ argument slots size.
 const int kCArgSlotCount = 4;
 const int kCArgsSlotsSize = kCArgSlotCount * Instruction::kInstrSize;
+const int kInvalidStackOffset = -1;
 // JS argument slots size.
 const int kJSArgsSlotsSize = 0 * Instruction::kInstrSize;
 // Assembly builtins argument slots size.

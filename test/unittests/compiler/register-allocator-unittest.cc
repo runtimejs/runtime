@@ -23,7 +23,7 @@ TEST_F(RegisterAllocatorTest, CanAllocateThreeRegisters) {
   StartBlock();
   auto a_reg = Parameter();
   auto b_reg = Parameter();
-  auto c_reg = EmitOII(Reg(1), Reg(a_reg, 1), Reg(b_reg, 0));
+  auto c_reg = EmitOI(Reg(1), Reg(a_reg, 1), Reg(b_reg, 0));
   Return(c_reg);
   EndBlock(Last());
 
@@ -42,9 +42,9 @@ TEST_F(RegisterAllocatorTest, SimpleLoop) {
     StartLoop(1);
 
     StartBlock();
-    auto phi = Phi(i_reg);
-    auto ipp = EmitOII(Same(), Reg(phi), Use(DefineConstant()));
-    Extend(phi, ipp);
+    auto phi = Phi(i_reg, 2);
+    auto ipp = EmitOI(Same(), Reg(phi), Use(DefineConstant()));
+    SetInput(phi, 1, ipp);
     EndBlock(Jump(0));
 
     EndLoop();
@@ -152,7 +152,7 @@ TEST_F(RegisterAllocatorTest, DoubleDiamondManyRedundantPhis) {
   StartBlock();
   VReg vals[kPhis];
   for (int i = 0; i < kPhis; ++i) {
-    vals[i] = Parameter(Slot(i));
+    vals[i] = Parameter(Slot(-1 - i));
   }
   EndBlock(Branch(Reg(DefineConstant()), 1, 2));
 
@@ -206,14 +206,14 @@ TEST_F(RegisterAllocatorTest, RegressionPhisNeedTooManyRegisters) {
     StartBlock();
 
     for (size_t i = 0; i < arraysize(parameters); ++i) {
-      phis[i] = Phi(parameters[i]);
+      phis[i] = Phi(parameters[i], 2);
     }
 
     // Perform some computations.
     // something like phi[i] += const
     for (size_t i = 0; i < arraysize(parameters); ++i) {
-      auto result = EmitOII(Same(), Reg(phis[i]), Use(constant));
-      Extend(phis[i], result);
+      auto result = EmitOI(Same(), Reg(phis[i]), Use(constant));
+      SetInput(phis[i], 1, result);
     }
 
     EndBlock(Branch(Reg(DefineConstant()), 1, 2));
@@ -269,6 +269,198 @@ TEST_F(RegisterAllocatorTest, MoveLotsOfConstants) {
     call_ops[i + kDefaultNRegs] = Slot(constants[i], i);
   }
   EmitCall(Slot(-1), arraysize(call_ops), call_ops);
+  EndBlock(Last());
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, SplitBeforeInstruction) {
+  const int kNumRegs = 6;
+  SetNumRegs(kNumRegs, kNumRegs);
+
+  StartBlock();
+
+  // Stack parameters/spilled values.
+  auto p_0 = Define(Slot(-1));
+  auto p_1 = Define(Slot(-2));
+
+  // Fill registers.
+  VReg values[kNumRegs];
+  for (size_t i = 0; i < arraysize(values); ++i) {
+    values[i] = Define(Reg(static_cast<int>(i)));
+  }
+
+  // values[0] will be split in the second half of this instruction.
+  // Models Intel mod instructions.
+  EmitOI(Reg(0), Reg(p_0, 1), UniqueReg(p_1));
+  EmitI(Reg(values[0], 0));
+  EndBlock(Last());
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, NestedDiamondPhiMerge) {
+  // Outer diamond.
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 5));
+
+  // Diamond 1
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 2));
+
+  StartBlock();
+  auto ll = Define(Reg());
+  EndBlock(Jump(2));
+
+  StartBlock();
+  auto lr = Define(Reg());
+  EndBlock();
+
+  StartBlock();
+  auto l_phi = Phi(ll, lr);
+  EndBlock(Jump(5));
+
+  // Diamond 2
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 2));
+
+  StartBlock();
+  auto rl = Define(Reg());
+  EndBlock(Jump(2));
+
+  StartBlock();
+  auto rr = Define(Reg());
+  EndBlock();
+
+  StartBlock();
+  auto r_phi = Phi(rl, rr);
+  EndBlock();
+
+  // Outer diamond merge.
+  StartBlock();
+  auto phi = Phi(l_phi, r_phi);
+  Return(Reg(phi));
+  EndBlock();
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, NestedDiamondPhiMergeDifferent) {
+  // Outer diamond.
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 5));
+
+  // Diamond 1
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 2));
+
+  StartBlock();
+  auto ll = Define(Reg(0));
+  EndBlock(Jump(2));
+
+  StartBlock();
+  auto lr = Define(Reg(1));
+  EndBlock();
+
+  StartBlock();
+  auto l_phi = Phi(ll, lr);
+  EndBlock(Jump(5));
+
+  // Diamond 2
+  StartBlock();
+  EndBlock(Branch(Imm(), 1, 2));
+
+  StartBlock();
+  auto rl = Define(Reg(2));
+  EndBlock(Jump(2));
+
+  StartBlock();
+  auto rr = Define(Reg(3));
+  EndBlock();
+
+  StartBlock();
+  auto r_phi = Phi(rl, rr);
+  EndBlock();
+
+  // Outer diamond merge.
+  StartBlock();
+  auto phi = Phi(l_phi, r_phi);
+  Return(Reg(phi));
+  EndBlock();
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, RegressionSplitBeforeAndMove) {
+  StartBlock();
+
+  // Fill registers.
+  VReg values[kDefaultNRegs];
+  for (size_t i = 0; i < arraysize(values); ++i) {
+    if (i == 0 || i == 1) continue;  // Leave a hole for c_1 to take.
+    values[i] = Define(Reg(static_cast<int>(i)));
+  }
+
+  auto c_0 = DefineConstant();
+  auto c_1 = DefineConstant();
+
+  EmitOI(Reg(1), Reg(c_0, 0), UniqueReg(c_1));
+
+  // Use previous values to force c_1 to split before the previous instruction.
+  for (size_t i = 0; i < arraysize(values); ++i) {
+    if (i == 0 || i == 1) continue;
+    EmitI(Reg(values[i], static_cast<int>(i)));
+  }
+
+  EndBlock(Last());
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, RegressionSpillTwice) {
+  StartBlock();
+  auto p_0 = Parameter(Reg(1));
+  EmitCall(Slot(-2), Unique(p_0), Reg(p_0, 1));
+  EndBlock(Last());
+
+  Allocate();
+}
+
+
+TEST_F(RegisterAllocatorTest, RegressionLoadConstantBeforeSpill) {
+  StartBlock();
+  // Fill registers.
+  VReg values[kDefaultNRegs];
+  for (size_t i = arraysize(values); i > 0; --i) {
+    values[i - 1] = Define(Reg(static_cast<int>(i - 1)));
+  }
+  auto c = DefineConstant();
+  auto to_spill = Define(Reg());
+  EndBlock(Jump(1));
+
+  {
+    StartLoop(1);
+
+    StartBlock();
+    // Create a use for c in second half of prev block's last gap
+    Phi(c);
+    for (size_t i = arraysize(values); i > 0; --i) {
+      Phi(values[i - 1]);
+    }
+    EndBlock(Jump(1));
+
+    EndLoop();
+  }
+
+  StartBlock();
+  // Force c to split within to_spill's definition.
+  EmitI(Reg(c));
+  EmitI(Reg(to_spill));
   EndBlock(Last());
 
   Allocate();

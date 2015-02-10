@@ -168,6 +168,8 @@ class MarkingDeque {
   // heap.
   INLINE(void PushBlack(HeapObject* object)) {
     DCHECK(object->IsHeapObject());
+    // TODO(jochen): Remove again before we branch for 4.2.
+    CHECK(object->IsHeapObject() && object->map()->IsMap());
     if (IsFull()) {
       Marking::BlackToGrey(object);
       MemoryChunk::IncrementLiveBytesFromGC(object->address(), -object->Size());
@@ -180,6 +182,8 @@ class MarkingDeque {
 
   INLINE(void PushGrey(HeapObject* object)) {
     DCHECK(object->IsHeapObject());
+    // TODO(jochen): Remove again before we branch for 4.2.
+    CHECK(object->IsHeapObject() && object->map()->IsMap());
     if (IsFull()) {
       SetOverflowed();
     } else {
@@ -262,6 +266,11 @@ class SlotsBuffer {
 
   void Add(ObjectSlot slot) {
     DCHECK(0 <= idx_ && idx_ < kNumberOfElements);
+#ifdef DEBUG
+    if (slot >= reinterpret_cast<ObjectSlot>(NUMBER_OF_SLOT_TYPES)) {
+      DCHECK_NOT_NULL(*slot);
+    }
+#endif
     slots_[idx_++] = slot;
   }
 
@@ -663,6 +672,8 @@ class MarkCompactCollector {
 
   void UncommitMarkingDeque();
 
+  void OverApproximateWeakClosure();
+
  private:
   class SweeperTask;
 
@@ -808,7 +819,6 @@ class MarkCompactCollector {
   void TrimEnumCache(Map* map, DescriptorArray* descriptors);
 
   void ClearDependentCode(DependentCode* dependent_code);
-  void ClearDependentICList(Object* head);
   void ClearNonLiveDependentCode(DependentCode* dependent_code);
   int ClearNonLiveDependentCodeInGroup(DependentCode* dependent_code, int group,
                                        int start, int end, int new_start);

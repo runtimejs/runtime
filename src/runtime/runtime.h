@@ -66,6 +66,7 @@ namespace internal {
   F(RunningInSimulator, 0, 1)                              \
   F(IsConcurrentRecompilationSupported, 0, 1)              \
   F(OptimizeFunctionOnNextCall, -1, 1)                     \
+  F(OptimizeOsr, 0, 1)                                     \
   F(NeverOptimizeFunction, 1, 1)                           \
   F(GetOptimizationStatus, -1, 1)                          \
   F(GetOptimizationCount, 1, 1)                            \
@@ -73,6 +74,7 @@ namespace internal {
   F(CompileForOnStackReplacement, 1, 1)                    \
   F(SetAllocationTimeout, -1 /* 2 || 3 */, 1)              \
   F(SetNativeFlag, 1, 1)                                   \
+  F(IsConstructor, 1, 1)                                   \
   F(SetInlineBuiltinFlag, 1, 1)                            \
   F(StoreArrayLiteralElement, 5, 1)                        \
   F(DebugPrepareStepInIfStepping, 1, 1)                    \
@@ -151,7 +153,7 @@ namespace internal {
   F(MathExpRT, 1, 1)                                       \
   F(RoundNumber, 1, 1)                                     \
   F(MathFround, 1, 1)                                      \
-  F(RemPiO2, 1, 1)                                         \
+  F(RemPiO2, 2, 1)                                         \
                                                            \
   /* Regular expressions */                                \
   F(RegExpInitializeAndCompile, 3, 1)                      \
@@ -185,20 +187,19 @@ namespace internal {
   /* Classes support */                                    \
   F(ToMethod, 2, 1)                                        \
   F(HomeObjectSymbol, 0, 1)                                \
+  F(DefaultConstructorSuperCall, 0, 1)                     \
   F(DefineClass, 6, 1)                                     \
   F(DefineClassMethod, 3, 1)                               \
-  F(DefineClassGetter, 3, 1)                               \
-  F(DefineClassSetter, 3, 1)                               \
   F(ClassGetSourceCode, 1, 1)                              \
-  F(ThrowNonMethodError, 0, 1)                             \
-  F(ThrowUnsupportedSuperError, 0, 1)                      \
   F(LoadFromSuper, 3, 1)                                   \
   F(LoadKeyedFromSuper, 3, 1)                              \
+  F(ThrowConstructorNonCallableError, 0, 1)                \
+  F(ThrowNonMethodError, 0, 1)                             \
+  F(ThrowUnsupportedSuperError, 0, 1)                      \
   F(StoreToSuper_Strict, 4, 1)                             \
   F(StoreToSuper_Sloppy, 4, 1)                             \
   F(StoreKeyedToSuper_Strict, 4, 1)                        \
-  F(StoreKeyedToSuper_Sloppy, 4, 1)                        \
-  F(DefaultConstructorSuperCall, 0, 1)
+  F(StoreKeyedToSuper_Sloppy, 4, 1)
 
 
 #define RUNTIME_FUNCTION_LIST_ALWAYS_2(F)              \
@@ -233,9 +234,6 @@ namespace internal {
                                                        \
   F(SetCode, 2, 1)                                     \
                                                        \
-  F(CreateApiFunction, 2, 1)                           \
-  F(IsTemplate, 1, 1)                                  \
-  F(GetTemplateField, 2, 1)                            \
   F(DisableAccessChecks, 1, 1)                         \
   F(EnableAccessChecks, 1, 1)                          \
                                                        \
@@ -255,13 +253,13 @@ namespace internal {
   F(GlobalProxy, 1, 1)                                 \
                                                        \
   F(AddNamedProperty, 4, 1)                            \
-  F(AddPropertyForTemplate, 4, 1)                      \
   F(SetProperty, 4, 1)                                 \
   F(AddElement, 4, 1)                                  \
-  F(DefineApiAccessorProperty, 5, 1)                   \
   F(DefineDataPropertyUnchecked, 4, 1)                 \
   F(DefineAccessorPropertyUnchecked, 5, 1)             \
   F(GetDataProperty, 2, 1)                             \
+  F(DefineGetterPropertyUnchecked, 4, 1)               \
+  F(DefineSetterPropertyUnchecked, 4, 1)               \
                                                        \
   /* Arrays */                                         \
   F(RemoveArrayHoles, 2, 1)                            \
@@ -275,6 +273,7 @@ namespace internal {
   F(LookupAccessor, 3, 1)                              \
                                                        \
   /* ES5 */                                            \
+  F(ObjectSeal, 1, 1)                                  \
   F(ObjectFreeze, 1, 1)                                \
                                                        \
   /* Harmony modules */                                \
@@ -299,19 +298,11 @@ namespace internal {
   F(GetConstructTrap, 1, 1)                            \
   F(Fix, 1, 1)                                         \
                                                        \
-  /* Harmony sets */                                   \
-  F(SetInitialize, 1, 1)                               \
-  F(SetClear, 1, 1)                                    \
-                                                       \
+  /* ES6 collection iterators */                       \
   F(SetIteratorInitialize, 3, 1)                       \
   F(SetIteratorClone, 1, 1)                            \
   F(SetIteratorNext, 2, 1)                             \
   F(SetIteratorDetails, 1, 1)                          \
-                                                       \
-  /* Harmony maps */                                   \
-  F(MapInitialize, 1, 1)                               \
-  F(MapClear, 1, 1)                                    \
-                                                       \
   F(MapIteratorInitialize, 3, 1)                       \
   F(MapIteratorClone, 1, 1)                            \
   F(MapIteratorNext, 2, 1)                             \
@@ -389,6 +380,7 @@ namespace internal {
   F(Abort, 1, 1)                                       \
   F(AbortJS, 1, 1)                                     \
   F(NativeScriptsCount, 0, 1)                          \
+  F(RenderCallSite, 0, 1)                              \
   /* ES5 */                                            \
   F(OwnKeys, 1, 1)                                     \
                                                        \
@@ -482,8 +474,8 @@ namespace internal {
   /* Statements */                                           \
   F(NewClosure, 3, 1)                                        \
   F(NewClosureFromStubFailure, 1, 1)                         \
-  F(NewObject, 1, 1)                                         \
-  F(NewObjectWithAllocationSite, 2, 1)                       \
+  F(NewObject, 2, 1)                                         \
+  F(NewObjectWithAllocationSite, 3, 1)                       \
   F(FinalizeInstanceSize, 1, 1)                              \
   F(Throw, 1, 1)                                             \
   F(ReThrow, 1, 1)                                           \
@@ -722,15 +714,19 @@ namespace internal {
   F(MathSqrtRT, 1, 1)                     \
   F(MathLogRT, 1, 1)                      \
   /* ES6 Collections */                   \
+  F(MapClear, 1, 1)                       \
   F(MapDelete, 2, 1)                      \
   F(MapGet, 2, 1)                         \
   F(MapGetSize, 1, 1)                     \
   F(MapHas, 2, 1)                         \
+  F(MapInitialize, 1, 1)                  \
   F(MapSet, 3, 1)                         \
   F(SetAdd, 2, 1)                         \
+  F(SetClear, 1, 1)                       \
   F(SetDelete, 2, 1)                      \
   F(SetGetSize, 1, 1)                     \
   F(SetHas, 2, 1)                         \
+  F(SetInitialize, 1, 1)                  \
   /* Arrays */                            \
   F(HasFastPackedElements, 1, 1)          \
   F(GetPrototype, 1, 1)
@@ -824,7 +820,7 @@ class Runtime : public AllStatic {
 
   MUST_USE_RESULT static MaybeHandle<Object> SetObjectProperty(
       Isolate* isolate, Handle<Object> object, Handle<Object> key,
-      Handle<Object> value, StrictMode strict_mode);
+      Handle<Object> value, LanguageMode language_mode);
 
   MUST_USE_RESULT static MaybeHandle<Object> DefineObjectProperty(
       Handle<JSObject> object, Handle<Object> key, Handle<Object> value,
@@ -880,6 +876,13 @@ class Runtime : public AllStatic {
   MUST_USE_RESULT static MaybeHandle<Object> CreateArrayLiteralBoilerplate(
       Isolate* isolate, Handle<FixedArray> literals,
       Handle<FixedArray> elements);
+
+  static void WeakCollectionInitialize(
+      Isolate* isolate, Handle<JSWeakCollection> weak_collection);
+  static void WeakCollectionSet(Handle<JSWeakCollection> weak_collection,
+                                Handle<Object> key, Handle<Object> value);
+  static bool WeakCollectionDelete(Handle<JSWeakCollection> weak_collection,
+                                   Handle<Object> key);
 };
 
 
@@ -893,7 +896,8 @@ class AllocateTargetSpace : public BitField<AllocationSpace, 1, 3> {};
 
 class DeclareGlobalsEvalFlag : public BitField<bool, 0, 1> {};
 class DeclareGlobalsNativeFlag : public BitField<bool, 1, 1> {};
-class DeclareGlobalsStrictMode : public BitField<StrictMode, 2, 1> {};
+STATIC_ASSERT(LANGUAGE_END == 3);
+class DeclareGlobalsLanguageMode : public BitField<LanguageMode, 2, 2> {};
 
 }  // namespace internal
 }  // namespace v8

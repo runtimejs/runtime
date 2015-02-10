@@ -65,6 +65,8 @@
 #include "src/arm64/assembler-arm64-inl.h"  // NOLINT
 #elif V8_TARGET_ARCH_ARM
 #include "src/arm/assembler-arm-inl.h"  // NOLINT
+#elif V8_TARGET_ARCH_PPC
+#include "src/ppc/assembler-ppc-inl.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS
 #include "src/mips/assembler-mips-inl.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS64
@@ -85,6 +87,8 @@
 #include "src/arm64/regexp-macro-assembler-arm64.h"  // NOLINT
 #elif V8_TARGET_ARCH_ARM
 #include "src/arm/regexp-macro-assembler-arm.h"  // NOLINT
+#elif V8_TARGET_ARCH_PPC
+#include "src/ppc/regexp-macro-assembler-ppc.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS
 #include "src/mips/regexp-macro-assembler-mips.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS64
@@ -107,7 +111,6 @@ double min_int;
 double one_half;
 double minus_one_half;
 double negative_infinity;
-double canonical_non_hole_nan;
 double the_hole_nan;
 double uint32_bias;
 };
@@ -253,6 +256,7 @@ int Label::pos() const {
 //   position:            01
 //   statement_position:  10
 //   comment:             11 (not used in short_data_record)
+//   deopt_reason:        11 (not used in long_data_record)
 //
 //  Long record format:
 //    4-bit middle_tag:
@@ -324,6 +328,10 @@ const int kCodeWithIdTag = 0;
 const int kNonstatementPositionTag = 1;
 const int kStatementPositionTag = 2;
 const int kCommentTag = 3;
+
+// Reuse the same value for deopt reason tag in short record format.
+// It is possible because we use kCommentTag only for the long record format.
+const int kDeoptReasonTag = 3;
 
 const int kPoolExtraTag = kPCJumpExtraTag - 2;
 const int kConstPoolTag = 0;
@@ -439,6 +447,10 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
       WriteExtraTaggedIntData(id_delta, kCodeWithIdTag);
     }
     last_id_ = static_cast<int>(rinfo->data());
+  } else if (rmode == RelocInfo::DEOPT_REASON) {
+    DCHECK(rinfo->data() < (1 << kSmallDataBits));
+    WriteTaggedPC(pc_delta, kLocatableTag);
+    WriteTaggedData(rinfo->data(), kDeoptReasonTag);
   } else if (RelocInfo::IsPosition(rmode)) {
     // Use signed delta-encoding for position.
     DCHECK(static_cast<int>(rinfo->data()) == rinfo->data());
@@ -470,7 +482,7 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
     int saved_mode = rmode - RelocInfo::LAST_COMPACT_ENUM;
     // For all other modes we simply use the mode as the extra tag.
     // None of these modes need a data component.
-    DCHECK(saved_mode < kPCJumpExtraTag && saved_mode < kDataJumpExtraTag);
+    DCHECK(saved_mode < kPoolExtraTag);
     WriteExtraTaggedPC(pc_delta, saved_mode);
   }
   last_pc_ = rinfo->pc();
@@ -580,6 +592,12 @@ inline void RelocIterator::ReadTaggedPosition() {
 }
 
 
+inline void RelocIterator::ReadTaggedData() {
+  uint8_t unsigned_b = *pos_;
+  rinfo_.data_ = unsigned_b >> kTagBits;
+}
+
+
 static inline RelocInfo::Mode GetPositionModeFromTag(int tag) {
   DCHECK(tag == kNonstatementPositionTag ||
          tag == kStatementPositionTag);
@@ -613,9 +631,10 @@ void RelocIterator::next() {
           ReadTaggedId();
           return;
         }
+      } else if (locatable_tag == kDeoptReasonTag) {
+        ReadTaggedData();
+        if (SetMode(RelocInfo::DEOPT_REASON)) return;
       } else {
-        // Compact encoding is never used for comments,
-        // so it must be a position.
         DCHECK(locatable_tag == kNonstatementPositionTag ||
                locatable_tag == kStatementPositionTag);
         if (mode_mask_ & RelocInfo::kPositionMask) {
@@ -780,6 +799,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "external reference";
     case RelocInfo::INTERNAL_REFERENCE:
       return "internal reference";
+    case RelocInfo::DEOPT_REASON:
+      return "deopt reason";
     case RelocInfo::CONST_POOL:
       return "constant pool";
     case RelocInfo::VENEER_POOL:
@@ -800,6 +821,9 @@ void RelocInfo::Print(Isolate* isolate, std::ostream& os) {  // NOLINT
   os << static_cast<const void*>(pc_) << "  " << RelocModeName(rmode_);
   if (IsComment(rmode_)) {
     os << "  (" << reinterpret_cast<char*>(data_) << ")";
+  } else if (rmode_ == DEOPT_REASON) {
+    os << "  (" << Deoptimizer::GetDeoptReason(
+                       static_cast<Deoptimizer::DeoptReason>(data_)) << ")";
   } else if (rmode_ == EMBEDDED_OBJECT) {
     os << "  (" << Brief(target_object()) << ")";
   } else if (rmode_ == EXTERNAL_REFERENCE) {
@@ -860,6 +884,7 @@ void RelocInfo::Verify(Isolate* isolate) {
     case STATEMENT_POSITION:
     case EXTERNAL_REFERENCE:
     case INTERNAL_REFERENCE:
+    case DEOPT_REASON:
     case CONST_POOL:
     case VENEER_POOL:
     case DEBUG_BREAK_SLOT:
@@ -884,7 +909,6 @@ void ExternalReference::SetUp() {
   double_constants.min_int = kMinInt;
   double_constants.one_half = 0.5;
   double_constants.minus_one_half = -0.5;
-  double_constants.canonical_non_hole_nan = base::OS::nan_value();
   double_constants.the_hole_nan = bit_cast<double>(kHoleNanInt64);
   double_constants.negative_infinity = -V8_INFINITY;
   double_constants.uint32_bias =
@@ -1242,12 +1266,6 @@ ExternalReference ExternalReference::address_of_negative_infinity() {
 }
 
 
-ExternalReference ExternalReference::address_of_canonical_non_hole_nan() {
-  return ExternalReference(
-      reinterpret_cast<void*>(&double_constants.canonical_non_hole_nan));
-}
-
-
 ExternalReference ExternalReference::address_of_the_hole_nan() {
   return ExternalReference(
       reinterpret_cast<void*>(&double_constants.the_hole_nan));
@@ -1297,6 +1315,8 @@ ExternalReference ExternalReference::re_check_stack_guard_state(
   function = FUNCTION_ADDR(RegExpMacroAssemblerARM64::CheckStackGuardState);
 #elif V8_TARGET_ARCH_ARM
   function = FUNCTION_ADDR(RegExpMacroAssemblerARM::CheckStackGuardState);
+#elif V8_TARGET_ARCH_PPC
+  function = FUNCTION_ADDR(RegExpMacroAssemblerPPC::CheckStackGuardState);
 #elif V8_TARGET_ARCH_MIPS
   function = FUNCTION_ADDR(RegExpMacroAssemblerMIPS::CheckStackGuardState);
 #elif V8_TARGET_ARCH_MIPS64
@@ -1443,15 +1463,18 @@ double power_double_int(double x, int y) {
 
 
 double power_double_double(double x, double y) {
-#if defined(__MINGW64_VERSION_MAJOR) && \
-    (!defined(__MINGW64_VERSION_RC) || __MINGW64_VERSION_RC < 1)
-  // MinGW64 has a custom implementation for pow.  This handles certain
+#if (defined(__MINGW64_VERSION_MAJOR) &&                              \
+     (!defined(__MINGW64_VERSION_RC) || __MINGW64_VERSION_RC < 1)) || \
+    defined(V8_OS_AIX)
+  // MinGW64 and AIX have a custom implementation for pow.  This handles certain
   // special cases that are different.
-  if ((x == 0.0 || std::isinf(x)) && std::isfinite(y)) {
+  if ((x == 0.0 || std::isinf(x)) && y != 0.0 && std::isfinite(y)) {
     double f;
-    if (std::modf(y, &f) != 0.0) {
-      return ((x == 0.0) ^ (y > 0)) ? V8_INFINITY : 0;
-    }
+    double result = ((x == 0.0) ^ (y > 0)) ? V8_INFINITY : 0;
+    /* retain sign if odd integer exponent */
+    return ((std::modf(y, &f) == 0.0) && (static_cast<int64_t>(y) & 1))
+               ? copysign(result, x)
+               : result;
   }
 
   if (x == 2.0) {
@@ -1465,7 +1488,7 @@ double power_double_double(double x, double y) {
   // The checks for special cases can be dropped in ia32 because it has already
   // been done in generated code before bailing out here.
   if (std::isnan(y) || ((x == 1 || x == -1) && std::isinf(y))) {
-    return base::OS::nan_value();
+    return std::numeric_limits<double>::quiet_NaN();
   }
   return std::pow(x, y);
 }

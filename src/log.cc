@@ -271,7 +271,7 @@ PerfBasicLogger::PerfBasicLogger()
   CHECK_NE(size, -1);
   perf_output_handle_ =
       base::OS::FOpen(perf_dump_name.start(), base::OS::LogFileOpenMode);
-  CHECK_NE(perf_output_handle_, NULL);
+  CHECK_NOT_NULL(perf_output_handle_);
   setvbuf(perf_output_handle_, NULL, _IOFBF, kLogBufferSize);
 }
 
@@ -402,6 +402,8 @@ void LowLevelLogger::LogCodeInfo() {
   const char arch[] = "x32";
 #elif V8_TARGET_ARCH_ARM
   const char arch[] = "arm";
+#elif V8_TARGET_ARCH_PPC
+  const char arch[] = "ppc";
 #elif V8_TARGET_ARCH_MIPS
   const char arch[] = "mips";
 #elif V8_TARGET_ARCH_X87
@@ -901,7 +903,7 @@ void Logger::ApiNamedSecurityCheck(Object* key) {
 void Logger::SharedLibraryEvent(const std::string& library_path,
                                 uintptr_t start,
                                 uintptr_t end) {
-  if (!log_->IsEnabled() || !FLAG_prof) return;
+  if (!log_->IsEnabled() || !FLAG_prof_cpp) return;
   Log::MessageBuilder msg(log_);
   msg.Append("shared-library,\"%s\",0x%08" V8PRIxPTR ",0x%08" V8PRIxPTR,
              library_path.c_str(), start, end);
@@ -1514,7 +1516,7 @@ void Logger::DebugEvent(const char* event_type, Vector<uint16_t> parameter) {
 
 
 void Logger::TickEvent(TickSample* sample, bool overflow) {
-  if (!log_->IsEnabled() || !FLAG_prof) return;
+  if (!log_->IsEnabled() || !FLAG_prof_cpp) return;
   Log::MessageBuilder msg(log_);
   msg.Append("%s,", kLogEventsNames[TICK_EVENT]);
   msg.AppendAddress(sample->pc);
@@ -1859,9 +1861,9 @@ bool Logger::SetUp(Isolate* isolate) {
     is_logging_ = true;
   }
 
-  if (FLAG_log_internal_timer_events || FLAG_prof) timer_.Start();
+  if (FLAG_log_internal_timer_events || FLAG_prof_cpp) timer_.Start();
 
-  if (FLAG_prof) {
+  if (FLAG_prof_cpp) {
     profiler_ = new Profiler(isolate);
     is_logging_ = true;
     profiler_->Engage();

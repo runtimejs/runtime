@@ -6,8 +6,9 @@
 #include "src/compiler/control-reducer.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-graph.h"
+#include "src/compiler/node-marker.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 #include "src/zone-containers.h"
 
 namespace v8 {
@@ -105,9 +106,10 @@ class ControlReducerImpl {
     marked.Push(start);
     marked.SetReachableFromStart(start);
 
-    // We use a stack of (Node, UseIter) pairs to avoid O(n^2) traversal.
-    typedef std::pair<Node*, UseIter> FwIter;
-    ZoneDeque<FwIter> fw_stack(zone_);
+    // We use a stack of (Node, Node::Uses::const_iterator) pairs to avoid
+    // O(n^2) traversal.
+    typedef std::pair<Node*, Node::Uses::const_iterator> FwIter;
+    ZoneVector<FwIter> fw_stack(zone_);
     fw_stack.push_back(FwIter(start, start->uses().begin()));
 
     while (!fw_stack.empty()) {
@@ -123,12 +125,15 @@ class ControlReducerImpl {
           marked.SetReachableFromEnd(added);
           AddBackwardsReachableNodes(marked, nodes, nodes.size() - 1);
 
-          // The use list of {succ} might have changed.
-          fw_stack[fw_stack.size() - 1] = FwIter(succ, succ->uses().begin());
+          // Reset the use iterators for the entire stack.
+          for (size_t i = 0; i < fw_stack.size(); i++) {
+            FwIter& iter = fw_stack[i];
+            fw_stack[i] = FwIter(iter.first, iter.first->uses().begin());
+          }
           pop = false;  // restart traversing successors of this node.
           break;
         }
-        if (IrOpcode::IsControlOpcode(succ->opcode()) &&
+        if (NodeProperties::IsControl(succ) &&
             !marked.IsReachableFromStart(succ)) {
           // {succ} is a control node and not yet reached from start.
           marked.Push(succ);
@@ -152,7 +157,7 @@ class ControlReducerImpl {
     // Any control nodes not reachable from start are dead, even loops.
     for (size_t i = 0; i < nodes.size(); i++) {
       Node* node = nodes[i];
-      if (IrOpcode::IsControlOpcode(node->opcode()) &&
+      if (NodeProperties::IsControl(node) &&
           !marked.IsReachableFromStart(node)) {
         ReplaceNode(node, dead());  // uses will be added to revisit queue.
       }
@@ -164,41 +169,80 @@ class ControlReducerImpl {
   Node* ConnectNTL(Node* loop) {
     TRACE(("ConnectNTL: #%d:%s\n", loop->id(), loop->op()->mnemonic()));
 
-    if (loop->opcode() != IrOpcode::kTerminate) {
-      // Insert a {Terminate} node if the loop has effects.
-      ZoneDeque<Node*> effects(zone_);
-      for (Node* const use : loop->uses()) {
-        if (use->opcode() == IrOpcode::kEffectPhi) effects.push_back(use);
-      }
-      int count = static_cast<int>(effects.size());
-      if (count > 0) {
-        Node** inputs = zone_->NewArray<Node*>(1 + count);
-        for (int i = 0; i < count; i++) inputs[i] = effects[i];
-        inputs[count] = loop;
-        loop = graph()->NewNode(common_->Terminate(count), 1 + count, inputs);
-        TRACE(("AddTerminate: #%d:%s[%d]\n", loop->id(), loop->op()->mnemonic(),
-               count));
+    Node* always = graph()->NewNode(common_->Always());
+    // Mark the node as visited so that we can revisit later.
+    MarkAsVisited(always);
+
+    Node* branch = graph()->NewNode(common_->Branch(), always, loop);
+    // Mark the node as visited so that we can revisit later.
+    MarkAsVisited(branch);
+
+    Node* if_true = graph()->NewNode(common_->IfTrue(), branch);
+    // Mark the node as visited so that we can revisit later.
+    MarkAsVisited(if_true);
+
+    Node* if_false = graph()->NewNode(common_->IfFalse(), branch);
+    // Mark the node as visited so that we can revisit later.
+    MarkAsVisited(if_false);
+
+    // Hook up the branch into the loop and collect all loop effects.
+    NodeVector effects(zone_);
+    for (auto edge : loop->use_edges()) {
+      DCHECK_EQ(loop, edge.to());
+      DCHECK(NodeProperties::IsControlEdge(edge));
+      if (edge.from() == branch) continue;
+      switch (edge.from()->opcode()) {
+#define CASE(Opcode) case IrOpcode::k##Opcode:
+        CONTROL_OP_LIST(CASE)
+#undef CASE
+          // Update all control nodes (except {branch}) pointing to the {loop}.
+          edge.UpdateTo(if_true);
+          break;
+        case IrOpcode::kEffectPhi:
+          effects.push_back(edge.from());
+          break;
+        default:
+          break;
       }
     }
 
-    Node* to_add = loop;
+    // Compute effects for the Return.
+    Node* effect = graph()->start();
+    int const effects_count = static_cast<int>(effects.size());
+    if (effects_count == 1) {
+      effect = effects[0];
+    } else if (effects_count > 1) {
+      effect = graph()->NewNode(common_->EffectSet(effects_count),
+                                effects_count, &effects.front());
+      // Mark the node as visited so that we can revisit later.
+      MarkAsVisited(effect);
+    }
+
+    // Add a return to connect the NTL to the end.
+    Node* ret = graph()->NewNode(
+        common_->Return(), jsgraph_->UndefinedConstant(), effect, if_false);
+    // Mark the node as visited so that we can revisit later.
+    MarkAsVisited(ret);
+
     Node* end = graph()->end();
     CHECK_EQ(IrOpcode::kEnd, end->opcode());
     Node* merge = end->InputAt(0);
     if (merge == NULL || merge->opcode() == IrOpcode::kDead) {
-      // The end node died; just connect end to {loop}.
-      end->ReplaceInput(0, loop);
+      // The end node died; just connect end to {ret}.
+      end->ReplaceInput(0, ret);
     } else if (merge->opcode() != IrOpcode::kMerge) {
-      // Introduce a final merge node for {end->InputAt(0)} and {loop}.
-      merge = graph()->NewNode(common_->Merge(2), merge, loop);
+      // Introduce a final merge node for {end->InputAt(0)} and {ret}.
+      merge = graph()->NewNode(common_->Merge(2), merge, ret);
       end->ReplaceInput(0, merge);
-      to_add = merge;
+      ret = merge;
+      // Mark the node as visited so that we can revisit later.
+      MarkAsVisited(merge);
     } else {
       // Append a new input to the final merge at the end.
-      merge->AppendInput(graph()->zone(), loop);
+      merge->AppendInput(graph()->zone(), ret);
       merge->set_op(common_->Merge(merge->InputCount()));
     }
-    return to_add;
+    return ret;
   }
 
   void AddNodesReachableFromEnd(ReachabilityMarker& marked, NodeVector& nodes) {
@@ -252,7 +296,7 @@ class ControlReducerImpl {
     for (size_t j = 0; j < nodes.size(); j++) {
       Node* node = nodes[j];
       for (Node* const input : node->inputs()) {
-        CHECK_NE(NULL, input);
+        CHECK(input);
       }
       for (Node* const use : node->uses()) {
         CHECK(marked.IsReachableFromEnd(use));
@@ -275,6 +319,7 @@ class ControlReducerImpl {
 
     // Recurse on an input if necessary.
     for (Node* const input : node->inputs()) {
+      DCHECK(input);
       if (Recurse(input)) return;
     }
 
@@ -290,14 +335,17 @@ class ControlReducerImpl {
     if (replacement != node) Recurse(replacement);
   }
 
+  void EnsureStateSize(size_t id) {
+    if (id >= state_.size()) {
+      state_.resize((3 * id) / 2, kUnvisited);
+    }
+  }
+
   // Push a node onto the stack if its state is {kUnvisited} or {kRevisit}.
   bool Recurse(Node* node) {
     size_t id = static_cast<size_t>(node->id());
-    if (id < state_.size()) {
-      if (state_[id] != kRevisit && state_[id] != kUnvisited) return false;
-    } else {
-      state_.resize((3 * id) / 2, kUnvisited);
-    }
+    EnsureStateSize(id);
+    if (state_[id] != kRevisit && state_[id] != kUnvisited) return false;
     Push(node);
     return true;
   }
@@ -325,6 +373,13 @@ class ControlReducerImpl {
     }
   }
 
+  // Mark {node} as visited.
+  void MarkAsVisited(Node* node) {
+    size_t id = static_cast<size_t>(node->id());
+    EnsureStateSize(id);
+    state_[id] = kVisited;
+  }
+
   Node* dead() {
     if (dead_ == NULL) dead_ = graph()->NewNode(common_->Dead());
     return dead_;
@@ -345,8 +400,10 @@ class ControlReducerImpl {
 
     // Reduce branches, phis, and merges.
     switch (node->opcode()) {
-      case IrOpcode::kBranch:
-        return ReduceBranch(node);
+      case IrOpcode::kIfTrue:
+        return ReduceIfTrue(node);
+      case IrOpcode::kIfFalse:
+        return ReduceIfFalse(node);
       case IrOpcode::kLoop:
       case IrOpcode::kMerge:
         return ReduceMerge(node);
@@ -400,9 +457,17 @@ class ControlReducerImpl {
     if (n <= 1) return dead();            // No non-control inputs.
     if (n == 2) return node->InputAt(0);  // Only one non-control input.
 
+    // Never remove an effect phi from a (potentially non-terminating) loop.
+    // Otherwise, we might end up eliminating effect nodes, such as calls,
+    // before the loop.
+    if (node->opcode() == IrOpcode::kEffectPhi &&
+        NodeProperties::GetControlInput(node)->opcode() == IrOpcode::kLoop) {
+      return node;
+    }
+
     Node* replacement = NULL;
-    Node::Inputs inputs = node->inputs();
-    for (InputIter it = inputs.begin(); n > 1; --n, ++it) {
+    auto const inputs = node->inputs();
+    for (auto it = inputs.begin(); n > 1; --n, ++it) {
       Node* input = *it;
       if (input->opcode() == IrOpcode::kDead) continue;  // ignore dead inputs.
       if (input != node && input != replacement) {       // non-redundant input.
@@ -437,10 +502,7 @@ class ControlReducerImpl {
     // Gather phis and effect phis to be edited.
     ZoneVector<Node*> phis(zone_);
     for (Node* const use : node->uses()) {
-      if (use->opcode() == IrOpcode::kPhi ||
-          use->opcode() == IrOpcode::kEffectPhi) {
-        phis.push_back(use);
-      }
+      if (NodeProperties::IsPhi(use)) phis.push_back(use);
     }
 
     if (live == 1) {
@@ -463,55 +525,54 @@ class ControlReducerImpl {
   }
 
   // Reduce branches if they have constant inputs.
-  Node* ReduceBranch(Node* node) {
-    Decision result = DecideCondition(node->InputAt(0));
-    if (result == kUnknown) return node;
-
-    TRACE(("BranchReduce: #%d:%s = %s\n", node->id(), node->op()->mnemonic(),
-           (result == kTrue) ? "true" : "false"));
-
-    // Replace IfTrue and IfFalse projections from this branch.
-    Node* control = NodeProperties::GetControlInput(node);
-    for (Edge edge : node->use_edges()) {
-      Node* use = edge.from();
-      if (use->opcode() == IrOpcode::kIfTrue) {
-        TRACE(("  IfTrue: #%d:%s\n", use->id(), use->op()->mnemonic()));
-        edge.UpdateTo(NULL);
-        ReplaceNode(use, (result == kTrue) ? control : dead());
-      } else if (use->opcode() == IrOpcode::kIfFalse) {
-        TRACE(("  IfFalse: #%d:%s\n", use->id(), use->op()->mnemonic()));
-        edge.UpdateTo(NULL);
-        ReplaceNode(use, (result == kTrue) ? dead() : control);
-      }
+  Node* ReduceIfTrue(Node* node) {
+    Node* branch = node->InputAt(0);
+    DCHECK_EQ(IrOpcode::kBranch, branch->opcode());
+    Decision result = DecideCondition(branch->InputAt(0));
+    if (result == kTrue) {
+      // fold a true branch by replacing IfTrue with the branch control.
+      TRACE(("BranchReduce: #%d:%s => #%d:%s\n", branch->id(),
+             branch->op()->mnemonic(), node->id(), node->op()->mnemonic()));
+      return branch->InputAt(1);
     }
-    return control;
+    return result == kUnknown ? node : dead();
+  }
+
+  // Reduce branches if they have constant inputs.
+  Node* ReduceIfFalse(Node* node) {
+    Node* branch = node->InputAt(0);
+    DCHECK_EQ(IrOpcode::kBranch, branch->opcode());
+    Decision result = DecideCondition(branch->InputAt(0));
+    if (result == kFalse) {
+      // fold a false branch by replacing IfFalse with the branch control.
+      TRACE(("BranchReduce: #%d:%s => #%d:%s\n", branch->id(),
+             branch->op()->mnemonic(), node->id(), node->op()->mnemonic()));
+      return branch->InputAt(1);
+    }
+    return result == kUnknown ? node : dead();
   }
 
   // Remove inputs to {node} corresponding to the dead inputs to {merge}
   // and compact the remaining inputs, updating the operator.
   void RemoveDeadInputs(Node* merge, Node* node) {
-    int pos = 0;
-    for (int i = 0; i < node->InputCount(); i++) {
+    int live = 0;
+    for (int i = 0; i < merge->InputCount(); i++) {
       // skip dead inputs.
-      if (i < merge->InputCount() &&
-          merge->InputAt(i)->opcode() == IrOpcode::kDead)
-        continue;
+      if (merge->InputAt(i)->opcode() == IrOpcode::kDead) continue;
       // compact live inputs.
-      if (pos != i) node->ReplaceInput(pos, node->InputAt(i));
-      pos++;
+      if (live != i) node->ReplaceInput(live, node->InputAt(i));
+      live++;
     }
-    node->TrimInputCount(pos);
-    if (node->opcode() == IrOpcode::kPhi) {
-      node->set_op(common_->Phi(OpParameter<MachineType>(node->op()), pos - 1));
-    } else if (node->opcode() == IrOpcode::kEffectPhi) {
-      node->set_op(common_->EffectPhi(pos - 1));
-    } else if (node->opcode() == IrOpcode::kMerge) {
-      node->set_op(common_->Merge(pos));
-    } else if (node->opcode() == IrOpcode::kLoop) {
-      node->set_op(common_->Loop(pos));
-    } else {
-      UNREACHABLE();
+    // compact remaining inputs.
+    int total = live;
+    for (int i = merge->InputCount(); i < node->InputCount(); i++) {
+      if (total != i) node->ReplaceInput(total, node->InputAt(i));
+      total++;
     }
+    DCHECK_EQ(total, live + node->InputCount() - merge->InputCount());
+    DCHECK_NE(total, node->InputCount());
+    node->TrimInputCount(total);
+    node->set_op(common_->ResizeMergeOrPhi(node->op(), live));
   }
 
   // Replace uses of {node} with {replacement} and revisit the uses.
@@ -548,7 +609,7 @@ void ControlReducer::TrimGraph(Zone* zone, JSGraph* jsgraph) {
 Node* ControlReducer::ReducePhiForTesting(JSGraph* jsgraph,
                                           CommonOperatorBuilder* common,
                                           Node* node) {
-  Zone zone(jsgraph->graph()->zone()->isolate());
+  Zone zone;
   ControlReducerImpl impl(&zone, jsgraph, common);
   return impl.ReducePhi(node);
 }
@@ -557,18 +618,25 @@ Node* ControlReducer::ReducePhiForTesting(JSGraph* jsgraph,
 Node* ControlReducer::ReduceMergeForTesting(JSGraph* jsgraph,
                                             CommonOperatorBuilder* common,
                                             Node* node) {
-  Zone zone(jsgraph->graph()->zone()->isolate());
+  Zone zone;
   ControlReducerImpl impl(&zone, jsgraph, common);
   return impl.ReduceMerge(node);
 }
 
 
-Node* ControlReducer::ReduceBranchForTesting(JSGraph* jsgraph,
+Node* ControlReducer::ReduceIfNodeForTesting(JSGraph* jsgraph,
                                              CommonOperatorBuilder* common,
                                              Node* node) {
-  Zone zone(jsgraph->graph()->zone()->isolate());
+  Zone zone;
   ControlReducerImpl impl(&zone, jsgraph, common);
-  return impl.ReduceBranch(node);
+  switch (node->opcode()) {
+    case IrOpcode::kIfTrue:
+      return impl.ReduceIfTrue(node);
+    case IrOpcode::kIfFalse:
+      return impl.ReduceIfFalse(node);
+    default:
+      return node;
+  }
 }
 }
 }

@@ -75,13 +75,15 @@ bool CodeStub::FindCodeInCache(Code** code_out) {
 
 
 void CodeStub::RecordCodeGeneration(Handle<Code> code) {
-  IC::RegisterWeakMapDependency(code);
   std::ostringstream os;
   os << *this;
   PROFILE(isolate(),
           CodeCreateEvent(Logger::STUB_TAG, *code, os.str().c_str()));
   Counters* counters = isolate()->counters();
   counters->total_stubs_code_size()->Increment(code->instruction_size());
+#ifdef DEBUG
+  code->VerifyEmbeddedObjects();
+#endif
 }
 
 
@@ -266,12 +268,8 @@ MaybeHandle<Code> CodeStub::GetCode(Isolate* isolate, uint32_t key) {
 void BinaryOpICStub::GenerateAheadOfTime(Isolate* isolate) {
   // Generate the uninitialized versions of the stub.
   for (int op = Token::BIT_OR; op <= Token::MOD; ++op) {
-    for (int mode = NO_OVERWRITE; mode <= OVERWRITE_RIGHT; ++mode) {
-      BinaryOpICStub stub(isolate,
-                          static_cast<Token::Value>(op),
-                          static_cast<OverwriteMode>(mode));
-      stub.GetCode();
-    }
+    BinaryOpICStub stub(isolate, static_cast<Token::Value>(op));
+    stub.GetCode();
   }
 
   // Generate special versions of the stub.
@@ -680,6 +678,9 @@ void FastCloneShallowObjectStub::InitializeDescriptor(
 void CreateAllocationSiteStub::InitializeDescriptor(CodeStubDescriptor* d) {}
 
 
+void CreateWeakCellStub::InitializeDescriptor(CodeStubDescriptor* d) {}
+
+
 void RegExpConstructResultStub::InitializeDescriptor(
     CodeStubDescriptor* descriptor) {
   descriptor->Initialize(
@@ -735,6 +736,12 @@ void StringAddStub::InitializeDescriptor(CodeStubDescriptor* descriptor) {
 
 void CreateAllocationSiteStub::GenerateAheadOfTime(Isolate* isolate) {
   CreateAllocationSiteStub stub(isolate);
+  stub.GetCode();
+}
+
+
+void CreateWeakCellStub::GenerateAheadOfTime(Isolate* isolate) {
+  CreateWeakCellStub stub(isolate);
   stub.GetCode();
 }
 

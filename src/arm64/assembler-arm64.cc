@@ -46,11 +46,25 @@ namespace internal {
 void CpuFeatures::ProbeImpl(bool cross_compile) {
   // AArch64 has no configuration options, no further probing is required.
   supported_ = 0;
+
+  // Only use statically determined features for cross compile (snapshot).
+  if (cross_compile) return;
+
+  // Probe for runtime features
+  base::CPU cpu;
+  if (cpu.implementer() == base::CPU::NVIDIA &&
+      cpu.variant() == base::CPU::NVIDIA_DENVER) {
+    supported_ |= 1u << COHERENT_CACHE;
+  }
 }
 
 
 void CpuFeatures::PrintTarget() { }
-void CpuFeatures::PrintFeatures() { }
+
+
+void CpuFeatures::PrintFeatures() {
+  printf("COHERENT_CACHE=%d\n", CpuFeatures::IsSupported(COHERENT_CACHE));
+}
 
 
 // -----------------------------------------------------------------------------
@@ -603,9 +617,12 @@ void Assembler::Align(int m) {
 void Assembler::CheckLabelLinkChain(Label const * label) {
 #ifdef DEBUG
   if (label->is_linked()) {
+    static const int kMaxLinksToCheck = 64;  // Avoid O(n2) behaviour.
+    int links_checked = 0;
     int linkoffset = label->pos();
     bool end_of_chain = false;
     while (!end_of_chain) {
+      if (++links_checked > kMaxLinksToCheck) break;
       Instruction * link = InstructionAt(linkoffset);
       int linkpcoffset = link->ImmPCOffset();
       int prevlinkoffset = linkoffset + linkpcoffset;
@@ -3056,6 +3073,15 @@ void Assembler::RecordComment(const char* msg) {
   if (FLAG_code_comments) {
     CheckBuffer();
     RecordRelocInfo(RelocInfo::COMMENT, reinterpret_cast<intptr_t>(msg));
+  }
+}
+
+
+void Assembler::RecordDeoptReason(const int reason, const int raw_position) {
+  if (FLAG_trace_deopt) {
+    EnsureSpace ensure_space(this);
+    RecordRelocInfo(RelocInfo::POSITION, raw_position);
+    RecordRelocInfo(RelocInfo::DEOPT_REASON, reason);
   }
 }
 

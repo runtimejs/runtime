@@ -23,9 +23,10 @@ class Typer;
 // constants, and various helper methods.
 class JSGraph : public ZoneObject {
  public:
-  JSGraph(Graph* graph, CommonOperatorBuilder* common,
+  JSGraph(Isolate* isolate, Graph* graph, CommonOperatorBuilder* common,
           JSOperatorBuilder* javascript, MachineOperatorBuilder* machine)
-      : graph_(graph),
+      : isolate_(isolate),
+        graph_(graph),
         common_(common),
         javascript_(javascript),
         machine_(machine),
@@ -109,16 +110,22 @@ class JSGraph : public ZoneObject {
   // stubs and runtime functions that do not require a context.
   Node* NoContextConstant() { return ZeroConstant(); }
 
-  JSOperatorBuilder* javascript() { return javascript_; }
-  CommonOperatorBuilder* common() { return common_; }
-  MachineOperatorBuilder* machine() { return machine_; }
-  Graph* graph() { return graph_; }
-  Zone* zone() { return graph()->zone(); }
-  Isolate* isolate() { return zone()->isolate(); }
+  // Creates an empty frame states for cases where we know that a function
+  // cannot deopt.
+  Node* EmptyFrameState();
+
+  JSOperatorBuilder* javascript() const { return javascript_; }
+  CommonOperatorBuilder* common() const { return common_; }
+  MachineOperatorBuilder* machine() const { return machine_; }
+  Graph* graph() const { return graph_; }
+  Zone* zone() const { return graph()->zone(); }
+  Isolate* isolate() const { return isolate_; }
+  Factory* factory() const { return isolate()->factory(); }
 
   void GetCachedNodes(NodeVector* nodes);
 
  private:
+  Isolate* isolate_;
   Graph* graph_;
   CommonOperatorBuilder* common_;
   JSOperatorBuilder* javascript_;
@@ -134,13 +141,12 @@ class JSGraph : public ZoneObject {
   SetOncePointer<Node> zero_constant_;
   SetOncePointer<Node> one_constant_;
   SetOncePointer<Node> nan_constant_;
+  SetOncePointer<Node> empty_frame_state_;
 
   CommonNodeCache cache_;
 
   Node* ImmovableHeapConstant(Handle<HeapObject> value);
   Node* NumberConstant(double value);
-
-  Factory* factory() { return isolate()->factory(); }
 
   DISALLOW_COPY_AND_ASSIGN(JSGraph);
 };

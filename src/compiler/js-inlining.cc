@@ -10,11 +10,10 @@
 #include "src/compiler/graph-inl.h"
 #include "src/compiler/graph-visualizer.h"
 #include "src/compiler/js-inlining.h"
-#include "src/compiler/js-intrinsic-builder.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/node-aux-data-inl.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/compiler/typer.h"
 #include "src/full-codegen.h"
@@ -35,11 +34,6 @@ class InlinerVisitor : public NullNodeVisitor {
     switch (node->opcode()) {
       case IrOpcode::kJSCallFunction:
         inliner_->TryInlineJSCall(node);
-        break;
-      case IrOpcode::kJSCallRuntime:
-        if (FLAG_turbo_inlining_intrinsics) {
-          inliner_->TryInlineRuntimeCall(node);
-        }
         break;
       default:
         break;
@@ -90,7 +84,7 @@ class Inlinee {
 
   // Counts only formal parameters.
   size_t formal_parameters() {
-    DCHECK_GE(total_parameters(), 3);
+    DCHECK_GE(total_parameters(), 3u);
     return total_parameters() - 3;
   }
 
@@ -182,7 +176,7 @@ class CopyVisitor : public NullNodeVisitor {
     if (copy == NULL) {
       copy = GetSentinel(original);
     }
-    DCHECK_NE(NULL, copy);
+    DCHECK(copy);
     return copy;
   }
 
@@ -199,7 +193,7 @@ class CopyVisitor : public NullNodeVisitor {
       Node* sentinel = sentinels_[id];
       if (sentinel == NULL) continue;
       Node* copy = copies_[id];
-      DCHECK_NE(NULL, copy);
+      DCHECK(copy);
       sentinel->ReplaceUses(copy);
     }
   }
@@ -368,7 +362,7 @@ void JSInliner::TryInlineJSCall(Node* call_node) {
   CHECK(Compiler::ParseAndAnalyze(&info));
   CHECK(Compiler::EnsureDeoptimizationSupport(&info));
 
-  if (info.scope()->arguments() != NULL && info.strict_mode() != STRICT) {
+  if (info.scope()->arguments() != NULL && is_sloppy(info.language_mode())) {
     // For now do not inline functions that use their arguments array.
     SmartArrayPointer<char> name = function->shared()->DebugName()->ToCString();
     if (FLAG_trace_turbo_inlining) {
@@ -387,8 +381,8 @@ void JSInliner::TryInlineJSCall(Node* call_node) {
   }
 
   Graph graph(info.zone());
-  JSGraph jsgraph(&graph, jsgraph_->common(), jsgraph_->javascript(),
-                  jsgraph_->machine());
+  JSGraph jsgraph(info.isolate(), &graph, jsgraph_->common(),
+                  jsgraph_->javascript(), jsgraph_->machine());
 
   AstGraphBuilder graph_builder(local_zone_, &info, &jsgraph);
   graph_builder.CreateGraph();
@@ -407,10 +401,8 @@ void JSInliner::TryInlineJSCall(Node* call_node) {
           CreateArgumentsAdaptorFrameState(&call, function, info.zone());
     }
 
-    for (NodeVectorConstIter it = visitor.copies().begin();
-         it != visitor.copies().end(); ++it) {
-      Node* node = *it;
-      if (node != NULL && node->opcode() == IrOpcode::kFrameState) {
+    for (Node* node : visitor.copies()) {
+      if (node && node->opcode() == IrOpcode::kFrameState) {
         AddClosureToFrameState(node, function);
         NodeProperties::ReplaceFrameStateInput(node, outer_frame_state);
       }
@@ -420,70 +412,6 @@ void JSInliner::TryInlineJSCall(Node* call_node) {
   inlinee.InlineAtCall(jsgraph_, call_node);
 }
 
-
-class JSCallRuntimeAccessor {
- public:
-  explicit JSCallRuntimeAccessor(Node* call) : call_(call) {
-    DCHECK_EQ(IrOpcode::kJSCallRuntime, call->opcode());
-  }
-
-  Node* formal_argument(size_t index) {
-    DCHECK(index < formal_arguments());
-    return call_->InputAt(static_cast<int>(index));
-  }
-
-  size_t formal_arguments() {
-    size_t value_inputs = call_->op()->ValueInputCount();
-    return value_inputs;
-  }
-
-  Node* frame_state() const {
-    return NodeProperties::GetFrameStateInput(call_);
-  }
-  Node* context() const { return NodeProperties::GetContextInput(call_); }
-  Node* control() const { return NodeProperties::GetControlInput(call_); }
-  Node* effect() const { return NodeProperties::GetEffectInput(call_); }
-
-  const Runtime::Function* function() const {
-    return Runtime::FunctionForId(CallRuntimeParametersOf(call_->op()).id());
-  }
-
-  NodeVector inputs(Zone* zone) const {
-    NodeVector inputs(zone);
-    for (Node* const node : call_->inputs()) {
-      inputs.push_back(node);
-    }
-    return inputs;
-  }
-
- private:
-  Node* call_;
-};
-
-
-void JSInliner::TryInlineRuntimeCall(Node* call_node) {
-  JSCallRuntimeAccessor call(call_node);
-  const Runtime::Function* f = call.function();
-
-  if (f->intrinsic_type != Runtime::IntrinsicType::INLINE) {
-    return;
-  }
-
-  JSIntrinsicBuilder intrinsic_builder(jsgraph_);
-
-  ResultAndEffect r = intrinsic_builder.BuildGraphFor(
-      f->function_id, call.inputs(jsgraph_->zone()));
-
-  if (r.first != NULL) {
-    if (FLAG_trace_turbo_inlining) {
-      PrintF("Inlining %s into %s\n", f->name,
-             info_->shared_info()->DebugName()->ToCString().get());
-    }
-    NodeProperties::ReplaceWithValue(call_node, r.first, r.second);
-    call_node->RemoveAllInputs();
-    DCHECK_EQ(0, call_node->UseCount());
-  }
-}
-}
-}
-}  // namespace v8::internal::compiler
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

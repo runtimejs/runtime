@@ -5,8 +5,6 @@
 #ifndef V8_COMPILER_TYPER_H_
 #define V8_COMPILER_TYPER_H_
 
-#include "src/v8.h"
-
 #include "src/compiler/graph.h"
 #include "src/compiler/opcodes.h"
 #include "src/types.h"
@@ -15,11 +13,13 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-struct LazyTypeCache;
+// Forward declarations.
+class LazyTypeCache;
+
 
 class Typer {
  public:
-  explicit Typer(Graph* graph, MaybeHandle<Context> context);
+  Typer(Isolate* isolate, Graph* graph, MaybeHandle<Context> context);
   ~Typer();
 
   void Run();
@@ -27,12 +27,13 @@ class Typer {
   Graph* graph() { return graph_; }
   MaybeHandle<Context> context() { return context_; }
   Zone* zone() { return graph_->zone(); }
-  Isolate* isolate() { return zone()->isolate(); }
+  Isolate* isolate() { return isolate_; }
 
  private:
   class Visitor;
   class Decorator;
 
+  Isolate* isolate_;
   Graph* graph_;
   MaybeHandle<Context> context_;
   Decorator* decorator_;
@@ -52,12 +53,9 @@ class Typer {
   Type* signed32ish;
   Type* unsigned32ish;
   Type* falsish;
+  Type* truish;
   Type* integer;
   Type* weakint;
-  Type* signed8_;
-  Type* unsigned8_;
-  Type* signed16_;
-  Type* unsigned16_;
   Type* number_fun0_;
   Type* number_fun1_;
   Type* number_fun2_;
@@ -65,8 +63,8 @@ class Typer {
   Type* random_fun_;
   LazyTypeCache* cache_;
 
-  ZoneVector<Handle<Object> > weaken_min_limits_;
-  ZoneVector<Handle<Object> > weaken_max_limits_;
+  ZoneVector<double> weaken_min_limits_;
+  ZoneVector<double> weaken_max_limits_;
   DISALLOW_COPY_AND_ASSIGN(Typer);
 };
 

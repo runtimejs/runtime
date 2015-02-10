@@ -5,16 +5,15 @@
 #include "test/cctest/compiler/simplified-graph-builder.h"
 
 #include "src/compiler/operator-properties.h"
-#include "src/compiler/operator-properties-inl.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
 SimplifiedGraphBuilder::SimplifiedGraphBuilder(
-    Graph* graph, CommonOperatorBuilder* common,
+    Isolate* isolate, Graph* graph, CommonOperatorBuilder* common,
     MachineOperatorBuilder* machine, SimplifiedOperatorBuilder* simplified)
-    : GraphBuilder(graph),
+    : GraphBuilder(isolate, graph),
       effect_(NULL),
       return_(NULL),
       common_(common),

@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-#include "test/cctest/cctest.h"
-
 #include "src/compiler/graph-inl.h"
+#include "src/compiler/js-graph.h"
 #include "src/compiler/js-typed-lowering.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/machine-operator.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/opcodes.h"
+#include "src/compiler/operator-properties.h"
 #include "src/compiler/typer.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 using namespace v8::internal::compiler;
@@ -25,7 +26,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
         simplified(main_zone()),
         common(main_zone()),
         graph(main_zone()),
-        typer(&graph, MaybeHandle<Context>()),
+        typer(main_isolate(), &graph, MaybeHandle<Context>()),
         context_node(NULL) {
     graph.SetStart(graph.NewNode(common.Start(num_parameters)));
     graph.SetEnd(graph.NewNode(common.End()));
@@ -75,8 +76,8 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
   }
 
   Node* reduce(Node* node) {
-    JSGraph jsgraph(&graph, &common, &javascript, &machine);
-    JSTypedLowering reducer(&jsgraph);
+    JSGraph jsgraph(main_isolate(), &graph, &common, &javascript, &machine);
+    JSTypedLowering reducer(&jsgraph, main_zone());
     Reduction reduction = reducer.Reduce(node);
     if (reduction.Changed()) return reduction.replacement();
     return node;
@@ -118,13 +119,23 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
 
   Node* Unop(const Operator* op, Node* input) {
     // JS unops also require context, effect, and control
-    return graph.NewNode(op, input, context(), start(), control());
+    if (OperatorProperties::HasFrameStateInput(op)) {
+      return graph.NewNode(op, input, context(), EmptyFrameState(context()),
+                           start(), control());
+    } else {
+      return graph.NewNode(op, input, context(), start(), control());
+    }
   }
 
   Node* UseForEffect(Node* node) {
     // TODO(titzer): use EffectPhi after fixing EffectCount
-    return graph.NewNode(javascript.ToNumber(), node, context(), node,
-                         control());
+    if (OperatorProperties::HasFrameStateInput(javascript.ToNumber())) {
+      return graph.NewNode(javascript.ToNumber(), node, context(),
+                           EmptyFrameState(context()), node, control());
+    } else {
+      return graph.NewNode(javascript.ToNumber(), node, context(), node,
+                           control());
+    }
   }
 
   void CheckEffectInput(Node* effect, Node* use) {
@@ -166,18 +177,17 @@ static Type* kStringTypes[] = {Type::InternalizedString(), Type::OtherString(),
                                Type::String()};
 
 
-static Type* kInt32Types[] = {
-    Type::UnsignedSmall(),   Type::OtherSignedSmall(), Type::OtherUnsigned31(),
-    Type::OtherUnsigned32(), Type::OtherSigned32(),    Type::SignedSmall(),
-    Type::Signed32(),        Type::Unsigned32(),       Type::Integral32()};
+static Type* kInt32Types[] = {Type::UnsignedSmall(), Type::Negative32(),
+                              Type::Unsigned31(),    Type::SignedSmall(),
+                              Type::Signed32(),      Type::Unsigned32(),
+                              Type::Integral32()};
 
 
 static Type* kNumberTypes[] = {
-    Type::UnsignedSmall(),   Type::OtherSignedSmall(), Type::OtherUnsigned31(),
-    Type::OtherUnsigned32(), Type::OtherSigned32(),    Type::SignedSmall(),
-    Type::Signed32(),        Type::Unsigned32(),       Type::Integral32(),
-    Type::MinusZero(),       Type::NaN(),              Type::OtherNumber(),
-    Type::OrderedNumber(),   Type::Number()};
+    Type::UnsignedSmall(), Type::Negative32(),  Type::Unsigned31(),
+    Type::SignedSmall(),   Type::Signed32(),    Type::Unsigned32(),
+    Type::Integral32(),    Type::MinusZero(),   Type::NaN(),
+    Type::OrderedNumber(), Type::PlainNumber(), Type::Number()};
 
 
 static Type* kJSTypes[] = {Type::Undefined(), Type::Null(),   Type::Boolean(),
@@ -305,11 +315,11 @@ TEST(Int32BitwiseShifts) {
   JSBitwiseShiftTypedLoweringTester R;
 
   Type* types[] = {
-      Type::SignedSmall(), Type::UnsignedSmall(), Type::OtherSigned32(),
-      Type::Unsigned32(),  Type::Signed32(),      Type::MinusZero(),
-      Type::NaN(),         Type::OtherNumber(),   Type::Undefined(),
+      Type::SignedSmall(), Type::UnsignedSmall(), Type::Negative32(),
+      Type::Unsigned31(),  Type::Unsigned32(),    Type::Signed32(),
+      Type::MinusZero(),   Type::NaN(),           Type::Undefined(),
       Type::Null(),        Type::Boolean(),       Type::Number(),
-      Type::String()};
+      Type::PlainNumber(), Type::String()};
 
   for (size_t i = 0; i < arraysize(types); ++i) {
     Node* p0 = R.Parameter(types[i], 0);
@@ -369,10 +379,11 @@ TEST(Int32BitwiseBinops) {
   JSBitwiseTypedLoweringTester R;
 
   Type* types[] = {
-      Type::SignedSmall(), Type::UnsignedSmall(), Type::Unsigned32(),
-      Type::Signed32(),    Type::MinusZero(),     Type::NaN(),
-      Type::OtherNumber(), Type::Undefined(),     Type::Null(),
-      Type::Boolean(),     Type::Number(),        Type::String()};
+      Type::SignedSmall(),   Type::UnsignedSmall(), Type::Unsigned32(),
+      Type::Signed32(),      Type::MinusZero(),     Type::NaN(),
+      Type::OrderedNumber(), Type::PlainNumber(),   Type::Undefined(),
+      Type::Null(),          Type::Boolean(),       Type::Number(),
+      Type::String()};
 
   for (size_t i = 0; i < arraysize(types); ++i) {
     Node* p0 = R.Parameter(types[i], 0);
@@ -503,24 +514,6 @@ TEST(JSToBoolean) {
     CHECK_EQ(IrOpcode::kParameter, r->opcode());
   }
 
-  {  // ToBoolean(ordered-number)
-    Node* r = R.ReduceUnop(op, Type::OrderedNumber());
-    CHECK_EQ(IrOpcode::kBooleanNot, r->opcode());
-    Node* i = r->InputAt(0);
-    CHECK_EQ(IrOpcode::kNumberEqual, i->opcode());
-    // ToBoolean(x:ordered-number) => BooleanNot(NumberEqual(x, #0))
-  }
-
-  {  // ToBoolean(string)
-    Node* r = R.ReduceUnop(op, Type::String());
-    CHECK_EQ(IrOpcode::kBooleanNot, r->opcode());
-    Node* i = r->InputAt(0);
-    CHECK_EQ(IrOpcode::kNumberEqual, i->opcode());
-    Node* j = i->InputAt(0);
-    CHECK_EQ(IrOpcode::kLoadField, j->opcode());
-    // ToBoolean(x:string) => BooleanNot(NumberEqual(x.length, #0))
-  }
-
   {  // ToBoolean(object)
     Node* r = R.ReduceUnop(op, Type::DetectableObject());
     R.CheckTrue(r);
@@ -533,30 +526,7 @@ TEST(JSToBoolean) {
 
   {  // ToBoolean(object)
     Node* r = R.ReduceUnop(op, Type::Object());
-    CHECK_EQ(IrOpcode::kJSToBoolean, r->opcode());
-  }
-}
-
-
-TEST(JSToBoolean_replacement) {
-  JSTypedLoweringTester R;
-
-  Type* types[] = {Type::Null(),             Type::Undefined(),
-                   Type::Boolean(),          Type::OrderedNumber(),
-                   Type::DetectableObject(), Type::Undetectable()};
-
-  for (size_t i = 0; i < arraysize(types); i++) {
-    Node* n = R.Parameter(types[i]);
-    Node* c = R.graph.NewNode(R.javascript.ToBoolean(), n, R.context());
-    Node* r = R.reduce(c);
-
-    if (types[i]->Is(Type::Boolean())) {
-      CHECK_EQ(n, r);
-    } else if (types[i]->Is(Type::OrderedNumber())) {
-      CHECK_EQ(IrOpcode::kBooleanNot, r->opcode());
-    } else {
-      CHECK_EQ(IrOpcode::kHeapConstant, r->opcode());
-    }
+    CHECK_EQ(IrOpcode::kAnyToBoolean, r->opcode());
   }
 }
 
@@ -774,12 +744,25 @@ TEST(RemoveToNumberEffects) {
 
     switch (i) {
       case 0:
+        // TODO(jarin) Replace with a query of FLAG_turbo_deoptimization.
+        if (OperatorProperties::HasFrameStateInput(R.javascript.ToNumber())) {
+          effect_use = R.graph.NewNode(R.javascript.ToNumber(), p0, R.context(),
+                                       frame_state, ton, R.start());
+        } else {
         effect_use = R.graph.NewNode(R.javascript.ToNumber(), p0, R.context(),
                                      ton, R.start());
+        }
         break;
       case 1:
-        effect_use = R.graph.NewNode(R.javascript.ToNumber(), ton, R.context(),
-                                     ton, R.start());
+        // TODO(jarin) Replace with a query of FLAG_turbo_deoptimization.
+        if (OperatorProperties::HasFrameStateInput(R.javascript.ToNumber())) {
+          effect_use =
+              R.graph.NewNode(R.javascript.ToNumber(), ton, R.context(),
+                              frame_state, ton, R.start());
+        } else {
+          effect_use = R.graph.NewNode(R.javascript.ToNumber(), ton,
+                                       R.context(), ton, R.start());
+        }
         break;
       case 2:
         effect_use = R.graph.NewNode(R.common.EffectPhi(1), ton, R.start());
@@ -814,7 +797,7 @@ TEST(RemoveToNumberEffects) {
     }
   }
 
-  CHECK_EQ(NULL, effect_use);  // should have done all cases above.
+  CHECK(!effect_use);  // should have done all cases above.
 }
 
 
@@ -986,7 +969,7 @@ TEST(OrderNumberBinopEffects1) {
   };
 
   for (size_t j = 0; j < arraysize(ops); j += 2) {
-    BinopEffectsTester B(ops[j], Type::String(), Type::String());
+    BinopEffectsTester B(ops[j], Type::Symbol(), Type::Symbol());
     CHECK_EQ(ops[j + 1]->opcode(), B.result->op()->opcode());
 
     Node* i0 = B.CheckConvertedInput(IrOpcode::kJSToNumber, 0, true);
@@ -1059,8 +1042,8 @@ TEST(OrderCompareEffects) {
     CHECK_EQ(B.p1, i0->InputAt(0));
     CHECK_EQ(B.p0, i1->InputAt(0));
 
-    // But effects should be ordered start -> i1 -> i0 -> effect_use
-    B.CheckEffectOrdering(i1, i0);
+    // But effects should be ordered start -> i1 -> effect_use
+    B.CheckEffectOrdering(i1);
   }
 
   for (size_t j = 0; j < arraysize(ops); j += 2) {

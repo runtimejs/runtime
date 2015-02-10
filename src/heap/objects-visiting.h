@@ -130,10 +130,11 @@ class StaticVisitorBase : public AllStatic {
 
     if (has_unboxed_fields) return generic;
 
-    const VisitorId specialization = static_cast<VisitorId>(
-        base + (object_size >> kPointerSizeLog2) - kMinObjectSizeInWords);
+    int visitor_id =
+        Min(base + (object_size >> kPointerSizeLog2) - kMinObjectSizeInWords,
+            static_cast<int>(generic));
 
-    return Min(specialization, generic);
+    return static_cast<VisitorId>(visitor_id);
   }
 };
 
@@ -226,16 +227,14 @@ class BodyVisitorBase : public AllStatic {
     DCHECK(IsAligned(start_offset, kPointerSize) &&
            IsAligned(end_offset, kPointerSize));
 
-    InobjectPropertiesHelper helper(object->map());
+    LayoutDescriptorHelper helper(object->map());
     DCHECK(!helper.all_fields_tagged());
-
-    for (int offset = start_offset; offset < end_offset;
-         offset += kPointerSize) {
-      // Visit tagged fields only.
-      if (helper.IsTagged(offset)) {
-        // TODO(ishell): call this once for contiguous region of tagged fields.
-        IterateRawPointers(heap, object, offset, offset + kPointerSize);
+    for (int offset = start_offset; offset < end_offset;) {
+      int end_of_region_offset;
+      if (helper.IsTagged(offset, end_offset, &end_of_region_offset)) {
+        IterateRawPointers(heap, object, offset, end_of_region_offset);
       }
+      offset = end_of_region_offset;
     }
   }
 };

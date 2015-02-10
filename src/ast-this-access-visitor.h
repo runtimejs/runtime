@@ -11,11 +11,11 @@ namespace internal {
 
 class AstThisAccessVisitor : public AstVisitor {
  public:
-  explicit AstThisAccessVisitor(Zone* zone);
+  AstThisAccessVisitor(Isolate* isolate, Zone* zone);
 
   bool UsesThis() { return uses_this_; }
 
-#define DECLARE_VISIT(type) virtual void Visit##type(type* node);
+#define DECLARE_VISIT(type) void Visit##type(type* node) OVERRIDE;
   AST_NODE_LIST(DECLARE_VISIT)
 #undef DECLARE_VISIT
 

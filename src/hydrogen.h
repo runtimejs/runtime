@@ -819,7 +819,7 @@ class EffectContext FINAL : public AstContext {
   }
   virtual ~EffectContext();
 
-  virtual void ReturnValue(HValue* value) OVERRIDE;
+  void ReturnValue(HValue* value) OVERRIDE;
   virtual void ReturnInstruction(HInstruction* instr,
                                  BailoutId ast_id) OVERRIDE;
   virtual void ReturnControl(HControlInstruction* instr,
@@ -836,7 +836,7 @@ class ValueContext FINAL : public AstContext {
   }
   virtual ~ValueContext();
 
-  virtual void ReturnValue(HValue* value) OVERRIDE;
+  void ReturnValue(HValue* value) OVERRIDE;
   virtual void ReturnInstruction(HInstruction* instr,
                                  BailoutId ast_id) OVERRIDE;
   virtual void ReturnControl(HControlInstruction* instr,
@@ -863,7 +863,7 @@ class TestContext FINAL : public AstContext {
         if_false_(if_false) {
   }
 
-  virtual void ReturnValue(HValue* value) OVERRIDE;
+  void ReturnValue(HValue* value) OVERRIDE;
   virtual void ReturnInstruction(HInstruction* instr,
                                  BailoutId ast_id) OVERRIDE;
   virtual void ReturnControl(HControlInstruction* instr,
@@ -1102,11 +1102,15 @@ class HGraphBuilder {
     return AddLeaveInlined(current_block(), return_value, state);
   }
 
-  template<class I>
-  HInstruction* NewUncasted() { return I::New(zone(), context()); }
+  template <class I>
+  HInstruction* NewUncasted() {
+    return I::New(isolate(), zone(), context());
+  }
 
-  template<class I>
-  I* New() { return I::New(zone(), context()); }
+  template <class I>
+  I* New() {
+    return I::New(isolate(), zone(), context());
+  }
 
   template<class I>
   HInstruction* AddUncasted() { return AddInstruction(NewUncasted<I>());}
@@ -1116,11 +1120,13 @@ class HGraphBuilder {
 
   template<class I, class P1>
   HInstruction* NewUncasted(P1 p1) {
-    return I::New(zone(), context(), p1);
+    return I::New(isolate(), zone(), context(), p1);
   }
 
-  template<class I, class P1>
-  I* New(P1 p1) { return I::New(zone(), context(), p1); }
+  template <class I, class P1>
+  I* New(P1 p1) {
+    return I::New(isolate(), zone(), context(), p1);
+  }
 
   template<class I, class P1>
   HInstruction* AddUncasted(P1 p1) {
@@ -1144,12 +1150,12 @@ class HGraphBuilder {
 
   template<class I, class P1, class P2>
   HInstruction* NewUncasted(P1 p1, P2 p2) {
-    return I::New(zone(), context(), p1, p2);
+    return I::New(isolate(), zone(), context(), p1, p2);
   }
 
   template<class I, class P1, class P2>
   I* New(P1 p1, P2 p2) {
-    return I::New(zone(), context(), p1, p2);
+    return I::New(isolate(), zone(), context(), p1, p2);
   }
 
   template<class I, class P1, class P2>
@@ -1172,12 +1178,12 @@ class HGraphBuilder {
 
   template<class I, class P1, class P2, class P3>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3) {
-    return I::New(zone(), context(), p1, p2, p3);
+    return I::New(isolate(), zone(), context(), p1, p2, p3);
   }
 
   template<class I, class P1, class P2, class P3>
   I* New(P1 p1, P2 p2, P3 p3) {
-    return I::New(zone(), context(), p1, p2, p3);
+    return I::New(isolate(), zone(), context(), p1, p2, p3);
   }
 
   template<class I, class P1, class P2, class P3>
@@ -1192,12 +1198,12 @@ class HGraphBuilder {
 
   template<class I, class P1, class P2, class P3, class P4>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3, P4 p4) {
-    return I::New(zone(), context(), p1, p2, p3, p4);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4);
   }
 
   template<class I, class P1, class P2, class P3, class P4>
   I* New(P1 p1, P2 p2, P3 p3, P4 p4) {
-    return I::New(zone(), context(), p1, p2, p3, p4);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4);
   }
 
   template<class I, class P1, class P2, class P3, class P4>
@@ -1212,12 +1218,12 @@ class HGraphBuilder {
 
   template<class I, class P1, class P2, class P3, class P4, class P5>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5);
   }
 
   template<class I, class P1, class P2, class P3, class P4, class P5>
   I* New(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5);
   }
 
   template<class I, class P1, class P2, class P3, class P4, class P5>
@@ -1232,12 +1238,12 @@ class HGraphBuilder {
 
   template<class I, class P1, class P2, class P3, class P4, class P5, class P6>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5, P6 p6) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6);
   }
 
   template<class I, class P1, class P2, class P3, class P4, class P5, class P6>
   I* New(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5, P6 p6) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6);
   }
 
   template<class I, class P1, class P2, class P3, class P4, class P5, class P6>
@@ -1253,13 +1259,13 @@ class HGraphBuilder {
   template<class I, class P1, class P2, class P3, class P4,
       class P5, class P6, class P7>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5, P6 p6, P7 p7) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6, p7);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6, p7);
   }
 
   template<class I, class P1, class P2, class P3, class P4,
       class P5, class P6, class P7>
       I* New(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5, P6 p6, P7 p7) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6, p7);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6, p7);
   }
 
   template<class I, class P1, class P2, class P3,
@@ -1278,13 +1284,13 @@ class HGraphBuilder {
       class P5, class P6, class P7, class P8>
   HInstruction* NewUncasted(P1 p1, P2 p2, P3 p3, P4 p4,
                             P5 p5, P6 p6, P7 p7, P8 p8) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6, p7, p8);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6, p7, p8);
   }
 
   template<class I, class P1, class P2, class P3, class P4,
       class P5, class P6, class P7, class P8>
       I* New(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5, P6 p6, P7 p7, P8 p8) {
-    return I::New(zone(), context(), p1, p2, p3, p4, p5, p6, p7, p8);
+    return I::New(isolate(), zone(), context(), p1, p2, p3, p4, p5, p6, p7, p8);
   }
 
   template<class I, class P1, class P2, class P3, class P4,
@@ -1469,7 +1475,7 @@ class HGraphBuilder {
   HValue* EnforceNumberType(HValue* number, Type* expected);
   HValue* TruncateToNumber(HValue* value, Type** expected);
 
-  void FinishExitWithHardDeoptimization(const char* reason);
+  void FinishExitWithHardDeoptimization(Deoptimizer::DeoptReason reason);
 
   void AddIncrementCounter(StatsCounter* counter);
 
@@ -1617,12 +1623,12 @@ class HGraphBuilder {
     void Else();
     void End();
 
-    void Deopt(const char* reason);
-    void ThenDeopt(const char* reason) {
+    void Deopt(Deoptimizer::DeoptReason reason);
+    void ThenDeopt(Deoptimizer::DeoptReason reason) {
       Then();
       Deopt(reason);
     }
-    void ElseDeopt(const char* reason) {
+    void ElseDeopt(Deoptimizer::DeoptReason reason) {
       Else();
       Deopt(reason);
     }
@@ -1864,10 +1870,10 @@ class HGraphBuilder {
 
   HValue* BuildElementIndexHash(HValue* index);
 
-  void BuildCompareNil(
-      HValue* value,
-      Type* type,
-      HIfContinuation* continuation);
+  enum MapEmbedding { kEmbedMapsDirectly, kEmbedMapsViaWeakCells };
+
+  void BuildCompareNil(HValue* value, Type* type, HIfContinuation* continuation,
+                       MapEmbedding map_embedding = kEmbedMapsDirectly);
 
   void BuildCreateAllocationMemento(HValue* previous_object,
                                     HValue* previous_object_size,
@@ -1932,9 +1938,9 @@ class HGraphBuilder {
 };
 
 
-template<>
+template <>
 inline HDeoptimize* HGraphBuilder::Add<HDeoptimize>(
-    const char* reason, Deoptimizer::BailoutType type) {
+    Deoptimizer::DeoptReason reason, Deoptimizer::BailoutType type) {
   if (type == Deoptimizer::SOFT) {
     isolate()->counters()->soft_deopts_requested()->Increment();
     if (FLAG_always_opt) return NULL;
@@ -1952,9 +1958,9 @@ inline HDeoptimize* HGraphBuilder::Add<HDeoptimize>(
 }
 
 
-template<>
+template <>
 inline HInstruction* HGraphBuilder::AddUncasted<HDeoptimize>(
-    const char* reason, Deoptimizer::BailoutType type) {
+    Deoptimizer::DeoptReason reason, Deoptimizer::BailoutType type) {
   return Add<HDeoptimize>(reason, type);
 }
 
@@ -2108,13 +2114,13 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 
   explicit HOptimizedGraphBuilder(CompilationInfo* info);
 
-  virtual bool BuildGraph() OVERRIDE;
+  bool BuildGraph() OVERRIDE;
 
   // Simple accessors.
   BreakAndContinueScope* break_scope() const { return break_scope_; }
   void set_break_scope(BreakAndContinueScope* head) { break_scope_ = head; }
 
-  HValue* context() { return environment()->context(); }
+  HValue* context() OVERRIDE { return environment()->context(); }
 
   HOsrBuilder* osr() const { return osr_; }
 
@@ -2126,7 +2132,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 
   FunctionState* function_state() const { return function_state_; }
 
-  void VisitDeclarations(ZoneList<Declaration*>* declarations);
+  void VisitDeclarations(ZoneList<Declaration*>* declarations) OVERRIDE;
 
   void* operator new(size_t size, Zone* zone) {
     return zone->New(static_cast<int>(size));
@@ -2183,8 +2189,8 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   void ClearInlinedTestContext() {
     function_state()->ClearInlinedTestContext();
   }
-  StrictMode function_strict_mode() {
-    return function_state()->compilation_info()->strict_mode();
+  LanguageMode function_language_mode() {
+    return function_state()->compilation_info()->language_mode();
   }
 
   // Generators for inline runtime functions.
@@ -2285,7 +2291,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                        HBasicBlock* false_block);
 
   // Visit a list of expressions from left to right, each in a value context.
-  void VisitExpressions(ZoneList<Expression*>* exprs);
+  void VisitExpressions(ZoneList<Expression*>* exprs) OVERRIDE;
   void VisitExpressions(ZoneList<Expression*>* exprs,
                         ArgumentsAllowedFlag flag);
 
@@ -2295,7 +2301,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   void PushArgumentsFromEnvironment(int count);
 
   void SetUpScope(Scope* scope);
-  virtual void VisitStatements(ZoneList<Statement*>* statements) OVERRIDE;
+  void VisitStatements(ZoneList<Statement*>* statements) OVERRIDE;
 
 #define DECLARE_VISIT(type) virtual void Visit##type(type* node) OVERRIDE;
   AST_NODE_LIST(DECLARE_VISIT)
@@ -2385,6 +2391,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                          int argc,
                          BailoutId ast_id,
                          ApiCallType call_type);
+  static bool CanInlineArrayResizeOperation(Handle<Map> receiver_map);
 
   // If --trace-inlining, print a line of the inlining trace.  Inlining
   // succeeded if the reason string is NULL and failed if there is a
@@ -2431,6 +2438,10 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   HValue* BuildOrderedHashTableAddEntry(HValue* table, HValue* key,
                                         HValue* hash,
                                         HIfContinuation* join_continuation);
+  template <typename CollectionType>
+  HValue* BuildAllocateOrderedHashTable();
+  template <typename CollectionType>
+  void BuildOrderedHashTableClear(HValue* receiver);
   template <typename CollectionType>
   void BuildJSCollectionDelete(CallRuntime* call,
                                const Runtime::Function* c_function);
@@ -2504,6 +2515,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
     bool has_holder() { return !holder_.is_null(); }
     bool IsLoad() const { return access_type_ == LOAD; }
 
+    Isolate* isolate() const { return lookup_.isolate(); }
     Handle<JSObject> holder() { return holder_; }
     Handle<JSFunction> accessor() { return accessor_; }
     Handle<Object> constant() { return constant_; }
@@ -2514,9 +2526,9 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 
     bool IsFound() const { return lookup_.IsFound(); }
     bool IsProperty() const { return lookup_.IsProperty(); }
-    bool IsField() const { return lookup_.IsField(); }
-    bool IsConstant() const { return lookup_.IsConstant(); }
-    bool IsAccessor() const { return lookup_.IsPropertyCallbacks(); }
+    bool IsData() const { return lookup_.IsData(); }
+    bool IsDataConstant() const { return lookup_.IsDataConstant(); }
+    bool IsAccessorConstant() const { return lookup_.IsAccessorConstant(); }
     bool IsTransition() const { return lookup_.IsTransition(); }
 
     bool IsConfigurable() const { return lookup_.IsConfigurable(); }
@@ -2542,7 +2554,6 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 
     Type* ToType(Handle<Map> map) { return builder_->ToType(map); }
     Zone* zone() { return builder_->zone(); }
-    Isolate* isolate() const { return lookup_.isolate(); }
     CompilationInfo* top_info() { return builder_->top_info(); }
     CompilationInfo* current_info() { return builder_->current_info(); }
 

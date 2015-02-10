@@ -59,7 +59,6 @@
         'compiler/test-codegen-deopt.cc',
         'compiler/test-control-reducer.cc',
         'compiler/test-gap-resolver.cc',
-        'compiler/test-graph-reducer.cc',
         'compiler/test-graph-visualizer.cc',
         'compiler/test-instruction.cc',
         'compiler/test-js-context-specialization.cc',
@@ -68,11 +67,13 @@
         'compiler/test-jump-threading.cc',
         'compiler/test-linkage.cc',
         'compiler/test-loop-assignment-analysis.cc',
+        'compiler/test-loop-analysis.cc',
         'compiler/test-machine-operator-reducer.cc',
         'compiler/test-node-algorithm.cc',
         'compiler/test-node-cache.cc',
         'compiler/test-node.cc',
         'compiler/test-operator.cc',
+        'compiler/test-osr.cc',
         'compiler/test-pipeline.cc',
         'compiler/test-representation-change.cc',
         'compiler/test-run-deopt.cc',
@@ -86,8 +87,6 @@
         'compiler/test-run-properties.cc',
         'compiler/test-run-stackcheck.cc',
         'compiler/test-run-variables.cc',
-        'compiler/test-schedule.cc',
-        'compiler/test-scheduler.cc',
         'compiler/test-simplified-lowering.cc',
         'compiler/test-typer.cc',
         'cctest.cc',
@@ -99,12 +98,13 @@
         'test-accessors.cc',
         'test-alloc.cc',
         'test-api.cc',
+        'test-api.h',
+        'test-api-interceptors.cc',
         'test-ast.cc',
         'test-atomicops.cc',
         'test-bignum.cc',
         'test-bignum-dtoa.cc',
         'test-bit-vector.cc',
-        'test-checks.cc',
         'test-circular-queue.cc',
         'test-compiler.cc',
         'test-constantpool.cc',
@@ -112,7 +112,6 @@
         'test-cpu-profiler.cc',
         'test-date.cc',
         'test-debug.cc',
-        'test-declarative-accessors.cc',
         'test-decls.cc',
         'test-deoptimization.cc',
         'test-dictionary.cc',
@@ -139,6 +138,7 @@
         'test-microtask-delivery.cc',
         'test-mark-compact.cc',
         'test-mementos.cc',
+        'test-modules.cc',
         'test-object-observe.cc',
         'test-ordered-hash-table.cc',
         'test-parsing.cc',
@@ -156,6 +156,7 @@
         'test-strtod.cc',
         'test-thread-termination.cc',
         'test-threads.cc',
+        'test-transitions.cc',
         'test-types.cc',
         'test-unbound-queue.cc',
         'test-unboxed-doubles.cc',
@@ -210,6 +211,20 @@
             'test-js-arm64-variables.cc'
           ],
         }],
+        ['v8_target_arch=="ppc"', {
+          'sources': [  ### gcmole(arch:ppc) ###
+            'test-assembler-ppc.cc',
+            'test-code-stubs.cc',
+            'test-disasm-ppc.cc'
+          ],
+        }],
+        ['v8_target_arch=="ppc64"', {
+          'sources': [  ### gcmole(arch:ppc64) ###
+            'test-assembler-ppc.cc',
+            'test-code-stubs.cc',
+            'test-disasm-ppc.cc'
+          ],
+        }],
         ['v8_target_arch=="mipsel"', {
           'sources': [  ### gcmole(arch:mipsel) ###
             'test-assembler-mips.cc',
@@ -258,13 +273,14 @@
           # cctest can't be built against a shared library, so we need to
           # depend on the underlying static target in that case.
           'conditions': [
-            ['v8_use_snapshot=="true"', {
+            ['v8_use_snapshot=="true" and v8_use_external_startup_data==0', {
               'dependencies': ['../../tools/gyp/v8.gyp:v8_snapshot'],
-            },
-            {
-              'dependencies': [
-                '../../tools/gyp/v8.gyp:v8_nosnapshot',
-              ],
+            }],
+            ['v8_use_snapshot=="true" and v8_use_external_startup_data==1', {
+              'dependencies': ['../../tools/gyp/v8.gyp:v8_external_snapshot'],
+            }],
+            ['v8_use_snapshot!="true"', {
+              'dependencies': ['../../tools/gyp/v8.gyp:v8_nosnapshot'],
             }],
           ],
         }, {

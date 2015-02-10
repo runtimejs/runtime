@@ -8,7 +8,6 @@
 #include "src/compiler/code-generator-impl.h"
 #include "src/compiler/gap-resolver.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
 #include "src/scopes.h"
 
 namespace v8 {
@@ -176,9 +175,9 @@ class Arm64OperandConverter FINAL : public InstructionOperandConverter {
 
 namespace {
 
-class OutOfLineLoadFloat32 FINAL : public OutOfLineCode {
+class OutOfLineLoadNaN32 FINAL : public OutOfLineCode {
  public:
-  OutOfLineLoadFloat32(CodeGenerator* gen, DoubleRegister result)
+  OutOfLineLoadNaN32(CodeGenerator* gen, DoubleRegister result)
       : OutOfLineCode(gen), result_(result) {}
 
   void Generate() FINAL {
@@ -190,9 +189,9 @@ class OutOfLineLoadFloat32 FINAL : public OutOfLineCode {
 };
 
 
-class OutOfLineLoadFloat64 FINAL : public OutOfLineCode {
+class OutOfLineLoadNaN64 FINAL : public OutOfLineCode {
  public:
-  OutOfLineLoadFloat64(CodeGenerator* gen, DoubleRegister result)
+  OutOfLineLoadNaN64(CodeGenerator* gen, DoubleRegister result)
       : OutOfLineCode(gen), result_(result) {}
 
   void Generate() FINAL {
@@ -204,9 +203,9 @@ class OutOfLineLoadFloat64 FINAL : public OutOfLineCode {
 };
 
 
-class OutOfLineLoadInteger FINAL : public OutOfLineCode {
+class OutOfLineLoadZero FINAL : public OutOfLineCode {
  public:
-  OutOfLineLoadInteger(CodeGenerator* gen, Register result)
+  OutOfLineLoadZero(CodeGenerator* gen, Register result)
       : OutOfLineCode(gen), result_(result) {}
 
   void Generate() FINAL { __ Mov(result_, 0); }
@@ -215,56 +214,97 @@ class OutOfLineLoadInteger FINAL : public OutOfLineCode {
   Register const result_;
 };
 
+
+Condition FlagsConditionToCondition(FlagsCondition condition) {
+  switch (condition) {
+    case kEqual:
+      return eq;
+    case kNotEqual:
+      return ne;
+    case kSignedLessThan:
+      return lt;
+    case kSignedGreaterThanOrEqual:
+      return ge;
+    case kSignedLessThanOrEqual:
+      return le;
+    case kSignedGreaterThan:
+      return gt;
+    case kUnsignedLessThan:
+      return lo;
+    case kUnsignedGreaterThanOrEqual:
+      return hs;
+    case kUnsignedLessThanOrEqual:
+      return ls;
+    case kUnsignedGreaterThan:
+      return hi;
+    case kOverflow:
+      return vs;
+    case kNotOverflow:
+      return vc;
+    case kUnorderedEqual:
+    case kUnorderedNotEqual:
+      break;
+  }
+  UNREACHABLE();
+  return nv;
+}
+
 }  // namespace
 
 
-#define ASSEMBLE_CHECKED_LOAD_FLOAT(width)                           \
-  do {                                                               \
-    auto result = i.OutputFloat##width##Register();                  \
-    auto offset = i.InputRegister32(0);                              \
-    auto length = i.InputOperand32(1);                               \
-    __ Cmp(offset, length);                                          \
-    auto ool = new (zone()) OutOfLineLoadFloat##width(this, result); \
-    __ B(hs, ool->entry());                                          \
-    __ Ldr(result, i.MemoryOperand(2));                              \
-    __ Bind(ool->exit());                                            \
+#define ASSEMBLE_CHECKED_LOAD_FLOAT(width)                         \
+  do {                                                             \
+    auto result = i.OutputFloat##width##Register();                \
+    auto buffer = i.InputRegister(0);                              \
+    auto offset = i.InputRegister32(1);                            \
+    auto length = i.InputOperand32(2);                             \
+    __ Cmp(offset, length);                                        \
+    auto ool = new (zone()) OutOfLineLoadNaN##width(this, result); \
+    __ B(hs, ool->entry());                                        \
+    __ Ldr(result, MemOperand(buffer, offset, UXTW));              \
+    __ Bind(ool->exit());                                          \
   } while (0)
 
 
-#define ASSEMBLE_CHECKED_LOAD_INTEGER(asm_instr)                \
-  do {                                                          \
-    auto result = i.OutputRegister32();                         \
-    auto offset = i.InputRegister32(0);                         \
-    auto length = i.InputOperand32(1);                          \
-    __ Cmp(offset, length);                                     \
-    auto ool = new (zone()) OutOfLineLoadInteger(this, result); \
-    __ B(hs, ool->entry());                                     \
-    __ asm_instr(result, i.MemoryOperand(2));                   \
-    __ Bind(ool->exit());                                       \
+#define ASSEMBLE_CHECKED_LOAD_INTEGER(asm_instr)             \
+  do {                                                       \
+    auto result = i.OutputRegister32();                      \
+    auto buffer = i.InputRegister(0);                        \
+    auto offset = i.InputRegister32(1);                      \
+    auto length = i.InputOperand32(2);                       \
+    __ Cmp(offset, length);                                  \
+    auto ool = new (zone()) OutOfLineLoadZero(this, result); \
+    __ B(hs, ool->entry());                                  \
+    __ asm_instr(result, MemOperand(buffer, offset, UXTW));  \
+    __ Bind(ool->exit());                                    \
   } while (0)
 
 
-#define ASSEMBLE_CHECKED_STORE_FLOAT(width)                       \
-  do {                                                            \
-    auto offset = i.InputRegister32(0);                           \
-    auto length = i.InputOperand32(1);                            \
-    __ Cmp(offset, length);                                       \
-    Label done;                                                   \
-    __ B(hs, &done);                                              \
-    __ Str(i.InputFloat##width##Register(2), i.MemoryOperand(3)); \
-    __ Bind(&done);                                               \
+#define ASSEMBLE_CHECKED_STORE_FLOAT(width)          \
+  do {                                               \
+    auto buffer = i.InputRegister(0);                \
+    auto offset = i.InputRegister32(1);              \
+    auto length = i.InputOperand32(2);               \
+    auto value = i.InputFloat##width##Register(3);   \
+    __ Cmp(offset, length);                          \
+    Label done;                                      \
+    __ B(hs, &done);                                 \
+    __ Str(value, MemOperand(buffer, offset, UXTW)); \
+    __ Bind(&done);                                  \
   } while (0)
 
 
-#define ASSEMBLE_CHECKED_STORE_INTEGER(asm_instr)           \
-  do {                                                      \
-    auto offset = i.InputRegister32(0);                     \
-    auto length = i.InputOperand32(1);                      \
-    __ Cmp(offset, length);                                 \
-    Label done;                                             \
-    __ B(hs, &done);                                        \
-    __ asm_instr(i.InputRegister32(2), i.MemoryOperand(3)); \
-    __ Bind(&done);                                         \
+#define ASSEMBLE_CHECKED_STORE_INTEGER(asm_instr)          \
+  do {                                                     \
+    auto buffer = i.InputRegister(0);                      \
+    auto offset = i.InputRegister32(1);                    \
+    auto length = i.InputOperand32(2);                     \
+    auto value = i.InputRegister32(3);                     \
+    __ Cmp(offset, length);                                \
+    Label done;                                            \
+    __ B(hs, &done);                                       \
+    __ asm_instr(value, MemOperand(buffer, offset, UXTW)); \
+    __ Bind(&done);                                        \
   } while (0)
 
 
@@ -277,13 +317,6 @@ class OutOfLineLoadInteger FINAL : public OutOfLineCode {
       int64_t imm = i.InputOperand##width(1).immediate().value();              \
       __ asm_instr(i.OutputRegister##width(), i.InputRegister##width(0), imm); \
     }                                                                          \
-  } while (0)
-
-
-#define ASSEMBLE_BRANCH_TO(target)                    \
-  do {                                                \
-    bool fallthrough = IsNextInAssemblyOrder(target); \
-    if (!fallthrough) __ B(GetLabel(target));         \
   } while (0)
 
 
@@ -323,6 +356,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     }
     case kArchJmp:
       AssembleArchJump(i.InputRpo(0));
+      break;
+    case kArchSwitch:
+      AssembleArchSwitch(instr);
       break;
     case kArchNop:
       // don't emit code for nops.
@@ -541,29 +577,12 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ Ubfx(i.OutputRegister32(), i.InputRegister32(0), i.InputInt8(1),
               i.InputInt8(2));
       break;
-    case kArm64Tbz:
-      __ Tbz(i.InputRegister64(0), i.InputInt6(1), GetLabel(i.InputRpo(2)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
+    case kArm64TestAndBranch32:
+    case kArm64TestAndBranch:
+      // Pseudo instructions turned into tbz/tbnz in AssembleArchBranch.
       break;
-    case kArm64Tbz32:
-      __ Tbz(i.InputRegister32(0), i.InputInt5(1), GetLabel(i.InputRpo(2)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
-      break;
-    case kArm64Tbnz:
-      __ Tbnz(i.InputRegister64(0), i.InputInt6(1), GetLabel(i.InputRpo(2)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
-      break;
-    case kArm64Tbnz32:
-      __ Tbnz(i.InputRegister32(0), i.InputInt5(1), GetLabel(i.InputRpo(2)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(3));
-      break;
-    case kArm64Cbz32:
-      __ Cbz(i.InputRegister32(0), GetLabel(i.InputRpo(1)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(2));
-      break;
-    case kArm64Cbnz32:
-      __ Cbnz(i.InputRegister32(0), GetLabel(i.InputRpo(1)));
-      ASSEMBLE_BRANCH_TO(i.InputRpo(2));
+    case kArm64CompareAndBranch32:
+      // Pseudo instruction turned into cbz/cbnz in AssembleArchBranch.
       break;
     case kArm64Claim: {
       int words = MiscField::decode(instr->opcode());
@@ -606,7 +625,14 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ Tst(i.InputRegister32(0), i.InputOperand32(1));
       break;
     case kArm64Float64Cmp:
-      __ Fcmp(i.InputDoubleRegister(0), i.InputDoubleRegister(1));
+      if (instr->InputAt(1)->IsDoubleRegister()) {
+        __ Fcmp(i.InputDoubleRegister(0), i.InputDoubleRegister(1));
+      } else {
+        DCHECK(instr->InputAt(1)->IsImmediate());
+        // 0.0 is the only immediate supported by fcmp instructions.
+        DCHECK(i.InputDouble(1) == 0.0);
+        __ Fcmp(i.InputDoubleRegister(0), i.InputDouble(1));
+      }
       break;
     case kArm64Float64Add:
       __ Fadd(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
@@ -702,7 +728,7 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       Register object = i.InputRegister(0);
       Register index = i.InputRegister(1);
       Register value = i.InputRegister(2);
-      __ Add(index, object, Operand(index, SXTW));
+      __ Add(index, object, index);
       __ Str(value, MemOperand(index));
       SaveFPRegsMode mode =
           frame()->DidAllocateDoubleRegisters() ? kSaveFPRegs : kDontSaveFPRegs;
@@ -766,61 +792,45 @@ void CodeGenerator::AssembleArchBranch(Instruction* instr, BranchInfo* branch) {
   Arm64OperandConverter i(this, instr);
   Label* tlabel = branch->true_label;
   Label* flabel = branch->false_label;
-  switch (branch->condition) {
-    case kUnorderedEqual:
-      __ B(vs, flabel);
-    // Fall through.
-    case kEqual:
-      __ B(eq, tlabel);
-      break;
-    case kUnorderedNotEqual:
-      __ B(vs, tlabel);
-    // Fall through.
-    case kNotEqual:
-      __ B(ne, tlabel);
-      break;
-    case kSignedLessThan:
-      __ B(lt, tlabel);
-      break;
-    case kSignedGreaterThanOrEqual:
-      __ B(ge, tlabel);
-      break;
-    case kSignedLessThanOrEqual:
-      __ B(le, tlabel);
-      break;
-    case kSignedGreaterThan:
-      __ B(gt, tlabel);
-      break;
-    case kUnorderedLessThan:
-      __ B(vs, flabel);
-    // Fall through.
-    case kUnsignedLessThan:
-      __ B(lo, tlabel);
-      break;
-    case kUnorderedGreaterThanOrEqual:
-      __ B(vs, tlabel);
-    // Fall through.
-    case kUnsignedGreaterThanOrEqual:
-      __ B(hs, tlabel);
-      break;
-    case kUnorderedLessThanOrEqual:
-      __ B(vs, flabel);
-    // Fall through.
-    case kUnsignedLessThanOrEqual:
-      __ B(ls, tlabel);
-      break;
-    case kUnorderedGreaterThan:
-      __ B(vs, tlabel);
-    // Fall through.
-    case kUnsignedGreaterThan:
-      __ B(hi, tlabel);
-      break;
-    case kOverflow:
-      __ B(vs, tlabel);
-      break;
-    case kNotOverflow:
-      __ B(vc, tlabel);
-      break;
+  FlagsCondition condition = branch->condition;
+  ArchOpcode opcode = instr->arch_opcode();
+
+  if (opcode == kArm64CompareAndBranch32) {
+    switch (condition) {
+      case kEqual:
+        __ Cbz(i.InputRegister32(0), tlabel);
+        break;
+      case kNotEqual:
+        __ Cbnz(i.InputRegister32(0), tlabel);
+        break;
+      default:
+        UNREACHABLE();
+    }
+  } else if (opcode == kArm64TestAndBranch32) {
+    switch (condition) {
+      case kEqual:
+        __ Tbz(i.InputRegister32(0), i.InputInt5(1), tlabel);
+        break;
+      case kNotEqual:
+        __ Tbnz(i.InputRegister32(0), i.InputInt5(1), tlabel);
+        break;
+      default:
+        UNREACHABLE();
+    }
+  } else if (opcode == kArm64TestAndBranch) {
+    switch (condition) {
+      case kEqual:
+        __ Tbz(i.InputRegister64(0), i.InputInt6(1), tlabel);
+        break;
+      case kNotEqual:
+        __ Tbnz(i.InputRegister64(0), i.InputInt6(1), tlabel);
+        break;
+      default:
+        UNREACHABLE();
+    }
+  } else {
+    Condition cc = FlagsConditionToCondition(condition);
+    __ B(cc, tlabel);
   }
   if (!branch->fallthru) __ B(flabel);  // no fallthru to flabel.
 }
@@ -831,89 +841,33 @@ void CodeGenerator::AssembleArchJump(BasicBlock::RpoNumber target) {
 }
 
 
+void CodeGenerator::AssembleArchSwitch(Instruction* instr) {
+  Arm64OperandConverter i(this, instr);
+  UseScratchRegisterScope scope(masm());
+  Register reg = i.InputRegister(0);
+  Register tmp = scope.AcquireX();
+  Label table;
+  __ Adr(tmp, &table);
+  __ Add(tmp, tmp, Operand(reg, LSL, 2));
+  __ Br(tmp);
+  __ Bind(&table);
+  for (size_t index = 1; index < instr->InputCount(); ++index) {
+    __ B(GetLabel(i.InputRpo(index)));
+  }
+}
+
+
 // Assemble boolean materializations after this instruction.
 void CodeGenerator::AssembleArchBoolean(Instruction* instr,
                                         FlagsCondition condition) {
   Arm64OperandConverter i(this, instr);
-  Label done;
 
   // Materialize a full 64-bit 1 or 0 value. The result register is always the
   // last output of the instruction.
-  Label check;
-  DCHECK_NE(0, instr->OutputCount());
+  DCHECK_NE(0u, instr->OutputCount());
   Register reg = i.OutputRegister(instr->OutputCount() - 1);
-  Condition cc = nv;
-  switch (condition) {
-    case kUnorderedEqual:
-      __ B(vc, &check);
-      __ Mov(reg, 0);
-      __ B(&done);
-    // Fall through.
-    case kEqual:
-      cc = eq;
-      break;
-    case kUnorderedNotEqual:
-      __ B(vc, &check);
-      __ Mov(reg, 1);
-      __ B(&done);
-    // Fall through.
-    case kNotEqual:
-      cc = ne;
-      break;
-    case kSignedLessThan:
-      cc = lt;
-      break;
-    case kSignedGreaterThanOrEqual:
-      cc = ge;
-      break;
-    case kSignedLessThanOrEqual:
-      cc = le;
-      break;
-    case kSignedGreaterThan:
-      cc = gt;
-      break;
-    case kUnorderedLessThan:
-      __ B(vc, &check);
-      __ Mov(reg, 0);
-      __ B(&done);
-    // Fall through.
-    case kUnsignedLessThan:
-      cc = lo;
-      break;
-    case kUnorderedGreaterThanOrEqual:
-      __ B(vc, &check);
-      __ Mov(reg, 1);
-      __ B(&done);
-    // Fall through.
-    case kUnsignedGreaterThanOrEqual:
-      cc = hs;
-      break;
-    case kUnorderedLessThanOrEqual:
-      __ B(vc, &check);
-      __ Mov(reg, 0);
-      __ B(&done);
-    // Fall through.
-    case kUnsignedLessThanOrEqual:
-      cc = ls;
-      break;
-    case kUnorderedGreaterThan:
-      __ B(vc, &check);
-      __ Mov(reg, 1);
-      __ B(&done);
-    // Fall through.
-    case kUnsignedGreaterThan:
-      cc = hi;
-      break;
-    case kOverflow:
-      cc = vs;
-      break;
-    case kNotOverflow:
-      cc = vc;
-      break;
-  }
-  __ Bind(&check);
+  Condition cc = FlagsConditionToCondition(condition);
   __ Cset(reg, cc);
-  __ Bind(&done);
 }
 
 
@@ -953,6 +907,21 @@ void CodeGenerator::AssemblePrologue() {
         StandardFrameConstants::kFixedFrameSizeFromFp);
   }
   int stack_slots = frame()->GetSpillSlotCount();
+
+  if (info()->is_osr()) {
+    // TurboFan OSR-compiled functions cannot be entered directly.
+    __ Abort(kShouldNotDirectlyEnterOsrFunction);
+
+    // Unoptimized code jumps directly to this entrypoint while the unoptimized
+    // frame is still on the stack. Optimized code uses OSR values directly from
+    // the unoptimized frame. Thus, all that needs to be done is to allocate the
+    // remaining stack slots.
+    if (FLAG_code_comments) __ RecordComment("-- OSR entrypoint --");
+    osr_pc_offset_ = __ pc_offset();
+    DCHECK(stack_slots >= frame()->GetOsrStackSlotCount());
+    stack_slots -= frame()->GetOsrStackSlotCount();
+  }
+
   if (stack_slots > 0) {
     Register sp = __ StackPointer();
     if (!sp.Is(csp)) {
@@ -1131,6 +1100,12 @@ void CodeGenerator::AssembleSwap(InstructionOperand* source,
     // No other combinations are possible.
     UNREACHABLE();
   }
+}
+
+
+void CodeGenerator::AssembleJumpTable(Label** targets, size_t target_count) {
+  // On 64-bit ARM we emit the jump tables inline.
+  UNREACHABLE();
 }
 
 

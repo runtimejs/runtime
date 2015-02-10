@@ -153,108 +153,114 @@ namespace internal {
 // -----------------------------------------------------------------------------
 // Values for bitset types
 
+// clang-format off
+
 #define MASK_BITSET_TYPE_LIST(V) \
-  V(Representation, 0xff800000u) \
-  V(Semantic,       0x007ffffeu)
+  V(Representation, 0xfff00000u) \
+  V(Semantic,       0x000ffffeu)
 
 #define REPRESENTATION(k) ((k) & BitsetType::kRepresentation)
 #define SEMANTIC(k)       ((k) & BitsetType::kSemantic)
 
-#define REPRESENTATION_BITSET_TYPE_LIST(V) \
-  V(None,             0)                   \
-  V(UntaggedInt1,     1u << 23 | kSemantic) \
-  V(UntaggedInt8,     1u << 24 | kSemantic) \
-  V(UntaggedInt16,    1u << 25 | kSemantic) \
-  V(UntaggedInt32,    1u << 26 | kSemantic) \
-  V(UntaggedFloat32,  1u << 27 | kSemantic) \
-  V(UntaggedFloat64,  1u << 28 | kSemantic) \
-  V(UntaggedPtr,      1u << 29 | kSemantic) \
-  V(TaggedInt,        1u << 30 | kSemantic) \
-  V(TaggedPtr,        1u << 31 | kSemantic) \
+#define REPRESENTATION_BITSET_TYPE_LIST(V)    \
+  V(None,               0)                    \
+  V(UntaggedBit,        1u << 20 | kSemantic) \
+  V(UntaggedSigned8,    1u << 21 | kSemantic) \
+  V(UntaggedSigned16,   1u << 22 | kSemantic) \
+  V(UntaggedSigned32,   1u << 23 | kSemantic) \
+  V(UntaggedUnsigned8,  1u << 24 | kSemantic) \
+  V(UntaggedUnsigned16, 1u << 25 | kSemantic) \
+  V(UntaggedUnsigned32, 1u << 26 | kSemantic) \
+  V(UntaggedFloat32,    1u << 27 | kSemantic) \
+  V(UntaggedFloat64,    1u << 28 | kSemantic) \
+  V(UntaggedPointer,    1u << 29 | kSemantic) \
+  V(TaggedSigned,       1u << 30 | kSemantic) \
+  V(TaggedPointer,      1u << 31 | kSemantic) \
   \
-  V(UntaggedInt,      kUntaggedInt1 | kUntaggedInt8 |      \
-                      kUntaggedInt16 | kUntaggedInt32)     \
-  V(UntaggedFloat,    kUntaggedFloat32 | kUntaggedFloat64) \
-  V(UntaggedNumber,   kUntaggedInt | kUntaggedFloat)       \
-  V(Untagged,         kUntaggedNumber | kUntaggedPtr)      \
-  V(Tagged,           kTaggedInt | kTaggedPtr)
+  V(UntaggedSigned,     kUntaggedSigned8 | kUntaggedSigned16 |              \
+                        kUntaggedSigned32)                                  \
+  V(UntaggedUnsigned,   kUntaggedUnsigned8 | kUntaggedUnsigned16 |          \
+                        kUntaggedUnsigned32)                                \
+  V(UntaggedIntegral8,  kUntaggedSigned8 | kUntaggedUnsigned8)              \
+  V(UntaggedIntegral16, kUntaggedSigned16 | kUntaggedUnsigned16)            \
+  V(UntaggedIntegral32, kUntaggedSigned32 | kUntaggedUnsigned32)            \
+  V(UntaggedIntegral,   kUntaggedBit | kUntaggedSigned | kUntaggedUnsigned) \
+  V(UntaggedFloat,      kUntaggedFloat32 | kUntaggedFloat64)                \
+  V(UntaggedNumber,     kUntaggedIntegral | kUntaggedFloat)                 \
+  V(Untagged,           kUntaggedNumber | kUntaggedPointer)                 \
+  V(Tagged,             kTaggedSigned | kTaggedPointer)
+
+#define INTERNAL_BITSET_TYPE_LIST(V)                                      \
+  V(OtherUnsigned31, 1u << 1 | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(OtherUnsigned32, 1u << 2 | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(OtherSigned32,   1u << 3 | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(OtherNumber,     1u << 4 | REPRESENTATION(kTagged | kUntaggedNumber))
 
 #define SEMANTIC_BITSET_TYPE_LIST(V) \
-  V(Null,                1u << 1  | REPRESENTATION(kTaggedPtr)) \
-  V(Undefined,           1u << 2  | REPRESENTATION(kTaggedPtr)) \
-  V(Boolean,             1u << 3  | REPRESENTATION(kTaggedPtr)) \
-  V(UnsignedSmall,       1u << 4  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(OtherSignedSmall,    1u << 5  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(OtherUnsigned31,     1u << 6  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(OtherUnsigned32,     1u << 7  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(OtherSigned32,       1u << 8  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(MinusZero,           1u << 9  | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(NaN,                 1u << 10 | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(OtherNumber,         1u << 11 | REPRESENTATION(kTagged | kUntaggedNumber)) \
-  V(Symbol,              1u << 12 | REPRESENTATION(kTaggedPtr)) \
-  V(InternalizedString,  1u << 13 | REPRESENTATION(kTaggedPtr)) \
-  V(OtherString,         1u << 14 | REPRESENTATION(kTaggedPtr)) \
-  V(Undetectable,        1u << 15 | REPRESENTATION(kTaggedPtr)) \
-  V(Array,               1u << 16 | REPRESENTATION(kTaggedPtr)) \
-  V(Buffer,              1u << 17 | REPRESENTATION(kTaggedPtr)) \
-  V(Function,            1u << 18 | REPRESENTATION(kTaggedPtr)) \
-  V(RegExp,              1u << 19 | REPRESENTATION(kTaggedPtr)) \
-  V(OtherObject,         1u << 20 | REPRESENTATION(kTaggedPtr)) \
-  V(Proxy,               1u << 21 | REPRESENTATION(kTaggedPtr)) \
-  V(Internal,            1u << 22 | REPRESENTATION(kTagged | kUntagged)) \
+  V(Negative31,          1u << 5  | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(Null,                1u << 6  | REPRESENTATION(kTaggedPointer)) \
+  V(Undefined,           1u << 7  | REPRESENTATION(kTaggedPointer)) \
+  V(Boolean,             1u << 8  | REPRESENTATION(kTaggedPointer)) \
+  V(Unsigned30,          1u << 9  | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(MinusZero,           1u << 10 | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(NaN,                 1u << 11 | REPRESENTATION(kTagged | kUntaggedNumber)) \
+  V(Symbol,              1u << 12 | REPRESENTATION(kTaggedPointer)) \
+  V(InternalizedString,  1u << 13 | REPRESENTATION(kTaggedPointer)) \
+  V(OtherString,         1u << 14 | REPRESENTATION(kTaggedPointer)) \
+  V(Undetectable,        1u << 15 | REPRESENTATION(kTaggedPointer)) \
+  V(Array,               1u << 16 | REPRESENTATION(kTaggedPointer)) \
+  V(OtherObject,         1u << 17 | REPRESENTATION(kTaggedPointer)) \
+  V(Proxy,               1u << 18 | REPRESENTATION(kTaggedPointer)) \
+  V(Internal,            1u << 19 | REPRESENTATION(kTagged | kUntagged)) \
   \
-  V(SignedSmall,         kUnsignedSmall | kOtherSignedSmall) \
-  V(Signed32,            kSignedSmall | kOtherUnsigned31 | kOtherSigned32) \
-  V(Unsigned32,          kUnsignedSmall | kOtherUnsigned31 | kOtherUnsigned32) \
+  V(Signed31,            kUnsigned30 | kNegative31) \
+  V(Signed32,            kSigned31 | kOtherUnsigned31 | kOtherSigned32) \
+  V(Negative32,          kNegative31 | kOtherSigned32) \
+  V(Unsigned31,          kUnsigned30 | kOtherUnsigned31) \
+  V(Unsigned32,          kUnsigned30 | kOtherUnsigned31 | kOtherUnsigned32) \
   V(Integral32,          kSigned32 | kUnsigned32) \
-  V(OrderedNumber,       kIntegral32 | kMinusZero | kOtherNumber) \
+  V(PlainNumber,         kIntegral32 | kOtherNumber) \
+  V(OrderedNumber,       kPlainNumber | kMinusZero) \
   V(Number,              kOrderedNumber | kNaN) \
   V(String,              kInternalizedString | kOtherString) \
   V(UniqueName,          kSymbol | kInternalizedString) \
   V(Name,                kSymbol | kString) \
   V(NumberOrString,      kNumber | kString) \
-  V(Primitive,           kNumber | kName | kBoolean | kNull | kUndefined) \
-  V(DetectableObject,    kArray | kFunction | kRegExp | kOtherObject) \
+  V(PlainPrimitive,      kNumberOrString | kBoolean | kNull | kUndefined) \
+  V(Primitive,           kSymbol | kPlainPrimitive) \
+  V(DetectableObject,    kArray | kOtherObject) \
   V(DetectableReceiver,  kDetectableObject | kProxy) \
   V(Detectable,          kDetectableReceiver | kNumber | kName) \
   V(Object,              kDetectableObject | kUndetectable) \
   V(Receiver,            kObject | kProxy) \
+  V(StringOrReceiver,    kString | kReceiver) \
   V(Unique,              kBoolean | kUniqueName | kNull | kUndefined | \
                          kReceiver) \
   V(NonNumber,           kUnique | kString | kInternal) \
   V(Any,                 0xfffffffeu)
 
+// clang-format on
+
 /*
  * The following diagrams show how integers (in the mathematical sense) are
  * divided among the different atomic numerical types.
  *
- * If SmiValuesAre31Bits():
- *
- *   ON    OS32     OSS     US     OU31    OU32     ON
+ *   ON    OS32     N31     U30     OU31    OU32     ON
  * ______[_______[_______[_______[_______[_______[_______
  *     -2^31   -2^30     0      2^30    2^31    2^32
  *
- * Otherwise:
- *
- *   ON         OSS             US         OU32     ON
- * ______[_______________[_______________[_______[_______
- *     -2^31             0              2^31    2^32
- *
- *
  * E.g., OtherUnsigned32 (OU32) covers all integers from 2^31 to 2^32-1.
- *
- * NOTE: OtherSigned32 (OS32) and OU31 (OtherUnsigned31) are empty if Smis are
- *       32-bit wide.  They should thus never be used directly, only indirectly
- *       via e.g. Number.
  */
 
 #define PROPER_BITSET_TYPE_LIST(V) \
   REPRESENTATION_BITSET_TYPE_LIST(V) \
   SEMANTIC_BITSET_TYPE_LIST(V)
 
-#define BITSET_TYPE_LIST(V) \
-  MASK_BITSET_TYPE_LIST(V) \
-  PROPER_BITSET_TYPE_LIST(V)
+#define BITSET_TYPE_LIST(V)          \
+  MASK_BITSET_TYPE_LIST(V)           \
+  REPRESENTATION_BITSET_TYPE_LIST(V) \
+  INTERNAL_BITSET_TYPE_LIST(V)       \
+  SEMANTIC_BITSET_TYPE_LIST(V)
 
 
 // -----------------------------------------------------------------------------
@@ -264,21 +270,29 @@ namespace internal {
 //   typedef TypeImpl<Config> Type;
 //   typedef Base;
 //   typedef Struct;
+//   typedef Range;
 //   typedef Region;
 //   template<class> struct Handle { typedef type; }  // No template typedefs...
 //   template<class T> static Handle<T>::type null_handle();
 //   template<class T> static Handle<T>::type handle(T* t);  // !is_bitset(t)
 //   template<class T> static Handle<T>::type cast(Handle<Type>::type);
+//
 //   static bool is_bitset(Type*);
 //   static bool is_class(Type*);
 //   static bool is_struct(Type*, int tag);
+//   static bool is_range(Type*);
+//
 //   static bitset as_bitset(Type*);
 //   static i::Handle<i::Map> as_class(Type*);
 //   static Handle<Struct>::type as_struct(Type*);
+//   static Handle<Range>::type as_range(Type*);
+//
 //   static Type* from_bitset(bitset);
 //   static Handle<Type>::type from_bitset(bitset, Region*);
 //   static Handle<Type>::type from_class(i::Handle<Map>, Region*);
 //   static Handle<Type>::type from_struct(Handle<Struct>::type, int tag);
+//   static Handle<Type>::type from_range(Handle<Range>::type);
+//
 //   static Handle<Struct>::type struct_create(int tag, int length, Region*);
 //   static void struct_shrink(Handle<Struct>::type, int length);
 //   static int struct_tag(Handle<Struct>::type);
@@ -289,6 +303,12 @@ namespace internal {
 //   static i::Handle<V> struct_get_value(Handle<Struct>::type, int);
 //   template<class V>
 //   static void struct_set_value(Handle<Struct>::type, int, i::Handle<V>);
+//
+//   static Handle<Range>::type range_create(Region*);
+//   static int range_get_bitset(Handle<Range>::type);
+//   static void range_set_bitset(Handle<Range>::type, int);
+//   static double range_get_double(Handle<Range>::type, int);
+//   static void range_set_double(Handle<Range>::type, int, double, Region*);
 // }
 template<class Config>
 class TypeImpl : public Config::Base {
@@ -329,15 +349,31 @@ class TypeImpl : public Config::Base {
   PROPER_BITSET_TYPE_LIST(DEFINE_TYPE_CONSTRUCTOR)
   #undef DEFINE_TYPE_CONSTRUCTOR
 
+  static TypeImpl* SignedSmall() {
+    return BitsetType::New(BitsetType::SignedSmall());
+  }
+  static TypeHandle SignedSmall(Region* region) {
+    return BitsetType::New(BitsetType::SignedSmall(), region);
+  }
+  static TypeImpl* UnsignedSmall() {
+    return BitsetType::New(BitsetType::UnsignedSmall());
+  }
+  static TypeHandle UnsignedSmall(Region* region) {
+    return BitsetType::New(BitsetType::UnsignedSmall(), region);
+  }
+
   static TypeHandle Class(i::Handle<i::Map> map, Region* region) {
     return ClassType::New(map, region);
   }
   static TypeHandle Constant(i::Handle<i::Object> value, Region* region) {
     return ConstantType::New(value, region);
   }
-  static TypeHandle Range(
-      i::Handle<i::Object> min, i::Handle<i::Object> max, Region* region) {
-    return RangeType::New(min, max, region);
+  static TypeHandle Range(double min, double max, Region* region) {
+    return RangeType::New(
+        min, max, BitsetType::New(REPRESENTATION(BitsetType::kTagged |
+                                                 BitsetType::kUntaggedNumber),
+                                  region),
+        region);
   }
   static TypeHandle Context(TypeHandle outer, Region* region) {
     return ContextType::New(outer, region);
@@ -430,15 +466,13 @@ class TypeImpl : public Config::Base {
 
   // Inspection.
 
+  bool IsRange() { return Config::is_range(this); }
   bool IsClass() {
     return Config::is_class(this)
         || Config::is_struct(this, StructuralType::kClassTag);
   }
   bool IsConstant() {
     return Config::is_struct(this, StructuralType::kConstantTag);
-  }
-  bool IsRange() {
-    return Config::is_struct(this, StructuralType::kRangeTag);
   }
   bool IsContext() {
     return Config::is_struct(this, StructuralType::kContextTag);
@@ -500,6 +534,8 @@ class TypeImpl : public Config::Base {
   void Print();
 #endif
 
+  bool IsUnionForTesting() { return IsUnion(); }
+
  protected:
   // Friends.
 
@@ -542,22 +578,34 @@ class TypeImpl : public Config::Base {
   }
 
   struct Limits {
-    i::Handle<i::Object> min;
-    i::Handle<i::Object> max;
-    Limits(i::Handle<i::Object> min, i::Handle<i::Object> max) :
-      min(min), max(max) {}
-    explicit Limits(RangeType* range) :
-      min(range->Min()), max(range->Max()) {}
+    double min;
+    double max;
+    bitset representation;
+    Limits(double min, double max, bitset representation)
+        : min(min), max(max), representation(representation) {}
+    explicit Limits(RangeType* range)
+        : min(range->Min()),
+          max(range->Max()),
+          representation(REPRESENTATION(range->Bound())) {}
+    static Limits Empty(Region* region) {
+      return Limits(1, 0, BitsetType::kNone);
+    }
   };
 
+  static bool IsEmpty(Limits lim);
   static Limits Intersect(Limits lhs, Limits rhs);
   static Limits Union(Limits lhs, Limits rhs);
   static bool Overlap(RangeType* lhs, RangeType* rhs);
   static bool Contains(RangeType* lhs, RangeType* rhs);
+  static bool Contains(RangeType* range, ConstantType* constant);
   static bool Contains(RangeType* range, i::Object* val);
 
   static int UpdateRange(
       RangeHandle type, UnionHandle result, int size, Region* region);
+
+  static Limits IntersectRangeAndBitset(TypeHandle range, TypeHandle bits,
+                                        Region* region);
+  static Limits ToLimits(bitset bits, Region* region);
 
   bool SimplyEquals(TypeImpl* that);
   template<class TypeHandle>
@@ -565,10 +613,11 @@ class TypeImpl : public Config::Base {
 
   static int AddToUnion(
       TypeHandle type, UnionHandle result, int size, Region* region);
-  static int IntersectAux(
-      TypeHandle type, TypeHandle other,
-      UnionHandle result, int size, Region* region);
+  static int IntersectAux(TypeHandle type, TypeHandle other, UnionHandle result,
+                          int size, Limits* limits, Region* region);
   static TypeHandle NormalizeUnion(UnionHandle unioned, int size);
+  static TypeHandle NormalizeRangeAndBitset(RangeHandle range, bitset* bits,
+                                            Region* region);
 };
 
 
@@ -587,14 +636,17 @@ class TypeImpl<Config>::BitsetType : public TypeImpl<Config> {
     kUnusedEOL = 0
   };
 
+  static bitset SignedSmall();
+  static bitset UnsignedSmall();
+
   bitset Bitset() { return Config::as_bitset(this); }
 
   static TypeImpl* New(bitset bits) {
-    DCHECK(bits == kNone || IsInhabited(bits));
+    if (FLAG_enable_slow_asserts) CheckNumberBits(bits);
     return Config::from_bitset(bits);
   }
   static TypeHandle New(bitset bits, Region* region) {
-    DCHECK(bits == kNone || IsInhabited(bits));
+    if (FLAG_enable_slow_asserts) CheckNumberBits(bits);
     return Config::from_bitset(bits, region);
   }
   // TODO(neis): Eventually allow again for types with empty semantics
@@ -612,6 +664,7 @@ class TypeImpl<Config>::BitsetType : public TypeImpl<Config> {
   static double Max(bitset);
 
   static bitset Glb(TypeImpl* type);  // greatest lower bound that's a bitset
+  static bitset Glb(double min, double max);
   static bitset Lub(TypeImpl* type);  // least upper bound that's a bitset
   static bitset Lub(i::Map* map);
   static bitset Lub(i::Object* value);
@@ -624,21 +677,18 @@ class TypeImpl<Config>::BitsetType : public TypeImpl<Config> {
   static void Print(bitset);
 #endif
 
+  static bitset NumberBits(bitset bits);
+
  private:
-  struct BitsetMin{
+  struct Boundary {
     bitset bits;
     double min;
   };
-  static const BitsetMin BitsetMins31[];
-  static const BitsetMin BitsetMins32[];
-  static const BitsetMin* BitsetMins() {
-    return i::SmiValuesAre31Bits() ? BitsetMins31 : BitsetMins32;
-  }
-  static size_t BitsetMinsSize() {
-    return i::SmiValuesAre31Bits() ? 7 : 5;
-    /* arraysize(BitsetMins31) : arraysize(BitsetMins32); */
-    // Using arraysize here doesn't compile on Windows.
-  }
+  static const Boundary BoundariesArray[];
+  static inline const Boundary* Boundaries();
+  static inline size_t BoundariesSize();
+
+  static void CheckNumberBits(bitset bits);
 };
 
 
@@ -656,7 +706,6 @@ class TypeImpl<Config>::StructuralType : public TypeImpl<Config> {
   enum Tag {
     kClassTag,
     kConstantTag,
-    kRangeTag,
     kContextTag,
     kArrayTag,
     kFunctionTag,
@@ -782,28 +831,33 @@ class TypeImpl<Config>::ConstantType : public StructuralType {
 // -----------------------------------------------------------------------------
 // Range types.
 
-template<class Config>
-class TypeImpl<Config>::RangeType : public StructuralType {
+template <class Config>
+class TypeImpl<Config>::RangeType : public TypeImpl<Config> {
  public:
-  int BitsetLub() { return this->Get(0)->AsBitset(); }
-  i::Handle<i::Object> Min() { return this->template GetValue<i::Object>(1); }
-  i::Handle<i::Object> Max() { return this->template GetValue<i::Object>(2); }
+  bitset Bound() { return Config::range_get_bitset(Config::as_range(this)); }
+  double Min() { return Config::range_get_double(Config::as_range(this), 0); }
+  double Max() { return Config::range_get_double(Config::as_range(this), 1); }
 
-  static RangeHandle New(
-      i::Handle<i::Object> min, i::Handle<i::Object> max, Region* region) {
-    DCHECK(IsInteger(min->Number()) && IsInteger(max->Number()));
-    DCHECK(min->Number() <= max->Number());
-    RangeHandle type = Config::template cast<RangeType>(
-        StructuralType::New(StructuralType::kRangeTag, 3, region));
-    type->Set(0, BitsetType::New(
-        BitsetType::Lub(min->Number(), max->Number()), region));
-    type->SetValue(1, min);
-    type->SetValue(2, max);
-    return type;
+  static RangeHandle New(double min, double max, TypeHandle representation,
+                         Region* region) {
+    DCHECK(IsInteger(min) && IsInteger(max));
+    DCHECK(min <= max);
+    bitset representation_bits = representation->AsBitset();
+    DCHECK(REPRESENTATION(representation_bits) == representation_bits);
+
+    typename Config::template Handle<typename Config::Range>::type range =
+        Config::range_create(region);
+
+    bitset bits = SEMANTIC(BitsetType::Lub(min, max)) | representation_bits;
+    Config::range_set_bitset(range, bits);
+    Config::range_set_double(range, 0, min, region);
+    Config::range_set_double(range, 1, max, region);
+    return Config::template cast<RangeType>(Config::from_range(range));
   }
 
   static RangeHandle New(Limits lim, Region* region) {
-    return New(lim.min, lim.max, region);
+    return New(lim.min, lim.max, BitsetType::New(lim.representation, region),
+               region);
   }
 
   static RangeType* cast(TypeImpl* type) {
@@ -922,8 +976,18 @@ struct ZoneTypeConfig {
   typedef TypeImpl<ZoneTypeConfig> Type;
   class Base {};
   typedef void* Struct;
+  // Hack: the Struct and Range types can be aliased in memory, the first
+  // pointer word of each both must be the tag (kRangeStructTag for Range,
+  // anything else for Struct) so that we can differentiate them.
+  struct Range {
+    void* tag;
+    int bitset;
+    double limits[2];
+  };
   typedef i::Zone Region;
   template<class T> struct Handle { typedef T* type; };
+
+  static const int kRangeStructTag = 0x1000;
 
   template<class T> static inline T* null_handle();
   template<class T> static inline T* handle(T* type);
@@ -932,15 +996,18 @@ struct ZoneTypeConfig {
   static inline bool is_bitset(Type* type);
   static inline bool is_class(Type* type);
   static inline bool is_struct(Type* type, int tag);
+  static inline bool is_range(Type* type);
 
   static inline Type::bitset as_bitset(Type* type);
   static inline i::Handle<i::Map> as_class(Type* type);
   static inline Struct* as_struct(Type* type);
+  static inline Range* as_range(Type* type);
 
   static inline Type* from_bitset(Type::bitset);
   static inline Type* from_bitset(Type::bitset, Zone* zone);
   static inline Type* from_class(i::Handle<i::Map> map, Zone* zone);
   static inline Type* from_struct(Struct* structured);
+  static inline Type* from_range(Range* range);
 
   static inline Struct* struct_create(int tag, int length, Zone* zone);
   static inline void struct_shrink(Struct* structure, int length);
@@ -952,6 +1019,12 @@ struct ZoneTypeConfig {
   static inline i::Handle<V> struct_get_value(Struct* structure, int i);
   template<class V> static inline void struct_set_value(
       Struct* structure, int i, i::Handle<V> x);
+
+  static inline Range* range_create(Zone* zone);
+  static inline int range_get_bitset(Range* range);
+  static inline void range_set_bitset(Range* range, int);
+  static inline double range_get_double(Range*, int index);
+  static inline void range_set_double(Range*, int index, double value, Zone*);
 };
 
 typedef TypeImpl<ZoneTypeConfig> Type;
@@ -965,8 +1038,11 @@ struct HeapTypeConfig {
   typedef TypeImpl<HeapTypeConfig> Type;
   typedef i::Object Base;
   typedef i::FixedArray Struct;
+  typedef i::FixedArray Range;
   typedef i::Isolate Region;
   template<class T> struct Handle { typedef i::Handle<T> type; };
+
+  static const int kRangeStructTag = 0xffff;
 
   template<class T> static inline i::Handle<T> null_handle();
   template<class T> static inline i::Handle<T> handle(T* type);
@@ -975,16 +1051,19 @@ struct HeapTypeConfig {
   static inline bool is_bitset(Type* type);
   static inline bool is_class(Type* type);
   static inline bool is_struct(Type* type, int tag);
+  static inline bool is_range(Type* type);
 
   static inline Type::bitset as_bitset(Type* type);
   static inline i::Handle<i::Map> as_class(Type* type);
   static inline i::Handle<Struct> as_struct(Type* type);
+  static inline i::Handle<Range> as_range(Type* type);
 
   static inline Type* from_bitset(Type::bitset);
   static inline i::Handle<Type> from_bitset(Type::bitset, Isolate* isolate);
   static inline i::Handle<Type> from_class(
       i::Handle<i::Map> map, Isolate* isolate);
   static inline i::Handle<Type> from_struct(i::Handle<Struct> structure);
+  static inline i::Handle<Type> from_range(i::Handle<Range> range);
 
   static inline i::Handle<Struct> struct_create(
       int tag, int length, Isolate* isolate);
@@ -1000,6 +1079,13 @@ struct HeapTypeConfig {
   template<class V>
   static inline void struct_set_value(
       i::Handle<Struct> structure, int i, i::Handle<V> x);
+
+  static inline i::Handle<Range> range_create(Isolate* isolate);
+  static inline int range_get_bitset(i::Handle<Range> range);
+  static inline void range_set_bitset(i::Handle<Range> range, int value);
+  static inline double range_get_double(i::Handle<Range> range, int index);
+  static inline void range_set_double(i::Handle<Range> range, int index,
+                                      double value, Isolate* isolate);
 };
 
 typedef TypeImpl<HeapTypeConfig> HeapType;

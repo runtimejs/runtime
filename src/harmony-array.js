@@ -127,12 +127,78 @@ function ArrayFill(value /* [, start [, end ] ] */) {  // length == 1
   return array;
 }
 
+// ES6, draft 10-14-14, section 22.1.2.1
+function ArrayFrom(arrayLike, mapfn, receiver) {
+  var items = ToObject(arrayLike);
+  var mapping = !IS_UNDEFINED(mapfn);
+
+  if (mapping) {
+    if (!IS_SPEC_FUNCTION(mapfn)) {
+      throw MakeTypeError('called_non_callable', [ mapfn ]);
+    } else if (IS_NULL_OR_UNDEFINED(receiver)) {
+      receiver = %GetDefaultReceiver(mapfn) || receiver;
+    } else if (!IS_SPEC_OBJECT(receiver) && %IsSloppyModeFunction(mapfn)) {
+      receiver = ToObject(receiver);
+    }
+  }
+
+  var iterable = GetMethod(items, symbolIterator);
+  var k;
+  var result;
+  var mappedValue;
+  var nextValue;
+
+  if (!IS_UNDEFINED(iterable)) {
+    result = %IsConstructor(this) ? new this() : [];
+
+    var iterator = GetIterator(items, iterable);
+
+    k = 0;
+    while (true) {
+      var next = iterator.next();
+
+      if (!IS_OBJECT(next)) {
+        throw MakeTypeError("iterator_result_not_an_object", [next]);
+      }
+
+      if (next.done) {
+        result.length = k;
+        return result;
+      }
+
+      nextValue = next.value;
+      if (mapping) {
+        mappedValue = %_CallFunction(receiver, nextValue, k, mapfn);
+      } else {
+        mappedValue = nextValue;
+      }
+      %AddElement(result, k++, mappedValue, NONE);
+    }
+  } else {
+    var len = ToLength(items.length);
+    result = %IsConstructor(this) ? new this(len) : new $Array(len);
+
+    for (k = 0; k < len; ++k) {
+      nextValue = items[k];
+      if (mapping) {
+        mappedValue = %_CallFunction(receiver, nextValue, k, mapfn);
+      } else {
+        mappedValue = nextValue;
+      }
+      %AddElement(result, k, mappedValue, NONE);
+    }
+
+    result.length = k;
+    return result;
+  }
+}
+
 // ES6, draft 05-22-14, section 22.1.2.3
 function ArrayOf() {
   var length = %_ArgumentsLength();
   var constructor = this;
   // TODO: Implement IsConstructor (ES6 section 7.2.5)
-  var array = IS_SPEC_FUNCTION(constructor) ? new constructor(length) : [];
+  var array = %IsConstructor(constructor) ? new constructor(length) : [];
   for (var i = 0; i < length; i++) {
     %AddElement(array, i, %_Arguments(i), NONE);
   }
@@ -142,11 +208,25 @@ function ArrayOf() {
 
 // -------------------------------------------------------------------
 
+function HarmonyArrayExtendSymbolPrototype() {
+  %CheckIsBootstrapping();
+
+  InstallConstants($Symbol, $Array(
+    // TODO(dslomov, caitp): Move to symbol.js when shipping
+   "isConcatSpreadable", symbolIsConcatSpreadable
+  ));
+}
+
+HarmonyArrayExtendSymbolPrototype();
+
 function HarmonyArrayExtendArrayPrototype() {
   %CheckIsBootstrapping();
 
+  %FunctionSetLength(ArrayFrom, 1);
+
   // Set up non-enumerable functions on the Array object.
   InstallFunctions($Array, DONT_ENUM, $Array(
+    "from", ArrayFrom,
     "of", ArrayOf
   ));
 
