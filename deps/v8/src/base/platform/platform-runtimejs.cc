@@ -79,10 +79,10 @@ void* OS::GetRandomMmapAddr() {
 }
 
 
-double OS::nan_value() {
+/*double OS::nan_value() {
   // NAN from math.h is defined in C99 and not in POSIX.
   return NAN;
-}
+}*/
 
 
 int OS::GetCurrentProcessId() {
