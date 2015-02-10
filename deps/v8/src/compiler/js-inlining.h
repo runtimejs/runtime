@@ -6,7 +6,6 @@
 #define V8_COMPILER_JS_INLINING_H_
 
 #include "src/compiler/js-graph.h"
-#include "src/v8.h"
 
 namespace v8 {
 namespace internal {
@@ -21,7 +20,6 @@ class JSInliner {
 
   void Inline();
   void TryInlineJSCall(Node* node);
-  void TryInlineRuntimeCall(Node* node);
 
  private:
   friend class InlinerVisitor;

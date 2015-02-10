@@ -63,26 +63,36 @@ const double MathConstants::constants[] = {
     3.06161699786838301793e-17,   // pio4lo    33
     6.93147180369123816490e-01,   // ln2_hi    34
     1.90821492927058770002e-10,   // ln2_lo    35
-    1.80143985094819840000e+16,   // 2^54      36
-    6.666666666666666666e-01,     // 2/3       37
-    6.666666666666735130e-01,     // LP1       38  coefficients for log1p
-    3.999999999940941908e-01,     //           39
-    2.857142874366239149e-01,     //           40
-    2.222219843214978396e-01,     //           41
-    1.818357216161805012e-01,     //           42
-    1.531383769920937332e-01,     //           43
-    1.479819860511658591e-01,     // LP7       44
-    7.09782712893383973096e+02,   //           45  overflow threshold for expm1
-    1.44269504088896338700e+00,   // 1/ln2     46
-    -3.33333333333331316428e-02,  // Q1        47  coefficients for expm1
-    1.58730158725481460165e-03,   //           48
-    -7.93650757867487942473e-05,  //           49
-    4.00821782732936239552e-06,   //           50
-    -2.01099218183624371326e-07,  // Q5        51
-    710.4758600739439,            //           52  overflow threshold sinh, cosh
-    4.34294481903251816668e-01,   // ivln10    53  coefficients for log10
-    3.01029995663611771306e-01,   // log10_2hi 54
-    3.69423907715893078616e-13    // log10_2lo 55
+    6.666666666666666666e-01,     // 2/3       36
+    6.666666666666735130e-01,     // LP1       37  coefficients for log1p
+    3.999999999940941908e-01,     //           38
+    2.857142874366239149e-01,     //           39
+    2.222219843214978396e-01,     //           40
+    1.818357216161805012e-01,     //           41
+    1.531383769920937332e-01,     //           42
+    1.479819860511658591e-01,     // LP7       43
+    7.09782712893383973096e+02,   //           44  overflow threshold for expm1
+    1.44269504088896338700e+00,   // 1/ln2     45
+    -3.33333333333331316428e-02,  // Q1        46  coefficients for expm1
+    1.58730158725481460165e-03,   //           47
+    -7.93650757867487942473e-05,  //           48
+    4.00821782732936239552e-06,   //           49
+    -2.01099218183624371326e-07,  // Q5        50
+    710.4758600739439,            //           51  overflow threshold sinh, cosh
+    4.34294481903251816668e-01,   // ivln10    52  coefficients for log10
+    3.01029995663611771306e-01,   // log10_2hi 53
+    3.69423907715893078616e-13,   // log10_2lo 54
+    5.99999999999994648725e-01,   // L1        55  coefficients for log2
+    4.28571428578550184252e-01,   //           56
+    3.33333329818377432918e-01,   //           57
+    2.72728123808534006489e-01,   //           58
+    2.30660745775561754067e-01,   //           59
+    2.06975017800338417784e-01,   // L6        60
+    9.61796693925975554329e-01,   // cp        61  2/(3*ln(2))
+    9.61796700954437255859e-01,   // cp_h      62
+    -7.02846165095275826516e-09,  // cp_l      63
+    5.84962487220764160156e-01,   // dp_h      64
+    1.35003920212974897128e-08    // dp_l      65
 };
 
 
@@ -116,7 +126,7 @@ static const double PIo2[] = {
 };
 
 
-int __kernel_rem_pio2(double* x, double* y, int e0, int nx) {
+INLINE(int __kernel_rem_pio2(double* x, double* y, int e0, int nx)) {
   static const int32_t jk = 3;
   double fw;
   int32_t jx = nx - 1;
@@ -125,12 +135,12 @@ int __kernel_rem_pio2(double* x, double* y, int e0, int nx) {
   int32_t q0 = e0 - 24 * (jv + 1);
   int32_t m = jx + jk;
 
-  double f[10];
+  double f[20];
   for (int i = 0, j = jv - jx; i <= m; i++, j++) {
     f[i] = (j < 0) ? zero : static_cast<double>(two_over_pi[j]);
   }
 
-  double q[10];
+  double q[20];
   for (int i = 0; i <= jk; i++) {
     fw = 0.0;
     for (int j = 0; j <= jx; j++) fw += x[j] * f[jx + i - j];
@@ -141,7 +151,7 @@ int __kernel_rem_pio2(double* x, double* y, int e0, int nx) {
 
 recompute:
 
-  int32_t iq[10];
+  int32_t iq[20];
   double z = q[jz];
   for (int i = 0, j = jz; j > 0; i++, j--) {
     fw = static_cast<double>(static_cast<int32_t>(twon24 * z));
@@ -232,7 +242,7 @@ recompute:
     fw *= twon24;
   }
 
-  double fq[10];
+  double fq[20];
   for (int i = jz; i >= 0; i--) {
     fw = 0.0;
     for (int k = 0; k <= jk && k <= jz - i; k++) fw += PIo2[k] * q[i + k];
@@ -254,7 +264,7 @@ int rempio2(double x, double* y) {
   int32_t ix = hx & 0x7fffffff;
 
   if (ix >= 0x7ff00000) {
-    *y = base::OS::nan_value();
+    *y = std::numeric_limits<double>::quiet_NaN();
     return 0;
   }
 

@@ -4,12 +4,13 @@
 
 #include "src/compiler/js-builtin-reducer.h"
 #include "src/compiler/js-graph.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/typer.h"
 #include "test/unittests/compiler/graph-unittest.h"
 #include "test/unittests/compiler/node-test-utils.h"
 #include "testing/gmock-support.h"
 
+using testing::BitEq;
 using testing::Capture;
 
 namespace v8 {
@@ -24,15 +25,9 @@ class JSBuiltinReducerTest : public TypedGraphTest {
   Reduction Reduce(Node* node, MachineOperatorBuilder::Flags flags =
                                    MachineOperatorBuilder::Flag::kNoFlags) {
     MachineOperatorBuilder machine(zone(), kMachPtr, flags);
-    JSGraph jsgraph(graph(), common(), javascript(), &machine);
+    JSGraph jsgraph(isolate(), graph(), common(), javascript(), &machine);
     JSBuiltinReducer reducer(&jsgraph);
     return reducer.Reduce(node);
-  }
-
-  Node* Parameter(Type* t, int32_t index = 0) {
-    Node* n = graph()->NewNode(common()->Parameter(index), graph()->start());
-    NodeProperties::SetBounds(n, Bounds(Type::None(), t));
-    return n;
   }
 
   Handle<JSFunction> MathFunction(const char* name) {
@@ -58,11 +53,10 @@ namespace {
 
 // TODO(mstarzinger): Find a common place and unify with test-js-typed-lowering.
 Type* const kNumberTypes[] = {
-    Type::UnsignedSmall(),   Type::OtherSignedSmall(), Type::OtherUnsigned31(),
-    Type::OtherUnsigned32(), Type::OtherSigned32(),    Type::SignedSmall(),
-    Type::Signed32(),        Type::Unsigned32(),       Type::Integral32(),
-    Type::MinusZero(),       Type::NaN(),              Type::OtherNumber(),
-    Type::OrderedNumber(),   Type::Number()};
+    Type::UnsignedSmall(), Type::Negative32(),  Type::Unsigned31(),
+    Type::SignedSmall(),   Type::Signed32(),    Type::Unsigned32(),
+    Type::Integral32(),    Type::MinusZero(),   Type::NaN(),
+    Type::OrderedNumber(), Type::PlainNumber(), Type::Number()};
 
 }  // namespace
 
@@ -88,9 +82,11 @@ TEST_F(JSBuiltinReducerTest, MathAbs) {
     } else {
       Capture<Node*> branch;
       ASSERT_TRUE(r.Changed());
-      EXPECT_THAT(r.replacement(),
-                  IsSelect(kMachNone, IsNumberLessThan(IsNumberConstant(0), p0),
-                           p0, IsNumberSubtract(IsNumberConstant(0), p0)));
+      EXPECT_THAT(
+          r.replacement(),
+          IsSelect(kMachNone,
+                   IsNumberLessThan(IsNumberConstant(BitEq(0.0)), p0), p0,
+                   IsNumberSubtract(IsNumberConstant(BitEq(0.0)), p0)));
     }
   }
 }

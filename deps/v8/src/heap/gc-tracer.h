@@ -71,6 +71,11 @@ class RingBuffer {
     elements_[begin_] = element;
   }
 
+  void reset() {
+    begin_ = 0;
+    end_ = 0;
+  }
+
  private:
   T elements_[MAX_SIZE + 1];
   size_t begin_;
@@ -103,6 +108,7 @@ class GCTracer {
       MC_UPDATE_POINTERS_TO_EVACUATED,
       MC_UPDATE_POINTERS_BETWEEN_EVACUATED,
       MC_UPDATE_MISC_POINTERS,
+      MC_INCREMENTAL_WEAKCLOSURE,
       MC_WEAKCLOSURE,
       MC_WEAKCOLLECTION_PROCESS,
       MC_WEAKCOLLECTION_CLEAR,
@@ -156,6 +162,17 @@ class GCTracer {
 
     // Time when context disposal event happened.
     double time_;
+  };
+
+
+  class PromotionEvent {
+   public:
+    // Default constructor leaves the event uninitialized.
+    PromotionEvent() {}
+
+    explicit PromotionEvent(double promotion_ratio);
+
+    double promotion_ratio_;
   };
 
 
@@ -267,6 +284,8 @@ class GCTracer {
   typedef RingBuffer<ContextDisposalEvent, kRingBufferMaxSize>
       ContextDisposalEventBuffer;
 
+  typedef RingBuffer<PromotionEvent, kRingBufferMaxSize> PromotionEventBuffer;
+
   explicit GCTracer(Heap* heap);
 
   // Start collecting data.
@@ -280,6 +299,8 @@ class GCTracer {
   void AddNewSpaceAllocationTime(double duration, intptr_t allocation_in_bytes);
 
   void AddContextDisposalTime(double time);
+
+  void AddPromotionRatio(double promotion_ratio);
 
   // Log an incremental marking step.
   void AddIncrementalMarkingStep(double duration, intptr_t bytes);
@@ -367,6 +388,17 @@ class GCTracer {
   // Returns 0 if no events have been recorded.
   double ContextDisposalRateInMilliseconds() const;
 
+  // Computes the average promotion ratio based on the last recorded promotion
+  // events.
+  // Returns 0 if no events have been recorded.
+  double AveragePromotionRatio() const;
+
+  // Returns true if at least one survival event was recorded.
+  bool SurvivalEventsRecorded() const;
+
+  // Discard all recorded survival events.
+  void ResetSurvivalEvents();
+
  private:
   // Print one detailed trace line in name=value format.
   // TODO(ernstm): Move to Heap.
@@ -417,7 +449,11 @@ class GCTracer {
   // RingBuffer for allocation events.
   AllocationEventBuffer allocation_events_;
 
+  // RingBuffer for context disposal events.
   ContextDisposalEventBuffer context_disposal_events_;
+
+  // RingBuffer for promotion events.
+  PromotionEventBuffer promotion_events_;
 
   // Cumulative number of incremental marking steps since creation of tracer.
   int cumulative_incremental_marking_steps_;

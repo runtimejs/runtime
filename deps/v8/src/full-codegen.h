@@ -29,8 +29,9 @@ class JumpPatchSite;
 // debugger to piggybag on.
 class BreakableStatementChecker: public AstVisitor {
  public:
-  explicit BreakableStatementChecker(Zone* zone) : is_breakable_(false) {
-    InitializeAstVisitor(zone);
+  BreakableStatementChecker(Isolate* isolate, Zone* zone)
+      : is_breakable_(false) {
+    InitializeAstVisitor(isolate, zone);
   }
 
   void Check(Statement* stmt);
@@ -112,12 +113,18 @@ class FullCodeGenerator: public AstVisitor {
 // TODO(all): Copied ARM value. Check this is sensible for ARM64.
   static const int kCodeSizeMultiplier = 149;
   static const int kBootCodeSizeMultiplier = 110;
+#elif V8_TARGET_ARCH_PPC64
+  static const int kCodeSizeMultiplier = 200;
+  static const int kBootCodeSizeMultiplier = 120;
+#elif V8_TARGET_ARCH_PPC
+  static const int kCodeSizeMultiplier = 200;
+  static const int kBootCodeSizeMultiplier = 120;
 #elif V8_TARGET_ARCH_MIPS
   static const int kCodeSizeMultiplier = 149;
   static const int kBootCodeSizeMultiplier = 120;
 #elif V8_TARGET_ARCH_MIPS64
   static const int kCodeSizeMultiplier = 149;
-  static const int kBootCodeSizeMultiplier = 120;
+  static const int kBootCodeSizeMultiplier = 170;
 #else
 #error Unsupported target architecture.
 #endif
@@ -330,12 +337,15 @@ class FullCodeGenerator: public AstVisitor {
              Label* if_true,
              Label* if_false,
              Label* fall_through);
-#else  // All non-mips arch.
+#elif V8_TARGET_ARCH_PPC
+  void Split(Condition cc, Label* if_true, Label* if_false, Label* fall_through,
+             CRegister cr = cr7);
+#else  // All other arch.
   void Split(Condition cc,
              Label* if_true,
              Label* if_false,
              Label* fall_through);
-#endif  // V8_TARGET_ARCH_MIPS
+#endif
 
   // Load the value of a known (PARAMETER, LOCAL, or CONTEXT) variable into
   // a register.  Emits a context chain walk if if necessary (so does
@@ -487,6 +497,7 @@ class FullCodeGenerator: public AstVisitor {
 
   // Platform-specific code sequences for calls
   void EmitCall(Call* expr, CallICState::CallType = CallICState::FUNCTION);
+  void EmitSuperConstructorCall(Call* expr);
   void EmitCallWithLoadIC(Call* expr);
   void EmitSuperCallWithLoadIC(Call* expr);
   void EmitKeyedCallWithLoadIC(Call* expr, Expression* key);
@@ -568,17 +579,17 @@ class FullCodeGenerator: public AstVisitor {
   // in the accumulator after installing all the properties.
   void EmitClassDefineProperties(ClassLiteral* lit);
 
+  // Pushes the property key as a Name on the stack.
+  void EmitPropertyKey(ObjectLiteralProperty* property, BailoutId bailout_id);
+
   // Apply the compound assignment operator. Expects the left operand on top
   // of the stack and the right one in the accumulator.
-  void EmitBinaryOp(BinaryOperation* expr,
-                    Token::Value op,
-                    OverwriteMode mode);
+  void EmitBinaryOp(BinaryOperation* expr, Token::Value op);
 
   // Helper functions for generating inlined smi code for certain
   // binary operations.
   void EmitInlineSmiBinaryOp(BinaryOperation* expr,
                              Token::Value op,
-                             OverwriteMode mode,
                              Expression* left,
                              Expression* right);
 
@@ -589,11 +600,11 @@ class FullCodeGenerator: public AstVisitor {
   // Shall an error be thrown if assignment with 'op' operation is perfomed
   // on this variable in given language mode?
   static bool IsSignallingAssignmentToConst(Variable* var, Token::Value op,
-                                            StrictMode strict_mode) {
+                                            LanguageMode language_mode) {
     if (var->mode() == CONST) return op != Token::INIT_CONST;
 
     if (var->mode() == CONST_LEGACY) {
-      return strict_mode == STRICT && op != Token::INIT_CONST_LEGACY;
+      return is_strict(language_mode) && op != Token::INIT_CONST_LEGACY;
     }
 
     return false;
@@ -672,7 +683,7 @@ class FullCodeGenerator: public AstVisitor {
   Handle<Script> script() { return info_->script(); }
   bool is_eval() { return info_->is_eval(); }
   bool is_native() { return info_->is_native(); }
-  StrictMode strict_mode() { return function()->strict_mode(); }
+  LanguageMode language_mode() { return function()->language_mode(); }
   FunctionLiteral* function() { return info_->function(); }
   Scope* scope() { return scope_; }
 

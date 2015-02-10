@@ -59,10 +59,6 @@
     # Enable compiler warnings when using V8_DEPRECATED apis.
     'v8_deprecation_warnings%': 0,
 
-    # Use external files for startup data blobs:
-    # the JS builtins sources and the start snapshot.
-    'v8_use_external_startup_data%': 0,
-
     # Set to 1 to enable DCHECKs in release builds.
     'dcheck_always_on%': 0,
   },
@@ -106,13 +102,9 @@
       'DebugBaseCommon': {
         'abstract': 1,
         'variables': {
-          'v8_enable_extra_checks%': 1,
           'v8_enable_handle_zapping%': 1,
         },
         'conditions': [
-          ['v8_enable_extra_checks==1', {
-            'defines': ['ENABLE_EXTRA_CHECKS',],
-          }],
           ['v8_enable_handle_zapping==1', {
             'defines': ['ENABLE_HANDLE_ZAPPING',],
           }],
@@ -120,13 +112,9 @@
       },  # Debug
       'Release': {
         'variables': {
-          'v8_enable_extra_checks%': 0,
           'v8_enable_handle_zapping%': 1,
         },
         'conditions': [
-          ['v8_enable_extra_checks==1', {
-            'defines': ['ENABLE_EXTRA_CHECKS',],
-          }],
           ['v8_enable_handle_zapping==1', {
             'defines': ['ENABLE_HANDLE_ZAPPING',],
           }],

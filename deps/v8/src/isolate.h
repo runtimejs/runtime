@@ -5,6 +5,7 @@
 #ifndef V8_ISOLATE_H_
 #define V8_ISOLATE_H_
 
+#include <queue>
 #include "include/v8-debug.h"
 #include "src/allocation.h"
 #include "src/assert-scope.h"
@@ -81,9 +82,10 @@ class Debug;
 class Debugger;
 class PromiseOnStack;
 
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM || \
+#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
     !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS || \
+    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
+    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
     !defined(__mips__) && V8_TARGET_ARCH_MIPS64
 class Redirection;
 class Simulator;
@@ -321,9 +323,10 @@ class ThreadLocalTop BASE_EMBEDDED {
 };
 
 
-#if V8_TARGET_ARCH_ARM && !defined(__arm__) || \
+#if V8_TARGET_ARCH_ARM && !defined(__arm__) ||       \
     V8_TARGET_ARCH_ARM64 && !defined(__aarch64__) || \
-    V8_TARGET_ARCH_MIPS && !defined(__mips__) || \
+    V8_TARGET_ARCH_PPC && !defined(__PPC__) ||       \
+    V8_TARGET_ARCH_MIPS && !defined(__mips__) ||     \
     V8_TARGET_ARCH_MIPS64 && !defined(__mips__)
 
 #define ISOLATE_INIT_SIMULATOR_LIST(V)                                         \
@@ -390,8 +393,6 @@ typedef List<HeapObject*> DebugObjectCache;
   V(bool, fp_stubs_generated, false)                                           \
   V(int, max_available_threads, 0)                                             \
   V(uint32_t, per_isolate_assert_data, 0xFFFFFFFFu)                            \
-  V(InterruptCallback, api_interrupt_callback, NULL)                           \
-  V(void*, api_interrupt_callback_data, NULL)                                  \
   V(PromiseRejectCallback, promise_reject_callback, NULL)                      \
   ISOLATE_INIT_SIMULATOR_LIST(V)
 
@@ -418,9 +419,10 @@ class Isolate {
           thread_id_(thread_id),
           stack_limit_(0),
           thread_state_(NULL),
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM || \
+#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
     !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS || \
+    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
+    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
     !defined(__mips__) && V8_TARGET_ARCH_MIPS64
           simulator_(NULL),
 #endif
@@ -433,9 +435,10 @@ class Isolate {
     FIELD_ACCESSOR(uintptr_t, stack_limit)
     FIELD_ACCESSOR(ThreadState*, thread_state)
 
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM || \
+#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
     !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS || \
+    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
+    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
     !defined(__mips__) && V8_TARGET_ARCH_MIPS64
     FIELD_ACCESSOR(Simulator*, simulator)
 #endif
@@ -450,9 +453,10 @@ class Isolate {
     uintptr_t stack_limit_;
     ThreadState* thread_state_;
 
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM || \
+#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
     !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS || \
+    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
+    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
     !defined(__mips__) && V8_TARGET_ARCH_MIPS64
     Simulator* simulator_;
 #endif
@@ -762,6 +766,8 @@ class Isolate {
   bool MayIndexedAccess(Handle<JSObject> receiver,
                         uint32_t index,
                         v8::AccessType type);
+  bool IsInternallyUsedPropertyName(Handle<Object> name);
+  bool IsInternallyUsedPropertyName(Object* name);
 
   void SetFailedAccessCheckCallback(v8::FailedAccessCheckCallback callback);
   void ReportFailedAccessCheck(Handle<JSObject> receiver, v8::AccessType type);
@@ -803,6 +809,8 @@ class Isolate {
   // Attempts to compute the current source location, storing the
   // result in the target out parameter.
   void ComputeLocation(MessageLocation* target);
+  bool ComputeLocationFromException(MessageLocation* target,
+                                    Handle<Object> exception);
   bool ComputeLocationFromStackTrace(MessageLocation* target,
                                      Handle<Object> exception);
 
@@ -814,7 +822,8 @@ class Isolate {
   Object* TerminateExecution();
   void CancelTerminateExecution();
 
-  void InvokeApiInterruptCallback();
+  void RequestInterrupt(InterruptCallback callback, void* data);
+  void InvokeApiInterruptCallbacks();
 
   // Administration
   void Iterate(ObjectVisitor* v);
@@ -971,8 +980,6 @@ class Isolate {
 
   Debug* debug() { return debug_; }
 
-  inline bool DebuggerHasBreakPoints();
-
   CpuProfiler* cpu_profiler() const { return cpu_profiler_; }
   HeapProfiler* heap_profiler() const { return heap_profiler_; }
 
@@ -1116,6 +1123,27 @@ class Isolate {
   int GetNextUniqueSharedFunctionInfoId() { return next_unique_sfi_id_++; }
 #endif
 
+  void set_store_buffer_hash_set_1_address(
+      uintptr_t* store_buffer_hash_set_1_address) {
+    store_buffer_hash_set_1_address_ = store_buffer_hash_set_1_address;
+  }
+
+  uintptr_t* store_buffer_hash_set_1_address() {
+    return store_buffer_hash_set_1_address_;
+  }
+
+  void set_store_buffer_hash_set_2_address(
+      uintptr_t* store_buffer_hash_set_2_address) {
+    store_buffer_hash_set_2_address_ = store_buffer_hash_set_2_address;
+  }
+
+  uintptr_t* store_buffer_hash_set_2_address() {
+    return store_buffer_hash_set_2_address_;
+  }
+
+  void AddDetachedContext(Handle<Context> context);
+  void CheckDetachedContextsAfterGC();
+
  private:
   explicit Isolate(bool enable_serializer);
 
@@ -1232,7 +1260,6 @@ class Isolate {
   Counters* counters_;
   CodeRange* code_range_;
   base::RecursiveMutex break_access_;
-  base::Atomic32 debugger_initialized_;
   Logger* logger_;
   StackGuard stack_guard_;
   StatsTable* stats_table_;
@@ -1269,6 +1296,9 @@ class Isolate {
   unibrow::Mapping<unibrow::Ecma262Canonicalize> interp_canonicalize_mapping_;
   CallInterfaceDescriptorData* call_descriptor_data_;
   base::RandomNumberGenerator* random_number_generator_;
+  // TODO(hpayer): Remove the following store buffer addresses.
+  uintptr_t* store_buffer_hash_set_1_address_;
+  uintptr_t* store_buffer_hash_set_2_address_;
 
   // Whether the isolate has been created for snapshotting.
   bool serializer_enabled_;
@@ -1292,6 +1322,9 @@ class Isolate {
   CpuProfiler* cpu_profiler_;
   HeapProfiler* heap_profiler_;
   FunctionEntryHook function_entry_hook_;
+
+  typedef std::pair<InterruptCallback, void*> InterruptEntry;
+  std::queue<InterruptEntry> api_interrupts_queue_;
 
 #define GLOBAL_BACKING_STORE(type, name, initialvalue)                         \
   type name##_;
@@ -1332,9 +1365,9 @@ class Isolate {
   v8::Isolate::UseCounterCallback use_counter_callback_;
   BasicBlockProfiler* basic_block_profiler_;
 
+
   friend class ExecutionAccess;
   friend class HandleScopeImplementer;
-  friend class IsolateInitializer;
   friend class OptimizingCompilerThread;
   friend class SweeperThread;
   friend class ThreadManager;

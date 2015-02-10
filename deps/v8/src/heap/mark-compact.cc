@@ -383,7 +383,7 @@ void MarkCompactCollector::VerifyWeakEmbeddedObjectsInCode() {
   for (HeapObject* obj = code_iterator.Next(); obj != NULL;
        obj = code_iterator.Next()) {
     Code* code = Code::cast(obj);
-    if (!code->is_optimized_code() && !code->is_weak_stub()) continue;
+    if (!code->is_optimized_code()) continue;
     if (WillBeDeoptimized(code)) continue;
     code->VerifyEmbeddedObjectsDependency();
   }
@@ -446,7 +446,7 @@ class MarkCompactCollector::SweeperTask : public v8::Task {
 
  private:
   // v8::Task overrides.
-  virtual void Run() OVERRIDE {
+  void Run() OVERRIDE {
     heap_->mark_compact_collector()->SweepInParallel(space_, 0);
     heap_->mark_compact_collector()->pending_sweeper_jobs_semaphore_.Signal();
   }
@@ -2091,7 +2091,7 @@ void MarkCompactCollector::ProcessMarkingDeque() {
 void MarkCompactCollector::ProcessEphemeralMarking(
     ObjectVisitor* visitor, bool only_process_harmony_weak_collections) {
   bool work_to_do = true;
-  DCHECK(marking_deque_.IsEmpty());
+  DCHECK(marking_deque_.IsEmpty() && !marking_deque_.overflowed());
   while (work_to_do) {
     if (!only_process_harmony_weak_collections) {
       isolate()->global_handles()->IterateObjectGroups(
@@ -2128,11 +2128,12 @@ void MarkCompactCollector::EnsureMarkingDequeIsCommittedAndInitialize() {
     marking_deque_memory_ = new base::VirtualMemory(4 * MB);
   }
   if (!marking_deque_memory_committed_) {
-    bool success = marking_deque_memory_->Commit(
-        reinterpret_cast<Address>(marking_deque_memory_->address()),
-        marking_deque_memory_->size(),
-        false);  // Not executable.
-    CHECK(success);
+    if (!marking_deque_memory_->Commit(
+            reinterpret_cast<Address>(marking_deque_memory_->address()),
+            marking_deque_memory_->size(),
+            false)) {  // Not executable.
+      V8::FatalProcessOutOfMemory("EnsureMarkingDequeIsCommitted");
+    }
     marking_deque_memory_committed_ = true;
     InitializeMarkingDeque();
   }
@@ -2157,6 +2158,21 @@ void MarkCompactCollector::UncommitMarkingDeque() {
     CHECK(success);
     marking_deque_memory_committed_ = false;
   }
+}
+
+
+void MarkCompactCollector::OverApproximateWeakClosure() {
+  GCTracer::Scope gc_scope(heap()->tracer(),
+                           GCTracer::Scope::MC_INCREMENTAL_WEAKCLOSURE);
+
+  RootMarkingVisitor root_visitor(heap());
+  isolate()->global_handles()->IterateObjectGroups(
+      &root_visitor, &IsUnmarkedHeapObjectWithHeap);
+  MarkImplicitRefGroups();
+
+  // Remove object groups after marking phase.
+  heap()->isolate()->global_handles()->RemoveObjectGroups();
+  heap()->isolate()->global_handles()->RemoveImplicitRefGroups();
 }
 
 
@@ -2274,7 +2290,7 @@ void MarkCompactCollector::AfterMarking() {
 
   // Process the weak references.
   MarkCompactWeakObjectRetainer mark_compact_object_retainer;
-  heap()->ProcessWeakReferences(&mark_compact_object_retainer);
+  heap()->ProcessAllWeakReferences(&mark_compact_object_retainer);
 
   // Remove object groups after marking phase.
   heap()->isolate()->global_handles()->RemoveObjectGroups();
@@ -2543,34 +2559,12 @@ void MarkCompactCollector::TrimEnumCache(Map* map,
 }
 
 
-void MarkCompactCollector::ClearDependentICList(Object* head) {
-  Object* current = head;
-  Object* undefined = heap()->undefined_value();
-  while (current != undefined) {
-    Code* code = Code::cast(current);
-    if (IsMarked(code)) {
-      DCHECK(code->is_weak_stub());
-      IC::InvalidateMaps(code);
-    }
-    current = code->next_code_link();
-    code->set_next_code_link(undefined);
-  }
-}
-
-
 void MarkCompactCollector::ClearDependentCode(DependentCode* entries) {
   DisallowHeapAllocation no_allocation;
   DependentCode::GroupStartIndexes starts(entries);
   int number_of_entries = starts.number_of_entries();
   if (number_of_entries == 0) return;
-  int g = DependentCode::kWeakICGroup;
-  if (starts.at(g) != starts.at(g + 1)) {
-    int i = starts.at(g);
-    DCHECK(i + 1 == starts.at(g + 1));
-    Object* head = entries->object_at(i);
-    ClearDependentICList(head);
-  }
-  g = DependentCode::kWeakCodeGroup;
+  int g = DependentCode::kWeakCodeGroup;
   for (int i = starts.at(g); i < starts.at(g + 1); i++) {
     // If the entry is compilation info then the map must be alive,
     // and ClearDependentCode shouldn't be called.
@@ -2592,34 +2586,17 @@ void MarkCompactCollector::ClearDependentCode(DependentCode* entries) {
 int MarkCompactCollector::ClearNonLiveDependentCodeInGroup(
     DependentCode* entries, int group, int start, int end, int new_start) {
   int survived = 0;
-  if (group == DependentCode::kWeakICGroup) {
-    // Dependent weak IC stubs form a linked list and only the head is stored
-    // in the dependent code array.
-    if (start != end) {
-      DCHECK(start + 1 == end);
-      Object* old_head = entries->object_at(start);
-      MarkCompactWeakObjectRetainer retainer;
-      Object* head = VisitWeakList<Code>(heap(), old_head, &retainer);
-      entries->set_object_at(new_start, head);
-      Object** slot = entries->slot_at(new_start);
-      RecordSlot(slot, slot, head);
-      // We do not compact this group even if the head is undefined,
-      // more dependent ICs are likely to be added later.
-      survived = 1;
-    }
-  } else {
-    for (int i = start; i < end; i++) {
-      Object* obj = entries->object_at(i);
-      DCHECK(obj->IsCode() || IsMarked(obj));
-      if (IsMarked(obj) &&
-          (!obj->IsCode() || !WillBeDeoptimized(Code::cast(obj)))) {
-        if (new_start + survived != i) {
-          entries->set_object_at(new_start + survived, obj);
-        }
-        Object** slot = entries->slot_at(new_start + survived);
-        RecordSlot(slot, slot, obj);
-        survived++;
+  for (int i = start; i < end; i++) {
+    Object* obj = entries->object_at(i);
+    DCHECK(obj->IsCode() || IsMarked(obj));
+    if (IsMarked(obj) &&
+        (!obj->IsCode() || !WillBeDeoptimized(Code::cast(obj)))) {
+      if (new_start + survived != i) {
+        entries->set_object_at(new_start + survived, obj);
       }
+      Object** slot = entries->slot_at(new_start + survived);
+      RecordSlot(slot, slot, obj);
+      survived++;
     }
   }
   entries->set_number_of_entries(
@@ -2783,7 +2760,7 @@ void MarkCompactCollector::MigrateObject(HeapObject* dst, HeapObject* src,
 
     bool may_contain_raw_values = src->MayContainRawValues();
 #if V8_DOUBLE_FIELDS_UNBOXING
-    InobjectPropertiesHelper helper(src->map());
+    LayoutDescriptorHelper helper(src->map());
     bool has_only_tagged_fields = helper.all_fields_tagged();
 #endif
     for (int remaining = size / kPointerSize; remaining > 0; remaining--) {
@@ -3243,7 +3220,7 @@ static int Sweep(PagedSpace* space, FreeList* free_list, Page* p,
       }
       HeapObject* live_object = HeapObject::FromAddress(free_end);
       DCHECK(Marking::IsBlack(Marking::MarkBitFrom(live_object)));
-      Map* map = live_object->map();
+      Map* map = live_object->synchronized_map();
       int size = live_object->SizeFromMap(map);
       if (sweeping_mode == SWEEP_AND_VISIT_LIVE_OBJECTS) {
         live_object->IterateBody(map->instance_type(), size, v);
@@ -3583,7 +3560,12 @@ void MarkCompactCollector::EvacuateNewSpaceAndCandidates() {
       &UpdateReferenceInExternalStringTableEntry);
 
   EvacuationWeakObjectRetainer evacuation_object_retainer;
-  heap()->ProcessWeakReferences(&evacuation_object_retainer);
+  heap()->ProcessAllWeakReferences(&evacuation_object_retainer);
+
+  // Collects callback info for handles that are pending (about to be
+  // collected) and either phantom or internal-fields.  Releases the global
+  // handles.  See also PostGarbageCollectionProcessing.
+  isolate()->global_handles()->CollectAllPhantomCallbackData();
 
   // Visit invalidated code (we ignored all slots on it) and clear mark-bits
   // under it.

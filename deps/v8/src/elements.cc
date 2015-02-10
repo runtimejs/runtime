@@ -560,9 +560,7 @@ class ElementsAccessorBase : public ElementsAccessor {
   typedef ElementsTraitsParam ElementsTraits;
   typedef typename ElementsTraitsParam::BackingStore BackingStore;
 
-  virtual ElementsKind kind() const FINAL OVERRIDE {
-    return ElementsTraits::Kind;
-  }
+  ElementsKind kind() const FINAL { return ElementsTraits::Kind; }
 
   static void ValidateContents(Handle<JSObject> holder, int length) {
   }
@@ -584,7 +582,7 @@ class ElementsAccessorBase : public ElementsAccessor {
     ElementsAccessorSubclass::ValidateContents(holder, length);
   }
 
-  virtual void Validate(Handle<JSObject> holder) FINAL OVERRIDE {
+  void Validate(Handle<JSObject> holder) FINAL {
     DisallowHeapAllocation no_gc;
     ElementsAccessorSubclass::ValidateImpl(holder);
   }
@@ -597,20 +595,16 @@ class ElementsAccessorBase : public ElementsAccessor {
         receiver, holder, key, backing_store) != ABSENT;
   }
 
-  virtual bool HasElement(
-      Handle<Object> receiver,
-      Handle<JSObject> holder,
-      uint32_t key,
-      Handle<FixedArrayBase> backing_store) FINAL OVERRIDE {
+  virtual bool HasElement(Handle<Object> receiver, Handle<JSObject> holder,
+                          uint32_t key,
+                          Handle<FixedArrayBase> backing_store) FINAL {
     return ElementsAccessorSubclass::HasElementImpl(
         receiver, holder, key, backing_store);
   }
 
   MUST_USE_RESULT virtual MaybeHandle<Object> Get(
-      Handle<Object> receiver,
-      Handle<JSObject> holder,
-      uint32_t key,
-      Handle<FixedArrayBase> backing_store) FINAL OVERRIDE {
+      Handle<Object> receiver, Handle<JSObject> holder, uint32_t key,
+      Handle<FixedArrayBase> backing_store) FINAL {
     if (!IsExternalArrayElementsKind(ElementsTraits::Kind) &&
         FLAG_trace_js_array_abuse) {
       CheckArrayAbuse(holder, "elements read", key);
@@ -638,10 +632,8 @@ class ElementsAccessorBase : public ElementsAccessor {
   }
 
   MUST_USE_RESULT virtual PropertyAttributes GetAttributes(
-      Handle<Object> receiver,
-      Handle<JSObject> holder,
-      uint32_t key,
-      Handle<FixedArrayBase> backing_store) FINAL OVERRIDE {
+      Handle<Object> receiver, Handle<JSObject> holder, uint32_t key,
+      Handle<FixedArrayBase> backing_store) FINAL {
     return ElementsAccessorSubclass::GetAttributesImpl(
         receiver, holder, key, backing_store);
   }
@@ -660,10 +652,8 @@ class ElementsAccessorBase : public ElementsAccessor {
   }
 
   MUST_USE_RESULT virtual MaybeHandle<AccessorPair> GetAccessorPair(
-      Handle<Object> receiver,
-      Handle<JSObject> holder,
-      uint32_t key,
-      Handle<FixedArrayBase> backing_store) FINAL OVERRIDE {
+      Handle<Object> receiver, Handle<JSObject> holder, uint32_t key,
+      Handle<FixedArrayBase> backing_store) FINAL {
     return ElementsAccessorSubclass::GetAccessorPairImpl(
         receiver, holder, key, backing_store);
   }
@@ -677,8 +667,7 @@ class ElementsAccessorBase : public ElementsAccessor {
   }
 
   MUST_USE_RESULT virtual MaybeHandle<Object> SetLength(
-      Handle<JSArray> array,
-      Handle<Object> length) FINAL OVERRIDE {
+      Handle<JSArray> array, Handle<Object> length) FINAL {
     return ElementsAccessorSubclass::SetLengthImpl(
         array, length, handle(array->elements()));
   }
@@ -688,10 +677,8 @@ class ElementsAccessorBase : public ElementsAccessor {
       Handle<Object> length,
       Handle<FixedArrayBase> backing_store);
 
-  virtual void SetCapacityAndLength(
-      Handle<JSArray> array,
-      int capacity,
-      int length) FINAL OVERRIDE {
+  virtual void SetCapacityAndLength(Handle<JSArray> array, int capacity,
+                                    int length) FINAL {
     ElementsAccessorSubclass::
         SetFastElementsCapacityAndLength(array, capacity, length);
   }
@@ -704,9 +691,8 @@ class ElementsAccessorBase : public ElementsAccessor {
   }
 
   MUST_USE_RESULT virtual MaybeHandle<Object> Delete(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) OVERRIDE = 0;
+      Handle<JSObject> obj, uint32_t key,
+      LanguageMode language_mode) OVERRIDE = 0;
 
   static void CopyElementsImpl(FixedArrayBase* from, uint32_t from_start,
                                FixedArrayBase* to, ElementsKind from_kind,
@@ -715,13 +701,9 @@ class ElementsAccessorBase : public ElementsAccessor {
     UNREACHABLE();
   }
 
-  virtual void CopyElements(
-      Handle<FixedArrayBase> from,
-      uint32_t from_start,
-      ElementsKind from_kind,
-      Handle<FixedArrayBase> to,
-      uint32_t to_start,
-      int copy_size) FINAL OVERRIDE {
+  virtual void CopyElements(Handle<FixedArrayBase> from, uint32_t from_start,
+                            ElementsKind from_kind, Handle<FixedArrayBase> to,
+                            uint32_t to_start, int copy_size) FINAL {
     DCHECK(!from.is_null());
     // NOTE: the ElementsAccessorSubclass::CopyElementsImpl() methods
     // violate the handlified function signature convention:
@@ -734,13 +716,9 @@ class ElementsAccessorBase : public ElementsAccessor {
                                                kPackedSizeNotKnown, copy_size);
   }
 
-  virtual void CopyElements(
-      JSObject* from_holder,
-      uint32_t from_start,
-      ElementsKind from_kind,
-      Handle<FixedArrayBase> to,
-      uint32_t to_start,
-      int copy_size) FINAL OVERRIDE {
+  virtual void CopyElements(JSObject* from_holder, uint32_t from_start,
+                            ElementsKind from_kind, Handle<FixedArrayBase> to,
+                            uint32_t to_start, int copy_size) FINAL {
     int packed_size = kPackedSizeNotKnown;
     bool is_packed = IsFastPackedElementsKind(from_kind) &&
         from_holder->IsJSArray();
@@ -767,8 +745,7 @@ class ElementsAccessorBase : public ElementsAccessor {
 
   virtual MaybeHandle<FixedArray> AddElementsToFixedArray(
       Handle<Object> receiver, Handle<JSObject> holder, Handle<FixedArray> to,
-      Handle<FixedArrayBase> from,
-      FixedArray::KeyFilter filter) FINAL OVERRIDE {
+      Handle<FixedArrayBase> from, FixedArray::KeyFilter filter) FINAL {
     int len0 = to->length();
 #ifdef ENABLE_SLOW_DCHECKS
     if (FLAG_enable_slow_asserts) {
@@ -852,8 +829,7 @@ class ElementsAccessorBase : public ElementsAccessor {
     return backing_store->length();
   }
 
-  virtual uint32_t GetCapacity(Handle<FixedArrayBase> backing_store)
-      FINAL OVERRIDE {
+  uint32_t GetCapacity(Handle<FixedArrayBase> backing_store) FINAL {
     return ElementsAccessorSubclass::GetCapacityImpl(backing_store);
   }
 
@@ -863,7 +839,7 @@ class ElementsAccessorBase : public ElementsAccessor {
   }
 
   virtual uint32_t GetKeyForIndex(Handle<FixedArrayBase> backing_store,
-                                  uint32_t index) FINAL OVERRIDE {
+                                  uint32_t index) FINAL {
     return ElementsAccessorSubclass::GetKeyForIndexImpl(backing_store, index);
   }
 
@@ -938,9 +914,8 @@ class FastElementsAccessor
     return length_object;
   }
 
-  static Handle<Object> DeleteCommon(Handle<JSObject> obj,
-                                     uint32_t key,
-                                     JSReceiver::DeleteMode mode) {
+  static Handle<Object> DeleteCommon(Handle<JSObject> obj, uint32_t key,
+                                     LanguageMode language_mode) {
     DCHECK(obj->HasFastSmiOrObjectElements() ||
            obj->HasFastDoubleElements() ||
            obj->HasFastArgumentsElements());
@@ -997,11 +972,9 @@ class FastElementsAccessor
     return isolate->factory()->true_value();
   }
 
-  virtual MaybeHandle<Object> Delete(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) FINAL OVERRIDE {
-    return DeleteCommon(obj, key, mode);
+  virtual MaybeHandle<Object> Delete(Handle<JSObject> obj, uint32_t key,
+                                     LanguageMode language_mode) FINAL {
+    return DeleteCommon(obj, key, language_mode);
   }
 
   static bool HasElementImpl(
@@ -1323,9 +1296,7 @@ class TypedElementsAccessor
   }
 
   MUST_USE_RESULT virtual MaybeHandle<Object> Delete(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) FINAL OVERRIDE {
+      Handle<JSObject> obj, uint32_t key, LanguageMode language_mode) FINAL {
     // External arrays always ignore deletes.
     return obj->GetIsolate()->factory()->true_value();
   }
@@ -1424,9 +1395,7 @@ class DictionaryElementsAccessor
   }
 
   MUST_USE_RESULT static MaybeHandle<Object> DeleteCommon(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) {
+      Handle<JSObject> obj, uint32_t key, LanguageMode language_mode) {
     Isolate* isolate = obj->GetIsolate();
     Handle<FixedArray> backing_store(FixedArray::cast(obj->elements()),
                                      isolate);
@@ -1440,9 +1409,9 @@ class DictionaryElementsAccessor
     int entry = dictionary->FindEntry(key);
     if (entry != SeededNumberDictionary::kNotFound) {
       Handle<Object> result =
-          SeededNumberDictionary::DeleteProperty(dictionary, entry, mode);
+          SeededNumberDictionary::DeleteProperty(dictionary, entry);
       if (*result == *isolate->factory()->false_value()) {
-        if (mode == JSObject::STRICT_DELETION) {
+        if (is_strict(language_mode)) {
           // Deleting a non-configurable property in strict mode.
           Handle<Object> name = isolate->factory()->NewNumberFromUint(key);
           Handle<Object> args[2] = { name, obj };
@@ -1477,10 +1446,8 @@ class DictionaryElementsAccessor
                                     ElementsKindTraits<DICTIONARY_ELEMENTS> >;
 
   MUST_USE_RESULT virtual MaybeHandle<Object> Delete(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) FINAL OVERRIDE {
-    return DeleteCommon(obj, key, mode);
+      Handle<JSObject> obj, uint32_t key, LanguageMode language_mode) FINAL {
+    return DeleteCommon(obj, key, language_mode);
   }
 
   MUST_USE_RESULT static MaybeHandle<Object> GetImpl(
@@ -1495,7 +1462,7 @@ class DictionaryElementsAccessor
     if (entry != SeededNumberDictionary::kNotFound) {
       Handle<Object> element(backing_store->ValueAt(entry), isolate);
       PropertyDetails details = backing_store->DetailsAt(entry);
-      if (details.type() == CALLBACKS) {
+      if (details.type() == ACCESSOR_CONSTANT) {
         return JSObject::GetElementWithCallback(
             obj, receiver, element, key, obj);
       } else {
@@ -1528,7 +1495,7 @@ class DictionaryElementsAccessor
         Handle<SeededNumberDictionary>::cast(store);
     int entry = backing_store->FindEntry(key);
     if (entry != SeededNumberDictionary::kNotFound &&
-        backing_store->DetailsAt(entry).type() == CALLBACKS &&
+        backing_store->DetailsAt(entry).type() == ACCESSOR_CONSTANT &&
         backing_store->ValueAt(entry)->IsAccessorPair()) {
       return handle(AccessorPair::cast(backing_store->ValueAt(entry)));
     }
@@ -1651,9 +1618,7 @@ class SloppyArgumentsElementsAccessor : public ElementsAccessorBase<
   }
 
   MUST_USE_RESULT virtual MaybeHandle<Object> Delete(
-      Handle<JSObject> obj,
-      uint32_t key,
-      JSReceiver::DeleteMode mode) FINAL OVERRIDE {
+      Handle<JSObject> obj, uint32_t key, LanguageMode language_mode) FINAL {
     Isolate* isolate = obj->GetIsolate();
     Handle<FixedArray> parameter_map(FixedArray::cast(obj->elements()));
     Handle<Object> probe = GetParameterMapArg(obj, parameter_map, key);
@@ -1665,12 +1630,14 @@ class SloppyArgumentsElementsAccessor : public ElementsAccessorBase<
     } else {
       Handle<FixedArray> arguments(FixedArray::cast(parameter_map->get(1)));
       if (arguments->IsDictionary()) {
-        return DictionaryElementsAccessor::DeleteCommon(obj, key, mode);
+        return DictionaryElementsAccessor::DeleteCommon(obj, key,
+                                                        language_mode);
       } else {
         // It's difficult to access the version of DeleteCommon that is declared
         // in the templatized super class, call the concrete implementation in
         // the class for the most generalized ElementsKind subclass.
-        return FastHoleyObjectElementsAccessor::DeleteCommon(obj, key, mode);
+        return FastHoleyObjectElementsAccessor::DeleteCommon(obj, key,
+                                                             language_mode);
       }
     }
     return isolate->factory()->true_value();

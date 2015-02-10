@@ -5,12 +5,12 @@
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
 #include "src/compiler/common-operator.h"
-#include "src/compiler/graph-inl.h"
 #include "src/compiler/js-generic-lowering.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-aux-data-inl.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
+#include "src/compiler/operator-properties.h"
 #include "src/unique.h"
 
 namespace v8 {
@@ -46,9 +46,12 @@ Reduction JSGenericLowering::Reduce(Node* node) {
       // have inserted the correct ChangeBoolToBit, otherwise we need to perform
       // poor-man's representation inference here and insert manual change.
       if (!info()->is_typing_enabled()) {
-        Node* test = graph()->NewNode(machine()->WordEqual(), node->InputAt(0),
-                                      jsgraph()->TrueConstant());
-        node->ReplaceInput(0, test);
+        Node* condition = node->InputAt(0);
+        if (condition->opcode() != IrOpcode::kAlways) {
+          Node* test = graph()->NewNode(machine()->WordEqual(), condition,
+                                        jsgraph()->TrueConstant());
+          node->ReplaceInput(0, test);
+        }
         break;
       }
       // Fall-through.
@@ -101,7 +104,6 @@ REPLACE_COMPARE_IC_CALL(JSGreaterThanOrEqual, Token::GTE)
 REPLACE_RUNTIME_CALL(JSTypeOf, Runtime::kTypeof)
 REPLACE_RUNTIME_CALL(JSCreate, Runtime::kAbort)
 REPLACE_RUNTIME_CALL(JSCreateFunctionContext, Runtime::kNewFunctionContext)
-REPLACE_RUNTIME_CALL(JSCreateCatchContext, Runtime::kPushCatchContext)
 REPLACE_RUNTIME_CALL(JSCreateWithContext, Runtime::kPushWithContext)
 REPLACE_RUNTIME_CALL(JSCreateBlockContext, Runtime::kPushBlockContext)
 REPLACE_RUNTIME_CALL(JSCreateModuleContext, Runtime::kPushModuleContext)
@@ -111,7 +113,6 @@ REPLACE_RUNTIME_CALL(JSCreateScriptContext, Runtime::kAbort)
 
 #define REPLACE_UNIMPLEMENTED(op) \
   void JSGenericLowering::Lower##op(Node* node) { UNIMPLEMENTED(); }
-REPLACE_UNIMPLEMENTED(JSToName)
 REPLACE_UNIMPLEMENTED(JSYield)
 REPLACE_UNIMPLEMENTED(JSDebugger)
 #undef REPLACE_UNIMPLEMENTED
@@ -187,14 +188,23 @@ void JSGenericLowering::ReplaceWithBuiltinCall(Node* node,
       CodeFactory::CallFunction(isolate(), nargs - 1, NO_CALL_FUNCTION_FLAGS);
   CallDescriptor* desc = linkage()->GetStubCallDescriptor(
       callable.descriptor(), nargs, FlagsForNode(node), properties);
-  // TODO(mstarzinger): Accessing the builtins object this way prevents sharing
-  // of code across native contexts. Fix this by loading from given context.
-  Handle<JSFunction> function(
-      JSFunction::cast(info()->context()->builtins()->javascript_builtin(id)));
+  Node* global_object = graph()->NewNode(
+      machine()->Load(kMachAnyTagged), NodeProperties::GetContextInput(node),
+      jsgraph()->IntPtrConstant(
+          Context::SlotOffset(Context::GLOBAL_OBJECT_INDEX)),
+      NodeProperties::GetEffectInput(node), graph()->start());
+  Node* builtins_object = graph()->NewNode(
+      machine()->Load(kMachAnyTagged), global_object,
+      jsgraph()->IntPtrConstant(GlobalObject::kBuiltinsOffset - kHeapObjectTag),
+      NodeProperties::GetEffectInput(node), graph()->start());
+  Node* function = graph()->NewNode(
+      machine()->Load(kMachAnyTagged), builtins_object,
+      jsgraph()->IntPtrConstant(JSBuiltinsObject::OffsetOfFunctionWithId(id) -
+                                kHeapObjectTag),
+      NodeProperties::GetEffectInput(node), graph()->start());
   Node* stub_code = jsgraph()->HeapConstant(callable.code());
-  Node* function_node = jsgraph()->HeapConstant(function);
   PatchInsertInput(node, 0, stub_code);
-  PatchInsertInput(node, 1, function_node);
+  PatchInsertInput(node, 1, function);
   PatchOperator(node, common()->Call(desc));
 }
 
@@ -241,6 +251,11 @@ void JSGenericLowering::LowerJSToString(Node* node) {
 }
 
 
+void JSGenericLowering::LowerJSToName(Node* node) {
+  ReplaceWithBuiltinCall(node, Builtins::TO_NAME, 1);
+}
+
+
 void JSGenericLowering::LowerJSToObject(Node* node) {
   ReplaceWithBuiltinCall(node, Builtins::TO_OBJECT, 1);
 }
@@ -271,24 +286,24 @@ void JSGenericLowering::LowerJSLoadNamed(Node* node) {
 
 
 void JSGenericLowering::LowerJSStoreProperty(Node* node) {
-  StrictMode strict_mode = OpParameter<StrictMode>(node);
-  Callable callable = CodeFactory::KeyedStoreIC(isolate(), strict_mode);
+  LanguageMode language_mode = OpParameter<LanguageMode>(node);
+  Callable callable = CodeFactory::KeyedStoreIC(isolate(), language_mode);
   ReplaceWithStubCall(node, callable, CallDescriptor::kPatchableCallSite);
 }
 
 
 void JSGenericLowering::LowerJSStoreNamed(Node* node) {
   const StoreNamedParameters& p = StoreNamedParametersOf(node->op());
-  Callable callable = CodeFactory::StoreIC(isolate(), p.strict_mode());
+  Callable callable = CodeFactory::StoreIC(isolate(), p.language_mode());
   PatchInsertInput(node, 1, jsgraph()->HeapConstant(p.name()));
   ReplaceWithStubCall(node, callable, CallDescriptor::kPatchableCallSite);
 }
 
 
 void JSGenericLowering::LowerJSDeleteProperty(Node* node) {
-  StrictMode strict_mode = OpParameter<StrictMode>(node);
-  PatchInsertInput(node, 2, jsgraph()->SmiConstant(strict_mode));
+  LanguageMode language_mode = OpParameter<LanguageMode>(node);
   ReplaceWithBuiltinCall(node, Builtins::DELETE, 3);
+  PatchInsertInput(node, 4, jsgraph()->SmiConstant(language_mode));
 }
 
 
@@ -348,6 +363,13 @@ void JSGenericLowering::LowerJSStoreContext(Node* node) {
 }
 
 
+void JSGenericLowering::LowerJSCreateCatchContext(Node* node) {
+  Unique<String> name = OpParameter<Unique<String>>(node);
+  PatchInsertInput(node, 0, jsgraph()->HeapConstant(name));
+  ReplaceWithRuntimeCall(node, Runtime::kPushCatchContext);
+}
+
+
 void JSGenericLowering::LowerJSCallConstruct(Node* node) {
   int arity = OpParameter<int>(node);
   CallConstructStub stub(isolate(), NO_CALL_CONSTRUCTOR_FLAGS);
@@ -394,8 +416,8 @@ bool JSGenericLowering::TryLowerDirectJSCall(Node* node) {
     context = jsgraph()->HeapConstant(Handle<Context>(function->context()));
   }
   node->ReplaceInput(index, context);
-  CallDescriptor* desc = linkage()->GetJSCallDescriptor(
-      1 + arg_count, jsgraph()->zone(), FlagsForNode(node));
+  CallDescriptor* desc =
+      linkage()->GetJSCallDescriptor(1 + arg_count, FlagsForNode(node));
   PatchOperator(node, common()->Call(desc));
   return true;
 }

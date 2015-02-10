@@ -40,15 +40,13 @@ class Types {
   Types(Region* region, Isolate* isolate)
       : region_(region), rng_(isolate->random_number_generator()) {
     #define DECLARE_TYPE(name, value) \
-      name = Type::name(region); \
-      if (SmiValuesAre31Bits() || \
-          (!Type::name(region)->Equals(Type::OtherSigned32()) && \
-           !Type::name(region)->Equals(Type::OtherUnsigned31()))) { \
-        /* Hack: Avoid generating those empty bitset types. */ \
-        types.push_back(name); \
-      }
+      name = Type::name(region);      \
+      types.push_back(name);
     PROPER_BITSET_TYPE_LIST(DECLARE_TYPE)
     #undef DECLARE_TYPE
+
+    SignedSmall = Type::SignedSmall(region);
+    UnsignedSmall = Type::UnsignedSmall(region);
 
     object_map = isolate->factory()->NewMap(
         JS_OBJECT_TYPE, JSObject::kHeaderSize);
@@ -103,8 +101,7 @@ class Types {
       if (!IsMinusZero(x)) integers.push_back(isolate->factory()->NewNumber(x));
     }
 
-    Integer = Type::Range(isolate->factory()->NewNumber(-V8_INFINITY),
-                          isolate->factory()->NewNumber(+V8_INFINITY), region);
+    Integer = Type::Range(-V8_INFINITY, +V8_INFINITY, region);
 
     NumberArray = Type::Array(Number, region);
     StringArray = Type::Array(String, region);
@@ -133,8 +130,10 @@ class Types {
   Handle<i::Oddball> uninitialized;
 
   #define DECLARE_TYPE(name, value) TypeHandle name;
-  BITSET_TYPE_LIST(DECLARE_TYPE)
+  PROPER_BITSET_TYPE_LIST(DECLARE_TYPE)
   #undef DECLARE_TYPE
+  TypeHandle SignedSmall;
+  TypeHandle UnsignedSmall;
 
   TypeHandle ObjectClass;
   TypeHandle ArrayClass;
@@ -184,7 +183,7 @@ class Types {
     return Type::Constant(value, region_);
   }
 
-  TypeHandle Range(Handle<i::Object> min, Handle<i::Object> max) {
+  TypeHandle Range(double min, double max) {
     return Type::Range(min, max, region_);
   }
 
@@ -238,12 +237,6 @@ class Types {
           int j = rng_->NextInt(n);
           #define PICK_BITSET_TYPE(type, value) \
             if (j-- == 0) { \
-              if (!SmiValuesAre31Bits() && \
-                  (Type::type(region_)->Equals(Type::OtherSigned32()) || \
-                   Type::type(region_)->Equals(Type::OtherUnsigned31()))) { \
-                /* Hack: Avoid generating those empty bitset types. */ \
-                continue; \
-              } \
               TypeHandle tmp = Type::Intersect( \
                   result, Type::type(region_), region_); \
               if (tmp->Is(Type::None()) && i != 0) { \
@@ -269,9 +262,9 @@ class Types {
       case 3: {  // range
         int i = rng_->NextInt(static_cast<int>(integers.size()));
         int j = rng_->NextInt(static_cast<int>(integers.size()));
-        i::Handle<i::Object> min = integers[i];
-        i::Handle<i::Object> max = integers[j];
-        if (min->Number() > max->Number()) std::swap(min, max);
+        double min = integers[i]->Number();
+        double max = integers[j]->Number();
+        if (min > max) std::swap(min, max);
         return Type::Range(min, max, region_);
       }
       case 4: {  // context

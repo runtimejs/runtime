@@ -8,17 +8,17 @@ vars = {
 
 deps = {
   "v8/build/gyp":
-    Var("git_url") + "/external/gyp.git" + "@" + "fe00999dfaee449d3465a9316778434884da4fa7",  # from svn revision 2010
+    Var("git_url") + "/external/gyp.git" + "@" + "4d7c139b1820c5fcb993868c61f170a02cda8a40",
   "v8/third_party/icu":
-    Var("git_url") + "/chromium/deps/icu52.git" + "@" + "866ff696e9022a6000afbab516fba62cfa306075",  # from svn revision 293126
+    Var("git_url") + "/chromium/deps/icu.git" + "@" + "4e3266f32c62d30a3f9e2232a753c60129d1e670",
   "v8/buildtools":
-    Var("git_url") + "/chromium/buildtools.git" + "@" + "ded32942a1ebfddff0ba1231898fc4f6c7faacec",
+    Var("git_url") + "/chromium/buildtools.git" + "@" + "da0df3fdac6036e862addb1155a2d6c11b6c18d5",
   "v8/testing/gtest":
-    Var("git_url") + "/external/googletest.git" + "@" + "8245545b6dc9c4703e6496d1efd19e975ad2b038",  # from svn revision 700
+    Var("git_url") + "/external/googletest.git" + "@" + "be1868139ffe0ccd0e8e3b37292b84c821d9c8ad",
   "v8/testing/gmock":
     Var("git_url") + "/external/googlemock.git" + "@" + "29763965ab52f24565299976b936d1265cb6a271",  # from svn revision 501
   "v8/tools/clang":
-    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "72cba933544c8283c173083fbc5f162d00198081",
+    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "5489bbf01a5292a6c44d4cad7875ba2cb4ac975b",
 }
 
 deps_os = {
@@ -29,8 +29,6 @@ deps_os = {
   "win": {
     "v8/third_party/cygwin":
       Var("git_url") + "/chromium/deps/cygwin.git" + "@" + "c89e446b273697fadf3a10ff1007a97c0b7de6df",
-    "v8/third_party/python_26":
-      Var("git_url") + "/chromium/deps/python_26.git" + "@" + "67d19f904470effe3122d27101cc5a8195abd157",
   }
 }
 

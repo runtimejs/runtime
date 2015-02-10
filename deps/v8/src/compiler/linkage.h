@@ -18,19 +18,26 @@ class CallInterfaceDescriptor;
 
 namespace compiler {
 
+class OsrHelper;
+
 // Describes the location for a parameter or a return value to a call.
 class LinkageLocation {
  public:
   explicit LinkageLocation(int location) : location_(location) {}
 
-  static const int16_t ANY_REGISTER = 32767;
+  static const int16_t ANY_REGISTER = 1023;
+  static const int16_t MAX_STACK_SLOT = 32767;
 
   static LinkageLocation AnyRegister() { return LinkageLocation(ANY_REGISTER); }
 
  private:
   friend class CallDescriptor;
   friend class OperandGenerator;
-  int16_t location_;  // >= 0 implies register, otherwise stack slot.
+  //         location < 0     -> a stack slot on the caller frame
+  // 0    <= location < 1023  -> a specific machine register
+  // 1023 <= location < 1024  -> any machine register
+  // 1024 <= location         -> a stack slot in the callee frame
+  int16_t location_;
 };
 
 typedef Signature<LinkageLocation> LocationSignature;
@@ -57,8 +64,9 @@ class CallDescriptor FINAL : public ZoneObject {
   typedef base::Flags<Flag> Flags;
 
   CallDescriptor(Kind kind, MachineType target_type, LinkageLocation target_loc,
-                 MachineSignature* machine_sig, LocationSignature* location_sig,
-                 size_t js_param_count, Operator::Properties properties,
+                 const MachineSignature* machine_sig,
+                 LocationSignature* location_sig, size_t js_param_count,
+                 Operator::Properties properties,
                  RegList callee_saved_registers, Flags flags,
                  const char* debug_name = "")
       : kind_(kind),
@@ -165,9 +173,11 @@ std::ostream& operator<<(std::ostream& os, const CallDescriptor::Kind& k);
 class Linkage : public ZoneObject {
  public:
   Linkage(Zone* zone, CompilationInfo* info)
-      : zone_(zone), incoming_(ComputeIncoming(zone, info)) {}
-  Linkage(Zone* zone, CallDescriptor* incoming)
-      : zone_(zone), incoming_(incoming) {}
+      : isolate_(info->isolate()),
+        zone_(zone),
+        incoming_(ComputeIncoming(zone, info)) {}
+  Linkage(Isolate* isolate, Zone* zone, CallDescriptor* incoming)
+      : isolate_(isolate), zone_(zone), incoming_(incoming) {}
 
   static CallDescriptor* ComputeIncoming(Zone* zone, CompilationInfo* info);
 
@@ -176,29 +186,31 @@ class Linkage : public ZoneObject {
   CallDescriptor* GetIncomingDescriptor() const { return incoming_; }
   CallDescriptor* GetJSCallDescriptor(int parameter_count,
                                       CallDescriptor::Flags flags) const;
-  static CallDescriptor* GetJSCallDescriptor(int parameter_count, Zone* zone,
+  static CallDescriptor* GetJSCallDescriptor(Zone* zone, bool is_osr,
+                                             int parameter_count,
                                              CallDescriptor::Flags flags);
   CallDescriptor* GetRuntimeCallDescriptor(
       Runtime::FunctionId function, int parameter_count,
       Operator::Properties properties) const;
   static CallDescriptor* GetRuntimeCallDescriptor(
-      Runtime::FunctionId function, int parameter_count,
-      Operator::Properties properties, Zone* zone);
+      Zone* zone, Runtime::FunctionId function, int parameter_count,
+      Operator::Properties properties);
 
   CallDescriptor* GetStubCallDescriptor(
       const CallInterfaceDescriptor& descriptor, int stack_parameter_count = 0,
       CallDescriptor::Flags flags = CallDescriptor::kNoFlags,
       Operator::Properties properties = Operator::kNoProperties) const;
   static CallDescriptor* GetStubCallDescriptor(
-      const CallInterfaceDescriptor& descriptor, int stack_parameter_count,
-      CallDescriptor::Flags flags, Operator::Properties properties, Zone* zone);
+      Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
+      int stack_parameter_count, CallDescriptor::Flags flags,
+      Operator::Properties properties);
 
   // Creates a call descriptor for simplified C calls that is appropriate
   // for the host platform. This simplified calling convention only supports
   // integers and pointers of one word size each, i.e. no floating point,
   // structs, pointers to members, etc.
   static CallDescriptor* GetSimplifiedCDescriptor(Zone* zone,
-                                                  MachineSignature* sig);
+                                                  const MachineSignature* sig);
 
   // Get the location of an (incoming) parameter to this function.
   LinkageLocation GetParameterLocation(int index) const {
@@ -227,7 +239,14 @@ class Linkage : public ZoneObject {
 
   static bool NeedsFrameState(Runtime::FunctionId function);
 
+  // Get the location where an incoming OSR value is stored.
+  LinkageLocation GetOsrValueLocation(int index) const;
+
+  // A special parameter index for JSCalls that represents the closure.
+  static const int kJSFunctionCallClosureParamIndex = -1;
+
  private:
+  Isolate* isolate_;
   Zone* const zone_;
   CallDescriptor* const incoming_;
 

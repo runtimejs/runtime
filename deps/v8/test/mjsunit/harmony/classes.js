@@ -186,7 +186,7 @@
 function assertMethodDescriptor(object, name) {
   var descr = Object.getOwnPropertyDescriptor(object, name);
   assertTrue(descr.configurable);
-  assertTrue(descr.enumerable);
+  assertFalse(descr.enumerable);
   assertTrue(descr.writable);
   assertEquals('function', typeof descr.value);
   assertFalse('prototype' in descr.value);
@@ -196,8 +196,9 @@ function assertMethodDescriptor(object, name) {
 function assertGetterDescriptor(object, name) {
   var descr = Object.getOwnPropertyDescriptor(object, name);
   assertTrue(descr.configurable);
-  assertTrue(descr.enumerable);
+  assertFalse(descr.enumerable);
   assertEquals('function', typeof descr.get);
+  assertFalse('prototype' in descr.get);
   assertEquals(undefined, descr.set);
 }
 
@@ -205,18 +206,21 @@ function assertGetterDescriptor(object, name) {
 function assertSetterDescriptor(object, name) {
   var descr = Object.getOwnPropertyDescriptor(object, name);
   assertTrue(descr.configurable);
-  assertTrue(descr.enumerable);
+  assertFalse(descr.enumerable);
   assertEquals(undefined, descr.get);
   assertEquals('function', typeof descr.set);
+  assertFalse('prototype' in descr.set);
 }
 
 
 function assertAccessorDescriptor(object, name) {
   var descr = Object.getOwnPropertyDescriptor(object, name);
   assertTrue(descr.configurable);
-  assertTrue(descr.enumerable);
+  assertFalse(descr.enumerable);
   assertEquals('function', typeof descr.get);
   assertEquals('function', typeof descr.set);
+  assertFalse('prototype' in descr.get);
+  assertFalse('prototype' in descr.set);
 }
 
 

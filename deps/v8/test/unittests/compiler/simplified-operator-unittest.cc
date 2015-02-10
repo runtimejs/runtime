@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compiler/opcodes.h"
+#include "src/compiler/operator.h"
+#include "src/compiler/operator-properties.h"
 #include "src/compiler/simplified-operator.h"
-
-#include "src/compiler/operator-properties-inl.h"
+#include "src/types-inl.h"
 #include "test/unittests/test-utils.h"
 
 namespace v8 {
@@ -36,6 +38,7 @@ const PureOperator kPureOperators[] = {
     &SimplifiedOperatorBuilder::Name, IrOpcode::k##Name, \
         Operator::kPure | properties, input_count        \
   }
+    PURE(AnyToBoolean, Operator::kNoProperties, 1),
     PURE(BooleanNot, Operator::kNoProperties, 1),
     PURE(BooleanToNumber, Operator::kNoProperties, 1),
     PURE(NumberEqual, Operator::kCommutative, 2),
@@ -48,6 +51,7 @@ const PureOperator kPureOperators[] = {
     PURE(NumberModulus, Operator::kNoProperties, 2),
     PURE(NumberToInt32, Operator::kNoProperties, 1),
     PURE(NumberToUint32, Operator::kNoProperties, 1),
+    PURE(PlainPrimitiveToNumber, Operator::kNoProperties, 1),
     PURE(StringEqual, Operator::kCommutative, 2),
     PURE(StringLessThan, Operator::kNoProperties, 2),
     PURE(StringLessThanOrEqual, Operator::kNoProperties, 2),

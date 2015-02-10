@@ -654,6 +654,15 @@ function Delete(obj, p, should_throw) {
 }
 
 
+// ES6, draft 12-24-14, section 7.3.8
+function GetMethod(obj, p) {
+  var func = obj[p];
+  if (IS_NULL_OR_UNDEFINED(func)) return UNDEFINED;
+  if (IS_SPEC_FUNCTION(func)) return func;
+  throw MakeTypeError('called_non_callable', [typeof func]);
+}
+
+
 // Harmony proxies.
 function DefineProxyProperty(obj, p, attributes, should_throw) {
   // TODO(rossberg): adjust once there is a story for symbols vs proxies.
@@ -887,15 +896,6 @@ function DefineArrayProperty(obj, p, desc, should_throw) {
         break;
       }
     }
-    // Make sure the below call to DefineObjectProperty() doesn't overwrite
-    // any magic "length" property by removing the value.
-    // TODO(mstarzinger): This hack should be removed once we have addressed the
-    // respective TODO in Runtime_DefineDataPropertyUnchecked.
-    // For the time being, we need a hack to prevent Object.observe from
-    // generating two change records.
-    obj.length = new_length;
-    desc.value_ = UNDEFINED;
-    desc.hasValue_ = false;
     threw = !DefineObjectProperty(obj, "length", desc, should_throw) || threw;
     if (emit_splice) {
       EndPerformSplice(obj);
@@ -1232,23 +1232,30 @@ function ProxyFix(obj) {
 
 
 // ES5 section 15.2.3.8.
-function ObjectSeal(obj) {
+function ObjectSealJS(obj) {
   if (!IS_SPEC_OBJECT(obj)) {
     throw MakeTypeError("called_on_non_object", ["Object.seal"]);
   }
-  if (%_IsJSProxy(obj)) {
-    ProxyFix(obj);
-  }
-  var names = ObjectGetOwnPropertyNames(obj);
-  for (var i = 0; i < names.length; i++) {
-    var name = names[i];
-    var desc = GetOwnPropertyJS(obj, name);
-    if (desc.isConfigurable()) {
-      desc.setConfigurable(false);
-      DefineOwnProperty(obj, name, desc, true);
+  var isProxy = %_IsJSProxy(obj);
+  if (isProxy || %HasSloppyArgumentsElements(obj) || %IsObserved(obj)) {
+    if (isProxy) {
+      ProxyFix(obj);
     }
+    var names = ObjectGetOwnPropertyNames(obj);
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var desc = GetOwnPropertyJS(obj, name);
+      if (desc.isConfigurable()) {
+        desc.setConfigurable(false);
+        DefineOwnProperty(obj, name, desc, true);
+      }
+    }
+    %PreventExtensions(obj);
+  } else {
+    // TODO(adamk): Is it worth going to this fast path if the
+    // object's properties are already in dictionary mode?
+    %ObjectSeal(obj);
   }
-  %PreventExtensions(obj);
   return obj;
 }
 
@@ -1430,7 +1437,7 @@ function SetUpObject() {
     "isFrozen", ObjectIsFrozen,
     "isSealed", ObjectIsSealed,
     "preventExtensions", ObjectPreventExtension,
-    "seal", ObjectSeal
+    "seal", ObjectSealJS
     // deliverChangeRecords, getNotifier, observe and unobserve are added
     // in object-observe.js.
   ));

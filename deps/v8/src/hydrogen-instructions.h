@@ -5,6 +5,7 @@
 #ifndef V8_HYDROGEN_INSTRUCTIONS_H_
 #define V8_HYDROGEN_INSTRUCTIONS_H_
 
+#include <cstring>
 #include <iosfwd>
 
 #include "src/v8.h"
@@ -190,24 +191,21 @@ class LChunkBuilder;
   V(TypedArrayElements)
 
 
-#define DECLARE_ABSTRACT_INSTRUCTION(type)                              \
-  virtual bool Is##type() const FINAL OVERRIDE { return true; }   \
-  static H##type* cast(HValue* value) {                                 \
-    DCHECK(value->Is##type());                                          \
-    return reinterpret_cast<H##type*>(value);                           \
+#define DECLARE_ABSTRACT_INSTRUCTION(type)     \
+  bool Is##type() const FINAL { return true; } \
+  static H##type* cast(HValue* value) {        \
+    DCHECK(value->Is##type());                 \
+    return reinterpret_cast<H##type*>(value);  \
   }
 
 
-#define DECLARE_CONCRETE_INSTRUCTION(type)              \
-  virtual LInstruction* CompileToLithium(               \
-     LChunkBuilder* builder) FINAL OVERRIDE;      \
-  static H##type* cast(HValue* value) {                 \
-    DCHECK(value->Is##type());                          \
-    return reinterpret_cast<H##type*>(value);           \
-  }                                                     \
-  virtual Opcode opcode() const FINAL OVERRIDE {  \
-    return HValue::k##type;                             \
-  }
+#define DECLARE_CONCRETE_INSTRUCTION(type)                      \
+  LInstruction* CompileToLithium(LChunkBuilder* builder) FINAL; \
+  static H##type* cast(HValue* value) {                         \
+    DCHECK(value->Is##type());                                  \
+    return reinterpret_cast<H##type*>(value);                   \
+  }                                                             \
+  Opcode opcode() const FINAL { return HValue::k##type; }
 
 
 enum PropertyAccessType { LOAD, STORE };
@@ -954,98 +952,76 @@ std::ostream& operator<<(std::ostream& os, const TypeOf& v);
 std::ostream& operator<<(std::ostream& os, const ChangesOf& v);
 
 
-#define DECLARE_INSTRUCTION_FACTORY_P0(I)                                      \
-  static I* New(Zone* zone, HValue* context) {                                 \
-    return new(zone) I();                                                      \
-}
+#define DECLARE_INSTRUCTION_FACTORY_P0(I)                        \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context) { \
+    return new (zone) I();                                       \
+  }
 
-#define DECLARE_INSTRUCTION_FACTORY_P1(I, P1)                                  \
-  static I* New(Zone* zone, HValue* context, P1 p1) {                          \
-    return new(zone) I(p1);                                                    \
+#define DECLARE_INSTRUCTION_FACTORY_P1(I, P1)                           \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1) { \
+    return new (zone) I(p1);                                            \
   }
 
 #define DECLARE_INSTRUCTION_FACTORY_P2(I, P1, P2)                              \
-  static I* New(Zone* zone, HValue* context, P1 p1, P2 p2) {                   \
-    return new(zone) I(p1, p2);                                                \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2) { \
+    return new (zone) I(p1, p2);                                               \
   }
 
-#define DECLARE_INSTRUCTION_FACTORY_P3(I, P1, P2, P3)                          \
-  static I* New(Zone* zone, HValue* context, P1 p1, P2 p2, P3 p3) {            \
-    return new(zone) I(p1, p2, p3);                                            \
+#define DECLARE_INSTRUCTION_FACTORY_P3(I, P1, P2, P3)                        \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3) {                                                     \
+    return new (zone) I(p1, p2, p3);                                         \
   }
 
-#define DECLARE_INSTRUCTION_FACTORY_P4(I, P1, P2, P3, P4)                      \
-  static I* New(Zone* zone,                                                    \
-                HValue* context,                                               \
-                P1 p1,                                                         \
-                P2 p2,                                                         \
-                P3 p3,                                                         \
-                P4 p4) {                                                       \
-    return new(zone) I(p1, p2, p3, p4);                                        \
+#define DECLARE_INSTRUCTION_FACTORY_P4(I, P1, P2, P3, P4)                    \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3, P4 p4) {                                              \
+    return new (zone) I(p1, p2, p3, p4);                                     \
   }
 
-#define DECLARE_INSTRUCTION_FACTORY_P5(I, P1, P2, P3, P4, P5)                  \
-  static I* New(Zone* zone,                                                    \
-                HValue* context,                                               \
-                P1 p1,                                                         \
-                P2 p2,                                                         \
-                P3 p3,                                                         \
-                P4 p4,                                                         \
-                P5 p5) {                                                       \
-    return new(zone) I(p1, p2, p3, p4, p5);                                    \
+#define DECLARE_INSTRUCTION_FACTORY_P5(I, P1, P2, P3, P4, P5)                \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3, P4 p4, P5 p5) {                                       \
+    return new (zone) I(p1, p2, p3, p4, p5);                                 \
   }
 
-#define DECLARE_INSTRUCTION_FACTORY_P6(I, P1, P2, P3, P4, P5, P6)              \
-  static I* New(Zone* zone,                                                    \
-                HValue* context,                                               \
-                P1 p1,                                                         \
-                P2 p2,                                                         \
-                P3 p3,                                                         \
-                P4 p4,                                                         \
-                P5 p5,                                                         \
-                P6 p6) {                                                       \
-    return new(zone) I(p1, p2, p3, p4, p5, p6);                                \
+#define DECLARE_INSTRUCTION_FACTORY_P6(I, P1, P2, P3, P4, P5, P6)            \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3, P4 p4, P5 p5, P6 p6) {                                \
+    return new (zone) I(p1, p2, p3, p4, p5, p6);                             \
   }
 
-#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P0(I)                         \
-  static I* New(Zone* zone, HValue* context) {                                 \
-    return new(zone) I(context);                                               \
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P0(I)           \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context) { \
+    return new (zone) I(context);                                \
   }
 
-#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P1(I, P1)                     \
-  static I* New(Zone* zone, HValue* context, P1 p1) {                          \
-    return new(zone) I(context, p1);                                           \
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P1(I, P1)              \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1) { \
+    return new (zone) I(context, p1);                                   \
   }
 
 #define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P2(I, P1, P2)                 \
-  static I* New(Zone* zone, HValue* context, P1 p1, P2 p2) {                   \
-    return new(zone) I(context, p1, p2);                                       \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2) { \
+    return new (zone) I(context, p1, p2);                                      \
   }
 
-#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P3(I, P1, P2, P3)             \
-  static I* New(Zone* zone, HValue* context, P1 p1, P2 p2, P3 p3) {            \
-    return new(zone) I(context, p1, p2, p3);                                   \
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P3(I, P1, P2, P3)           \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3) {                                                     \
+    return new (zone) I(context, p1, p2, p3);                                \
   }
 
-#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P4(I, P1, P2, P3, P4)         \
-  static I* New(Zone* zone,                                                    \
-                HValue* context,                                               \
-                P1 p1,                                                         \
-                P2 p2,                                                         \
-                P3 p3,                                                         \
-                P4 p4) {                                                       \
-    return new(zone) I(context, p1, p2, p3, p4);                               \
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P4(I, P1, P2, P3, P4)       \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3, P4 p4) {                                              \
+    return new (zone) I(context, p1, p2, p3, p4);                            \
   }
 
-#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P5(I, P1, P2, P3, P4, P5)     \
-  static I* New(Zone* zone,                                                    \
-                HValue* context,                                               \
-                P1 p1,                                                         \
-                P2 p2,                                                         \
-                P3 p3,                                                         \
-                P4 p4,                                                         \
-                P5 p5) {                                                       \
-    return new(zone) I(context, p1, p2, p3, p4, p5);                           \
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P5(I, P1, P2, P3, P4, P5)   \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
+                P3 p3, P4 p4, P5 p5) {                                       \
+    return new (zone) I(context, p1, p2, p3, p4, p5);                        \
   }
 
 
@@ -1147,7 +1123,7 @@ class HInstruction : public HValue {
   HInstruction* next() const { return next_; }
   HInstruction* previous() const { return previous_; }
 
-  virtual std::ostream& PrintTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintTo(std::ostream& os) const OVERRIDE;          // NOLINT
   virtual std::ostream& PrintDataTo(std::ostream& os) const;       // NOLINT
 
   bool IsLinked() const { return block() != NULL; }
@@ -1168,7 +1144,7 @@ class HInstruction : public HValue {
   }
 
   // The position is a write-once variable.
-  virtual HSourcePosition position() const OVERRIDE {
+  HSourcePosition position() const OVERRIDE {
     return HSourcePosition(position_.position());
   }
   bool has_position() const {
@@ -1180,7 +1156,7 @@ class HInstruction : public HValue {
     position_.set_position(position);
   }
 
-  virtual HSourcePosition operand_position(int index) const OVERRIDE {
+  HSourcePosition operand_position(int index) const OVERRIDE {
     const HSourcePosition pos = position_.operand_position(index);
     return pos.IsUnknown() ? position() : pos;
   }
@@ -1197,7 +1173,7 @@ class HInstruction : public HValue {
   virtual LInstruction* CompileToLithium(LChunkBuilder* builder) = 0;
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE;
+  void Verify() OVERRIDE;
 #endif
 
   bool CanDeoptimize();
@@ -1215,7 +1191,7 @@ class HInstruction : public HValue {
     SetDependsOnFlag(kOsrEntries);
   }
 
-  virtual void DeleteFromGraph() OVERRIDE { Unlink(); }
+  void DeleteFromGraph() OVERRIDE { Unlink(); }
 
  private:
   void InitializeAsFirst(HBasicBlock* block) {
@@ -1234,18 +1210,14 @@ class HInstruction : public HValue {
 template<int V>
 class HTemplateInstruction : public HInstruction {
  public:
-  virtual int OperandCount() const FINAL OVERRIDE { return V; }
-  virtual HValue* OperandAt(int i) const FINAL OVERRIDE {
-    return inputs_[i];
-  }
+  int OperandCount() const FINAL { return V; }
+  HValue* OperandAt(int i) const FINAL { return inputs_[i]; }
 
  protected:
   explicit HTemplateInstruction(HType type = HType::Tagged())
       : HInstruction(type) {}
 
-  virtual void InternalSetOperandAt(int i, HValue* value) FINAL OVERRIDE {
-    inputs_[i] = value;
-  }
+  void InternalSetOperandAt(int i, HValue* value) FINAL { inputs_[i] = value; }
 
  private:
   EmbeddedContainer<HValue*, V> inputs_;
@@ -1258,7 +1230,7 @@ class HControlInstruction : public HInstruction {
   virtual int SuccessorCount() const = 0;
   virtual void SetSuccessorAt(int i, HBasicBlock* block) = 0;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   virtual bool KnownSuccessorBlock(HBasicBlock** block) {
     *block = NULL;
@@ -1323,7 +1295,7 @@ class HTemplateControlInstruction : public HControlInstruction {
 
 class HBlockEntry FINAL : public HTemplateInstruction<0> {
  public:
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -1343,12 +1315,12 @@ class HDummyUse FINAL : public HTemplateInstruction<1> {
 
   HValue* value() const { return OperandAt(0); }
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(DummyUse);
 };
@@ -1359,7 +1331,7 @@ class HDebugBreak FINAL : public HTemplateInstruction<0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P0(HDebugBreak);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -1373,16 +1345,16 @@ class HGoto FINAL : public HTemplateControlInstruction<1, 0> {
     SetSuccessorAt(0, target);
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
     *block = FirstSuccessor();
     return true;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(Goto)
 };
@@ -1390,37 +1362,36 @@ class HGoto FINAL : public HTemplateControlInstruction<1, 0> {
 
 class HDeoptimize FINAL : public HTemplateControlInstruction<1, 0> {
  public:
-  static HDeoptimize* New(Zone* zone,
-                          HValue* context,
-                          const char* reason,
+  static HDeoptimize* New(Isolate* isolate, Zone* zone, HValue* context,
+                          Deoptimizer::DeoptReason reason,
                           Deoptimizer::BailoutType type,
                           HBasicBlock* unreachable_continuation) {
     return new(zone) HDeoptimize(reason, type, unreachable_continuation);
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
     *block = NULL;
     return true;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  const char* reason() const { return reason_; }
+  Deoptimizer::DeoptReason reason() const { return reason_; }
   Deoptimizer::BailoutType type() { return type_; }
 
   DECLARE_CONCRETE_INSTRUCTION(Deoptimize)
 
  private:
-  explicit HDeoptimize(const char* reason,
+  explicit HDeoptimize(Deoptimizer::DeoptReason reason,
                        Deoptimizer::BailoutType type,
                        HBasicBlock* unreachable_continuation)
       : reason_(reason), type_(type) {
     SetSuccessorAt(0, unreachable_continuation);
   }
 
-  const char* reason_;
+  Deoptimizer::DeoptReason reason_;
   Deoptimizer::BailoutType type_;
 };
 
@@ -1435,7 +1406,7 @@ class HUnaryControlInstruction : public HTemplateControlInstruction<2, 1> {
     SetSuccessorAt(1, false_target);
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* value() const { return OperandAt(0); }
 };
@@ -1450,14 +1421,14 @@ class HBranch FINAL : public HUnaryControlInstruction {
                                  ToBooleanStub::Types,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
-  virtual Representation observed_input_representation(int index) OVERRIDE;
+  Representation observed_input_representation(int index) OVERRIDE;
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   ToBooleanStub::Types expected_input_types() const {
     return expected_input_types_;
@@ -1485,7 +1456,7 @@ class HCompareMap FINAL : public HUnaryControlInstruction {
   DECLARE_INSTRUCTION_FACTORY_P4(HCompareMap, HValue*, Handle<Map>,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE {
     if (known_successor_index() != kNoKnownSuccessorIndex) {
       *block = SuccessorAt(known_successor_index());
       return true;
@@ -1494,7 +1465,7 @@ class HCompareMap FINAL : public HUnaryControlInstruction {
     return false;
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   static const int kNoKnownSuccessorIndex = -1;
   int known_successor_index() const {
@@ -1510,14 +1481,14 @@ class HCompareMap FINAL : public HUnaryControlInstruction {
   Unique<Map> map() const { return map_; }
   bool map_is_stable() const { return MapIsStableField::decode(bit_field_); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(CompareMap)
 
  protected:
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   HCompareMap(HValue* value, Handle<Map> map, HBasicBlock* true_target = NULL,
@@ -1549,14 +1520,14 @@ class HContext FINAL : public HTemplateInstruction<0> {
     return new(zone) HContext();
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(Context)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HContext() {
@@ -1564,7 +1535,7 @@ class HContext FINAL : public HTemplateInstruction<0> {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -1573,13 +1544,13 @@ class HReturn FINAL : public HTemplateControlInstruction<0, 3> {
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P2(HReturn, HValue*, HValue*);
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P1(HReturn, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // TODO(titzer): require an Int32 input for faster returns.
     if (index == 2) return Representation::Smi();
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* value() const { return OperandAt(0); }
   HValue* context() const { return OperandAt(1); }
@@ -1600,7 +1571,7 @@ class HAbnormalExit FINAL : public HTemplateControlInstruction<0, 0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P0(HAbnormalExit);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -1622,7 +1593,7 @@ class HUnaryOperation : public HTemplateInstruction<1> {
   }
 
   HValue* value() const { return OperandAt(0); }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 };
 
 
@@ -1630,7 +1601,7 @@ class HUseConst FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HUseConst, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -1643,16 +1614,22 @@ class HUseConst FINAL : public HUnaryOperation {
 
 class HForceRepresentation FINAL : public HTemplateInstruction<1> {
  public:
-  static HInstruction* New(Zone* zone, HValue* context, HValue* value,
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* value,
                            Representation required_representation);
 
   HValue* value() const { return OperandAt(0); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
+    // We haven't actually *observed* this, but it's closer to the truth
+    // than 'None'.
+    return representation();  // Same as the output representation.
+  }
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();  // Same as the output representation.
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(ForceRepresentation)
 
@@ -1694,29 +1671,29 @@ class HChange FINAL : public HUnaryOperation {
     return CheckUsesForFlag(kAllowUndefinedAsNaN);
   }
 
-  virtual HType CalculateInferredType() OVERRIDE;
-  virtual HValue* Canonicalize() OVERRIDE;
+  HType CalculateInferredType() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   Representation from() const { return value()->representation(); }
   Representation to() const { return representation(); }
   bool deoptimize_on_minus_zero() const {
     return CheckFlag(kBailoutOnMinusZero);
   }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return from();
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(Change)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
-  virtual bool IsDeletable() const OVERRIDE {
+  bool IsDeletable() const OVERRIDE {
     return !from().IsTagged() || value()->type().IsSmi();
   }
 };
@@ -1726,14 +1703,14 @@ class HClampToUint8 FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HClampToUint8, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(ClampToUint8)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HClampToUint8(HValue* value)
@@ -1743,7 +1720,7 @@ class HClampToUint8 FINAL : public HUnaryOperation {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -1752,7 +1729,7 @@ class HDoubleBits FINAL : public HUnaryOperation {
   enum Bits { HIGH, LOW };
   DECLARE_INSTRUCTION_FACTORY_P2(HDoubleBits, HValue*, Bits);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Double();
   }
 
@@ -1761,7 +1738,7 @@ class HDoubleBits FINAL : public HUnaryOperation {
   Bits bits() { return bits_; }
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return other->IsDoubleBits() && HDoubleBits::cast(other)->bits() == bits();
   }
 
@@ -1772,7 +1749,7 @@ class HDoubleBits FINAL : public HUnaryOperation {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   Bits bits_;
 };
@@ -1782,7 +1759,7 @@ class HConstructDouble FINAL : public HTemplateInstruction<2> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P2(HConstructDouble, HValue*, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Integer32();
   }
 
@@ -1792,7 +1769,7 @@ class HConstructDouble FINAL : public HTemplateInstruction<2> {
   HValue* lo() { return OperandAt(1); }
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HConstructDouble(HValue* hi, HValue* lo) {
@@ -1802,7 +1779,7 @@ class HConstructDouble FINAL : public HTemplateInstruction<2> {
     SetOperandAt(1, lo);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -1825,7 +1802,7 @@ class HSimulate FINAL : public HInstruction {
                    DoneWithReplayField::encode(false)) {}
   ~HSimulate() {}
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   bool HasAstId() const { return !ast_id_.IsNone(); }
   BailoutId ast_id() const { return ast_id_; }
@@ -1855,13 +1832,11 @@ class HSimulate FINAL : public HInstruction {
     }
     return -1;
   }
-  virtual int OperandCount() const OVERRIDE { return values_.length(); }
-  virtual HValue* OperandAt(int index) const OVERRIDE {
-    return values_[index];
-  }
+  int OperandCount() const OVERRIDE { return values_.length(); }
+  HValue* OperandAt(int index) const OVERRIDE { return values_[index]; }
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -1876,13 +1851,13 @@ class HSimulate FINAL : public HInstruction {
   DECLARE_CONCRETE_INSTRUCTION(Simulate)
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE;
+  void Verify() OVERRIDE;
   void set_closure(Handle<JSFunction> closure) { closure_ = closure; }
   Handle<JSFunction> closure() const { return closure_; }
 #endif
 
  protected:
-  virtual void InternalSetOperandAt(int index, HValue* value) OVERRIDE {
+  void InternalSetOperandAt(int index, HValue* value) OVERRIDE {
     values_[index] = value;
   }
 
@@ -1938,11 +1913,11 @@ class HEnvironmentMarker FINAL : public HTemplateInstruction<1> {
     next_simulate_ = simulate;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
 #ifdef DEBUG
   void set_closure(Handle<JSFunction> closure) {
@@ -1980,7 +1955,7 @@ class HStackCheck FINAL : public HTemplateInstruction<1> {
 
   HValue* context() { return OperandAt(0); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -2021,8 +1996,8 @@ class HConstant;
 
 class HEnterInlined FINAL : public HTemplateInstruction<0> {
  public:
-  static HEnterInlined* New(Zone* zone, HValue* context, BailoutId return_id,
-                            Handle<JSFunction> closure,
+  static HEnterInlined* New(Isolate* isolate, Zone* zone, HValue* context,
+                            BailoutId return_id, Handle<JSFunction> closure,
                             HConstant* closure_context, int arguments_count,
                             FunctionLiteral* function,
                             InliningKind inlining_kind, Variable* arguments_var,
@@ -2035,7 +2010,7 @@ class HEnterInlined FINAL : public HTemplateInstruction<0> {
   void RegisterReturnTarget(HBasicBlock* return_target, Zone* zone);
   ZoneList<HBasicBlock*>* return_targets() { return &return_targets_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   Handle<JSFunction> closure() const { return closure_; }
   HConstant* closure_context() const { return closure_context_; }
@@ -2046,7 +2021,7 @@ class HEnterInlined FINAL : public HTemplateInstruction<0> {
   InliningKind inlining_kind() const { return inlining_kind_; }
   BailoutId ReturnId() const { return return_id_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -2092,11 +2067,11 @@ class HLeaveInlined FINAL : public HTemplateInstruction<0> {
       : entry_(entry),
         drop_count_(drop_count) { }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual int argument_delta() const OVERRIDE {
+  int argument_delta() const OVERRIDE {
     return entry_->arguments_pushed() ? -drop_count_ : 0;
   }
 
@@ -2110,31 +2085,33 @@ class HLeaveInlined FINAL : public HTemplateInstruction<0> {
 
 class HPushArguments FINAL : public HInstruction {
  public:
-  static HPushArguments* New(Zone* zone, HValue* context) {
+  static HPushArguments* New(Isolate* isolate, Zone* zone, HValue* context) {
     return new(zone) HPushArguments(zone);
   }
-  static HPushArguments* New(Zone* zone, HValue* context, HValue* arg1) {
+  static HPushArguments* New(Isolate* isolate, Zone* zone, HValue* context,
+                             HValue* arg1) {
     HPushArguments* instr = new(zone) HPushArguments(zone);
     instr->AddInput(arg1);
     return instr;
   }
-  static HPushArguments* New(Zone* zone, HValue* context, HValue* arg1,
-                             HValue* arg2) {
+  static HPushArguments* New(Isolate* isolate, Zone* zone, HValue* context,
+                             HValue* arg1, HValue* arg2) {
     HPushArguments* instr = new(zone) HPushArguments(zone);
     instr->AddInput(arg1);
     instr->AddInput(arg2);
     return instr;
   }
-  static HPushArguments* New(Zone* zone, HValue* context, HValue* arg1,
-                             HValue* arg2, HValue* arg3) {
+  static HPushArguments* New(Isolate* isolate, Zone* zone, HValue* context,
+                             HValue* arg1, HValue* arg2, HValue* arg3) {
     HPushArguments* instr = new(zone) HPushArguments(zone);
     instr->AddInput(arg1);
     instr->AddInput(arg2);
     instr->AddInput(arg3);
     return instr;
   }
-  static HPushArguments* New(Zone* zone, HValue* context, HValue* arg1,
-                             HValue* arg2, HValue* arg3, HValue* arg4) {
+  static HPushArguments* New(Isolate* isolate, Zone* zone, HValue* context,
+                             HValue* arg1, HValue* arg2, HValue* arg3,
+                             HValue* arg4) {
     HPushArguments* instr = new(zone) HPushArguments(zone);
     instr->AddInput(arg1);
     instr->AddInput(arg2);
@@ -2143,28 +2120,22 @@ class HPushArguments FINAL : public HInstruction {
     return instr;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual int argument_delta() const OVERRIDE { return inputs_.length(); }
+  int argument_delta() const OVERRIDE { return inputs_.length(); }
   HValue* argument(int i) { return OperandAt(i); }
 
-  virtual int OperandCount() const FINAL OVERRIDE {
-    return inputs_.length();
-  }
-  virtual HValue* OperandAt(int i) const FINAL OVERRIDE {
-    return inputs_[i];
-  }
+  int OperandCount() const FINAL { return inputs_.length(); }
+  HValue* OperandAt(int i) const FINAL { return inputs_[i]; }
 
   void AddInput(HValue* value);
 
   DECLARE_CONCRETE_INSTRUCTION(PushArguments)
 
  protected:
-  virtual void InternalSetOperandAt(int i, HValue* value) FINAL OVERRIDE {
-    inputs_[i] = value;
-  }
+  void InternalSetOperandAt(int i, HValue* value) FINAL { inputs_[i] = value; }
 
  private:
   explicit HPushArguments(Zone* zone)
@@ -2180,14 +2151,14 @@ class HThisFunction FINAL : public HTemplateInstruction<0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P0(HThisFunction);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(ThisFunction)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HThisFunction() {
@@ -2195,7 +2166,7 @@ class HThisFunction FINAL : public HTemplateInstruction<0> {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -2211,7 +2182,7 @@ class HDeclareGlobals FINAL : public HUnaryOperation {
 
   DECLARE_CONCRETE_INSTRUCTION(DeclareGlobals)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -2240,17 +2211,13 @@ class HCall : public HTemplateInstruction<V> {
     this->SetAllSideEffects();
   }
 
-  virtual HType CalculateInferredType() FINAL OVERRIDE {
-    return HType::Tagged();
-  }
+  HType CalculateInferredType() FINAL { return HType::Tagged(); }
 
   virtual int argument_count() const {
     return argument_count_;
   }
 
-  virtual int argument_delta() const OVERRIDE {
-    return -argument_count();
-  }
+  int argument_delta() const OVERRIDE { return -argument_count(); }
 
  private:
   int argument_count_;
@@ -2264,12 +2231,11 @@ class HUnaryCall : public HCall<1> {
     SetOperandAt(0, value);
   }
 
-  virtual Representation RequiredInputRepresentation(
-      int index) FINAL OVERRIDE {
+  Representation RequiredInputRepresentation(int index) FINAL {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* value() const { return OperandAt(0); }
 };
@@ -2283,10 +2249,9 @@ class HBinaryCall : public HCall<2> {
     SetOperandAt(1, second);
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(
-      int index) FINAL OVERRIDE {
+  Representation RequiredInputRepresentation(int index) FINAL {
     return Representation::Tagged();
   }
 
@@ -2297,27 +2262,22 @@ class HBinaryCall : public HCall<2> {
 
 class HCallJSFunction FINAL : public HCall<1> {
  public:
-  static HCallJSFunction* New(Zone* zone,
-                              HValue* context,
-                              HValue* function,
-                              int argument_count,
+  static HCallJSFunction* New(Isolate* isolate, Zone* zone, HValue* context,
+                              HValue* function, int argument_count,
                               bool pass_argument_count);
 
   HValue* function() const { return OperandAt(0); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(
-      int index) FINAL OVERRIDE {
+  Representation RequiredInputRepresentation(int index) FINAL {
     DCHECK(index == 0);
     return Representation::Tagged();
   }
 
   bool pass_argument_count() const { return pass_argument_count_; }
 
-  virtual bool HasStackCheck() FINAL OVERRIDE {
-    return has_stack_check_;
-  }
+  bool HasStackCheck() FINAL { return has_stack_check_; }
 
   DECLARE_CONCRETE_INSTRUCTION(CallJSFunction)
 
@@ -2338,27 +2298,26 @@ class HCallJSFunction FINAL : public HCall<1> {
 };
 
 
+enum CallMode { NORMAL_CALL, TAIL_CALL };
+
+
 class HCallWithDescriptor FINAL : public HInstruction {
  public:
-  static HCallWithDescriptor* New(Zone* zone, HValue* context, HValue* target,
-                                  int argument_count,
+  static HCallWithDescriptor* New(Isolate* isolate, Zone* zone, HValue* context,
+                                  HValue* target, int argument_count,
                                   CallInterfaceDescriptor descriptor,
-                                  const Vector<HValue*>& operands) {
+                                  const Vector<HValue*>& operands,
+                                  CallMode call_mode = NORMAL_CALL) {
     DCHECK(operands.length() == descriptor.GetEnvironmentLength());
-    HCallWithDescriptor* res = new (zone)
-        HCallWithDescriptor(target, argument_count, descriptor, operands, zone);
+    HCallWithDescriptor* res = new (zone) HCallWithDescriptor(
+        target, argument_count, descriptor, operands, call_mode, zone);
     return res;
   }
 
-  virtual int OperandCount() const FINAL OVERRIDE {
-    return values_.length();
-  }
-  virtual HValue* OperandAt(int index) const FINAL OVERRIDE {
-    return values_[index];
-  }
+  int OperandCount() const FINAL { return values_.length(); }
+  HValue* OperandAt(int index) const FINAL { return values_[index]; }
 
-  virtual Representation RequiredInputRepresentation(
-      int index) FINAL OVERRIDE {
+  Representation RequiredInputRepresentation(int index) FINAL {
     if (index == 0) {
       return Representation::Tagged();
     } else {
@@ -2370,17 +2329,15 @@ class HCallWithDescriptor FINAL : public HInstruction {
 
   DECLARE_CONCRETE_INSTRUCTION(CallWithDescriptor)
 
-  virtual HType CalculateInferredType() FINAL OVERRIDE {
-    return HType::Tagged();
-  }
+  HType CalculateInferredType() FINAL { return HType::Tagged(); }
+
+  bool IsTailCall() const { return call_mode_ == TAIL_CALL; }
 
   virtual int argument_count() const {
     return argument_count_;
   }
 
-  virtual int argument_delta() const OVERRIDE {
-    return -argument_count_;
-  }
+  int argument_delta() const OVERRIDE { return -argument_count_; }
 
   CallInterfaceDescriptor descriptor() const { return descriptor_; }
 
@@ -2388,16 +2345,20 @@ class HCallWithDescriptor FINAL : public HInstruction {
     return OperandAt(0);
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
  private:
   // The argument count includes the receiver.
   HCallWithDescriptor(HValue* target, int argument_count,
                       CallInterfaceDescriptor descriptor,
-                      const Vector<HValue*>& operands, Zone* zone)
+                      const Vector<HValue*>& operands, CallMode call_mode,
+                      Zone* zone)
       : descriptor_(descriptor),
-        values_(descriptor.GetEnvironmentLength() + 1, zone) {
-    argument_count_ = argument_count;
+        values_(descriptor.GetEnvironmentLength() + 1, zone),
+        argument_count_(argument_count),
+        call_mode_(call_mode) {
+    // We can only tail call without any stack arguments.
+    DCHECK(call_mode != TAIL_CALL || argument_count == 0);
     AddOperand(target, zone);
     for (int i = 0; i < operands.length(); i++) {
       AddOperand(operands[i], zone);
@@ -2411,14 +2372,14 @@ class HCallWithDescriptor FINAL : public HInstruction {
     SetOperandAt(values_.length() - 1, v);
   }
 
-  void InternalSetOperandAt(int index,
-                            HValue* value) FINAL OVERRIDE {
+  void InternalSetOperandAt(int index, HValue* value) FINAL {
     values_[index] = value;
   }
 
   CallInterfaceDescriptor descriptor_;
   ZoneList<HValue*> values_;
   int argument_count_;
+  CallMode call_mode_;
 };
 
 
@@ -2439,8 +2400,7 @@ class HInvokeFunction FINAL : public HBinaryCall {
          known_function->code()->kind() == Code::OPTIMIZED_FUNCTION);
   }
 
-  static HInvokeFunction* New(Zone* zone,
-                              HValue* context,
+  static HInvokeFunction* New(Isolate* isolate, Zone* zone, HValue* context,
                               HValue* function,
                               Handle<JSFunction> known_function,
                               int argument_count) {
@@ -2453,9 +2413,7 @@ class HInvokeFunction FINAL : public HBinaryCall {
   Handle<JSFunction> known_function() { return known_function_; }
   int formal_parameter_count() const { return formal_parameter_count_; }
 
-  virtual bool HasStackCheck() FINAL OVERRIDE {
-    return has_stack_check_;
-  }
+  bool HasStackCheck() FINAL { return has_stack_check_; }
 
   DECLARE_CONCRETE_INSTRUCTION(InvokeFunction)
 
@@ -2477,22 +2435,36 @@ class HCallFunction FINAL : public HBinaryCall {
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P3(
       HCallFunction, HValue*, int, CallFunctionFlags);
 
-  HValue* context() { return first(); }
-  HValue* function() { return second(); }
+  HValue* context() const { return first(); }
+  HValue* function() const { return second(); }
   CallFunctionFlags function_flags() const { return function_flags_; }
+
+  FeedbackVectorICSlot slot() const { return slot_; }
+  Handle<TypeFeedbackVector> feedback_vector() const {
+    return feedback_vector_;
+  }
+  bool HasVectorAndSlot() const { return !feedback_vector_.is_null(); }
+  void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
+                        FeedbackVectorICSlot slot) {
+    feedback_vector_ = vector;
+    slot_ = slot;
+  }
 
   DECLARE_CONCRETE_INSTRUCTION(CallFunction)
 
-  virtual int argument_delta() const OVERRIDE { return -argument_count(); }
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+
+  int argument_delta() const OVERRIDE { return -argument_count(); }
 
  private:
-  HCallFunction(HValue* context,
-                HValue* function,
-                int argument_count,
+  HCallFunction(HValue* context, HValue* function, int argument_count,
                 CallFunctionFlags flags = NO_CALL_FUNCTION_FLAGS)
-      : HBinaryCall(context, function, argument_count), function_flags_(flags) {
-  }
+      : HBinaryCall(context, function, argument_count),
+        function_flags_(flags),
+        slot_(FeedbackVectorICSlot::Invalid()) {}
   CallFunctionFlags function_flags_;
+  Handle<TypeFeedbackVector> feedback_vector_;
+  FeedbackVectorICSlot slot_;
 };
 
 
@@ -2521,7 +2493,7 @@ class HCallNewArray FINAL : public HBinaryCall {
   HValue* context() { return first(); }
   HValue* constructor() { return second(); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   ElementsKind elements_kind() const { return elements_kind_; }
 
@@ -2544,7 +2516,7 @@ class HCallRuntime FINAL : public HCall<1> {
                                               const Runtime::Function*,
                                               int);
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* context() { return OperandAt(0); }
   const Runtime::Function* function() const { return c_function_; }
@@ -2554,7 +2526,7 @@ class HCallRuntime FINAL : public HCall<1> {
     save_doubles_ = save_doubles;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -2580,14 +2552,14 @@ class HMapEnumLength FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HMapEnumLength, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(MapEnumLength)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HMapEnumLength(HValue* value)
@@ -2597,23 +2569,21 @@ class HMapEnumLength FINAL : public HUnaryOperation {
     SetDependsOnFlag(kMaps);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
 class HUnaryMathOperation FINAL : public HTemplateInstruction<2> {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* value,
-                           BuiltinFunctionId op);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* value, BuiltinFunctionId op);
 
   HValue* context() const { return OperandAt(0); }
   HValue* value() const { return OperandAt(1); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 0) {
       return Representation::Tagged();
     } else {
@@ -2637,11 +2607,11 @@ class HUnaryMathOperation FINAL : public HTemplateInstruction<2> {
     }
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
-  virtual HValue* Canonicalize() OVERRIDE;
-  virtual Representation RepresentationFromUses() OVERRIDE;
-  virtual Representation RepresentationFromInputs() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
+  Representation RepresentationFromUses() OVERRIDE;
+  Representation RepresentationFromInputs() OVERRIDE;
 
   BuiltinFunctionId op() const { return op_; }
   const char* OpName() const;
@@ -2649,7 +2619,7 @@ class HUnaryMathOperation FINAL : public HTemplateInstruction<2> {
   DECLARE_CONCRETE_INSTRUCTION(UnaryMathOperation)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HUnaryMathOperation* b = HUnaryMathOperation::cast(other);
     return op_ == b->op();
   }
@@ -2701,7 +2671,7 @@ class HUnaryMathOperation FINAL : public HTemplateInstruction<2> {
     SetFlag(kAllowUndefinedAsNaN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   HValue* SimplifiedDividendForMathFloorOfDiv(HDiv* hdiv);
   HValue* SimplifiedDivisorForMathFloorOfDiv(HDiv* hdiv);
@@ -2715,7 +2685,7 @@ class HLoadRoot FINAL : public HTemplateInstruction<0> {
   DECLARE_INSTRUCTION_FACTORY_P1(HLoadRoot, Heap::RootListIndex);
   DECLARE_INSTRUCTION_FACTORY_P2(HLoadRoot, Heap::RootListIndex, HType);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -2724,7 +2694,7 @@ class HLoadRoot FINAL : public HTemplateInstruction<0> {
   DECLARE_CONCRETE_INSTRUCTION(LoadRoot)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HLoadRoot* b = HLoadRoot::cast(other);
     return index_ == b->index_;
   }
@@ -2739,7 +2709,7 @@ class HLoadRoot FINAL : public HTemplateInstruction<0> {
     set_representation(Representation::Tagged());
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   const Heap::RootListIndex index_;
 };
@@ -2747,12 +2717,13 @@ class HLoadRoot FINAL : public HTemplateInstruction<0> {
 
 class HCheckMaps FINAL : public HTemplateInstruction<2> {
  public:
-  static HCheckMaps* New(Zone* zone, HValue* context, HValue* value,
-                         Handle<Map> map, HValue* typecheck = NULL) {
+  static HCheckMaps* New(Isolate* isolate, Zone* zone, HValue* context,
+                         HValue* value, Handle<Map> map,
+                         HValue* typecheck = NULL) {
     return new(zone) HCheckMaps(value, new(zone) UniqueSet<Map>(
             Unique<Map>::CreateImmovable(map), zone), typecheck);
   }
-  static HCheckMaps* New(Zone* zone, HValue* context,
+  static HCheckMaps* New(Isolate* isolate, Zone* zone, HValue* context,
                          HValue* value, SmallMapList* map_list,
                          HValue* typecheck = NULL) {
     UniqueSet<Map>* maps = new(zone) UniqueSet<Map>(map_list->length(), zone);
@@ -2774,17 +2745,17 @@ class HCheckMaps FINAL : public HTemplateInstruction<2> {
     ClearDependsOnFlag(kMaps);
   }
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual HType CalculateInferredType() OVERRIDE {
+  HType CalculateInferredType() OVERRIDE {
     if (value()->type().IsHeapObject()) return value()->type();
     return HType::HeapObject();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* value() const { return OperandAt(0); }
   HValue* typecheck() const { return OperandAt(1); }
@@ -2800,7 +2771,7 @@ class HCheckMaps FINAL : public HTemplateInstruction<2> {
     return HasMigrationTargetField::decode(bit_field_);
   }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   static HCheckMaps* CreateAndInsertAfter(Zone* zone,
                                           HValue* value,
@@ -2822,11 +2793,11 @@ class HCheckMaps FINAL : public HTemplateInstruction<2> {
   DECLARE_CONCRETE_INSTRUCTION(CheckMaps)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return this->maps()->Equals(HCheckMaps::cast(other)->maps());
   }
 
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   HCheckMaps(HValue* value, const UniqueSet<Map>* maps, bool maps_are_stable)
@@ -2882,9 +2853,9 @@ class HCheckMaps FINAL : public HTemplateInstruction<2> {
 
 class HCheckValue FINAL : public HUnaryOperation {
  public:
-  static HCheckValue* New(Zone* zone, HValue* context,
+  static HCheckValue* New(Isolate* isolate, Zone* zone, HValue* context,
                           HValue* value, Handle<JSFunction> func) {
-    bool in_new_space = zone->isolate()->heap()->InNewSpace(*func);
+    bool in_new_space = isolate->heap()->InNewSpace(*func);
     // NOTE: We create an uninitialized Unique and initialize it later.
     // This is because a JSFunction can move due to GC during graph creation.
     // TODO(titzer): This is a migration crutch. Replace with some kind of
@@ -2893,25 +2864,25 @@ class HCheckValue FINAL : public HUnaryOperation {
     HCheckValue* check = new(zone) HCheckValue(value, target, in_new_space);
     return check;
   }
-  static HCheckValue* New(Zone* zone, HValue* context,
+  static HCheckValue* New(Isolate* isolate, Zone* zone, HValue* context,
                           HValue* value, Unique<HeapObject> target,
                           bool object_in_new_space) {
     return new(zone) HCheckValue(value, target, object_in_new_space);
   }
 
-  virtual void FinalizeUniqueness() OVERRIDE {
+  void FinalizeUniqueness() OVERRIDE {
     object_ = Unique<HeapObject>(object_.handle());
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE;
+  void Verify() OVERRIDE;
 #endif
 
   Unique<HeapObject> object() const { return object_; }
@@ -2920,7 +2891,7 @@ class HCheckValue FINAL : public HUnaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(CheckValue)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HCheckValue* b = HCheckValue::cast(other);
     return object_ == b->object_;
   }
@@ -2952,13 +2923,13 @@ class HCheckInstanceType FINAL : public HUnaryOperation {
 
   DECLARE_INSTRUCTION_FACTORY_P2(HCheckInstanceType, HValue*, Check);
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual HType CalculateInferredType() OVERRIDE {
+  HType CalculateInferredType() OVERRIDE {
     switch (check_) {
       case IS_SPEC_OBJECT: return HType::JSObject();
       case IS_JS_ARRAY: return HType::JSArray();
@@ -2969,7 +2940,7 @@ class HCheckInstanceType FINAL : public HUnaryOperation {
     return HType::Tagged();
   }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   bool is_interval_check() const { return check_ <= LAST_INTERVAL_CHECK; }
   void GetCheckInterval(InstanceType* first, InstanceType* last);
@@ -2983,12 +2954,12 @@ class HCheckInstanceType FINAL : public HUnaryOperation {
   // TODO(ager): It could be nice to allow the ommision of instance
   // type checks if we have already performed an instance type check
   // with a larger range.
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HCheckInstanceType* b = HCheckInstanceType::cast(other);
     return check_ == b->check_;
   }
 
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   const char* GetCheckName() const;
@@ -3007,11 +2978,11 @@ class HCheckSmi FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HCheckSmi, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual HValue* Canonicalize() OVERRIDE {
+  HValue* Canonicalize() OVERRIDE {
     HType value_type = value()->type();
     if (value_type.IsSmi()) {
       return NULL;
@@ -3022,7 +2993,7 @@ class HCheckSmi FINAL : public HUnaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(CheckSmi)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HCheckSmi(HValue* value) : HUnaryOperation(value, HType::Smi()) {
@@ -3036,28 +3007,28 @@ class HCheckHeapObject FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HCheckHeapObject, HValue*);
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual HType CalculateInferredType() OVERRIDE {
+  HType CalculateInferredType() OVERRIDE {
     if (value()->type().IsHeapObject()) return value()->type();
     return HType::HeapObject();
   }
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE;
+  void Verify() OVERRIDE;
 #endif
 
-  virtual HValue* Canonicalize() OVERRIDE {
+  HValue* Canonicalize() OVERRIDE {
     return value()->type().IsHeapObject() ? NULL : this;
   }
 
   DECLARE_CONCRETE_INSTRUCTION(CheckHeapObject)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HCheckHeapObject(HValue* value) : HUnaryOperation(value) {
@@ -3303,22 +3274,20 @@ class HPhi FINAL : public HValue {
     SetFlag(kAllowUndefinedAsNaN);
   }
 
-  virtual Representation RepresentationFromInputs() OVERRIDE;
+  Representation RepresentationFromInputs() OVERRIDE;
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
-  virtual Representation KnownOptimalRepresentation() OVERRIDE {
+  Representation KnownOptimalRepresentation() OVERRIDE {
     return representation();
   }
-  virtual HType CalculateInferredType() OVERRIDE;
-  virtual int OperandCount() const OVERRIDE { return inputs_.length(); }
-  virtual HValue* OperandAt(int index) const OVERRIDE {
-    return inputs_[index];
-  }
+  HType CalculateInferredType() OVERRIDE;
+  int OperandCount() const OVERRIDE { return inputs_.length(); }
+  HValue* OperandAt(int index) const OVERRIDE { return inputs_[index]; }
   HValue* GetRedundantReplacement();
   void AddInput(HValue* value);
   bool HasRealUses();
@@ -3326,7 +3295,7 @@ class HPhi FINAL : public HValue {
   bool IsReceiver() const { return merged_index_ == 0; }
   bool HasMergedIndex() const { return merged_index_ != kInvalidMergedIndex; }
 
-  virtual HSourcePosition position() const OVERRIDE;
+  HSourcePosition position() const OVERRIDE;
 
   int merged_index() const { return merged_index_; }
 
@@ -3345,10 +3314,10 @@ class HPhi FINAL : public HValue {
     induction_variable_data_ = InductionVariableData::ExaminePhi(this);
   }
 
-  virtual std::ostream& PrintTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE;
+  void Verify() OVERRIDE;
 #endif
 
   void InitRealUses(int id);
@@ -3385,7 +3354,7 @@ class HPhi FINAL : public HValue {
     DCHECK(value->IsPhi());
     return reinterpret_cast<HPhi*>(value);
   }
-  virtual Opcode opcode() const OVERRIDE { return HValue::kPhi; }
+  Opcode opcode() const OVERRIDE { return HValue::kPhi; }
 
   void SimplifyConstantInputs();
 
@@ -3393,8 +3362,8 @@ class HPhi FINAL : public HValue {
   static const int kInvalidMergedIndex = -1;
 
  protected:
-  virtual void DeleteFromGraph() OVERRIDE;
-  virtual void InternalSetOperandAt(int index, HValue* value) OVERRIDE {
+  void DeleteFromGraph() OVERRIDE;
+  void InternalSetOperandAt(int index, HValue* value) OVERRIDE {
     inputs_[index] = value;
   }
 
@@ -3408,7 +3377,7 @@ class HPhi FINAL : public HValue {
   InductionVariableData* induction_variable_data_;
 
   // TODO(titzer): we can't eliminate the receiver for generating backtraces
-  virtual bool IsDeletable() const OVERRIDE { return !IsReceiver(); }
+  bool IsDeletable() const OVERRIDE { return !IsReceiver(); }
 };
 
 
@@ -3417,24 +3386,16 @@ class HDematerializedObject : public HInstruction {
  public:
   HDematerializedObject(int count, Zone* zone) : values_(count, zone) {}
 
-  virtual int OperandCount() const FINAL OVERRIDE {
-    return values_.length();
-  }
-  virtual HValue* OperandAt(int index) const FINAL OVERRIDE {
-    return values_[index];
-  }
+  int OperandCount() const FINAL { return values_.length(); }
+  HValue* OperandAt(int index) const FINAL { return values_[index]; }
 
-  virtual bool HasEscapingOperandAt(int index) FINAL OVERRIDE {
-    return false;
-  }
-  virtual Representation RequiredInputRepresentation(
-      int index) FINAL OVERRIDE {
+  bool HasEscapingOperandAt(int index) FINAL { return false; }
+  Representation RequiredInputRepresentation(int index) FINAL {
     return Representation::None();
   }
 
  protected:
-  virtual void InternalSetOperandAt(int index,
-                                    HValue* value) FINAL OVERRIDE {
+  void InternalSetOperandAt(int index, HValue* value) FINAL {
     values_[index] = value;
   }
 
@@ -3445,7 +3406,8 @@ class HDematerializedObject : public HInstruction {
 
 class HArgumentsObject FINAL : public HDematerializedObject {
  public:
-  static HArgumentsObject* New(Zone* zone, HValue* context, int count) {
+  static HArgumentsObject* New(Isolate* isolate, Zone* zone, HValue* context,
+                               int count) {
     return new(zone) HArgumentsObject(count, zone);
   }
 
@@ -3497,7 +3459,7 @@ class HCapturedObject FINAL : public HDematerializedObject {
   // Replay effects of this instruction on the given environment.
   void ReplayEnvironment(HEnvironment* env);
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(CapturedObject)
 
@@ -3507,28 +3469,30 @@ class HCapturedObject FINAL : public HDematerializedObject {
   // Note that we cannot DCE captured objects as they are used to replay
   // the environment. This method is here as an explicit reminder.
   // TODO(mstarzinger): Turn HSimulates into full snapshots maybe?
-  virtual bool IsDeletable() const FINAL OVERRIDE { return false; }
+  bool IsDeletable() const FINAL { return false; }
 };
 
 
 class HConstant FINAL : public HTemplateInstruction<0> {
  public:
+  enum Special { kHoleNaN };
+
+  DECLARE_INSTRUCTION_FACTORY_P1(HConstant, Special);
   DECLARE_INSTRUCTION_FACTORY_P1(HConstant, int32_t);
   DECLARE_INSTRUCTION_FACTORY_P2(HConstant, int32_t, Representation);
   DECLARE_INSTRUCTION_FACTORY_P1(HConstant, double);
   DECLARE_INSTRUCTION_FACTORY_P1(HConstant, Handle<Object>);
   DECLARE_INSTRUCTION_FACTORY_P1(HConstant, ExternalReference);
 
-  static HConstant* CreateAndInsertAfter(Zone* zone,
-                                         HValue* context,
-                                         int32_t value,
+  static HConstant* CreateAndInsertAfter(Isolate* isolate, Zone* zone,
+                                         HValue* context, int32_t value,
                                          Representation representation,
                                          HInstruction* instruction) {
-    return instruction->Append(HConstant::New(
-        zone, context, value, representation));
+    return instruction->Append(
+        HConstant::New(isolate, zone, context, value, representation));
   }
 
-  virtual Handle<Map> GetMonomorphicJSObjectMap() OVERRIDE {
+  Handle<Map> GetMonomorphicJSObjectMap() OVERRIDE {
     Handle<Object> object = object_.handle();
     if (!object.is_null() && object->IsHeapObject()) {
       return v8::internal::handle(HeapObject::cast(*object)->map());
@@ -3536,13 +3500,12 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     return Handle<Map>();
   }
 
-  static HConstant* CreateAndInsertBefore(Zone* zone,
-                                          HValue* context,
-                                          int32_t value,
+  static HConstant* CreateAndInsertBefore(Isolate* isolate, Zone* zone,
+                                          HValue* context, int32_t value,
                                           Representation representation,
                                           HInstruction* instruction) {
-    return instruction->Prepend(HConstant::New(
-        zone, context, value, representation));
+    return instruction->Prepend(
+        HConstant::New(isolate, zone, context, value, representation));
   }
 
   static HConstant* CreateAndInsertBefore(Zone* zone,
@@ -3580,7 +3543,6 @@ class HConstant FINAL : public HTemplateInstruction<0> {
   bool IsSpecialDouble() const {
     return HasDoubleValue() &&
            (bit_cast<int64_t>(double_value_) == bit_cast<int64_t>(-0.0) ||
-            FixedDoubleArray::is_the_hole_nan(double_value_) ||
             std::isnan(double_value_));
   }
 
@@ -3595,11 +3557,11 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     return instance_type == CELL_TYPE || instance_type == PROPERTY_CELL_TYPE;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual Representation KnownOptimalRepresentation() OVERRIDE {
+  Representation KnownOptimalRepresentation() OVERRIDE {
     if (HasSmiValue() && SmiValuesAre31Bits()) return Representation::Smi();
     if (HasInteger32Value()) return Representation::Integer32();
     if (HasNumberValue()) return Representation::Double();
@@ -3607,11 +3569,11 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     return Representation::Tagged();
   }
 
-  virtual bool EmitAtUses() OVERRIDE;
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  bool EmitAtUses() OVERRIDE;
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
   HConstant* CopyToRepresentation(Representation r, Zone* zone) const;
   Maybe<HConstant*> CopyToTruncatedInt32(Zone* zone);
-  Maybe<HConstant*> CopyToTruncatedNumber(Zone* zone);
+  Maybe<HConstant*> CopyToTruncatedNumber(Isolate* isolate, Zone* zone);
   bool HasInteger32Value() const {
     return HasInt32ValueField::decode(bit_field_);
   }
@@ -3627,8 +3589,15 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     DCHECK(HasDoubleValue());
     return double_value_;
   }
+  uint64_t DoubleValueAsBits() const {
+    uint64_t bits;
+    DCHECK(HasDoubleValue());
+    STATIC_ASSERT(sizeof(bits) == sizeof(double_value_));
+    std::memcpy(&bits, &double_value_, sizeof(bits));
+    return bits;
+  }
   bool IsTheHole() const {
-    if (HasDoubleValue() && FixedDoubleArray::is_the_hole_nan(double_value_)) {
+    if (HasDoubleValue() && DoubleValueAsBits() == kHoleNanInt64) {
       return true;
     }
     return object_.IsInitialized() &&
@@ -3687,11 +3656,15 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     return object_map_;
   }
 
-  virtual intptr_t Hashcode() OVERRIDE {
+  intptr_t Hashcode() OVERRIDE {
     if (HasInteger32Value()) {
       return static_cast<intptr_t>(int32_value_);
     } else if (HasDoubleValue()) {
-      return static_cast<intptr_t>(bit_cast<int64_t>(double_value_));
+      uint64_t bits = DoubleValueAsBits();
+      if (sizeof(bits) > sizeof(intptr_t)) {
+        bits ^= (bits >> 32);
+      }
+      return static_cast<intptr_t>(bits);
     } else if (HasExternalReferenceValue()) {
       return reinterpret_cast<intptr_t>(external_reference_value_.address());
     } else {
@@ -3700,7 +3673,7 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     }
   }
 
-  virtual void FinalizeUniqueness() OVERRIDE {
+  void FinalizeUniqueness() OVERRIDE {
     if (!HasDoubleValue() && !HasExternalReferenceValue()) {
       DCHECK(!object_.handle().is_null());
       object_ = Unique<Object>(object_.handle());
@@ -3715,15 +3688,15 @@ class HConstant FINAL : public HTemplateInstruction<0> {
     return object_.IsInitialized() && object_ == other;
   }
 
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HConstant* other_constant = HConstant::cast(other);
     if (HasInteger32Value()) {
       return other_constant->HasInteger32Value() &&
              int32_value_ == other_constant->int32_value_;
     } else if (HasDoubleValue()) {
       return other_constant->HasDoubleValue() &&
-             bit_cast<int64_t>(double_value_) ==
-                 bit_cast<int64_t>(other_constant->double_value_);
+             std::memcmp(&double_value_, &other_constant->double_value_,
+                         sizeof(double_value_)) == 0;
     } else if (HasExternalReferenceValue()) {
       return other_constant->HasExternalReferenceValue() &&
              external_reference_value_ ==
@@ -3740,16 +3713,17 @@ class HConstant FINAL : public HTemplateInstruction<0> {
   }
 
 #ifdef DEBUG
-  virtual void Verify() OVERRIDE { }
+  void Verify() OVERRIDE {}
 #endif
 
   DECLARE_CONCRETE_INSTRUCTION(Constant)
 
  protected:
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   friend class HGraph;
+  explicit HConstant(Special special);
   explicit HConstant(Handle<Object> handle,
                      Representation r = Representation::None());
   HConstant(int32_t value,
@@ -3774,7 +3748,7 @@ class HConstant FINAL : public HTemplateInstruction<0> {
 
   void Initialize(Representation r);
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   // If object_ is a map, this indicates whether the map is stable.
   class HasStableMapValueField : public BitField<bool, 0, 1> {};
@@ -3862,7 +3836,7 @@ class HBinaryOperation : public HTemplateInstruction<3> {
     observed_output_representation_ = observed;
   }
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     if (index == 0) return Representation::Tagged();
     return observed_input_representation_[index - 1];
   }
@@ -3877,15 +3851,15 @@ class HBinaryOperation : public HTemplateInstruction<3> {
 
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
-  virtual Representation RepresentationFromInputs() OVERRIDE;
+  Representation RepresentationFromInputs() OVERRIDE;
   Representation RepresentationFromOutput();
-  virtual void AssumeRepresentation(Representation r) OVERRIDE;
+  void AssumeRepresentation(Representation r) OVERRIDE;
 
   virtual bool IsCommutative() const { return false; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 0) return Representation::Tagged();
     return representation();
   }
@@ -3920,18 +3894,18 @@ class HWrapReceiver FINAL : public HTemplateInstruction<2> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P2(HWrapReceiver, HValue*, HValue*);
 
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   HValue* receiver() const { return OperandAt(0); }
   HValue* function() const { return OperandAt(1); }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
   bool known_function() const { return known_function_; }
 
   DECLARE_CONCRETE_INSTRUCTION(WrapReceiver)
@@ -3955,7 +3929,7 @@ class HApplyArguments FINAL : public HTemplateInstruction<4> {
   DECLARE_INSTRUCTION_FACTORY_P4(HApplyArguments, HValue*, HValue*, HValue*,
                                  HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // The length is untagged, all other inputs are tagged.
     return (index == 2)
         ? Representation::Integer32()
@@ -3990,14 +3964,14 @@ class HArgumentsElements FINAL : public HTemplateInstruction<0> {
 
   DECLARE_CONCRETE_INSTRUCTION(ArgumentsElements)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
   bool from_inlined() const { return from_inlined_; }
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HArgumentsElements(bool from_inlined) : from_inlined_(from_inlined) {
@@ -4007,7 +3981,7 @@ class HArgumentsElements FINAL : public HTemplateInstruction<0> {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   bool from_inlined_;
 };
@@ -4017,14 +3991,14 @@ class HArgumentsLength FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HArgumentsLength, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(ArgumentsLength)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HArgumentsLength(HValue* value) : HUnaryOperation(value) {
@@ -4032,7 +4006,7 @@ class HArgumentsLength FINAL : public HUnaryOperation {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -4040,9 +4014,9 @@ class HAccessArgumentsAt FINAL : public HTemplateInstruction<3> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P3(HAccessArgumentsAt, HValue*, HValue*, HValue*);
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // The arguments elements is considered tagged.
     return index == 0
         ? Representation::Tagged()
@@ -4064,7 +4038,7 @@ class HAccessArgumentsAt FINAL : public HTemplateInstruction<3> {
     SetOperandAt(2, index);
   }
 
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 };
 
 
@@ -4100,11 +4074,11 @@ class HBoundsCheck FINAL : public HTemplateInstruction<2> {
     }
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
 
@@ -4113,19 +4087,17 @@ class HBoundsCheck FINAL : public HTemplateInstruction<2> {
   bool allow_equality() const { return allow_equality_; }
   void set_allow_equality(bool v) { allow_equality_ = v; }
 
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
-  virtual bool IsPurelyInformativeDefinition() OVERRIDE {
-    return skip_check();
-  }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
+  bool IsPurelyInformativeDefinition() OVERRIDE { return skip_check(); }
 
   DECLARE_CONCRETE_INSTRUCTION(BoundsCheck)
 
  protected:
   friend class HBoundsCheckBaseIndexInformation;
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
   bool skip_check_;
   HValue* base_;
   int offset_;
@@ -4147,9 +4119,7 @@ class HBoundsCheck FINAL : public HTemplateInstruction<2> {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE {
-    return skip_check() && !FLAG_debug_code;
-  }
+  bool IsDeletable() const OVERRIDE { return skip_check() && !FLAG_debug_code; }
 };
 
 
@@ -4171,14 +4141,14 @@ class HBoundsCheckBaseIndexInformation FINAL
 
   DECLARE_CONCRETE_INSTRUCTION(BoundsCheckBaseIndexInformation)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
-  virtual bool IsPurelyInformativeDefinition() OVERRIDE { return true; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
+  bool IsPurelyInformativeDefinition() OVERRIDE { return true; }
 };
 
 
@@ -4193,7 +4163,7 @@ class HBitwiseBinaryOperation : public HBinaryOperation {
     SetAllSideEffects();
   }
 
-  virtual void RepresentationChanged(Representation to) OVERRIDE {
+  void RepresentationChanged(Representation to) OVERRIDE {
     if (to.IsTagged() &&
         (left()->ToNumberCanBeObserved() || right()->ToNumberCanBeObserved())) {
       SetAllSideEffects();
@@ -4213,7 +4183,7 @@ class HBitwiseBinaryOperation : public HBinaryOperation {
     HBinaryOperation::UpdateRepresentation(new_rep, h_infer, reason);
   }
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     Representation r = HBinaryOperation::observed_input_representation(index);
     if (r.IsDouble()) return Representation::Integer32();
     return r;
@@ -4228,7 +4198,7 @@ class HBitwiseBinaryOperation : public HBinaryOperation {
   DECLARE_ABSTRACT_INSTRUCTION(BitwiseBinaryOperation)
 
  private:
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -4241,7 +4211,7 @@ class HMathFloorOfDiv FINAL : public HBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(MathFloorOfDiv)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HMathFloorOfDiv(HValue* context, HValue* left, HValue* right)
@@ -4256,9 +4226,9 @@ class HMathFloorOfDiv FINAL : public HBinaryOperation {
     SetFlag(kAllowUndefinedAsNaN);
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -4271,7 +4241,7 @@ class HArithmeticBinaryOperation : public HBinaryOperation {
     SetFlag(kAllowUndefinedAsNaN);
   }
 
-  virtual void RepresentationChanged(Representation to) OVERRIDE {
+  void RepresentationChanged(Representation to) OVERRIDE {
     if (to.IsTagged() &&
         (left()->ToNumberCanBeObserved() || right()->ToNumberCanBeObserved())) {
       SetAllSideEffects();
@@ -4286,7 +4256,7 @@ class HArithmeticBinaryOperation : public HBinaryOperation {
   DECLARE_ABSTRACT_INSTRUCTION(ArithmeticBinaryOperation)
 
  private:
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -4295,14 +4265,14 @@ class HCompareGeneric FINAL : public HBinaryOperation {
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P3(HCompareGeneric, HValue*,
                                               HValue*, Token::Value);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return index == 0
         ? Representation::Tagged()
         : representation();
   }
 
   Token::Value token() const { return token_; }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(CompareGeneric)
 
@@ -4343,16 +4313,16 @@ class HCompareNumericAndBranch : public HTemplateControlInstruction<2, 2> {
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     return observed_input_representation_[index];
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   void SetOperandPositions(Zone* zone,
                            HSourcePosition left_pos,
@@ -4392,7 +4362,7 @@ class HCompareHoleAndBranch FINAL : public HUnaryControlInstruction {
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
 
@@ -4416,11 +4386,11 @@ class HCompareMinusZeroAndBranch FINAL : public HUnaryControlInstruction {
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return representation();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(CompareMinusZeroAndBranch)
 
@@ -4437,7 +4407,7 @@ class HCompareObjectEqAndBranch : public HTemplateControlInstruction<2, 2> {
   DECLARE_INSTRUCTION_FACTORY_P4(HCompareObjectEqAndBranch, HValue*, HValue*,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   static const int kNoKnownSuccessorIndex = -1;
   int known_successor_index() const { return known_successor_index_; }
@@ -4448,13 +4418,13 @@ class HCompareObjectEqAndBranch : public HTemplateControlInstruction<2, 2> {
   HValue* left() const { return OperandAt(0); }
   HValue* right() const { return OperandAt(1); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -4482,11 +4452,11 @@ class HIsObjectAndBranch FINAL : public HUnaryControlInstruction {
   DECLARE_INSTRUCTION_FACTORY_P3(HIsObjectAndBranch, HValue*,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(IsObjectAndBranch)
 
@@ -4504,11 +4474,11 @@ class HIsStringAndBranch FINAL : public HUnaryControlInstruction {
   DECLARE_INSTRUCTION_FACTORY_P3(HIsStringAndBranch, HValue*,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   static const int kNoKnownSuccessorIndex = -1;
   int known_successor_index() const { return known_successor_index_; }
@@ -4519,7 +4489,7 @@ class HIsStringAndBranch FINAL : public HUnaryControlInstruction {
   DECLARE_CONCRETE_INSTRUCTION(IsStringAndBranch)
 
  protected:
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   HIsStringAndBranch(HValue* value, HBasicBlock* true_target = NULL,
@@ -4541,13 +4511,13 @@ class HIsSmiAndBranch FINAL : public HUnaryControlInstruction {
 
   DECLARE_CONCRETE_INSTRUCTION(IsSmiAndBranch)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   HIsSmiAndBranch(HValue* value,
@@ -4565,11 +4535,11 @@ class HIsUndetectableAndBranch FINAL : public HUnaryControlInstruction {
   DECLARE_INSTRUCTION_FACTORY_P3(HIsUndetectableAndBranch, HValue*,
                                  HBasicBlock*, HBasicBlock*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(IsUndetectableAndBranch)
 
@@ -4593,9 +4563,9 @@ class HStringCompareAndBranch : public HTemplateControlInstruction<2, 3> {
   HValue* right() { return OperandAt(2); }
   Token::Value token() const { return token_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -4627,7 +4597,7 @@ class HIsConstructCallAndBranch : public HTemplateControlInstruction<2, 0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P0(HIsConstructCallAndBranch);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -4647,13 +4617,13 @@ class HHasInstanceTypeAndBranch FINAL : public HUnaryControlInstruction {
   InstanceType from() { return from_; }
   InstanceType to() { return to_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(HasInstanceTypeAndBranch)
 
@@ -4674,7 +4644,7 @@ class HHasCachedArrayIndexAndBranch FINAL : public HUnaryControlInstruction {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HHasCachedArrayIndexAndBranch, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -4689,14 +4659,14 @@ class HGetCachedArrayIndex FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HGetCachedArrayIndex, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(GetCachedArrayIndex)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HGetCachedArrayIndex(HValue* value) : HUnaryOperation(value) {
@@ -4704,7 +4674,7 @@ class HGetCachedArrayIndex FINAL : public HUnaryOperation {
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -4715,11 +4685,11 @@ class HClassOfTestAndBranch FINAL : public HUnaryControlInstruction {
 
   DECLARE_CONCRETE_INSTRUCTION(ClassOfTestAndBranch)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   Handle<String> class_name() const { return class_name_; }
 
@@ -4737,17 +4707,17 @@ class HTypeofIsAndBranch FINAL : public HUnaryControlInstruction {
   DECLARE_INSTRUCTION_FACTORY_P2(HTypeofIsAndBranch, HValue*, Handle<String>);
 
   Handle<String> type_literal() const { return type_literal_.handle(); }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(TypeofIsAndBranch)
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
+  bool KnownSuccessorBlock(HBasicBlock** block) OVERRIDE;
 
-  virtual void FinalizeUniqueness() OVERRIDE {
+  void FinalizeUniqueness() OVERRIDE {
     type_literal_ = Unique<String>(type_literal_.handle());
   }
 
@@ -4764,11 +4734,11 @@ class HInstanceOf FINAL : public HBinaryOperation {
  public:
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P2(HInstanceOf, HValue*, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(InstanceOf)
 
@@ -4791,7 +4761,7 @@ class HInstanceOfKnownGlobal FINAL : public HTemplateInstruction<2> {
   HValue* left() { return OperandAt(1); }
   Handle<JSFunction> function() { return function_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -4814,27 +4784,25 @@ class HInstanceOfKnownGlobal FINAL : public HTemplateInstruction<2> {
 
 class HPower FINAL : public HTemplateInstruction<2> {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
   HValue* left() { return OperandAt(0); }
   HValue* right() const { return OperandAt(1); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return index == 0
       ? Representation::Double()
       : Representation::None();
   }
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     return RequiredInputRepresentation(index);
   }
 
   DECLARE_CONCRETE_INSTRUCTION(Power)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HPower(HValue* left, HValue* right) {
@@ -4845,7 +4813,7 @@ class HPower FINAL : public HTemplateInstruction<2> {
     SetChangesFlag(kNewSpacePromotion);
   }
 
-  virtual bool IsDeletable() const OVERRIDE {
+  bool IsDeletable() const OVERRIDE {
     return !right()->representation().IsTagged();
   }
 };
@@ -4853,21 +4821,19 @@ class HPower FINAL : public HTemplateInstruction<2> {
 
 class HAdd FINAL : public HArithmeticBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
   // Add is only commutative if two integer values are added and not if two
   // tagged values are added (because it might be a String concatenation).
   // We also do not commute (pointer + offset).
-  virtual bool IsCommutative() const OVERRIDE {
+  bool IsCommutative() const OVERRIDE {
     return !representation().IsTagged() && !representation().IsExternal();
   }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
-  virtual bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
+  bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
     if (left()->IsInteger32Constant()) {
       decomposition->Apply(right(), left()->GetInteger32Constant());
       return true;
@@ -4879,7 +4845,7 @@ class HAdd FINAL : public HArithmeticBinaryOperation {
     }
   }
 
-  virtual void RepresentationChanged(Representation to) OVERRIDE {
+  void RepresentationChanged(Representation to) OVERRIDE {
     if (to.IsTagged() &&
         (left()->ToNumberCanBeObserved() || right()->ToNumberCanBeObserved() ||
          left()->ToStringCanBeObserved() || right()->ToStringCanBeObserved())) {
@@ -4895,16 +4861,16 @@ class HAdd FINAL : public HArithmeticBinaryOperation {
     }
   }
 
-  virtual Representation RepresentationFromInputs() OVERRIDE;
+  Representation RepresentationFromInputs() OVERRIDE;
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE;
+  Representation RequiredInputRepresentation(int index) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(Add)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HAdd(HValue* context, HValue* left, HValue* right)
@@ -4916,14 +4882,12 @@ class HAdd FINAL : public HArithmeticBinaryOperation {
 
 class HSub FINAL : public HArithmeticBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
-  virtual bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
+  bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
     if (right()->IsInteger32Constant()) {
       decomposition->Apply(left(), -right()->GetInteger32Constant());
       return true;
@@ -4935,9 +4899,9 @@ class HSub FINAL : public HArithmeticBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Sub)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HSub(HValue* context, HValue* left, HValue* right)
@@ -4949,16 +4913,12 @@ class HSub FINAL : public HArithmeticBinaryOperation {
 
 class HMul FINAL : public HArithmeticBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  static HInstruction* NewImul(Zone* zone,
-                         HValue* context,
-                         HValue* left,
-                         HValue* right) {
-    HInstruction* instr = HMul::New(zone, context, left, right);
+  static HInstruction* NewImul(Isolate* isolate, Zone* zone, HValue* context,
+                               HValue* left, HValue* right) {
+    HInstruction* instr = HMul::New(isolate, zone, context, left, right);
     if (!instr->IsMul()) return instr;
     HMul* mul = HMul::cast(instr);
     // TODO(mstarzinger): Prevent bailout on minus zero for imul.
@@ -4967,12 +4927,10 @@ class HMul FINAL : public HArithmeticBinaryOperation {
     return mul;
   }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   // Only commutative if it is certain that not two objects are multiplicated.
-  virtual bool IsCommutative() const OVERRIDE {
-    return !representation().IsTagged();
-  }
+  bool IsCommutative() const OVERRIDE { return !representation().IsTagged(); }
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -4985,9 +4943,9 @@ class HMul FINAL : public HArithmeticBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Mul)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HMul(HValue* context, HValue* left, HValue* right)
@@ -4999,12 +4957,10 @@ class HMul FINAL : public HArithmeticBinaryOperation {
 
 class HMod FINAL : public HArithmeticBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -5016,9 +4972,9 @@ class HMod FINAL : public HArithmeticBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Mod)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HMod(HValue* context,
@@ -5033,12 +4989,10 @@ class HMod FINAL : public HArithmeticBinaryOperation {
 
 class HDiv FINAL : public HArithmeticBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -5050,9 +5004,9 @@ class HDiv FINAL : public HArithmeticBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Div)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HDiv(HValue* context, HValue* left, HValue* right)
@@ -5067,20 +5021,17 @@ class HMathMinMax FINAL : public HArithmeticBinaryOperation {
  public:
   enum Operation { kMathMin, kMathMax };
 
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right,
-                           Operation op);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right, Operation op);
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     return RequiredInputRepresentation(index);
   }
 
   virtual void InferRepresentation(
       HInferRepresentationPhase* h_infer) OVERRIDE;
 
-  virtual Representation RepresentationFromInputs() OVERRIDE {
+  Representation RepresentationFromInputs() OVERRIDE {
     Representation left_rep = left()->representation();
     Representation right_rep = right()->representation();
     Representation result = Representation::Smi();
@@ -5090,19 +5041,19 @@ class HMathMinMax FINAL : public HArithmeticBinaryOperation {
     return result;
   }
 
-  virtual bool IsCommutative() const OVERRIDE { return true; }
+  bool IsCommutative() const OVERRIDE { return true; }
 
   Operation operation() { return operation_; }
 
   DECLARE_CONCRETE_INSTRUCTION(MathMinMax)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return other->IsMathMinMax() &&
         HMathMinMax::cast(other)->operation_ == operation_;
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HMathMinMax(HValue* context, HValue* left, HValue* right, Operation op)
@@ -5115,28 +5066,25 @@ class HMathMinMax FINAL : public HArithmeticBinaryOperation {
 
 class HBitwise FINAL : public HBitwiseBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           Token::Value op,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           Token::Value op, HValue* left, HValue* right);
 
   Token::Value op() const { return op_; }
 
-  virtual bool IsCommutative() const OVERRIDE { return true; }
+  bool IsCommutative() const OVERRIDE { return true; }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(Bitwise)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return op() == HBitwise::cast(other)->op();
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
  private:
   HBitwise(HValue* context,
@@ -5177,12 +5125,10 @@ class HBitwise FINAL : public HBitwiseBinaryOperation {
 
 class HShl FINAL : public HBitwiseBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -5198,7 +5144,7 @@ class HShl FINAL : public HBitwiseBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Shl)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HShl(HValue* context, HValue* left, HValue* right)
@@ -5208,12 +5154,10 @@ class HShl FINAL : public HBitwiseBinaryOperation {
 
 class HShr FINAL : public HBitwiseBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
+  bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
     if (right()->IsInteger32Constant()) {
       if (decomposition->Apply(left(), 0, right()->GetInteger32Constant())) {
         // This is intended to look for HAdd and HSub, to handle compounds
@@ -5225,7 +5169,7 @@ class HShr FINAL : public HBitwiseBinaryOperation {
     return false;
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -5237,7 +5181,7 @@ class HShr FINAL : public HBitwiseBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Shr)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HShr(HValue* context, HValue* left, HValue* right)
@@ -5247,12 +5191,10 @@ class HShr FINAL : public HBitwiseBinaryOperation {
 
 class HSar FINAL : public HBitwiseBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right);
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right);
 
-  virtual bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
+  bool TryDecompose(DecompositionResult* decomposition) OVERRIDE {
     if (right()->IsInteger32Constant()) {
       if (decomposition->Apply(left(), 0, right()->GetInteger32Constant())) {
         // This is intended to look for HAdd and HSub, to handle compounds
@@ -5264,7 +5206,7 @@ class HSar FINAL : public HBitwiseBinaryOperation {
     return false;
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
   virtual void UpdateRepresentation(Representation new_rep,
                                     HInferRepresentationPhase* h_infer,
@@ -5276,7 +5218,7 @@ class HSar FINAL : public HBitwiseBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Sar)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HSar(HValue* context, HValue* left, HValue* right)
@@ -5286,10 +5228,8 @@ class HSar FINAL : public HBitwiseBinaryOperation {
 
 class HRor FINAL : public HBitwiseBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right) {
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           HValue* left, HValue* right) {
     return new(zone) HRor(context, left, right);
   }
 
@@ -5303,7 +5243,7 @@ class HRor FINAL : public HBitwiseBinaryOperation {
   DECLARE_CONCRETE_INSTRUCTION(Ror)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HRor(HValue* context, HValue* left, HValue* right)
@@ -5319,7 +5259,7 @@ class HOsrEntry FINAL : public HTemplateInstruction<0> {
 
   BailoutId ast_id() const { return ast_id_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -5350,13 +5290,13 @@ class HParameter FINAL : public HTemplateInstruction<0> {
   unsigned index() const { return index_; }
   ParameterKind kind() const { return kind_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
-  virtual Representation KnownOptimalRepresentation() OVERRIDE {
+  Representation KnownOptimalRepresentation() OVERRIDE {
     // If a parameter is an input to a phi, that phi should not
     // choose any more optimistic representation than Tagged.
     return Representation::Tagged();
@@ -5392,7 +5332,7 @@ class HCallStub FINAL : public HUnaryCall {
 
   HValue* context() { return value(); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(CallStub)
 
@@ -5406,34 +5346,90 @@ class HCallStub FINAL : public HUnaryCall {
 };
 
 
-class HTailCallThroughMegamorphicCache FINAL : public HTemplateInstruction<3> {
+class HTailCallThroughMegamorphicCache FINAL : public HInstruction {
  public:
-  DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P3(HTailCallThroughMegamorphicCache,
-                                              HValue*, HValue*, Code::Flags);
+  enum Flags {
+    NONE = 0,
+    CALLED_FROM_KEYED_LOAD = 1 << 0,
+    PERFORM_MISS_ONLY = 1 << 1
+  };
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  static Flags ComputeFlags(bool called_from_keyed_load,
+                            bool perform_miss_only) {
+    Flags flags = NONE;
+    if (called_from_keyed_load) {
+      flags = static_cast<Flags>(flags | CALLED_FROM_KEYED_LOAD);
+    }
+    if (perform_miss_only) {
+      flags = static_cast<Flags>(flags | PERFORM_MISS_ONLY);
+    }
+    return flags;
+  }
+
+  DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P5(
+      HTailCallThroughMegamorphicCache, HValue*, HValue*, HValue*, HValue*,
+      HTailCallThroughMegamorphicCache::Flags);
+
+  DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P2(HTailCallThroughMegamorphicCache,
+                                              HValue*, HValue*);
+
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
+
+  virtual int OperandCount() const FINAL OVERRIDE {
+    return FLAG_vector_ics ? 5 : 3;
+  }
+  virtual HValue* OperandAt(int i) const FINAL OVERRIDE { return inputs_[i]; }
 
   HValue* context() const { return OperandAt(0); }
   HValue* receiver() const { return OperandAt(1); }
   HValue* name() const { return OperandAt(2); }
-  Code::Flags flags() const { return flags_; }
+  HValue* slot() const {
+    DCHECK(FLAG_vector_ics);
+    return OperandAt(3);
+  }
+  HValue* vector() const {
+    DCHECK(FLAG_vector_ics);
+    return OperandAt(4);
+  }
+  Code::Flags flags() const;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  bool is_keyed_load() const { return flags_ & CALLED_FROM_KEYED_LOAD; }
+  bool is_just_miss() const { return flags_ & PERFORM_MISS_ONLY; }
+
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(TailCallThroughMegamorphicCache)
 
+ protected:
+  virtual void InternalSetOperandAt(int i, HValue* value) FINAL OVERRIDE {
+    inputs_[i] = value;
+  }
+
  private:
   HTailCallThroughMegamorphicCache(HValue* context, HValue* receiver,
-                                   HValue* name, Code::Flags flags)
+                                   HValue* name, HValue* slot, HValue* vector,
+                                   Flags flags)
       : flags_(flags) {
+    DCHECK(FLAG_vector_ics);
+    SetOperandAt(0, context);
+    SetOperandAt(1, receiver);
+    SetOperandAt(2, name);
+    SetOperandAt(3, slot);
+    SetOperandAt(4, vector);
+  }
+
+  HTailCallThroughMegamorphicCache(HValue* context, HValue* receiver,
+                                   HValue* name)
+      : flags_(NONE) {
     SetOperandAt(0, context);
     SetOperandAt(1, receiver);
     SetOperandAt(2, name);
   }
 
-  Code::Flags flags_;
+  EmbeddedContainer<HValue*, 5> inputs_;
+  Flags flags_;
 };
 
 
@@ -5441,9 +5437,9 @@ class HUnknownOSRValue FINAL : public HTemplateInstruction<0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P2(HUnknownOSRValue, HEnvironment*, int);
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
@@ -5452,7 +5448,7 @@ class HUnknownOSRValue FINAL : public HTemplateInstruction<0> {
   HEnvironment *environment() { return environment_; }
   int index() { return index_; }
 
-  virtual Representation KnownOptimalRepresentation() OVERRIDE {
+  Representation KnownOptimalRepresentation() OVERRIDE {
     if (incoming_value_ == NULL) return Representation::None();
     return incoming_value_->KnownOptimalRepresentation();
   }
@@ -5481,24 +5477,20 @@ class HLoadGlobalCell FINAL : public HTemplateInstruction<0> {
   Unique<Cell> cell() const { return cell_; }
   bool RequiresHoleCheck() const;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual intptr_t Hashcode() OVERRIDE {
-    return cell_.Hashcode();
-  }
+  intptr_t Hashcode() OVERRIDE { return cell_.Hashcode(); }
 
-  virtual void FinalizeUniqueness() OVERRIDE {
-    cell_ = Unique<Cell>(cell_.handle());
-  }
+  void FinalizeUniqueness() OVERRIDE { cell_ = Unique<Cell>(cell_.handle()); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::None();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadGlobalCell)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return cell_ == HLoadGlobalCell::cast(other)->cell_;
   }
 
@@ -5510,7 +5502,7 @@ class HLoadGlobalCell FINAL : public HTemplateInstruction<0> {
     SetDependsOnFlag(kGlobalVars);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return !RequiresHoleCheck(); }
+  bool IsDeletable() const OVERRIDE { return !RequiresHoleCheck(); }
 
   Unique<Cell> cell_;
   PropertyDetails details_;
@@ -5526,13 +5518,11 @@ class HLoadGlobalGeneric FINAL : public HTemplateInstruction<2> {
   HValue* global_object() { return OperandAt(1); }
   Handle<String> name() const { return name_; }
   bool for_typeof() const { return for_typeof_; }
-  FeedbackVectorICSlot slot() const {
-    DCHECK(FLAG_vector_ics && !slot_.IsInvalid());
-    return slot_;
-  }
+  FeedbackVectorICSlot slot() const { return slot_; }
   Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
+  bool HasVectorAndSlot() const { return FLAG_vector_ics; }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
     DCHECK(FLAG_vector_ics);
@@ -5540,9 +5530,9 @@ class HLoadGlobalGeneric FINAL : public HTemplateInstruction<2> {
     slot_ = slot;
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -5575,14 +5565,10 @@ class HAllocate FINAL : public HTemplateInstruction<2> {
         ComputeFlags(NOT_TENURED, type1) == ComputeFlags(NOT_TENURED, type2);
   }
 
-  static HAllocate* New(Zone* zone,
-                        HValue* context,
-                        HValue* size,
-                        HType type,
-                        PretenureFlag pretenure_flag,
-                        InstanceType instance_type,
-                        Handle<AllocationSite> allocation_site =
-                            Handle<AllocationSite>::null()) {
+  static HAllocate* New(
+      Isolate* isolate, Zone* zone, HValue* context, HValue* size, HType type,
+      PretenureFlag pretenure_flag, InstanceType instance_type,
+      Handle<AllocationSite> allocation_site = Handle<AllocationSite>::null()) {
     return new(zone) HAllocate(context, size, type, pretenure_flag,
         instance_type, allocation_site);
   }
@@ -5600,7 +5586,7 @@ class HAllocate FINAL : public HTemplateInstruction<2> {
     size_upper_bound_ = value;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 0) {
       return Representation::Tagged();
     } else {
@@ -5608,7 +5594,7 @@ class HAllocate FINAL : public HTemplateInstruction<2> {
     }
   }
 
-  virtual Handle<Map> GetMonomorphicJSObjectMap() OVERRIDE {
+  Handle<Map> GetMonomorphicJSObjectMap() OVERRIDE {
     return known_initial_map_;
   }
 
@@ -5651,7 +5637,7 @@ class HAllocate FINAL : public HTemplateInstruction<2> {
   virtual bool HandleSideEffectDominator(GVNFlag side_effect,
                                          HValue* dominator) OVERRIDE;
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(Allocate)
 
@@ -5757,14 +5743,12 @@ class HAllocate FINAL : public HTemplateInstruction<2> {
 
 class HStoreCodeEntry FINAL: public HTemplateInstruction<2> {
  public:
-  static HStoreCodeEntry* New(Zone* zone,
-                              HValue* context,
-                              HValue* function,
-                              HValue* code) {
+  static HStoreCodeEntry* New(Isolate* isolate, Zone* zone, HValue* context,
+                              HValue* function, HValue* code) {
     return new(zone) HStoreCodeEntry(function, code);
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -5783,22 +5767,20 @@ class HStoreCodeEntry FINAL: public HTemplateInstruction<2> {
 
 class HInnerAllocatedObject FINAL : public HTemplateInstruction<2> {
  public:
-  static HInnerAllocatedObject* New(Zone* zone,
-                                    HValue* context,
-                                    HValue* value,
-                                    HValue* offset,
-                                    HType type) {
+  static HInnerAllocatedObject* New(Isolate* isolate, Zone* zone,
+                                    HValue* context, HValue* value,
+                                    HValue* offset, HType type) {
     return new(zone) HInnerAllocatedObject(value, offset, type);
   }
 
   HValue* base_object() const { return OperandAt(0); }
   HValue* offset() const { return OperandAt(1); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return index == 0 ? Representation::Tagged() : Representation::Integer32();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(InnerAllocatedObject)
 
@@ -5889,14 +5871,14 @@ class HStoreGlobalCell FINAL : public HUnaryOperation {
     return StoringValueNeedsWriteBarrier(value());
   }
 
-  virtual void FinalizeUniqueness() OVERRIDE {
+  void FinalizeUniqueness() OVERRIDE {
     cell_ = Unique<PropertyCell>(cell_.handle());
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(StoreGlobalCell)
 
@@ -5948,22 +5930,22 @@ class HLoadContextSlot FINAL : public HUnaryOperation {
     return mode_ != kNoCheck;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(LoadContextSlot)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HLoadContextSlot* b = HLoadContextSlot::cast(other);
     return (slot_index() == b->slot_index());
   }
 
  private:
-  virtual bool IsDeletable() const OVERRIDE { return !RequiresHoleCheck(); }
+  bool IsDeletable() const OVERRIDE { return !RequiresHoleCheck(); }
 
   int slot_index_;
   Mode mode_;
@@ -6005,11 +5987,11 @@ class HStoreContextSlot FINAL : public HTemplateInstruction<2> {
     return mode_ != kNoCheck;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(StoreContextSlot)
 
@@ -6242,6 +6224,14 @@ class HObjectAccess FINAL {
     return HObjectAccess(kInobject, Cell::kValueOffset);
   }
 
+  static HObjectAccess ForWeakCellValue() {
+    return HObjectAccess(kInobject, WeakCell::kValueOffset);
+  }
+
+  static HObjectAccess ForWeakCellNext() {
+    return HObjectAccess(kInobject, WeakCell::kNextOffset);
+  }
+
   static HObjectAccess ForAllocationMementoSite() {
     return HObjectAccess(kInobject, AllocationMemento::kAllocationSiteOffset);
   }
@@ -6367,6 +6357,27 @@ class HObjectAccess FINAL {
                          Representation::Smi());
   }
 
+  template <typename CollectionType>
+  static HObjectAccess ForOrderedHashTableNextTable() {
+    return HObjectAccess(kInobject, CollectionType::kNextTableOffset);
+  }
+
+  template <typename CollectionType>
+  static HObjectAccess ForOrderedHashTableBucket(int bucket) {
+    return HObjectAccess(kInobject, CollectionType::kHashTableStartOffset +
+                                        (bucket * kPointerSize),
+                         Representation::Smi());
+  }
+
+  // Access into the data table of an OrderedHashTable with a
+  // known-at-compile-time bucket count.
+  template <typename CollectionType, int kBucketCount>
+  static HObjectAccess ForOrderedHashTableDataTableIndex(int index) {
+    return HObjectAccess(kInobject, CollectionType::kHashTableStartOffset +
+                                        (kBucketCount * kPointerSize) +
+                                        (index * kPointerSize));
+  }
+
   inline bool Equals(HObjectAccess that) const {
     return value_ == that.value_;  // portion and offset must match
   }
@@ -6454,11 +6465,11 @@ class HLoadNamedField FINAL : public HTemplateInstruction<2> {
 
   const UniqueSet<Map>* maps() const { return maps_; }
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
-  virtual bool HasOutOfBoundsAccess(int size) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return false; }
+  bool HasOutOfBoundsAccess(int size) OVERRIDE {
     return !access().IsInobject() || access().offset() >= size;
   }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 0) {
       // object must be external in case of external memory access
       return access().IsExternalMemory() ? Representation::External()
@@ -6467,8 +6478,8 @@ class HLoadNamedField FINAL : public HTemplateInstruction<2> {
     DCHECK(index == 1);
     return Representation::None();
   }
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  Range* InferRange(Zone* zone) OVERRIDE;
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   bool CanBeReplacedWith(HValue* other) const {
     if (!CheckFlag(HValue::kCantBeReplaced)) return false;
@@ -6484,7 +6495,7 @@ class HLoadNamedField FINAL : public HTemplateInstruction<2> {
   DECLARE_CONCRETE_INSTRUCTION(LoadNamedField)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HLoadNamedField* that = HLoadNamedField::cast(other);
     if (!this->access_.Equals(that->access_)) return false;
     if (this->maps_ == that->maps_) return true;
@@ -6548,7 +6559,7 @@ class HLoadNamedField FINAL : public HTemplateInstruction<2> {
     access.SetGVNFlags(this, LOAD);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   HObjectAccess access_;
   const UniqueSet<Map>* maps_;
@@ -6564,13 +6575,11 @@ class HLoadNamedGeneric FINAL : public HTemplateInstruction<2> {
   HValue* object() const { return OperandAt(1); }
   Handle<Object> name() const { return name_; }
 
-  FeedbackVectorICSlot slot() const {
-    DCHECK(FLAG_vector_ics && !slot_.IsInvalid());
-    return slot_;
-  }
+  FeedbackVectorICSlot slot() const { return slot_; }
   Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
+  bool HasVectorAndSlot() const { return FLAG_vector_ics; }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
     DCHECK(FLAG_vector_ics);
@@ -6578,11 +6587,11 @@ class HLoadNamedGeneric FINAL : public HTemplateInstruction<2> {
     slot_ = slot;
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(LoadNamedGeneric)
 
@@ -6607,14 +6616,14 @@ class HLoadFunctionPrototype FINAL : public HUnaryOperation {
 
   HValue* function() { return OperandAt(0); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadFunctionPrototype)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   explicit HLoadFunctionPrototype(HValue* function)
@@ -6687,14 +6696,14 @@ class HLoadKeyed FINAL
   void SetDehoisted(bool is_dehoisted) OVERRIDE {
     bit_field_ = IsDehoistedField::update(bit_field_, is_dehoisted);
   }
-  virtual ElementsKind elements_kind() const OVERRIDE {
+  ElementsKind elements_kind() const OVERRIDE {
     return ElementsKindField::decode(bit_field_);
   }
   LoadKeyedHoleMode hole_mode() const {
     return HoleModeField::decode(bit_field_);
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // kind_fast:                 tagged[int32] (none)
     // kind_double:               tagged[int32] (none)
     // kind_fixed_typed_array:    tagged[int32] (none)
@@ -6710,27 +6719,26 @@ class HLoadKeyed FINAL
     return Representation::None();
   }
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     return RequiredInputRepresentation(index);
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   bool UsesMustHandleHole() const;
   bool AllUsesCanTreatHoleAsNaN() const;
   bool RequiresHoleCheck() const;
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE;
+  Range* InferRange(Zone* zone) OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(LoadKeyed)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     if (!other->IsLoadKeyed()) return false;
     HLoadKeyed* other_load = HLoadKeyed::cast(other);
 
-    if (IsDehoisted() && base_offset() != other_load->base_offset())
-      return false;
+    if (base_offset() != other_load->base_offset()) return false;
     return elements_kind() == other_load->elements_kind();
   }
 
@@ -6802,9 +6810,7 @@ class HLoadKeyed FINAL
     SetFlag(kUseGVN);
   }
 
-  virtual bool IsDeletable() const OVERRIDE {
-    return !RequiresHoleCheck();
-  }
+  bool IsDeletable() const OVERRIDE { return !RequiresHoleCheck(); }
 
   // Establish some checks around our packed fields
   enum LoadKeyedBits {
@@ -6845,13 +6851,11 @@ class HLoadKeyedGeneric FINAL : public HTemplateInstruction<3> {
   HValue* object() const { return OperandAt(0); }
   HValue* key() const { return OperandAt(1); }
   HValue* context() const { return OperandAt(2); }
-  FeedbackVectorICSlot slot() const {
-    DCHECK(FLAG_vector_ics && !slot_.IsInvalid());
-    return slot_;
-  }
+  FeedbackVectorICSlot slot() const { return slot_; }
   Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
+  bool HasVectorAndSlot() const { return FLAG_vector_ics; }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
     DCHECK(FLAG_vector_ics);
@@ -6859,14 +6863,14 @@ class HLoadKeyedGeneric FINAL : public HTemplateInstruction<3> {
     slot_ = slot;
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // tagged[tagged]
     return Representation::Tagged();
   }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(LoadKeyedGeneric)
 
@@ -6905,13 +6909,11 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
 
   DECLARE_CONCRETE_INSTRUCTION(StoreNamedField)
 
-  virtual bool HasEscapingOperandAt(int index) OVERRIDE {
-    return index == 1;
-  }
-  virtual bool HasOutOfBoundsAccess(int size) OVERRIDE {
+  bool HasEscapingOperandAt(int index) OVERRIDE { return index == 1; }
+  bool HasOutOfBoundsAccess(int size) OVERRIDE {
     return !access().IsInobject() || access().offset() >= size;
   }
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 0 && access().IsExternalMemory()) {
       // object must be external in case of external memory access
       return Representation::External();
@@ -6943,7 +6945,7 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
     dominator_ = dominator;
     return false;
   }
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   HValue* object() const { return OperandAt(0); }
   HValue* value() const { return OperandAt(1); }
@@ -6972,6 +6974,14 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
     SetChangesFlag(kMaps);
   }
 
+  void MarkReceiverAsCell() {
+    bit_field_ = ReceiverIsCellField::update(bit_field_, true);
+  }
+
+  bool receiver_is_cell() const {
+    return ReceiverIsCellField::decode(bit_field_);
+  }
+
   bool NeedsWriteBarrier() const {
     DCHECK(!field_representation().IsDouble() ||
            (FLAG_unbox_double_fields && access_.IsInobject()) ||
@@ -6980,6 +6990,7 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
     if (field_representation().IsSmi()) return false;
     if (field_representation().IsInteger32()) return false;
     if (field_representation().IsExternal()) return false;
+    if (receiver_is_cell()) return false;
     return StoringValueNeedsWriteBarrier(value()) &&
         ReceiverObjectNeedsWriteBarrier(object(), value(), dominator());
   }
@@ -7039,6 +7050,7 @@ class HStoreNamedField FINAL : public HTemplateInstruction<3> {
 
   class HasTransitionField : public BitField<bool, 0, 1> {};
   class StoreModeField : public BitField<StoreFieldOrKeyedMode, 1, 1> {};
+  class ReceiverIsCellField : public BitField<bool, 2, 1> {};
 
   HObjectAccess access_;
   HValue* dominator_;
@@ -7050,29 +7062,25 @@ class HStoreNamedGeneric FINAL : public HTemplateInstruction<3> {
  public:
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P4(HStoreNamedGeneric, HValue*,
                                               Handle<String>, HValue*,
-                                              StrictMode);
+                                              LanguageMode);
   HValue* object() const { return OperandAt(0); }
   HValue* value() const { return OperandAt(1); }
   HValue* context() const { return OperandAt(2); }
   Handle<String> name() const { return name_; }
-  StrictMode strict_mode() const { return strict_mode_; }
+  LanguageMode language_mode() const { return language_mode_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   DECLARE_CONCRETE_INSTRUCTION(StoreNamedGeneric)
 
  private:
-  HStoreNamedGeneric(HValue* context,
-                     HValue* object,
-                     Handle<String> name,
-                     HValue* value,
-                     StrictMode strict_mode)
-      : name_(name),
-        strict_mode_(strict_mode) {
+  HStoreNamedGeneric(HValue* context, HValue* object, Handle<String> name,
+                     HValue* value, LanguageMode language_mode)
+      : name_(name), language_mode_(language_mode) {
     SetOperandAt(0, object);
     SetOperandAt(1, value);
     SetOperandAt(2, context);
@@ -7080,7 +7088,7 @@ class HStoreNamedGeneric FINAL : public HTemplateInstruction<3> {
   }
 
   Handle<String> name_;
-  StrictMode strict_mode_;
+  LanguageMode language_mode_;
 };
 
 
@@ -7094,7 +7102,7 @@ class HStoreKeyed FINAL
   DECLARE_INSTRUCTION_FACTORY_P6(HStoreKeyed, HValue*, HValue*, HValue*,
                                  ElementsKind, StoreFieldOrKeyedMode, int);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // kind_fast:               tagged[int32] = tagged
     // kind_double:             tagged[int32] = double
     // kind_smi   :             tagged[int32] = smi
@@ -7145,7 +7153,7 @@ class HStoreKeyed FINAL
     return is_external() || is_fixed_typed_array();
   }
 
-  virtual Representation observed_input_representation(int index) OVERRIDE {
+  Representation observed_input_representation(int index) OVERRIDE {
     if (index < 2) return RequiredInputRepresentation(index);
     if (IsUninitialized()) {
       return Representation::None();
@@ -7210,7 +7218,7 @@ class HStoreKeyed FINAL
 
   bool NeedsCanonicalization();
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(StoreKeyed)
 
@@ -7271,30 +7279,27 @@ class HStoreKeyed FINAL
 class HStoreKeyedGeneric FINAL : public HTemplateInstruction<4> {
  public:
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P4(HStoreKeyedGeneric, HValue*,
-                                              HValue*, HValue*, StrictMode);
+                                              HValue*, HValue*, LanguageMode);
 
   HValue* object() const { return OperandAt(0); }
   HValue* key() const { return OperandAt(1); }
   HValue* value() const { return OperandAt(2); }
   HValue* context() const { return OperandAt(3); }
-  StrictMode strict_mode() const { return strict_mode_; }
+  LanguageMode language_mode() const { return language_mode_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // tagged[tagged] = tagged
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(StoreKeyedGeneric)
 
  private:
-  HStoreKeyedGeneric(HValue* context,
-                     HValue* object,
-                     HValue* key,
-                     HValue* value,
-                     StrictMode strict_mode)
-      : strict_mode_(strict_mode) {
+  HStoreKeyedGeneric(HValue* context, HValue* object, HValue* key,
+                     HValue* value, LanguageMode language_mode)
+      : language_mode_(language_mode) {
     SetOperandAt(0, object);
     SetOperandAt(1, key);
     SetOperandAt(2, value);
@@ -7302,22 +7307,21 @@ class HStoreKeyedGeneric FINAL : public HTemplateInstruction<4> {
     SetAllSideEffects();
   }
 
-  StrictMode strict_mode_;
+  LanguageMode language_mode_;
 };
 
 
 class HTransitionElementsKind FINAL : public HTemplateInstruction<2> {
  public:
-  inline static HTransitionElementsKind* New(Zone* zone,
-                                             HValue* context,
-                                             HValue* object,
+  inline static HTransitionElementsKind* New(Isolate* isolate, Zone* zone,
+                                             HValue* context, HValue* object,
                                              Handle<Map> original_map,
                                              Handle<Map> transitioned_map) {
     return new(zone) HTransitionElementsKind(context, object,
                                              original_map, transitioned_map);
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7328,18 +7332,18 @@ class HTransitionElementsKind FINAL : public HTemplateInstruction<2> {
   ElementsKind from_kind() const { return from_kind_; }
   ElementsKind to_kind() const { return to_kind_; }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(TransitionElementsKind)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     HTransitionElementsKind* instr = HTransitionElementsKind::cast(other);
     return original_map_ == instr->original_map_ &&
            transitioned_map_ == instr->transitioned_map_;
   }
 
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
  private:
   HTransitionElementsKind(HValue* context,
@@ -7370,28 +7374,25 @@ class HTransitionElementsKind FINAL : public HTemplateInstruction<2> {
 
 class HStringAdd FINAL : public HBinaryOperation {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           HValue* left,
-                           HValue* right,
-                           PretenureFlag pretenure_flag = NOT_TENURED,
-                           StringAddFlags flags = STRING_ADD_CHECK_BOTH,
-                           Handle<AllocationSite> allocation_site =
-                               Handle<AllocationSite>::null());
+  static HInstruction* New(
+      Isolate* isolate, Zone* zone, HValue* context, HValue* left,
+      HValue* right, PretenureFlag pretenure_flag = NOT_TENURED,
+      StringAddFlags flags = STRING_ADD_CHECK_BOTH,
+      Handle<AllocationSite> allocation_site = Handle<AllocationSite>::null());
 
   StringAddFlags flags() const { return flags_; }
   PretenureFlag pretenure_flag() const { return pretenure_flag_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(StringAdd)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return flags_ == HStringAdd::cast(other)->flags_ &&
         pretenure_flag_ == HStringAdd::cast(other)->pretenure_flag_;
   }
@@ -7419,7 +7420,7 @@ class HStringAdd FINAL : public HBinaryOperation {
   }
 
   // No side-effects except possible allocation:
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   const StringAddFlags flags_;
   const PretenureFlag pretenure_flag_;
@@ -7432,7 +7433,7 @@ class HStringCharCodeAt FINAL : public HTemplateInstruction<3> {
                                               HValue*,
                                               HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     // The index is supposed to be Integer32.
     return index == 2
         ? Representation::Integer32()
@@ -7446,9 +7447,9 @@ class HStringCharCodeAt FINAL : public HTemplateInstruction<3> {
   DECLARE_CONCRETE_INSTRUCTION(StringCharCodeAt)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE {
+  Range* InferRange(Zone* zone) OVERRIDE {
     return new(zone) Range(0, String::kMaxUtf16CodeUnit);
   }
 
@@ -7465,17 +7466,16 @@ class HStringCharCodeAt FINAL : public HTemplateInstruction<3> {
   }
 
   // No side effects: runtime function assumes string + number inputs.
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
 class HStringCharFromCode FINAL : public HTemplateInstruction<2> {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
                            HValue* char_code);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return index == 0
         ? Representation::Tagged()
         : Representation::Integer32();
@@ -7484,7 +7484,7 @@ class HStringCharFromCode FINAL : public HTemplateInstruction<2> {
   HValue* context() const { return OperandAt(0); }
   HValue* value() const { return OperandAt(1); }
 
-  virtual bool DataEquals(HValue* other) OVERRIDE { return true; }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
   DECLARE_CONCRETE_INSTRUCTION(StringCharFromCode)
 
@@ -7498,7 +7498,7 @@ class HStringCharFromCode FINAL : public HTemplateInstruction<2> {
     SetChangesFlag(kNewSpacePromotion);
   }
 
-  virtual bool IsDeletable() const OVERRIDE {
+  bool IsDeletable() const OVERRIDE {
     return !value()->ToNumberCanBeObserved();
   }
 };
@@ -7525,7 +7525,7 @@ class HMaterializedLiteral : public HTemplateInstruction<V> {
   }
 
  private:
-  virtual bool IsDeletable() const FINAL OVERRIDE { return true; }
+  bool IsDeletable() const FINAL { return true; }
 
   int literal_index_;
   int depth_;
@@ -7546,7 +7546,7 @@ class HRegExpLiteral FINAL : public HMaterializedLiteral<1> {
   Handle<String> pattern() { return pattern_; }
   Handle<String> flags() { return flags_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7580,7 +7580,7 @@ class HFunctionLiteral FINAL : public HTemplateInstruction<1> {
                                               bool);
   HValue* context() { return OperandAt(0); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7591,12 +7591,10 @@ class HFunctionLiteral FINAL : public HTemplateInstruction<1> {
   bool has_no_literals() const {
     return HasNoLiteralsField::decode(bit_field_);
   }
-  bool is_arrow() const { return IsArrowFunction(kind()); }
-  bool is_generator() const { return IsGeneratorFunction(kind()); }
-  bool is_concise_method() const { return IsConciseMethod(kind()); }
-  bool is_default_constructor() const { return IsDefaultConstructor(kind()); }
   FunctionKind kind() const { return FunctionKindField::decode(bit_field_); }
-  StrictMode strict_mode() const { return StrictModeField::decode(bit_field_); }
+  LanguageMode language_mode() const {
+    return LanguageModeField::decode(bit_field_);
+  }
 
  private:
   HFunctionLiteral(HValue* context, Handle<SharedFunctionInfo> shared,
@@ -7606,18 +7604,19 @@ class HFunctionLiteral FINAL : public HTemplateInstruction<1> {
         bit_field_(FunctionKindField::encode(shared->kind()) |
                    PretenureField::encode(pretenure) |
                    HasNoLiteralsField::encode(shared->num_literals() == 0) |
-                   StrictModeField::encode(shared->strict_mode())) {
+                   LanguageModeField::encode(shared->language_mode())) {
     SetOperandAt(0, context);
     set_representation(Representation::Tagged());
     SetChangesFlag(kNewSpacePromotion);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
-  class FunctionKindField : public BitField<FunctionKind, 0, 4> {};
-  class PretenureField : public BitField<bool, 5, 1> {};
-  class HasNoLiteralsField : public BitField<bool, 6, 1> {};
-  class StrictModeField : public BitField<StrictMode, 7, 1> {};
+  class FunctionKindField : public BitField<FunctionKind, 0, 6> {};
+  class PretenureField : public BitField<bool, 6, 1> {};
+  class HasNoLiteralsField : public BitField<bool, 7, 1> {};
+  STATIC_ASSERT(LANGUAGE_END == 3);
+  class LanguageModeField : public BitField<LanguageMode, 8, 2> {};
 
   Handle<SharedFunctionInfo> shared_info_;
   uint32_t bit_field_;
@@ -7631,9 +7630,9 @@ class HTypeof FINAL : public HTemplateInstruction<2> {
   HValue* context() const { return OperandAt(0); }
   HValue* value() const { return OperandAt(1); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7646,7 +7645,7 @@ class HTypeof FINAL : public HTemplateInstruction<2> {
     set_representation(Representation::Tagged());
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -7654,7 +7653,7 @@ class HTrapAllocationMemento FINAL : public HTemplateInstruction<1> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HTrapAllocationMemento, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7673,7 +7672,7 @@ class HToFastProperties FINAL : public HUnaryOperation {
  public:
   DECLARE_INSTRUCTION_FACTORY_P1(HToFastProperties, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7694,7 +7693,7 @@ class HToFastProperties FINAL : public HUnaryOperation {
 #endif
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -7704,7 +7703,7 @@ class HDateField FINAL : public HUnaryOperation {
 
   Smi* index() const { return index_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7722,13 +7721,11 @@ class HDateField FINAL : public HUnaryOperation {
 
 class HSeqStringGetChar FINAL : public HTemplateInstruction<2> {
  public:
-  static HInstruction* New(Zone* zone,
-                           HValue* context,
-                           String::Encoding encoding,
-                           HValue* string,
+  static HInstruction* New(Isolate* isolate, Zone* zone, HValue* context,
+                           String::Encoding encoding, HValue* string,
                            HValue* index);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return (index == 0) ? Representation::Tagged()
                         : Representation::Integer32();
   }
@@ -7740,11 +7737,11 @@ class HSeqStringGetChar FINAL : public HTemplateInstruction<2> {
   DECLARE_CONCRETE_INSTRUCTION(SeqStringGetChar)
 
  protected:
-  virtual bool DataEquals(HValue* other) OVERRIDE {
+  bool DataEquals(HValue* other) OVERRIDE {
     return encoding() == HSeqStringGetChar::cast(other)->encoding();
   }
 
-  virtual Range* InferRange(Zone* zone) OVERRIDE {
+  Range* InferRange(Zone* zone) OVERRIDE {
     if (encoding() == String::ONE_BYTE_ENCODING) {
       return new(zone) Range(0, String::kMaxOneByteCharCode);
     } else {
@@ -7764,7 +7761,7 @@ class HSeqStringGetChar FINAL : public HTemplateInstruction<2> {
     SetDependsOnFlag(kStringChars);
   }
 
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 
   String::Encoding encoding_;
 };
@@ -7782,7 +7779,7 @@ class HSeqStringSetChar FINAL : public HTemplateInstruction<4> {
   HValue* index() { return OperandAt(2); }
   HValue* value() { return OperandAt(3); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return (index <= 1) ? Representation::Tagged()
                         : Representation::Integer32();
   }
@@ -7811,13 +7808,13 @@ class HCheckMapValue FINAL : public HTemplateInstruction<2> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P2(HCheckMapValue, HValue*, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual HType CalculateInferredType() OVERRIDE {
+  HType CalculateInferredType() OVERRIDE {
     if (value()->type().IsHeapObject()) return value()->type();
     return HType::HeapObject();
   }
@@ -7825,16 +7822,14 @@ class HCheckMapValue FINAL : public HTemplateInstruction<2> {
   HValue* value() const { return OperandAt(0); }
   HValue* map() const { return OperandAt(1); }
 
-  virtual HValue* Canonicalize() OVERRIDE;
+  HValue* Canonicalize() OVERRIDE;
 
   DECLARE_CONCRETE_INSTRUCTION(CheckMapValue)
 
  protected:
-  virtual int RedefinedOperandIndex() OVERRIDE { return 0; }
+  int RedefinedOperandIndex() OVERRIDE { return 0; }
 
-  virtual bool DataEquals(HValue* other) OVERRIDE {
-    return true;
-  }
+  bool DataEquals(HValue* other) OVERRIDE { return true; }
 
  private:
   HCheckMapValue(HValue* value, HValue* map)
@@ -7853,18 +7848,16 @@ class HForInPrepareMap FINAL : public HTemplateInstruction<2> {
  public:
   DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P1(HForInPrepareMap, HValue*);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
   HValue* context() const { return OperandAt(0); }
   HValue* enumerable() const { return OperandAt(1); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual HType CalculateInferredType() OVERRIDE {
-    return HType::Tagged();
-  }
+  HType CalculateInferredType() OVERRIDE { return HType::Tagged(); }
 
   DECLARE_CONCRETE_INSTRUCTION(ForInPrepareMap);
 
@@ -7883,7 +7876,7 @@ class HForInCacheArray FINAL : public HTemplateInstruction<2> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P3(HForInCacheArray, HValue*, HValue*, int);
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7899,11 +7892,9 @@ class HForInCacheArray FINAL : public HTemplateInstruction<2> {
     index_cache_ = index_cache;
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual HType CalculateInferredType() OVERRIDE {
-    return HType::Tagged();
-  }
+  HType CalculateInferredType() OVERRIDE { return HType::Tagged(); }
 
   DECLARE_CONCRETE_INSTRUCTION(ForInCacheArray);
 
@@ -7933,7 +7924,7 @@ class HLoadFieldByIndex FINAL : public HTemplateInstruction<2> {
     set_representation(Representation::Tagged());
   }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     if (index == 1) {
       return Representation::Smi();
     } else {
@@ -7944,16 +7935,14 @@ class HLoadFieldByIndex FINAL : public HTemplateInstruction<2> {
   HValue* object() const { return OperandAt(0); }
   HValue* index() const { return OperandAt(1); }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
-  virtual HType CalculateInferredType() OVERRIDE {
-    return HType::Tagged();
-  }
+  HType CalculateInferredType() OVERRIDE { return HType::Tagged(); }
 
   DECLARE_CONCRETE_INSTRUCTION(LoadFieldByIndex);
 
  private:
-  virtual bool IsDeletable() const OVERRIDE { return true; }
+  bool IsDeletable() const OVERRIDE { return true; }
 };
 
 
@@ -7963,7 +7952,7 @@ class HStoreFrameContext: public HUnaryOperation {
 
   HValue* context() { return OperandAt(0); }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
@@ -7985,11 +7974,11 @@ class HAllocateBlockContext: public HTemplateInstruction<2> {
   HValue* function() const { return OperandAt(1); }
   Handle<ScopeInfo> scope_info() const { return scope_info_; }
 
-  virtual Representation RequiredInputRepresentation(int index) OVERRIDE {
+  Representation RequiredInputRepresentation(int index) OVERRIDE {
     return Representation::Tagged();
   }
 
-  virtual std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
+  std::ostream& PrintDataTo(std::ostream& os) const OVERRIDE;  // NOLINT
 
   DECLARE_CONCRETE_INSTRUCTION(AllocateBlockContext)
 

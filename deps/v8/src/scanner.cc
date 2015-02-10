@@ -599,6 +599,15 @@ void Scanner::Scan() {
           token = ScanNumber(true);
         } else {
           token = Token::PERIOD;
+          if (c0_ == '.') {
+            Advance();
+            if (c0_ == '.') {
+              Advance();
+              token = Token::ELLIPSIS;
+            } else {
+              PushBack('.');
+            }
+          }
         }
         break;
 
@@ -697,13 +706,13 @@ void Scanner::SeekForward(int pos) {
 }
 
 
-template <bool capture_raw>
+template <bool capture_raw, bool in_template_literal>
 bool Scanner::ScanEscape() {
   uc32 c = c0_;
   Advance<capture_raw>();
 
   // Skip escaped newlines.
-  if (c0_ >= 0 && unicode_cache_->IsLineTerminator(c)) {
+  if (!in_template_literal && c0_ >= 0 && unicode_cache_->IsLineTerminator(c)) {
     // Allow CR+LF newlines in multiline string literals.
     if (IsCarriageReturn(c) && IsLineFeed(c0_)) Advance<capture_raw>();
     // Allow LF+CR newlines in multiline string literals.
@@ -725,19 +734,21 @@ bool Scanner::ScanEscape() {
       if (c < 0) return false;
       break;
     }
-    case 'v' : c = '\v'; break;
-    case 'x' : {
+    case 'v':
+      c = '\v';
+      break;
+    case 'x': {
       c = ScanHexNumber<capture_raw>(2);
       if (c < 0) return false;
       break;
     }
-    case '0' :  // fall through
-    case '1' :  // fall through
-    case '2' :  // fall through
-    case '3' :  // fall through
-    case '4' :  // fall through
-    case '5' :  // fall through
-    case '6' :  // fall through
+    case '0':  // Fall through.
+    case '1':  // fall through
+    case '2':  // fall through
+    case '3':  // fall through
+    case '4':  // fall through
+    case '5':  // fall through
+    case '6':  // fall through
     case '7':
       c = ScanOctalEscape<capture_raw>(c, 2);
       break;
@@ -787,7 +798,7 @@ Token::Value Scanner::ScanString() {
     uc32 c = c0_;
     Advance();
     if (c == '\\') {
-      if (c0_ < 0 || !ScanEscape<false>()) return Token::ILLEGAL;
+      if (c0_ < 0 || !ScanEscape<false, false>()) return Token::ILLEGAL;
     } else {
       AddLiteralChar(c);
     }
@@ -818,6 +829,7 @@ Token::Value Scanner::ScanTemplateSpan() {
   LiteralScope literal(this);
   StartRawLiteral();
   const bool capture_raw = true;
+  const bool in_template_literal = true;
 
   while (true) {
     uc32 c = c0_;
@@ -831,7 +843,7 @@ Token::Value Scanner::ScanTemplateSpan() {
       ReduceRawLiteralLength(2);
       break;
     } else if (c == '\\') {
-      if (unicode_cache_->IsLineTerminator(c0_)) {
+      if (c0_ > 0 && unicode_cache_->IsLineTerminator(c0_)) {
         // The TV of LineContinuation :: \ LineTerminatorSequence is the empty
         // code unit sequence.
         uc32 lastChar = c0_;
@@ -844,11 +856,8 @@ Token::Value Scanner::ScanTemplateSpan() {
             AddRawLiteralChar('\n');
           }
         }
-      } else if (c0_ == '0') {
-        Advance<capture_raw>();
-        AddLiteralChar('0');
-      } else {
-        ScanEscape<true>();
+      } else if (!ScanEscape<capture_raw, in_template_literal>()) {
+        return Token::ILLEGAL;
       }
     } else if (c < 0) {
       // Unterminated template literal

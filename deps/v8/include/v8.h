@@ -72,7 +72,6 @@ class Context;
 class CpuProfiler;
 class Data;
 class Date;
-class DeclaredAccessorDescriptor;
 class External;
 class Function;
 class FunctionTemplate;
@@ -112,6 +111,10 @@ template<class T,
          class M = NonCopyablePersistentTraits<T> > class Persistent;
 template<class T> class UniquePersistent;
 template<class K, class V, class T> class PersistentValueMap;
+template <class K, class V, class T>
+class PersistentValueMapBase;
+template <class K, class V, class T>
+class PhantomPersistentValueMap;
 template<class V, class T> class PersistentValueVector;
 template<class T, class P> class WeakCallbackObject;
 class FunctionTemplate;
@@ -122,9 +125,6 @@ template<typename T> class PropertyCallbackInfo;
 class StackTrace;
 class StackFrame;
 class Isolate;
-class DeclaredAccessorDescriptor;
-class ObjectOperationDescriptor;
-class RawOperationDescriptor;
 class CallHandlerHelper;
 class EscapableHandleScope;
 template<typename T> class ReturnValue;
@@ -140,6 +140,20 @@ template<typename T> class CustomArguments;
 class PropertyCallbackArguments;
 class FunctionCallbackArguments;
 class GlobalHandles;
+
+template <typename T>
+class CallbackData {
+ public:
+  V8_INLINE v8::Isolate* GetIsolate() const { return isolate_; }
+
+  explicit CallbackData(v8::Isolate* isolate, T* parameter)
+      : isolate_(isolate), parameter_(parameter) {}
+  V8_INLINE T* GetParameter() const { return parameter_; }
+
+ private:
+  v8::Isolate* isolate_;
+  T* parameter_;
+};
 }
 
 
@@ -391,7 +405,8 @@ template <class T> class Local : public Handle<T> {
   template<class F> friend class internal::CustomArguments;
   friend class HandleScope;
   friend class EscapableHandleScope;
-  template<class F1, class F2, class F3> friend class PersistentValueMap;
+  template <class F1, class F2, class F3>
+  friend class PersistentValueMapBase;
   template<class F1, class F2> friend class PersistentValueVector;
 
   template <class S> V8_INLINE Local(S* that) : Handle<T>(that) { }
@@ -418,23 +433,42 @@ template <class T> class Eternal {
 };
 
 
-template<class T, class P>
-class WeakCallbackData {
+template <typename T>
+class PhantomCallbackData : public internal::CallbackData<T> {
+ public:
+  typedef void (*Callback)(const PhantomCallbackData<T>& data);
+
+  V8_INLINE void* GetInternalField1() const { return internal_field1_; }
+  V8_INLINE void* GetInternalField2() const { return internal_field2_; }
+
+  PhantomCallbackData(Isolate* isolate, T* parameter, void* internal_field1,
+                      void* internal_field2)
+      : internal::CallbackData<T>(isolate, parameter),
+        internal_field1_(internal_field1),
+        internal_field2_(internal_field2) {}
+
+ private:
+  void* internal_field1_;
+  void* internal_field2_;
+};
+
+
+template <class T, class P>
+class WeakCallbackData : public internal::CallbackData<P> {
  public:
   typedef void (*Callback)(const WeakCallbackData<T, P>& data);
 
-  V8_INLINE Isolate* GetIsolate() const { return isolate_; }
   V8_INLINE Local<T> GetValue() const { return handle_; }
-  V8_INLINE P* GetParameter() const { return parameter_; }
 
  private:
   friend class internal::GlobalHandles;
-  WeakCallbackData(Isolate* isolate, Local<T> handle, P* parameter)
-    : isolate_(isolate), handle_(handle), parameter_(parameter) { }
-  Isolate* isolate_;
+  WeakCallbackData(Isolate* isolate, P* parameter, Local<T> handle)
+      : internal::CallbackData<P>(isolate, parameter), handle_(handle) {}
   Local<T> handle_;
-  P* parameter_;
 };
+
+
+static const int kNoInternalFieldIndex = -1;
 
 
 /**
@@ -471,22 +505,23 @@ template <class T> class PersistentBase {
   template <class S>
   V8_INLINE void Reset(Isolate* isolate, const PersistentBase<S>& other);
 
-  V8_INLINE bool IsEmpty() const { return val_ == 0; }
+  V8_INLINE bool IsEmpty() const { return val_ == NULL; }
+  V8_INLINE void Empty() { val_ = 0; }
 
   template <class S>
   V8_INLINE bool operator==(const PersistentBase<S>& that) const {
     internal::Object** a = reinterpret_cast<internal::Object**>(this->val_);
     internal::Object** b = reinterpret_cast<internal::Object**>(that.val_);
-    if (a == 0) return b == 0;
-    if (b == 0) return false;
+    if (a == NULL) return b == NULL;
+    if (b == NULL) return false;
     return *a == *b;
   }
 
   template <class S> V8_INLINE bool operator==(const Handle<S>& that) const {
     internal::Object** a = reinterpret_cast<internal::Object**>(this->val_);
     internal::Object** b = reinterpret_cast<internal::Object**>(that.val_);
-    if (a == 0) return b == 0;
-    if (b == 0) return false;
+    if (a == NULL) return b == NULL;
+    if (b == NULL) return false;
     return *a == *b;
   }
 
@@ -519,14 +554,14 @@ template <class T> class PersistentBase {
   // Phantom persistents work like weak persistents, except that the pointer to
   // the object being collected is not available in the finalization callback.
   // This enables the garbage collector to collect the object and any objects
-  // it references transitively in one GC cycle.
+  // it references transitively in one GC cycle. At the moment you can either
+  // specify a parameter for the callback or the location of two internal
+  // fields in the dying object.
   template <typename P>
   V8_INLINE void SetPhantom(P* parameter,
-                            typename WeakCallbackData<T, P>::Callback callback);
-
-  template <typename S, typename P>
-  V8_INLINE void SetPhantom(P* parameter,
-                            typename WeakCallbackData<S, P>::Callback callback);
+                            typename PhantomCallbackData<P>::Callback callback,
+                            int internal_field_index1 = kNoInternalFieldIndex,
+                            int internal_field_index2 = kNoInternalFieldIndex);
 
   template<typename P>
   V8_INLINE P* ClearWeak();
@@ -581,7 +616,8 @@ template <class T> class PersistentBase {
   template<class F> friend class UniquePersistent;
   template<class F> friend class PersistentBase;
   template<class F> friend class ReturnValue;
-  template<class F1, class F2, class F3> friend class PersistentValueMap;
+  template <class F1, class F2, class F3>
+  friend class PersistentValueMapBase;
   template<class F1, class F2> friend class PersistentValueVector;
   friend class Object;
 
@@ -940,21 +976,29 @@ class ScriptOrigin {
       Handle<Integer> resource_line_offset = Handle<Integer>(),
       Handle<Integer> resource_column_offset = Handle<Integer>(),
       Handle<Boolean> resource_is_shared_cross_origin = Handle<Boolean>(),
-      Handle<Integer> script_id = Handle<Integer>())
+      Handle<Integer> script_id = Handle<Integer>(),
+      Handle<Boolean> resource_is_embedder_debug_script = Handle<Boolean>())
       : resource_name_(resource_name),
         resource_line_offset_(resource_line_offset),
         resource_column_offset_(resource_column_offset),
+        resource_is_embedder_debug_script_(resource_is_embedder_debug_script),
         resource_is_shared_cross_origin_(resource_is_shared_cross_origin),
-        script_id_(script_id) { }
+        script_id_(script_id) {}
   V8_INLINE Handle<Value> ResourceName() const;
   V8_INLINE Handle<Integer> ResourceLineOffset() const;
   V8_INLINE Handle<Integer> ResourceColumnOffset() const;
+  /**
+    * Returns true for embedder's debugger scripts
+    */
+  V8_INLINE Handle<Boolean> ResourceIsEmbedderDebugScript() const;
   V8_INLINE Handle<Boolean> ResourceIsSharedCrossOrigin() const;
   V8_INLINE Handle<Integer> ScriptID() const;
+
  private:
   Handle<Value> resource_name_;
   Handle<Integer> resource_line_offset_;
   Handle<Integer> resource_column_offset_;
+  Handle<Boolean> resource_is_embedder_debug_script_;
   Handle<Boolean> resource_is_shared_cross_origin_;
   Handle<Integer> script_id_;
 };
@@ -1100,6 +1144,7 @@ class V8_EXPORT ScriptCompiler {
     Handle<Value> resource_name;
     Handle<Integer> resource_line_offset;
     Handle<Integer> resource_column_offset;
+    Handle<Boolean> resource_is_embedder_debug_script;
     Handle<Boolean> resource_is_shared_cross_origin;
 
     // Cached data from previous compilation (if a kConsume*Cache flag is
@@ -1263,6 +1308,38 @@ class V8_EXPORT ScriptCompiler {
    *   compared when it is being used.
    */
   static uint32_t CachedDataVersionTag();
+
+  /**
+   * Compile an ES6 module.
+   *
+   * This is an experimental feature.
+   *
+   * TODO(adamk): Script is likely the wrong return value for this;
+   * should return some new Module type.
+   */
+  static Local<Script> CompileModule(
+      Isolate* isolate, Source* source,
+      CompileOptions options = kNoCompileOptions);
+
+  /**
+   * Compile a function for a given context. This is equivalent to running
+   *
+   * with (obj) {
+   *   return function() { ... }
+   * }
+   *
+   * It is possible to specify multiple context extensions (obj in the above
+   * example).
+   */
+  static Local<Function> CompileFunctionInContext(
+      Isolate* isolate, Source* source, Local<Context> context,
+      size_t context_extension_count, Local<Object> context_extensions[]);
+
+ private:
+  static Local<UnboundScript> CompileUnboundInternal(Isolate* isolate,
+                                                     Source* source,
+                                                     CompileOptions options,
+                                                     bool is_module);
 };
 
 
@@ -1488,6 +1565,21 @@ class V8_EXPORT JSON {
    * \return The corresponding value if successfully parsed.
    */
   static Local<Value> Parse(Local<String> json_string);
+};
+
+
+/**
+ * A map whose keys are referenced weakly. It is similar to JavaScript WeakMap
+ * but can be created without entering a v8::Context and hence shouldn't
+ * escape to JavaScript.
+ */
+class V8_EXPORT NativeWeakMap : public Data {
+ public:
+  static Local<NativeWeakMap> New(Isolate* isolate);
+  void Set(Handle<Value> key, Handle<Value> value);
+  Local<Value> Get(Handle<Value> key);
+  bool Has(Handle<Value> key);
+  bool Delete(Handle<Value> key);
 };
 
 
@@ -2398,10 +2490,6 @@ class V8_EXPORT Object : public Value {
 
   bool Delete(Handle<Value> key);
 
-  // Delete a property on this object bypassing interceptors and
-  // ignoring dont-delete attributes.
-  bool ForceDelete(Handle<Value> key);
-
   bool Has(uint32_t index);
 
   bool Delete(uint32_t index);
@@ -2418,12 +2506,6 @@ class V8_EXPORT Object : public Value {
                    Handle<Value> data = Handle<Value>(),
                    AccessControl settings = DEFAULT,
                    PropertyAttribute attribute = None);
-
-  // This function is not yet stable and should not be used at this time.
-  bool SetDeclaredAccessor(Local<Name> name,
-                           Local<DeclaredAccessorDescriptor> descriptor,
-                           PropertyAttribute attribute = None,
-                           AccessControl settings = DEFAULT);
 
   void SetAccessorProperty(Local<Name> name,
                            Local<Function> getter,
@@ -2708,7 +2790,8 @@ class ReturnValue {
   template<class F> friend class ReturnValue;
   template<class F> friend class FunctionCallbackInfo;
   template<class F> friend class PropertyCallbackInfo;
-  template<class F, class G, class H> friend class PersistentValueMap;
+  template <class F, class G, class H>
+  friend class PersistentValueMapBase;
   V8_INLINE void SetInternal(internal::Object* value) { *value_ = value; }
   V8_INLINE internal::Object* GetDefaultValue();
   V8_INLINE explicit ReturnValue(internal::Object** slot);
@@ -2755,7 +2838,7 @@ class FunctionCallbackInfo {
   internal::Object** implicit_args_;
   internal::Object** values_;
   int length_;
-  bool is_construct_call_;
+  int is_construct_call_;
 };
 
 
@@ -3501,14 +3584,6 @@ class V8_EXPORT Template : public Data {
                                  Local<AccessorSignature>(),
                              AccessControl settings = DEFAULT);
 
-  // This function is not yet stable and should not be used at this time.
-  bool SetDeclaredAccessor(Local<Name> name,
-                           Local<DeclaredAccessorDescriptor> descriptor,
-                           PropertyAttribute attribute = None,
-                           Local<AccessorSignature> signature =
-                               Local<AccessorSignature>(),
-                           AccessControl settings = DEFAULT);
-
  private:
   Template();
 
@@ -3695,6 +3770,9 @@ typedef bool (*IndexedSecurityCallback)(Local<Object> host,
  * temporary functions that can be collected using Scripts is
  * preferred.
  *
+ * Any modification of a FunctionTemplate after first instantiation will trigger
+ *a crash.
+ *
  * A FunctionTemplate can have properties, these properties are added to the
  * function object when it is created.
  *
@@ -3861,6 +3939,9 @@ class V8_EXPORT FunctionTemplate : public Template {
 };
 
 
+enum class PropertyHandlerFlags { kNone = 0, kAllCanRead = 1 };
+
+
 struct NamedPropertyHandlerConfiguration {
   NamedPropertyHandlerConfiguration(
       /** Note: getter is required **/
@@ -3869,13 +3950,15 @@ struct NamedPropertyHandlerConfiguration {
       GenericNamedPropertyQueryCallback query = 0,
       GenericNamedPropertyDeleterCallback deleter = 0,
       GenericNamedPropertyEnumeratorCallback enumerator = 0,
-      Handle<Value> data = Handle<Value>())
+      Handle<Value> data = Handle<Value>(),
+      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
         setter(setter),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
-        data(data) {}
+        data(data),
+        flags(flags) {}
 
   GenericNamedPropertyGetterCallback getter;
   GenericNamedPropertySetterCallback setter;
@@ -3883,6 +3966,7 @@ struct NamedPropertyHandlerConfiguration {
   GenericNamedPropertyDeleterCallback deleter;
   GenericNamedPropertyEnumeratorCallback enumerator;
   Handle<Value> data;
+  PropertyHandlerFlags flags;
 };
 
 
@@ -3894,13 +3978,15 @@ struct IndexedPropertyHandlerConfiguration {
       IndexedPropertyQueryCallback query = 0,
       IndexedPropertyDeleterCallback deleter = 0,
       IndexedPropertyEnumeratorCallback enumerator = 0,
-      Handle<Value> data = Handle<Value>())
+      Handle<Value> data = Handle<Value>(),
+      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
         setter(setter),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
-        data(data) {}
+        data(data),
+        flags(flags) {}
 
   IndexedPropertyGetterCallback getter;
   IndexedPropertySetterCallback setter;
@@ -3908,6 +3994,7 @@ struct IndexedPropertyHandlerConfiguration {
   IndexedPropertyDeleterCallback deleter;
   IndexedPropertyEnumeratorCallback enumerator;
   Handle<Value> data;
+  PropertyHandlerFlags flags;
 };
 
 
@@ -4087,16 +4174,13 @@ class V8_EXPORT ObjectTemplate : public Template {
 
 
 /**
- * A Signature specifies which receivers and arguments are valid
- * parameters to a function.
+ * A Signature specifies which receiver is valid for a function.
  */
 class V8_EXPORT Signature : public Data {
  public:
-  static Local<Signature> New(Isolate* isolate,
-                              Handle<FunctionTemplate> receiver =
-                                  Handle<FunctionTemplate>(),
-                              int argc = 0,
-                              Handle<FunctionTemplate> argv[] = 0);
+  static Local<Signature> New(
+      Isolate* isolate,
+      Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>());
 
  private:
   Signature();
@@ -4115,61 +4199,6 @@ class V8_EXPORT AccessorSignature : public Data {
 
  private:
   AccessorSignature();
-};
-
-
-class V8_EXPORT DeclaredAccessorDescriptor : public Data {
- private:
-  DeclaredAccessorDescriptor();
-};
-
-
-class V8_EXPORT ObjectOperationDescriptor : public Data {
- public:
-  // This function is not yet stable and should not be used at this time.
-  static Local<RawOperationDescriptor> NewInternalFieldDereference(
-      Isolate* isolate,
-      int internal_field);
- private:
-  ObjectOperationDescriptor();
-};
-
-
-enum DeclaredAccessorDescriptorDataType {
-    kDescriptorBoolType,
-    kDescriptorInt8Type, kDescriptorUint8Type,
-    kDescriptorInt16Type, kDescriptorUint16Type,
-    kDescriptorInt32Type, kDescriptorUint32Type,
-    kDescriptorFloatType, kDescriptorDoubleType
-};
-
-
-class V8_EXPORT RawOperationDescriptor : public Data {
- public:
-  Local<DeclaredAccessorDescriptor> NewHandleDereference(Isolate* isolate);
-  Local<RawOperationDescriptor> NewRawDereference(Isolate* isolate);
-  Local<RawOperationDescriptor> NewRawShift(Isolate* isolate,
-                                            int16_t byte_offset);
-  Local<DeclaredAccessorDescriptor> NewPointerCompare(Isolate* isolate,
-                                                      void* compare_value);
-  Local<DeclaredAccessorDescriptor> NewPrimitiveValue(
-      Isolate* isolate,
-      DeclaredAccessorDescriptorDataType data_type,
-      uint8_t bool_offset = 0);
-  Local<DeclaredAccessorDescriptor> NewBitmaskCompare8(Isolate* isolate,
-                                                       uint8_t bitmask,
-                                                       uint8_t compare_value);
-  Local<DeclaredAccessorDescriptor> NewBitmaskCompare16(
-      Isolate* isolate,
-      uint16_t bitmask,
-      uint16_t compare_value);
-  Local<DeclaredAccessorDescriptor> NewBitmaskCompare32(
-      Isolate* isolate,
-      uint32_t bitmask,
-      uint32_t compare_value);
-
- private:
-  RawOperationDescriptor();
 };
 
 
@@ -4363,18 +4392,19 @@ typedef void* (*CreateHistogramCallback)(const char* name,
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 
 // --- Memory Allocation Callback ---
-  enum ObjectSpace {
-    kObjectSpaceNewSpace = 1 << 0,
-    kObjectSpaceOldPointerSpace = 1 << 1,
-    kObjectSpaceOldDataSpace = 1 << 2,
-    kObjectSpaceCodeSpace = 1 << 3,
-    kObjectSpaceMapSpace = 1 << 4,
-    kObjectSpaceLoSpace = 1 << 5,
-
-    kObjectSpaceAll = kObjectSpaceNewSpace | kObjectSpaceOldPointerSpace |
-      kObjectSpaceOldDataSpace | kObjectSpaceCodeSpace | kObjectSpaceMapSpace |
-      kObjectSpaceLoSpace
-  };
+enum ObjectSpace {
+  kObjectSpaceNewSpace = 1 << 0,
+  kObjectSpaceOldPointerSpace = 1 << 1,
+  kObjectSpaceOldDataSpace = 1 << 2,
+  kObjectSpaceCodeSpace = 1 << 3,
+  kObjectSpaceMapSpace = 1 << 4,
+  kObjectSpaceCellSpace = 1 << 5,
+  kObjectSpacePropertyCellSpace = 1 << 6,
+  kObjectSpaceLoSpace = 1 << 7,
+  kObjectSpaceAll = kObjectSpaceNewSpace | kObjectSpaceOldPointerSpace |
+                    kObjectSpaceOldDataSpace | kObjectSpaceCodeSpace |
+                    kObjectSpaceMapSpace | kObjectSpaceLoSpace
+};
 
   enum AllocationAction {
     kAllocationActionAllocate = 1 << 0,
@@ -5012,8 +5042,7 @@ class V8_EXPORT Isolate {
    * Request V8 to interrupt long running JavaScript code and invoke
    * the given |callback| passing the given |data| to it. After |callback|
    * returns control will be returned to the JavaScript code.
-   * At any given moment V8 can remember only a single callback for the very
-   * last interrupt request.
+   * There may be a number of interrupt requests in flight.
    * Can be called from another thread without acquiring a |Locker|.
    * Registered |callback| must not reenter interrupted Isolate.
    */
@@ -5023,7 +5052,8 @@ class V8_EXPORT Isolate {
    * Clear interrupt request created by |RequestInterrupt|.
    * Can be called from another thread without acquiring a |Locker|.
    */
-  void ClearInterrupt();
+  V8_DEPRECATED("There's no way to clear interrupts in flight.",
+                void ClearInterrupt());
 
   /**
    * Request garbage collection in this Isolate. It is only valid to call this
@@ -5141,8 +5171,11 @@ class V8_EXPORT Isolate {
    * these notifications to guide the GC heuristic. Returns the number
    * of context disposals - including this one - since the last time
    * V8 had a chance to clean up.
+   *
+   * The optional parameter |dependant_context| specifies whether the disposed
+   * context was depending on state from other contexts or not.
    */
-  int ContextDisposedNotification();
+  int ContextDisposedNotification(bool dependant_context = true);
 
   /**
    * Allows the host application to provide the address of a function that is
@@ -5274,7 +5307,8 @@ class V8_EXPORT Isolate {
   void VisitHandlesForPartialDependence(PersistentHandleVisitor* visitor);
 
  private:
-  template<class K, class V, class Traits> friend class PersistentValueMap;
+  template <class K, class V, class Traits>
+  friend class PersistentValueMapBase;
 
   Isolate();
   Isolate(const Isolate&);
@@ -5369,6 +5403,13 @@ class V8_EXPORT V8 {
    */
   static void SetNativesDataBlob(StartupData* startup_blob);
   static void SetSnapshotDataBlob(StartupData* startup_blob);
+
+  /**
+   * Create a new isolate and context for the purpose of capturing a snapshot
+   * Returns { NULL, 0 } on failure.
+   * The caller owns the data array in the return value.
+   */
+  static StartupData CreateSnapshotDataBlob(char* custom_source = NULL);
 
   /**
    * Adds a message listener.
@@ -5618,7 +5659,13 @@ class V8_EXPORT V8 {
   static void DisposeGlobal(internal::Object** global_handle);
   typedef WeakCallbackData<Value, void>::Callback WeakCallback;
   static void MakeWeak(internal::Object** global_handle, void* data,
-                       WeakCallback weak_callback, WeakHandleType phantom);
+                       WeakCallback weak_callback);
+  static void MakePhantom(internal::Object** global_handle, void* data,
+                          // Must be 0 or kNoInternalFieldIndex.
+                          int internal_field_index1,
+                          // Must be 1 or kNoInternalFieldIndex.
+                          int internal_field_index2,
+                          PhantomCallbackData<void>::Callback weak_callback);
   static void* ClearWeak(internal::Object** global_handle);
   static void Eternalize(Isolate* isolate,
                          Value* handle,
@@ -6201,7 +6248,7 @@ class Internals {
   static const int kJSObjectHeaderSize = 3 * kApiPointerSize;
   static const int kFixedArrayHeaderSize = 2 * kApiPointerSize;
   static const int kContextHeaderSize = 2 * kApiPointerSize;
-  static const int kContextEmbedderDataIndex = 76;
+  static const int kContextEmbedderDataIndex = 74;
   static const int kFullStringRepresentationMask = 0x07;
   static const int kStringEncodingMask = 0x4;
   static const int kExternalTwoByteRepresentationTag = 0x02;
@@ -6219,7 +6266,7 @@ class Internals {
   static const int kNullValueRootIndex = 7;
   static const int kTrueValueRootIndex = 8;
   static const int kFalseValueRootIndex = 9;
-  static const int kEmptyStringRootIndex = 154;
+  static const int kEmptyStringRootIndex = 156;
 
   // The external allocation limit should be below 256 MB on all architectures
   // to avoid that resource-constrained embedders run low on memory.
@@ -6227,12 +6274,12 @@ class Internals {
 
   static const int kNodeClassIdOffset = 1 * kApiPointerSize;
   static const int kNodeFlagsOffset = 1 * kApiPointerSize + 3;
-  static const int kNodeStateMask = 0xf;
+  static const int kNodeStateMask = 0x7;
   static const int kNodeStateIsWeakValue = 2;
   static const int kNodeStateIsPendingValue = 3;
   static const int kNodeStateIsNearDeathValue = 4;
-  static const int kNodeIsIndependentShift = 4;
-  static const int kNodeIsPartiallyDependentShift = 5;
+  static const int kNodeIsIndependentShift = 3;
+  static const int kNodeIsPartiallyDependentShift = 4;
 
   static const int kJSObjectType = 0xbd;
   static const int kFirstNonstringType = 0x80;
@@ -6490,7 +6537,7 @@ void PersistentBase<T>::SetWeak(
   TYPE_CHECK(S, T);
   typedef typename WeakCallbackData<Value, void>::Callback Callback;
   V8::MakeWeak(reinterpret_cast<internal::Object**>(this->val_), parameter,
-               reinterpret_cast<Callback>(callback), V8::NonphantomHandle);
+               reinterpret_cast<Callback>(callback));
 }
 
 
@@ -6504,21 +6551,14 @@ void PersistentBase<T>::SetWeak(
 
 
 template <class T>
-template <typename S, typename P>
-void PersistentBase<T>::SetPhantom(
-    P* parameter, typename WeakCallbackData<S, P>::Callback callback) {
-  TYPE_CHECK(S, T);
-  typedef typename WeakCallbackData<Value, void>::Callback Callback;
-  V8::MakeWeak(reinterpret_cast<internal::Object**>(this->val_), parameter,
-               reinterpret_cast<Callback>(callback), V8::PhantomHandle);
-}
-
-
-template <class T>
 template <typename P>
 void PersistentBase<T>::SetPhantom(
-    P* parameter, typename WeakCallbackData<T, P>::Callback callback) {
-  SetPhantom<T, P>(parameter, callback);
+    P* parameter, typename PhantomCallbackData<P>::Callback callback,
+    int internal_field_index1, int internal_field_index2) {
+  typedef typename PhantomCallbackData<void>::Callback Callback;
+  V8::MakePhantom(reinterpret_cast<internal::Object**>(this->val_), parameter,
+                  internal_field_index1, internal_field_index2,
+                  reinterpret_cast<Callback>(callback));
 }
 
 
@@ -6736,7 +6776,7 @@ ReturnValue<T> FunctionCallbackInfo<T>::GetReturnValue() const {
 
 template<typename T>
 bool FunctionCallbackInfo<T>::IsConstructCall() const {
-  return is_construct_call_;
+  return is_construct_call_ & 0x1;
 }
 
 
@@ -6761,6 +6801,11 @@ Handle<Integer> ScriptOrigin::ResourceColumnOffset() const {
 }
 
 
+Handle<Boolean> ScriptOrigin::ResourceIsEmbedderDebugScript() const {
+  return resource_is_embedder_debug_script_;
+}
+
+
 Handle<Boolean> ScriptOrigin::ResourceIsSharedCrossOrigin() const {
   return resource_is_shared_cross_origin_;
 }
@@ -6777,6 +6822,7 @@ ScriptCompiler::Source::Source(Local<String> string, const ScriptOrigin& origin,
       resource_name(origin.ResourceName()),
       resource_line_offset(origin.ResourceLineOffset()),
       resource_column_offset(origin.ResourceColumnOffset()),
+      resource_is_embedder_debug_script(origin.ResourceIsEmbedderDebugScript()),
       resource_is_shared_cross_origin(origin.ResourceIsSharedCrossOrigin()),
       cached_data(data) {}
 
@@ -7324,9 +7370,8 @@ int64_t Isolate::AdjustAmountOfExternalAllocatedMemory(
       amount - *amount_of_external_allocated_memory_at_last_global_gc >
           I::kExternalAllocationLimit) {
     CollectAllGarbage("external memory allocation limit reached.");
-  } else {
-    *amount_of_external_allocated_memory = amount;
   }
+  *amount_of_external_allocated_memory = amount;
   return *amount_of_external_allocated_memory;
 }
 

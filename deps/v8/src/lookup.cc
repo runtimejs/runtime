@@ -102,7 +102,7 @@ void LookupIterator::ReconfigureDataProperty(Handle<Object> value,
   DCHECK(HolderIsReceiverOrHiddenPrototype());
   Handle<JSObject> holder = GetHolder<JSObject>();
   if (holder_map_->is_dictionary_map()) {
-    PropertyDetails details(attributes, FIELD, 0);
+    PropertyDetails details(attributes, v8::internal::DATA, 0);
     JSObject::SetNormalizedProperty(holder, name(), value, details);
   } else {
     holder_map_ = Map::ReconfigureDataProperty(holder_map_, descriptor_number(),
@@ -118,16 +118,15 @@ void LookupIterator::PrepareTransitionToDataProperty(
     Handle<Object> value, PropertyAttributes attributes,
     Object::StoreFromKeyed store_mode) {
   if (state_ == TRANSITION) return;
-  DCHECK(state_ != LookupIterator::ACCESSOR ||
-         GetAccessors()->IsDeclaredAccessorInfo());
+  DCHECK(state_ != LookupIterator::ACCESSOR);
   DCHECK(state_ == NOT_FOUND || !HolderIsReceiverOrHiddenPrototype());
-
+  DCHECK(!IsSpecialNumericIndex());
   // Can only be called when the receiver is a JSObject. JSProxy has to be
   // handled via a trap. Adding properties to primitive values is not
   // observable.
   Handle<JSObject> receiver = GetStoreTarget();
 
-  if (!name().is_identical_to(isolate()->factory()->hidden_string()) &&
+  if (!isolate()->IsInternallyUsedPropertyName(name()) &&
       !receiver->map()->is_extensible()) {
     return;
   }
@@ -174,7 +173,7 @@ void LookupIterator::TransitionToAccessorProperty(
   }
 
   // Install the accessor into the dictionary-mode object.
-  PropertyDetails details(attributes, CALLBACKS, 0);
+  PropertyDetails details(attributes, ACCESSOR_CONSTANT, 0);
   Handle<AccessorPair> pair;
   if (state() == ACCESSOR && GetAccessors()->IsAccessorPair()) {
     pair = Handle<AccessorPair>::cast(GetAccessors());
@@ -228,7 +227,7 @@ Handle<Object> LookupIterator::FetchValue() const {
     if (holder_map_->IsGlobalObjectMap()) {
       result = PropertyCell::cast(result)->value();
     }
-  } else if (property_details_.type() == v8::internal::FIELD) {
+  } else if (property_details_.type() == v8::internal::DATA) {
     FieldIndex field_index = FieldIndex::ForDescriptor(*holder_map_, number_);
     return JSObject::FastPropertyAt(holder, property_details_.representation(),
                                     field_index);
@@ -239,10 +238,18 @@ Handle<Object> LookupIterator::FetchValue() const {
 }
 
 
+int LookupIterator::GetAccessorIndex() const {
+  DCHECK(has_property_);
+  DCHECK(!holder_map_->is_dictionary_map());
+  DCHECK_EQ(v8::internal::ACCESSOR_CONSTANT, property_details_.type());
+  return descriptor_number();
+}
+
+
 int LookupIterator::GetConstantIndex() const {
   DCHECK(has_property_);
   DCHECK(!holder_map_->is_dictionary_map());
-  DCHECK_EQ(v8::internal::CONSTANT, property_details_.type());
+  DCHECK_EQ(v8::internal::DATA_CONSTANT, property_details_.type());
   return descriptor_number();
 }
 
@@ -250,7 +257,7 @@ int LookupIterator::GetConstantIndex() const {
 FieldIndex LookupIterator::GetFieldIndex() const {
   DCHECK(has_property_);
   DCHECK(!holder_map_->is_dictionary_map());
-  DCHECK_EQ(v8::internal::FIELD, property_details_.type());
+  DCHECK_EQ(v8::internal::DATA, property_details_.type());
   int index =
       holder_map_->instance_descriptors()->GetFieldIndex(descriptor_number());
   bool is_double = representation().IsDouble();
@@ -261,7 +268,7 @@ FieldIndex LookupIterator::GetFieldIndex() const {
 Handle<HeapType> LookupIterator::GetFieldType() const {
   DCHECK(has_property_);
   DCHECK(!holder_map_->is_dictionary_map());
-  DCHECK_EQ(v8::internal::FIELD, property_details_.type());
+  DCHECK_EQ(v8::internal::DATA, property_details_.type());
   return handle(
       holder_map_->instance_descriptors()->GetFieldType(descriptor_number()),
       isolate_);
@@ -289,7 +296,7 @@ Handle<Object> LookupIterator::GetDataValue() const {
 }
 
 
-void LookupIterator::WriteDataValue(Handle<Object> value) {
+Handle<Object> LookupIterator::WriteDataValue(Handle<Object> value) {
   DCHECK_EQ(DATA, state_);
   Handle<JSObject> holder = GetHolder<JSObject>();
   if (holder_map_->is_dictionary_map()) {
@@ -297,15 +304,16 @@ void LookupIterator::WriteDataValue(Handle<Object> value) {
     if (holder->IsGlobalObject()) {
       Handle<PropertyCell> cell(
           PropertyCell::cast(property_dictionary->ValueAt(dictionary_entry())));
-      PropertyCell::SetValueInferType(cell, value);
+      value = PropertyCell::SetValueInferType(cell, value);
     } else {
       property_dictionary->ValueAtPut(dictionary_entry(), *value);
     }
-  } else if (property_details_.type() == v8::internal::FIELD) {
+  } else if (property_details_.type() == v8::internal::DATA) {
     holder->WriteToField(descriptor_number(), *value);
   } else {
-    DCHECK_EQ(v8::internal::CONSTANT, property_details_.type());
+    DCHECK_EQ(v8::internal::DATA_CONSTANT, property_details_.type());
   }
+  return value;
 }
 
 

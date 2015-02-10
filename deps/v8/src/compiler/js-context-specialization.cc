@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/common-operator.h"
-#include "src/compiler/graph-inl.h"
 #include "src/compiler/js-context-specialization.h"
+
+#include "src/compiler.h"
+#include "src/compiler/common-operator.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
-
 
 Reduction JSContextSpecializer::Reduce(Node* node) {
   if (node == context_) {

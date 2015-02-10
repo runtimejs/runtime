@@ -98,9 +98,8 @@ enum BindingFlags {
   V(TO_INTEGER_FUN_INDEX, JSFunction, to_integer_fun)                          \
   V(TO_UINT32_FUN_INDEX, JSFunction, to_uint32_fun)                            \
   V(TO_INT32_FUN_INDEX, JSFunction, to_int32_fun)                              \
+  V(TO_LENGTH_FUN_INDEX, JSFunction, to_length_fun)                            \
   V(GLOBAL_EVAL_FUN_INDEX, JSFunction, global_eval_fun)                        \
-  V(INSTANTIATE_FUN_INDEX, JSFunction, instantiate_fun)                        \
-  V(CONFIGURE_INSTANCE_FUN_INDEX, JSFunction, configure_instance_fun)          \
   V(ARRAY_BUFFER_FUN_INDEX, JSFunction, array_buffer_fun)                      \
   V(UINT8_ARRAY_FUN_INDEX, JSFunction, uint8_array_fun)                        \
   V(INT8_ARRAY_FUN_INDEX, JSFunction, int8_array_fun)                          \
@@ -139,7 +138,7 @@ enum BindingFlags {
   V(MAKE_MESSAGE_FUN_INDEX, JSFunction, make_message_fun)                      \
   V(GET_STACK_TRACE_LINE_INDEX, JSFunction, get_stack_trace_line_fun)          \
   V(CONFIGURE_GLOBAL_INDEX, JSFunction, configure_global_fun)                  \
-  V(FUNCTION_CACHE_INDEX, JSObject, function_cache)                            \
+  V(FUNCTION_CACHE_INDEX, FixedArray, function_cache)                          \
   V(JSFUNCTION_RESULT_CACHES_INDEX, FixedArray, jsfunction_result_caches)      \
   V(NORMALIZED_MAP_CACHE_INDEX, Object, normalized_map_cache)                  \
   V(RUNTIME_CONTEXT_INDEX, Context, runtime_context)                           \
@@ -347,8 +346,6 @@ class Context: public FixedArray {
     TO_INT32_FUN_INDEX,
     TO_BOOLEAN_FUN_INDEX,
     GLOBAL_EVAL_FUN_INDEX,
-    INSTANTIATE_FUN_INDEX,
-    CONFIGURE_INSTANCE_FUN_INDEX,
     ARRAY_BUFFER_FUN_INDEX,
     UINT8_ARRAY_FUN_INDEX,
     INT8_ARRAY_FUN_INDEX,
@@ -416,6 +413,7 @@ class Context: public FixedArray {
     ARRAY_VALUES_ITERATOR_INDEX,
     SCRIPT_CONTEXT_TABLE_INDEX,
     MAP_CACHE_INDEX,
+    TO_LENGTH_FUN_INDEX,
 
     // Properties from here are treated as weak references by the full GC.
     // Scavenge treats them as strong references.
@@ -570,20 +568,21 @@ class Context: public FixedArray {
     return kHeaderSize + index * kPointerSize - kHeapObjectTag;
   }
 
-  static int FunctionMapIndex(StrictMode strict_mode, FunctionKind kind) {
+  static int FunctionMapIndex(LanguageMode language_mode, FunctionKind kind) {
     if (IsGeneratorFunction(kind)) {
-      return strict_mode == SLOPPY ? SLOPPY_GENERATOR_FUNCTION_MAP_INDEX
-                                   : STRICT_GENERATOR_FUNCTION_MAP_INDEX;
+      return is_strict(language_mode) ? STRICT_GENERATOR_FUNCTION_MAP_INDEX
+                                      : SLOPPY_GENERATOR_FUNCTION_MAP_INDEX;
     }
 
-    if (IsArrowFunction(kind) || IsConciseMethod(kind)) {
-      return strict_mode == SLOPPY
-                 ? SLOPPY_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX
-                 : STRICT_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX;
+    if (IsArrowFunction(kind) || IsConciseMethod(kind) ||
+        IsAccessorFunction(kind)) {
+      return is_strict(language_mode)
+                 ? STRICT_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX
+                 : SLOPPY_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX;
     }
 
-    return strict_mode == SLOPPY ? SLOPPY_FUNCTION_MAP_INDEX
-                                 : STRICT_FUNCTION_MAP_INDEX;
+    return is_strict(language_mode) ? STRICT_FUNCTION_MAP_INDEX
+                                    : SLOPPY_FUNCTION_MAP_INDEX;
   }
 
   static const int kSize = kHeaderSize + NATIVE_CONTEXT_SLOTS * kPointerSize;

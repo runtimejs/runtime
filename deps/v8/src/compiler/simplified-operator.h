@@ -128,6 +128,8 @@ class SimplifiedOperatorBuilder FINAL {
  public:
   explicit SimplifiedOperatorBuilder(Zone* zone);
 
+  const Operator* AnyToBoolean();
+
   const Operator* BooleanNot();
   const Operator* BooleanToNumber();
 
@@ -141,6 +143,8 @@ class SimplifiedOperatorBuilder FINAL {
   const Operator* NumberModulus();
   const Operator* NumberToInt32();
   const Operator* NumberToUint32();
+
+  const Operator* PlainPrimitiveToNumber();
 
   const Operator* ReferenceEqual(Type* type);
 

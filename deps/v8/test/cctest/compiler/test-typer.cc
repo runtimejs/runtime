@@ -5,7 +5,8 @@
 #include <functional>
 
 #include "src/codegen.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/js-operator.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/typer.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/compiler/graph-builder-tester.h"
@@ -21,7 +22,7 @@ class TyperTester : public HandleAndZoneScope, public GraphAndBuilders {
   TyperTester()
       : GraphAndBuilders(main_zone()),
         types_(main_zone(), isolate()),
-        typer_(graph(), MaybeHandle<Context>()),
+        typer_(isolate(), graph(), MaybeHandle<Context>()),
         javascript_(main_zone()) {
     Node* s = graph()->NewNode(common()->Start(3));
     graph()->SetStart(s);
@@ -86,11 +87,8 @@ class TyperTester : public HandleAndZoneScope, public GraphAndBuilders {
   }
 
   Type* NewRange(double i, double j) {
-    Factory* f = isolate()->factory();
-    i::Handle<i::Object> min = f->NewNumber(i);
-    i::Handle<i::Object> max = f->NewNumber(j);
-    if (min->Number() > max->Number()) std::swap(min, max);
-    return Type::Range(min, max, main_zone());
+    if (i > j) std::swap(i, j);
+    return Type::Range(i, j, main_zone());
   }
 
   double RandomInt(double min, double max) {
@@ -112,7 +110,7 @@ class TyperTester : public HandleAndZoneScope, public GraphAndBuilders {
   }
 
   double RandomInt(Type::RangeType* range) {
-    return RandomInt(range->Min()->Number(), range->Max()->Number());
+    return RandomInt(range->Min(), range->Max());
   }
 
   // Careful, this function runs O(max_width^5) trials.

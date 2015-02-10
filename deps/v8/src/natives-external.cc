@@ -10,6 +10,11 @@
 #include "src/snapshot-source-sink.h"
 #include "src/vector.h"
 
+#ifndef V8_USE_EXTERNAL_STARTUP_DATA
+#error natives-external.cc is used only for the external snapshot build.
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
+
+
 namespace v8 {
 namespace internal {
 
@@ -77,11 +82,14 @@ class NativesStore {
   NativesStore() : debugger_count_(0) {}
 
   Vector<const char> NameFromId(const byte* id, int id_length) {
-    Vector<char> name(Vector<char>::New(id_length + 11));
-    SimpleStringBuilder builder(name.start(), name.length());
-    builder.AddString("native ");
-    builder.AddSubstring(reinterpret_cast<const char*>(id), id_length);
-    builder.AddString(".js");
+    const char native[] = "native ";
+    const char extension[] = ".js";
+    Vector<char> name(Vector<char>::New(id_length + sizeof(native) - 1 +
+                                        sizeof(extension) - 1));
+    memcpy(name.start(), native, sizeof(native) - 1);
+    memcpy(name.start() + sizeof(native) - 1, id, id_length);
+    memcpy(name.start() + sizeof(native) - 1 + id_length, extension,
+           sizeof(extension) - 1);
     return Vector<const char>::cast(name);
   }
 
@@ -142,8 +150,7 @@ void SetNativesFromFile(StartupData* natives_blob) {
   DCHECK(natives_blob->data);
   DCHECK(natives_blob->raw_size > 0);
 
-  SnapshotByteSource bytes(reinterpret_cast<const byte*>(natives_blob->data),
-                           natives_blob->raw_size);
+  SnapshotByteSource bytes(natives_blob->data, natives_blob->raw_size);
   NativesHolder<CORE>::set(NativesStore::MakeFromScriptsSource(&bytes));
   NativesHolder<EXPERIMENTAL>::set(NativesStore::MakeFromScriptsSource(&bytes));
   DCHECK(!bytes.HasMore());
@@ -188,7 +195,7 @@ Vector<const char> NativesCollection<type>::GetScriptsSource() {
 
 
 // The compiler can't 'see' all uses of the static methods and hence
-// my chose to elide them. This we'll explicitly instantiate these.
+// my choice to elide them. This we'll explicitly instantiate these.
 template class NativesCollection<CORE>;
 template class NativesCollection<EXPERIMENTAL>;
 

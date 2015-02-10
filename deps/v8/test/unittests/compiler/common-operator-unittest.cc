@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/common-operator.h"
-
 #include <limits>
 
-#include "src/compiler/operator-properties-inl.h"
+#include "src/compiler/common-operator.h"
+#include "src/compiler/opcodes.h"
+#include "src/compiler/operator.h"
+#include "src/compiler/operator-properties.h"
 #include "test/unittests/test-utils.h"
 
 namespace v8 {
@@ -27,6 +28,7 @@ struct SharedOperator {
   int value_input_count;
   int effect_input_count;
   int control_input_count;
+  int value_output_count;
   int effect_output_count;
   int control_output_count;
 };
@@ -38,19 +40,21 @@ std::ostream& operator<<(std::ostream& os, const SharedOperator& fop) {
 
 
 const SharedOperator kSharedOperators[] = {
-#define SHARED(Name, properties, value_input_count, effect_input_count,        \
-               control_input_count, effect_output_count, control_output_count) \
-  {                                                                            \
-    &CommonOperatorBuilder::Name, IrOpcode::k##Name, properties,               \
-        value_input_count, effect_input_count, control_input_count,            \
-        effect_output_count, control_output_count                              \
+#define SHARED(Name, properties, value_input_count, effect_input_count,      \
+               control_input_count, value_output_count, effect_output_count, \
+               control_output_count)                                         \
+  {                                                                          \
+    &CommonOperatorBuilder::Name, IrOpcode::k##Name, properties,             \
+        value_input_count, effect_input_count, control_input_count,          \
+        value_output_count, effect_output_count, control_output_count        \
   }
-    SHARED(Dead, Operator::kFoldable, 0, 0, 0, 0, 1),
-    SHARED(End, Operator::kFoldable, 0, 0, 1, 0, 0),
-    SHARED(IfTrue, Operator::kFoldable, 0, 0, 1, 0, 1),
-    SHARED(IfFalse, Operator::kFoldable, 0, 0, 1, 0, 1),
-    SHARED(Throw, Operator::kFoldable, 1, 1, 1, 0, 1),
-    SHARED(Return, Operator::kNoProperties, 1, 1, 1, 0, 1)
+    SHARED(Always, Operator::kPure, 0, 0, 0, 1, 0, 0),
+    SHARED(Dead, Operator::kFoldable, 0, 0, 0, 0, 0, 1),
+    SHARED(End, Operator::kFoldable, 0, 0, 1, 0, 0, 0),
+    SHARED(IfTrue, Operator::kFoldable, 0, 0, 1, 0, 0, 1),
+    SHARED(IfFalse, Operator::kFoldable, 0, 0, 1, 0, 0, 1),
+    SHARED(Throw, Operator::kFoldable, 1, 1, 1, 0, 0, 1),
+    SHARED(Return, Operator::kNoProperties, 1, 1, 1, 0, 0, 1)
 #undef SHARED
 };
 
@@ -82,7 +86,7 @@ TEST_P(CommonSharedOperatorTest, NumberOfInputsAndOutputs) {
       sop.value_input_count + sop.effect_input_count + sop.control_input_count,
       OperatorProperties::GetTotalInputCount(op));
 
-  EXPECT_EQ(0, op->ValueOutputCount());
+  EXPECT_EQ(sop.value_output_count, op->ValueOutputCount());
   EXPECT_EQ(sop.effect_output_count, op->EffectOutputCount());
   EXPECT_EQ(sop.control_output_count, op->ControlOutputCount());
 }
@@ -117,7 +121,7 @@ namespace {
 class CommonOperatorTest : public TestWithZone {
  public:
   CommonOperatorTest() : common_(zone()) {}
-  virtual ~CommonOperatorTest() {}
+  ~CommonOperatorTest() OVERRIDE {}
 
   CommonOperatorBuilder* common() { return &common_; }
 
@@ -127,6 +131,9 @@ class CommonOperatorTest : public TestWithZone {
 
 
 const int kArguments[] = {1, 5, 6, 42, 100, 10000, 65000};
+
+
+const size_t kCases[] = {2, 3, 4, 100, 255};
 
 
 const float kFloatValues[] = {-std::numeric_limits<float>::infinity(),
@@ -172,6 +179,39 @@ TEST_F(CommonOperatorTest, Branch) {
     EXPECT_EQ(0, op->ValueOutputCount());
     EXPECT_EQ(0, op->EffectOutputCount());
     EXPECT_EQ(2, op->ControlOutputCount());
+  }
+}
+
+
+TEST_F(CommonOperatorTest, Switch) {
+  TRACED_FOREACH(size_t, cases, kCases) {
+    const Operator* const op = common()->Switch(cases);
+    EXPECT_EQ(IrOpcode::kSwitch, op->opcode());
+    EXPECT_EQ(Operator::kFoldable, op->properties());
+    EXPECT_EQ(1, op->ValueInputCount());
+    EXPECT_EQ(0, op->EffectInputCount());
+    EXPECT_EQ(1, op->ControlInputCount());
+    EXPECT_EQ(2, OperatorProperties::GetTotalInputCount(op));
+    EXPECT_EQ(0, op->ValueOutputCount());
+    EXPECT_EQ(0, op->EffectOutputCount());
+    EXPECT_EQ(static_cast<int>(cases), op->ControlOutputCount());
+  }
+}
+
+
+TEST_F(CommonOperatorTest, Case) {
+  TRACED_FORRANGE(size_t, index, 0, 1024) {
+    const Operator* const op = common()->Case(index);
+    EXPECT_EQ(IrOpcode::kCase, op->opcode());
+    EXPECT_EQ(Operator::kFoldable, op->properties());
+    EXPECT_EQ(index, CaseIndexOf(op));
+    EXPECT_EQ(0, op->ValueInputCount());
+    EXPECT_EQ(0, op->EffectInputCount());
+    EXPECT_EQ(1, op->ControlInputCount());
+    EXPECT_EQ(1, OperatorProperties::GetTotalInputCount(op));
+    EXPECT_EQ(0, op->ValueOutputCount());
+    EXPECT_EQ(0, op->EffectOutputCount());
+    EXPECT_EQ(1, op->ControlOutputCount());
   }
 }
 

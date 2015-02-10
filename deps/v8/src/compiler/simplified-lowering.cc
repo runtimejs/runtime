@@ -4,16 +4,20 @@
 
 #include "src/compiler/simplified-lowering.h"
 
+#include <limits>
+
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/diamond.h"
-#include "src/compiler/graph-inl.h"
+#include "src/compiler/linkage.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
+#include "src/compiler/operator-properties.h"
 #include "src/compiler/representation-change.h"
 #include "src/compiler/simplified-lowering.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/compiler/source-position.h"
 #include "src/objects.h"
 
 namespace v8 {
@@ -62,22 +66,21 @@ class RepresentationSelector {
   };
 
   RepresentationSelector(JSGraph* jsgraph, Zone* zone,
-                         RepresentationChanger* changer)
+                         RepresentationChanger* changer,
+                         SourcePositionTable* source_positions)
       : jsgraph_(jsgraph),
         count_(jsgraph->graph()->NodeCount()),
         info_(zone->NewArray<NodeInfo>(count_)),
         nodes_(zone),
         replacements_(zone),
-        contains_js_nodes_(false),
         phase_(PROPAGATE),
         changer_(changer),
-        queue_(zone) {
+        queue_(zone),
+        source_positions_(source_positions) {
     memset(info_, 0, sizeof(NodeInfo) * count_);
 
-    Factory* f = zone->isolate()->factory();
     safe_int_additive_range_ =
-        Type::Range(f->NewNumber(-std::pow(2.0, 52.0)),
-                    f->NewNumber(std::pow(2.0, 52.0)), zone);
+        Type::Range(-std::pow(2.0, 52.0), std::pow(2.0, 52.0), zone);
   }
 
   void Run(SimplifiedLowering* lowering) {
@@ -106,7 +109,13 @@ class RepresentationSelector {
       Node* node = *i;
       TRACE((" visit #%d: %s\n", node->id(), node->op()->mnemonic()));
       // Reuse {VisitNode()} so the representation rules are in one place.
-      VisitNode(node, GetUseInfo(node), lowering);
+      if (FLAG_turbo_source_positions) {
+        SourcePositionTable::Scope scope(
+            source_positions_, source_positions_->GetSourcePosition(node));
+        VisitNode(node, GetUseInfo(node), lowering);
+      } else {
+        VisitNode(node, GetUseInfo(node), lowering);
+      }
     }
 
     // Perform the final replacements.
@@ -179,7 +188,7 @@ class RepresentationSelector {
     } else {
       // In the change phase, insert a change before the use if necessary.
       MachineTypeUnion output = GetInfo(input)->output;
-      if ((output & kRepWord32) == 0) {
+      if ((output & (kRepBit | kRepWord8 | kRepWord16 | kRepWord32)) == 0) {
         // Output representation doesn't match usage.
         TRACE(("  truncate-to-int32: #%d:%s(@%d #%d:%s) ", node->id(),
                node->op()->mnemonic(), index, input->id(),
@@ -302,8 +311,8 @@ class RepresentationSelector {
     if ((use & kRepMask) == kRepTagged) {
       // only tagged uses.
       return kRepTagged;
-    } else if (IsSafeIntAdditiveOperand(node)) {
-      // Integer within [-2^52, 2^52] range.
+    } else if (upper->Is(Type::Integral32())) {
+      // Integer within [-2^31, 2^32[ range.
       if ((use & kRepMask) == kRepFloat64) {
         // only float64 uses.
         return kRepFloat64;
@@ -313,7 +322,7 @@ class RepresentationSelector {
       } else if ((use & kRepMask) == kRepWord32 ||
                  (use & kTypeMask) == kTypeInt32 ||
                  (use & kTypeMask) == kTypeUint32) {
-        // The type is a safe integer, but we only use 32 bits.
+        // We only use 32 bits or we use the result consistently.
         return kRepWord32;
       } else {
         return kRepFloat64;
@@ -472,6 +481,8 @@ class RepresentationSelector {
         SetOutput(node, kRepTagged | changer_->TypeFromUpperBound(upper));
         return;
       }
+      case IrOpcode::kAlways:
+        return VisitLeaf(node, kRepBit);
       case IrOpcode::kInt32Constant:
         return VisitLeaf(node, kRepWord32);
       case IrOpcode::kInt64Constant:
@@ -513,13 +524,30 @@ class RepresentationSelector {
 #define DEFINE_JS_CASE(x) case IrOpcode::k##x:
         JS_OP_LIST(DEFINE_JS_CASE)
 #undef DEFINE_JS_CASE
-        contains_js_nodes_ = true;
         VisitInputs(node);
         return SetOutput(node, kRepTagged);
 
       //------------------------------------------------------------------
       // Simplified operators.
       //------------------------------------------------------------------
+      case IrOpcode::kAnyToBoolean: {
+        VisitUnop(node, kMachAnyTagged, kTypeBool | kRepTagged);
+        if (lower()) {
+          // AnyToBoolean(x) => Call(ToBooleanStub, x, no-context)
+          Operator::Properties properties = node->op()->properties();
+          Callable callable = CodeFactory::ToBoolean(
+              jsgraph_->isolate(), ToBooleanStub::RESULT_AS_ODDBALL);
+          CallDescriptor::Flags flags = CallDescriptor::kPatchableCallSite;
+          CallDescriptor* desc = Linkage::GetStubCallDescriptor(
+              jsgraph_->isolate(), jsgraph_->zone(), callable.descriptor(), 0,
+              flags, properties);
+          node->set_op(jsgraph_->common()->Call(desc));
+          node->InsertInput(jsgraph_->zone(), 0,
+                            jsgraph_->HeapConstant(callable.code()));
+          node->AppendInput(jsgraph_->zone(), jsgraph_->NoContextConstant());
+        }
+        break;
+      }
       case IrOpcode::kBooleanNot: {
         if (lower()) {
           MachineTypeUnion input = GetInfo(node->InputAt(0))->output;
@@ -714,6 +742,23 @@ class RepresentationSelector {
         }
         break;
       }
+      case IrOpcode::kPlainPrimitiveToNumber: {
+        VisitUnop(node, kMachAnyTagged, kTypeNumber | kRepTagged);
+        if (lower()) {
+          // PlainPrimitiveToNumber(x) => Call(ToNumberStub, x, no-context)
+          Operator::Properties properties = node->op()->properties();
+          Callable callable = CodeFactory::ToNumber(jsgraph_->isolate());
+          CallDescriptor::Flags flags = CallDescriptor::kNoFlags;
+          CallDescriptor* desc = Linkage::GetStubCallDescriptor(
+              jsgraph_->isolate(), jsgraph_->zone(), callable.descriptor(), 0,
+              flags, properties);
+          node->set_op(jsgraph_->common()->Call(desc));
+          node->InsertInput(jsgraph_->zone(), 0,
+                            jsgraph_->HeapConstant(callable.code()));
+          node->AppendInput(jsgraph_->zone(), jsgraph_->NoContextConstant());
+        }
+        break;
+      }
       case IrOpcode::kReferenceEqual: {
         VisitBinop(node, kMachAnyTagged, kRepBit);
         if (lower()) node->set_op(lowering->machine()->WordEqual());
@@ -764,8 +809,20 @@ class RepresentationSelector {
         ProcessRemainingInputs(node, 3);
         // Tagged overrides everything if we have to do a typed array bounds
         // check, because we may need to return undefined then.
-        MachineType output_type =
-            (use & kRepTagged) ? kMachAnyTagged : access.machine_type();
+        MachineType output_type;
+        if (use & kRepTagged) {
+          output_type = kMachAnyTagged;
+        } else if (use & kRepFloat64) {
+          if (access.machine_type() & kRepFloat32) {
+            output_type = access.machine_type();
+          } else {
+            output_type = kMachFloat64;
+          }
+        } else if (use & kRepFloat32) {
+          output_type = kMachFloat32;
+        } else {
+          output_type = access.machine_type();
+        }
         SetOutput(node, output_type);
         if (lower()) lowering->DoLoadBuffer(node, output_type, changer_);
         break;
@@ -806,10 +863,10 @@ class RepresentationSelector {
         if (lower()) {
           Node* is_tagged = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->WordAnd(), node->InputAt(0),
-              jsgraph_->Int32Constant(static_cast<int>(kSmiTagMask)));
+              jsgraph_->IntPtrConstant(kSmiTagMask));
           Node* is_smi = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->WordEqual(), is_tagged,
-              jsgraph_->Int32Constant(kSmiTag));
+              jsgraph_->IntPtrConstant(kSmiTag));
           DeferReplacement(node, is_smi);
         }
         break;
@@ -820,13 +877,13 @@ class RepresentationSelector {
         if (lower()) {
           Node* is_tagged = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->WordAnd(), node->InputAt(0),
-              jsgraph_->Int32Constant(static_cast<int>(kSmiTagMask)));
+              jsgraph_->IntPtrConstant(kSmiTagMask));
           Node* is_smi = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->WordEqual(), is_tagged,
-              jsgraph_->Int32Constant(kSmiTag));
+              jsgraph_->IntPtrConstant(kSmiTag));
           Node* is_non_neg = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->IntLessThanOrEqual(),
-              jsgraph_->Int32Constant(0), node->InputAt(0));
+              jsgraph_->IntPtrConstant(0), node->InputAt(0));
           Node* is_non_neg_smi = jsgraph_->graph()->NewNode(
               jsgraph_->machine()->Word32And(), is_smi, is_non_neg);
           DeferReplacement(node, is_non_neg_smi);
@@ -985,14 +1042,16 @@ class RepresentationSelector {
              node->op()->mnemonic(), replacement->id(),
              replacement->op()->mnemonic()));
     }
-    if (replacement->id() < count_) {
-      // Replace with a previously existing node eagerly.
+    if (replacement->id() < count_ &&
+        GetInfo(replacement)->output == GetInfo(node)->output) {
+      // Replace with a previously existing node eagerly only if the type is the
+      // same.
       node->ReplaceUses(replacement);
     } else {
       // Otherwise, we are replacing a node with a representation change.
       // Such a substitution must be done after all lowering is done, because
-      // new nodes do not have {NodeInfo} entries, and that would confuse
-      // the representation change insertion for uses of it.
+      // changing the type could confuse the representation change
+      // insertion for uses of the node.
       replacements_.push_back(node);
       replacements_.push_back(replacement);
     }
@@ -1018,10 +1077,15 @@ class RepresentationSelector {
   NodeInfo* info_;                  // node id -> usage information
   NodeVector nodes_;                // collected nodes
   NodeVector replacements_;         // replacements to be done after lowering
-  bool contains_js_nodes_;          // {true} if a JS operator was seen
   Phase phase_;                     // current phase of algorithm
   RepresentationChanger* changer_;  // for inserting representation changes
   ZoneQueue<Node*> queue_;          // queue for traversing the graph
+  // TODO(danno): RepresentationSelector shouldn't know anything about the
+  // source positions table, but must for now since there currently is no other
+  // way to pass down source position information to nodes created during
+  // lowering. Once this phase becomes a vanilla reducer, it should get source
+  // position information via the SourcePositionWrapper like all other reducers.
+  SourcePositionTable* source_positions_;
   Type* safe_int_additive_range_;
 
   NodeInfo* GetInfo(Node* node) {
@@ -1044,9 +1108,9 @@ Node* SimplifiedLowering::IsTagged(Node* node) {
 
 void SimplifiedLowering::LowerAllNodes() {
   SimplifiedOperatorBuilder simplified(graph()->zone());
-  RepresentationChanger changer(jsgraph(), &simplified,
-                                graph()->zone()->isolate());
-  RepresentationSelector selector(jsgraph(), zone(), &changer);
+  RepresentationChanger changer(jsgraph(), &simplified, jsgraph()->isolate());
+  RepresentationSelector selector(jsgraph(), zone_, &changer,
+                                  source_positions_);
   selector.Run(this);
 }
 
@@ -1130,25 +1194,40 @@ void SimplifiedLowering::DoLoadBuffer(Node* node, MachineType output_type,
   DCHECK_EQ(IrOpcode::kLoadBuffer, node->opcode());
   DCHECK_NE(kMachNone, RepresentationOf(output_type));
   MachineType const type = BufferAccessOf(node->op()).machine_type();
-  if (output_type & kRepTagged) {
+  if (output_type != type) {
     Node* const buffer = node->InputAt(0);
     Node* const offset = node->InputAt(1);
     Node* const length = node->InputAt(2);
     Node* const effect = node->InputAt(3);
     Node* const control = node->InputAt(4);
+    Node* const index =
+        machine()->Is64()
+            ? graph()->NewNode(machine()->ChangeUint32ToUint64(), offset)
+            : offset;
 
     Node* check = graph()->NewNode(machine()->Uint32LessThan(), offset, length);
     Node* branch =
         graph()->NewNode(common()->Branch(BranchHint::kTrue), check, control);
 
     Node* if_true = graph()->NewNode(common()->IfTrue(), branch);
-    Node* etrue = graph()->NewNode(machine()->Load(type), buffer, offset,
-                                   effect, if_true);
-    Node* vtrue = changer->GetTaggedRepresentationFor(etrue, type);
+    Node* etrue =
+        graph()->NewNode(machine()->Load(type), buffer, index, effect, if_true);
+    Node* vtrue = changer->GetRepresentationFor(etrue, type, output_type);
 
     Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
-    Node* vfalse = jsgraph()->UndefinedConstant();
     Node* efalse = effect;
+    Node* vfalse;
+    if (output_type & kRepTagged) {
+      vfalse = jsgraph()->UndefinedConstant();
+    } else if (output_type & kRepFloat64) {
+      vfalse =
+          jsgraph()->Float64Constant(std::numeric_limits<double>::quiet_NaN());
+    } else if (output_type & kRepFloat32) {
+      vfalse =
+          jsgraph()->Float32Constant(std::numeric_limits<float>::quiet_NaN());
+    } else {
+      vfalse = jsgraph()->Int32Constant(0);
+    }
 
     Node* merge = graph()->NewNode(common()->Merge(2), if_true, if_false);
     Node* ephi = graph()->NewNode(common()->EffectPhi(2), etrue, efalse, merge);
@@ -1157,7 +1236,7 @@ void SimplifiedLowering::DoLoadBuffer(Node* node, MachineType output_type,
     NodeProperties::ReplaceWithValue(node, node, ephi);
 
     // Turn the {node} into a Phi.
-    node->set_op(common()->Phi(kMachAnyTagged, 2));
+    node->set_op(common()->Phi(output_type, 2));
     node->ReplaceInput(0, vtrue);
     node->ReplaceInput(1, vfalse);
     node->ReplaceInput(2, merge);
@@ -1195,10 +1274,11 @@ void SimplifiedLowering::DoStoreElement(Node* node) {
 void SimplifiedLowering::DoStringAdd(Node* node) {
   Operator::Properties properties = node->op()->properties();
   Callable callable = CodeFactory::StringAdd(
-      zone()->isolate(), STRING_ADD_CHECK_NONE, NOT_TENURED);
+      jsgraph()->isolate(), STRING_ADD_CHECK_NONE, NOT_TENURED);
   CallDescriptor::Flags flags = CallDescriptor::kNoFlags;
   CallDescriptor* desc = Linkage::GetStubCallDescriptor(
-      callable.descriptor(), 0, flags, properties, zone());
+      jsgraph()->isolate(), zone(), callable.descriptor(), 0, flags,
+      properties);
   node->set_op(common()->Call(desc));
   node->InsertInput(graph()->zone(), 0,
                     jsgraph()->HeapConstant(callable.code()));
@@ -1209,14 +1289,14 @@ void SimplifiedLowering::DoStringAdd(Node* node) {
 
 
 Node* SimplifiedLowering::StringComparison(Node* node, bool requires_ordering) {
-  CEntryStub stub(zone()->isolate(), 1);
+  CEntryStub stub(jsgraph()->isolate(), 1);
   Runtime::FunctionId f =
       requires_ordering ? Runtime::kStringCompare : Runtime::kStringEquals;
-  ExternalReference ref(f, zone()->isolate());
+  ExternalReference ref(f, jsgraph()->isolate());
   Operator::Properties props = node->op()->properties();
   // TODO(mstarzinger): We should call StringCompareStub here instead, once an
   // interface descriptor is available for it.
-  CallDescriptor* desc = Linkage::GetRuntimeCallDescriptor(f, 2, props, zone());
+  CallDescriptor* desc = Linkage::GetRuntimeCallDescriptor(zone(), f, 2, props);
   return graph()->NewNode(common()->Call(desc),
                           jsgraph()->HeapConstant(stub.GetCode()),
                           NodeProperties::GetValueInput(node, 0),

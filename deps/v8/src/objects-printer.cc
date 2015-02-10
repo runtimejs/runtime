@@ -231,21 +231,27 @@ void JSObject::PrintProperties(std::ostream& os) {  // NOLINT
       descs->GetKey(i)->NamePrint(os);
       os << ": ";
       switch (descs->GetType(i)) {
-        case FIELD: {
+        case DATA: {
           FieldIndex index = FieldIndex::ForDescriptor(map(), i);
           if (IsUnboxedDoubleField(index)) {
             os << "<unboxed double> " << RawFastDoublePropertyAt(index);
           } else {
             os << Brief(RawFastPropertyAt(index));
           }
-          os << " (field at offset " << index.property_index() << ")\n";
+          os << " (data field at offset " << index.property_index() << ")\n";
           break;
         }
-        case CONSTANT:
-          os << Brief(descs->GetConstant(i)) << " (constant)\n";
+        case ACCESSOR: {
+          FieldIndex index = FieldIndex::ForDescriptor(map(), i);
+          os << " (accessor field at offset " << index.property_index()
+             << ")\n";
           break;
-        case CALLBACKS:
-          os << Brief(descs->GetCallbacksObject(i)) << " (callback)\n";
+        }
+        case DATA_CONSTANT:
+          os << Brief(descs->GetConstant(i)) << " (data constant)\n";
+          break;
+        case ACCESSOR_CONSTANT:
+          os << Brief(descs->GetCallbacksObject(i)) << " (accessor constant)\n";
           break;
       }
     }
@@ -408,6 +414,7 @@ void Map::MapPrint(std::ostream& os) {  // NOLINT
   os << "\n - pre-allocated property fields: "
      << pre_allocated_property_fields() << "\n";
   os << " - unused property fields: " << unused_property_fields() << "\n";
+  if (is_deprecated()) os << " - deprecated_map\n";
   if (is_dictionary_map()) os << " - dictionary_map\n";
   if (is_prototype_map()) os << " - prototype_map\n";
   if (is_hidden_prototype()) os << " - hidden_prototype\n";
@@ -416,11 +423,7 @@ void Map::MapPrint(std::ostream& os) {  // NOLINT
   if (is_undetectable()) os << " - undetectable\n";
   if (has_instance_call_handler()) os << " - instance_call_handler\n";
   if (is_access_check_needed()) os << " - access_check_needed\n";
-  if (is_frozen()) {
-    os << " - frozen\n";
-  } else if (!is_extensible()) {
-    os << " - sealed\n";
-  }
+  if (!is_extensible()) os << " - non-extensible\n";
   os << " - back pointer: " << Brief(GetBackPointer());
   os << "\n - instance descriptors " << (owns_descriptors() ? "(own) " : "")
      << "#" << NumberOfOwnDescriptors() << ": "
@@ -861,24 +864,6 @@ void ExecutableAccessorInfo::ExecutableAccessorInfoPrint(
 }
 
 
-void DeclaredAccessorInfo::DeclaredAccessorInfoPrint(
-    std::ostream& os) {  // NOLINT
-  HeapObject::PrintHeader(os, "DeclaredAccessorInfo");
-  os << "\n - name: " << Brief(name());
-  os << "\n - flag: " << Brief(flag());
-  os << "\n - descriptor: " << Brief(descriptor());
-  os << "\n";
-}
-
-
-void DeclaredAccessorDescriptor::DeclaredAccessorDescriptorPrint(
-    std::ostream& os) {  // NOLINT
-  HeapObject::PrintHeader(os, "DeclaredAccessorDescriptor");
-  os << "\n - internal field: " << Brief(serialized_data());
-  os << "\n";
-}
-
-
 void Box::BoxPrint(std::ostream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "Box");
   os << "\n - value: " << Brief(value());
@@ -942,6 +927,7 @@ void FunctionTemplateInfo::FunctionTemplateInfoPrint(
   os << "\n - hidden_prototype: " << (hidden_prototype() ? "true" : "false");
   os << "\n - undetectable: " << (undetectable() ? "true" : "false");
   os << "\n - need_access_check: " << (needs_access_check() ? "true" : "false");
+  os << "\n - instantiated: " << (instantiated() ? "true" : "false");
   os << "\n";
 }
 
@@ -953,14 +939,6 @@ void ObjectTemplateInfo::ObjectTemplateInfoPrint(std::ostream& os) {  // NOLINT
   os << "\n - property_accessors: " << Brief(property_accessors());
   os << "\n - constructor: " << Brief(constructor());
   os << "\n - internal_field_count: " << Brief(internal_field_count());
-  os << "\n";
-}
-
-
-void SignatureInfo::SignatureInfoPrint(std::ostream& os) {  // NOLINT
-  HeapObject::PrintHeader(os, "SignatureInfo");
-  os << "\n - receiver: " << Brief(receiver());
-  os << "\n - args: " << Brief(args());
   os << "\n";
 }
 
@@ -1171,6 +1149,7 @@ void TransitionArray::PrintTransitions(std::ostream& os,
   }
   for (int i = 0; i < number_of_transitions(); i++) {
     Name* key = GetKey(i);
+    Map* target = GetTarget(i);
     os << "   ";
 #ifdef OBJECT_PRINT
     key->NamePrint(os);
@@ -1178,30 +1157,30 @@ void TransitionArray::PrintTransitions(std::ostream& os,
     key->ShortPrint(os);
 #endif
     os << ": ";
-    if (key == GetHeap()->frozen_symbol()) {
+    if (key == GetHeap()->nonextensible_symbol()) {
+      os << " (transition to non-extensible)";
+    } else if (key == GetHeap()->sealed_symbol()) {
+      os << " (transition to sealed)";
+    } else if (key == GetHeap()->frozen_symbol()) {
       os << " (transition to frozen)";
     } else if (key == GetHeap()->elements_transition_symbol()) {
-      os << " (transition to "
-         << ElementsKindToString(GetTarget(i)->elements_kind()) << ")";
+      os << " (transition to " << ElementsKindToString(target->elements_kind())
+         << ")";
     } else if (key == GetHeap()->observed_symbol()) {
       os << " (transition to Object.observe)";
     } else {
-      PropertyDetails details = GetTargetDetails(i);
-      switch (details.type()) {
-        case FIELD: {
-          os << " (transition to field)";
-          break;
-        }
-        case CONSTANT:
-          os << " (transition to constant " << Brief(GetTargetValue(i)) << ")";
-          break;
-        case CALLBACKS:
-          os << " (transition to callback " << Brief(GetTargetValue(i)) << ")";
-          break;
+      PropertyDetails details = GetTargetDetails(key, target);
+      os << " (transition to ";
+      if (details.location() == kDescriptor) {
+        os << "immutable ";
       }
-      os << ", attrs: " << details.attributes();
+      os << (details.kind() == kData ? "data" : "accessor");
+      if (details.location() == kDescriptor) {
+        os << " " << Brief(GetTargetValue(i));
+      }
+      os << "), attrs: " << details.attributes();
     }
-    os << " -> " << Brief(GetTarget(i)) << "\n";
+    os << " -> " << Brief(target) << "\n";
   }
 }
 

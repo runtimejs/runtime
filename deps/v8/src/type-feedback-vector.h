@@ -120,6 +120,7 @@ class TypeFeedbackVector : public FixedArray {
   // Conversion from a slot or ic slot to an integer index to the underlying
   // array.
   int GetIndex(FeedbackVectorSlot slot) const {
+    DCHECK(slot.ToInt() < first_ic_slot_index());
     return kReservedIndexCount + ic_metadata_length() + slot.ToInt();
   }
 
@@ -165,6 +166,12 @@ class TypeFeedbackVector : public FixedArray {
 
   // Clears the vector slots and the vector ic slots.
   void ClearSlots(SharedFunctionInfo* shared);
+  void ClearICSlots(SharedFunctionInfo* shared) {
+    ClearICSlotsImpl(shared, true);
+  }
+  void ClearICSlotsAtGCTime(SharedFunctionInfo* shared) {
+    ClearICSlotsImpl(shared, false);
+  }
 
   // The object that indicates an uninitialized cache.
   static inline Handle<Object> UninitializedSentinel(Isolate* isolate);
@@ -174,9 +181,6 @@ class TypeFeedbackVector : public FixedArray {
 
   // The object that indicates a premonomorphic state.
   static inline Handle<Object> PremonomorphicSentinel(Isolate* isolate);
-
-  // The object that indicates a generic state.
-  static inline Handle<Object> GenericSentinel(Isolate* isolate);
 
   // The object that indicates a monomorphic state of Array with
   // ElementsKind
@@ -202,6 +206,8 @@ class TypeFeedbackVector : public FixedArray {
 
   typedef BitSetComputer<VectorICKind, kVectorICKindBits, kSmiValueSize,
                          uint32_t> VectorICComputer;
+
+  void ClearICSlotsImpl(SharedFunctionInfo* shared, bool force_clear);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(TypeFeedbackVector);
 };
@@ -292,13 +298,13 @@ class CallICNexus : public FeedbackNexus {
   void ConfigureMonomorphicArray();
   void ConfigureMonomorphic(Handle<JSFunction> function);
 
-  virtual InlineCacheState StateFromFeedback() const OVERRIDE;
+  InlineCacheState StateFromFeedback() const OVERRIDE;
 
-  virtual int ExtractMaps(MapHandleList* maps) const OVERRIDE {
+  int ExtractMaps(MapHandleList* maps) const OVERRIDE {
     // CallICs don't record map feedback.
     return 0;
   }
-  virtual MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE {
+  MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE {
     return MaybeHandle<Code>();
   }
   virtual bool FindHandlers(CodeHandleList* code_list,
@@ -327,9 +333,9 @@ class LoadICNexus : public FeedbackNexus {
 
   void ConfigurePolymorphic(TypeHandleList* types, CodeHandleList* handlers);
 
-  virtual InlineCacheState StateFromFeedback() const OVERRIDE;
-  virtual int ExtractMaps(MapHandleList* maps) const OVERRIDE;
-  virtual MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE;
+  InlineCacheState StateFromFeedback() const OVERRIDE;
+  int ExtractMaps(MapHandleList* maps) const OVERRIDE;
+  MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE;
   virtual bool FindHandlers(CodeHandleList* code_list,
                             int length = -1) const OVERRIDE;
 };
@@ -349,7 +355,6 @@ class KeyedLoadICNexus : public FeedbackNexus {
   void Clear(Code* host);
 
   void ConfigureMegamorphic();
-  void ConfigureGeneric();
   void ConfigurePremonomorphic();
   // name can be a null handle for element loads.
   void ConfigureMonomorphic(Handle<Name> name, Handle<HeapType> type,
@@ -358,12 +363,12 @@ class KeyedLoadICNexus : public FeedbackNexus {
   void ConfigurePolymorphic(Handle<Name> name, TypeHandleList* types,
                             CodeHandleList* handlers);
 
-  virtual InlineCacheState StateFromFeedback() const OVERRIDE;
-  virtual int ExtractMaps(MapHandleList* maps) const OVERRIDE;
-  virtual MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE;
+  InlineCacheState StateFromFeedback() const OVERRIDE;
+  int ExtractMaps(MapHandleList* maps) const OVERRIDE;
+  MaybeHandle<Code> FindHandlerForMap(Handle<Map> map) const OVERRIDE;
   virtual bool FindHandlers(CodeHandleList* code_list,
                             int length = -1) const OVERRIDE;
-  virtual Name* FindFirstName() const OVERRIDE;
+  Name* FindFirstName() const OVERRIDE;
 };
 }
 }  // namespace v8::internal

@@ -13,7 +13,7 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-class InstructionSequenceTest : public TestWithZone {
+class InstructionSequenceTest : public TestWithIsolateAndZone {
  public:
   static const int kDefaultNRegs = 4;
   static const int kNoValue = kMinInt;
@@ -36,7 +36,9 @@ class InstructionSequenceTest : public TestWithZone {
     kFixedSlot,
     kImmediate,
     kNone,
-    kConstant
+    kConstant,
+    kUnique,
+    kUniqueRegister
   };
 
   struct TestOperand {
@@ -77,6 +79,12 @@ class InstructionSequenceTest : public TestWithZone {
   static TestOperand Use(VReg vreg) { return TestOperand(kNone, vreg); }
 
   static TestOperand Use() { return Use(VReg()); }
+
+  static TestOperand Unique(VReg vreg) { return TestOperand(kUnique, vreg); }
+
+  static TestOperand UniqueReg(VReg vreg) {
+    return TestOperand(kUniqueRegister, vreg);
+  }
 
   enum BlockCompletionType { kBlockEnd, kFallThrough, kBranch, kJump };
 
@@ -130,14 +138,21 @@ class InstructionSequenceTest : public TestWithZone {
                       VReg incoming_vreg_1 = VReg(),
                       VReg incoming_vreg_2 = VReg(),
                       VReg incoming_vreg_3 = VReg());
-  void Extend(PhiInstruction* phi, VReg vreg);
+  PhiInstruction* Phi(VReg incoming_vreg_0, size_t input_count);
+  void SetInput(PhiInstruction* phi, size_t input, VReg vreg);
 
   VReg DefineConstant(int32_t imm = 0);
   int EmitNop();
-  int EmitI(TestOperand input_op_0);
-  VReg EmitOI(TestOperand output_op, TestOperand input_op_0);
-  VReg EmitOII(TestOperand output_op, TestOperand input_op_0,
-               TestOperand input_op_1);
+  int EmitI(size_t input_size, TestOperand* inputs);
+  int EmitI(TestOperand input_op_0 = TestOperand(),
+            TestOperand input_op_1 = TestOperand(),
+            TestOperand input_op_2 = TestOperand(),
+            TestOperand input_op_3 = TestOperand());
+  VReg EmitOI(TestOperand output_op, size_t input_size, TestOperand* inputs);
+  VReg EmitOI(TestOperand output_op, TestOperand input_op_0 = TestOperand(),
+              TestOperand input_op_1 = TestOperand(),
+              TestOperand input_op_2 = TestOperand(),
+              TestOperand input_op_3 = TestOperand());
   VReg EmitCall(TestOperand output_op, size_t input_size, TestOperand* inputs);
   VReg EmitCall(TestOperand output_op, TestOperand input_op_0 = TestOperand(),
                 TestOperand input_op_1 = TestOperand(),
@@ -165,31 +180,32 @@ class InstructionSequenceTest : public TestWithZone {
   int EmitFallThrough();
   int EmitJump();
   Instruction* NewInstruction(InstructionCode code, size_t outputs_size,
-                              InstructionOperand** outputs,
+                              InstructionOperand* outputs,
                               size_t inputs_size = 0,
-                              InstructionOperand* *inputs = nullptr,
+                              InstructionOperand* inputs = nullptr,
                               size_t temps_size = 0,
-                              InstructionOperand* *temps = nullptr);
-  InstructionOperand* Unallocated(TestOperand op,
-                                  UnallocatedOperand::ExtendedPolicy policy);
-  InstructionOperand* Unallocated(TestOperand op,
-                                  UnallocatedOperand::ExtendedPolicy policy,
-                                  UnallocatedOperand::Lifetime lifetime);
-  InstructionOperand* Unallocated(TestOperand op,
-                                  UnallocatedOperand::ExtendedPolicy policy,
-                                  int index);
-  InstructionOperand* Unallocated(TestOperand op,
-                                  UnallocatedOperand::BasicPolicy policy,
-                                  int index);
-  InstructionOperand* ConvertInputOp(TestOperand op);
-  InstructionOperand* ConvertOutputOp(VReg vreg, TestOperand op);
+                              InstructionOperand* temps = nullptr);
+  InstructionOperand Unallocated(TestOperand op,
+                                 UnallocatedOperand::ExtendedPolicy policy);
+  InstructionOperand Unallocated(TestOperand op,
+                                 UnallocatedOperand::ExtendedPolicy policy,
+                                 UnallocatedOperand::Lifetime lifetime);
+  InstructionOperand Unallocated(TestOperand op,
+                                 UnallocatedOperand::ExtendedPolicy policy,
+                                 int index);
+  InstructionOperand Unallocated(TestOperand op,
+                                 UnallocatedOperand::BasicPolicy policy,
+                                 int index);
+  InstructionOperand* ConvertInputs(size_t input_size, TestOperand* inputs);
+  InstructionOperand ConvertInputOp(TestOperand op);
+  InstructionOperand ConvertOutputOp(VReg vreg, TestOperand op);
   InstructionBlock* NewBlock();
   void WireBlock(size_t block_offset, int jump_offset);
 
   int Emit(int instruction_index, InstructionCode code, size_t outputs_size = 0,
-           InstructionOperand* *outputs = nullptr, size_t inputs_size = 0,
-           InstructionOperand* *inputs = nullptr, size_t temps_size = 0,
-           InstructionOperand* *temps = nullptr, bool is_call = false);
+           InstructionOperand* outputs = nullptr, size_t inputs_size = 0,
+           InstructionOperand* inputs = nullptr, size_t temps_size = 0,
+           InstructionOperand* temps = nullptr, bool is_call = false);
 
   int AddInstruction(int instruction_index, Instruction* instruction);
 

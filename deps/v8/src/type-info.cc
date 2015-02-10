@@ -16,16 +16,16 @@ namespace internal {
 
 
 TypeFeedbackOracle::TypeFeedbackOracle(
-    Handle<Code> code, Handle<TypeFeedbackVector> feedback_vector,
-    Handle<Context> native_context, Zone* zone)
-    : native_context_(native_context), zone_(zone) {
+    Isolate* isolate, Zone* zone, Handle<Code> code,
+    Handle<TypeFeedbackVector> feedback_vector, Handle<Context> native_context)
+    : native_context_(native_context), isolate_(isolate), zone_(zone) {
   BuildDictionary(code);
   DCHECK(dictionary_->IsDictionary());
   // We make a copy of the feedback vector because a GC could clear
   // the type feedback info contained therein.
   // TODO(mvstanton): revisit the decision to copy when we weakly
   // traverse the feedback vector at GC time.
-  feedback_vector_ = TypeFeedbackVector::Copy(isolate(), feedback_vector);
+  feedback_vector_ = TypeFeedbackVector::Copy(isolate, feedback_vector);
 }
 
 
@@ -62,12 +62,23 @@ Handle<Object> TypeFeedbackOracle::GetInfo(FeedbackVectorSlot slot) {
 
 Handle<Object> TypeFeedbackOracle::GetInfo(FeedbackVectorICSlot slot) {
   DCHECK(slot.ToInt() >= 0 && slot.ToInt() < feedback_vector_->length());
+  Handle<Object> undefined =
+      Handle<Object>::cast(isolate()->factory()->undefined_value());
   Object* obj = feedback_vector_->Get(slot);
+
+  // Vector-based ICs do not embed direct pointers to maps, functions.
+  // Instead a WeakCell is always used.
+  if (obj->IsWeakCell()) {
+    WeakCell* cell = WeakCell::cast(obj);
+    if (cell->cleared()) return undefined;
+    obj = cell->value();
+  }
+
   if (!obj->IsJSFunction() ||
       !CanRetainOtherContext(JSFunction::cast(obj), *native_context_)) {
     return Handle<Object>(obj, isolate());
   }
-  return Handle<Object>::cast(isolate()->factory()->undefined_value());
+  return undefined;
 }
 
 
@@ -152,6 +163,21 @@ void TypeFeedbackOracle::GetStoreModeAndKeyType(
     }
   }
   *store_mode = STANDARD_STORE;
+  *key_type = ELEMENT;
+}
+
+
+void TypeFeedbackOracle::GetLoadKeyType(
+    TypeFeedbackId ast_id, IcCheckType* key_type) {
+  Handle<Object> maybe_code = GetInfo(ast_id);
+  if (maybe_code->IsCode()) {
+    Handle<Code> code = Handle<Code>::cast(maybe_code);
+    if (code->kind() == Code::KEYED_LOAD_IC) {
+      ExtraICState extra_ic_state = code->extra_ic_state();
+      *key_type = KeyedLoadIC::GetKeyType(extra_ic_state);
+      return;
+    }
+  }
   *key_type = ELEMENT;
 }
 
@@ -305,10 +331,14 @@ bool TypeFeedbackOracle::HasOnlyStringMaps(SmallMapList* receiver_types) {
 
 
 void TypeFeedbackOracle::KeyedPropertyReceiverTypes(
-    TypeFeedbackId id, SmallMapList* receiver_types, bool* is_string) {
+    TypeFeedbackId id,
+    SmallMapList* receiver_types,
+    bool* is_string,
+    IcCheckType* key_type) {
   receiver_types->Clear();
   CollectReceiverTypes(id, receiver_types);
   *is_string = HasOnlyStringMaps(receiver_types);
+  GetLoadKeyType(id, key_type);
 }
 
 
@@ -323,11 +353,13 @@ void TypeFeedbackOracle::PropertyReceiverTypes(FeedbackVectorICSlot slot,
 
 
 void TypeFeedbackOracle::KeyedPropertyReceiverTypes(
-    FeedbackVectorICSlot slot, SmallMapList* receiver_types, bool* is_string) {
+    FeedbackVectorICSlot slot, SmallMapList* receiver_types, bool* is_string,
+    IcCheckType* key_type) {
   receiver_types->Clear();
   KeyedLoadICNexus nexus(feedback_vector_, slot);
   CollectReceiverTypes<FeedbackNexus>(&nexus, receiver_types);
   *is_string = HasOnlyStringMaps(receiver_types);
+  *key_type = nexus.FindFirstName() != NULL ? PROPERTY : ELEMENT;
 }
 
 

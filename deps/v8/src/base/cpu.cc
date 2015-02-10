@@ -16,6 +16,15 @@
 #if V8_OS_QNX
 #include <sys/syspage.h>  // cpuinfo
 #endif
+#if V8_OS_LINUX && V8_HOST_ARCH_PPC
+#include <elf.h>
+#endif
+#if V8_OS_AIX
+#include <sys/systemcfg.h>  // _system_configuration
+#ifndef POWER_8
+#define POWER_8 0x10000
+#endif
+#endif
 #if V8_OS_POSIX
 #include <unistd.h>  // sysconf()
 #endif
@@ -300,6 +309,7 @@ CPU::CPU()
       type_(0),
       implementer_(0),
       architecture_(0),
+      variant_(-1),
       part_(0),
       has_fpu_(false),
       has_cmov_(false),
@@ -311,6 +321,8 @@ CPU::CPU()
       has_ssse3_(false),
       has_sse41_(false),
       has_sse42_(false),
+      is_atom_(false),
+      has_osxsave_(false),
       has_avx_(false),
       has_fma3_(false),
       has_idiva_(false),
@@ -359,8 +371,23 @@ CPU::CPU()
     has_ssse3_ = (cpu_info[2] & 0x00000200) != 0;
     has_sse41_ = (cpu_info[2] & 0x00080000) != 0;
     has_sse42_ = (cpu_info[2] & 0x00100000) != 0;
+    has_osxsave_ = (cpu_info[2] & 0x08000000) != 0;
     has_avx_ = (cpu_info[2] & 0x10000000) != 0;
-    if (has_avx_) has_fma3_ = (cpu_info[2] & 0x00001000) != 0;
+    has_fma3_ = (cpu_info[2] & 0x00001000) != 0;
+
+    if (family_ == 0x6) {
+      switch (model_) {
+        case 0x1c:  // SLT
+        case 0x26:
+        case 0x36:
+        case 0x27:
+        case 0x35:
+        case 0x37:  // SLM
+        case 0x4a:
+        case 0x4d:
+          is_atom_ = true;
+      }
+    }
   }
 
 #if V8_HOST_ARCH_IA32
@@ -388,7 +415,7 @@ CPU::CPU()
   // Extract implementor from the "CPU implementer" field.
   char* implementer = cpu_info.ExtractField("CPU implementer");
   if (implementer != NULL) {
-    char* end ;
+    char* end;
     implementer_ = strtol(implementer, &end, 0);
     if (end == implementer) {
       implementer_ = 0;
@@ -396,10 +423,20 @@ CPU::CPU()
     delete[] implementer;
   }
 
+  char* variant = cpu_info.ExtractField("CPU variant");
+  if (variant != NULL) {
+    char* end;
+    variant_ = strtol(variant, &end, 0);
+    if (end == variant) {
+      variant_ = -1;
+    }
+    delete[] variant;
+  }
+
   // Extract part number from the "CPU part" field.
   char* part = cpu_info.ExtractField("CPU part");
   if (part != NULL) {
-    char* end ;
+    char* end;
     part_ = strtol(part, &end, 0);
     if (end == part) {
       part_ = 0;
@@ -427,13 +464,22 @@ CPU::CPU()
     //
     // See http://code.google.com/p/android/issues/detail?id=10812
     //
-    // We try to correct this by looking at the 'elf_format'
+    // We try to correct this by looking at the 'elf_platform'
     // field reported by the 'Processor' field, which is of the
     // form of "(v7l)" for an ARMv7-based CPU, and "(v6l)" for
     // an ARMv6-one. For example, the Raspberry Pi is one popular
     // ARMv6 device that reports architecture 7.
     if (architecture_ == 7) {
       char* processor = cpu_info.ExtractField("Processor");
+      if (HasListItem(processor, "(v6l)")) {
+        architecture_ = 6;
+      }
+      delete[] processor;
+    }
+
+    // elf_platform moved to the model name field in Linux v3.8.
+    if (architecture_ == 7) {
+      char* processor = cpu_info.ExtractField("model name");
       if (HasListItem(processor, "(v6l)")) {
         architecture_ = 6;
       }
@@ -540,7 +586,7 @@ CPU::CPU()
   // Extract implementor from the "CPU implementer" field.
   char* implementer = cpu_info.ExtractField("CPU implementer");
   if (implementer != NULL) {
-    char* end ;
+    char* end;
     implementer_ = strtol(implementer, &end, 0);
     if (end == implementer) {
       implementer_ = 0;
@@ -548,10 +594,20 @@ CPU::CPU()
     delete[] implementer;
   }
 
+  char* variant = cpu_info.ExtractField("CPU variant");
+  if (variant != NULL) {
+    char* end;
+    variant_ = strtol(variant, &end, 0);
+    if (end == variant) {
+      variant_ = -1;
+    }
+    delete[] variant;
+  }
+
   // Extract part number from the "CPU part" field.
   char* part = cpu_info.ExtractField("CPU part");
   if (part != NULL) {
-    char* end ;
+    char* end;
     part_ = strtol(part, &end, 0);
     if (end == part) {
       part_ = 0;
@@ -559,7 +615,69 @@ CPU::CPU()
     delete[] part;
   }
 
+#elif V8_HOST_ARCH_PPC
+
+#ifndef USE_SIMULATOR
+#if V8_OS_LINUX
+  // Read processor info from /proc/self/auxv.
+  char* auxv_cpu_type = NULL;
+  FILE* fp = fopen("/proc/self/auxv", "r");
+  if (fp != NULL) {
+#if V8_TARGET_ARCH_PPC64
+    Elf64_auxv_t entry;
+#else
+    Elf32_auxv_t entry;
 #endif
+    for (;;) {
+      size_t n = fread(&entry, sizeof(entry), 1, fp);
+      if (n == 0 || entry.a_type == AT_NULL) {
+        break;
+      }
+      if (entry.a_type == AT_PLATFORM) {
+        auxv_cpu_type = reinterpret_cast<char*>(entry.a_un.a_val);
+        break;
+      }
+    }
+    fclose(fp);
+  }
+
+  part_ = -1;
+  if (auxv_cpu_type) {
+    if (strcmp(auxv_cpu_type, "power8") == 0) {
+      part_ = PPC_POWER8;
+    } else if (strcmp(auxv_cpu_type, "power7") == 0) {
+      part_ = PPC_POWER7;
+    } else if (strcmp(auxv_cpu_type, "power6") == 0) {
+      part_ = PPC_POWER6;
+    } else if (strcmp(auxv_cpu_type, "power5") == 0) {
+      part_ = PPC_POWER5;
+    } else if (strcmp(auxv_cpu_type, "ppc970") == 0) {
+      part_ = PPC_G5;
+    } else if (strcmp(auxv_cpu_type, "ppc7450") == 0) {
+      part_ = PPC_G4;
+    } else if (strcmp(auxv_cpu_type, "pa6t") == 0) {
+      part_ = PPC_PA6T;
+    }
+  }
+
+#elif V8_OS_AIX
+  switch (_system_configuration.implementation) {
+    case POWER_8:
+      part_ = PPC_POWER8;
+      break;
+    case POWER_7:
+      part_ = PPC_POWER7;
+      break;
+    case POWER_6:
+      part_ = PPC_POWER6;
+      break;
+    case POWER_5:
+      part_ = PPC_POWER5;
+      break;
+  }
+#endif  // V8_OS_AIX
+#endif  // !USE_SIMULATOR
+#endif  // V8_HOST_ARCH_PPC
 }
 
 } }  // namespace v8::base

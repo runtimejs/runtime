@@ -5,7 +5,8 @@
 #include "src/code-stubs.h"
 #include "src/compiler/change-lowering.h"
 #include "src/compiler/js-graph.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/linkage.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "test/unittests/compiler/compiler-test-utils.h"
 #include "test/unittests/compiler/graph-unittest.h"
@@ -14,6 +15,7 @@
 
 using testing::_;
 using testing::AllOf;
+using testing::BitEq;
 using testing::Capture;
 using testing::CaptureEq;
 
@@ -24,7 +26,7 @@ namespace compiler {
 class ChangeLoweringTest : public GraphTest {
  public:
   ChangeLoweringTest() : simplified_(zone()) {}
-  virtual ~ChangeLoweringTest() {}
+  ~ChangeLoweringTest() OVERRIDE {}
 
   virtual MachineType WordRepresentation() const = 0;
 
@@ -61,14 +63,10 @@ class ChangeLoweringTest : public GraphTest {
                   : SmiTagging<8>::SmiValueSize();
   }
 
-  Node* Parameter(int32_t index = 0) {
-    return graph()->NewNode(common()->Parameter(index), graph()->start());
-  }
-
   Reduction Reduce(Node* node) {
     MachineOperatorBuilder machine(zone(), WordRepresentation());
     JSOperatorBuilder javascript(zone());
-    JSGraph jsgraph(graph(), common(), &javascript, &machine);
+    JSGraph jsgraph(isolate(), graph(), common(), &javascript, &machine);
     CompilationInfo info(isolate(), zone());
     Linkage linkage(zone(), &info);
     ChangeLowering reducer(&jsgraph, &linkage);
@@ -81,7 +79,8 @@ class ChangeLoweringTest : public GraphTest {
                                       const Matcher<Node*>& control_matcher) {
     return IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
                          AllocateHeapNumberStub(isolate()).GetCode())),
-                  IsNumberConstant(0.0), effect_matcher, control_matcher);
+                  IsNumberConstant(BitEq(0.0)), effect_matcher,
+                  control_matcher);
   }
   Matcher<Node*> IsLoadHeapNumber(const Matcher<Node*>& value_matcher,
                                   const Matcher<Node*>& control_matcher) {
@@ -111,11 +110,9 @@ class ChangeLoweringCommonTest
     : public ChangeLoweringTest,
       public ::testing::WithParamInterface<MachineType> {
  public:
-  virtual ~ChangeLoweringCommonTest() {}
+  ~ChangeLoweringCommonTest() OVERRIDE {}
 
-  virtual MachineType WordRepresentation() const FINAL OVERRIDE {
-    return GetParam();
-  }
+  MachineType WordRepresentation() const FINAL { return GetParam(); }
 };
 
 
@@ -178,10 +175,8 @@ INSTANTIATE_TEST_CASE_P(ChangeLoweringTest, ChangeLoweringCommonTest,
 
 class ChangeLowering32Test : public ChangeLoweringTest {
  public:
-  virtual ~ChangeLowering32Test() {}
-  virtual MachineType WordRepresentation() const FINAL OVERRIDE {
-    return kRepWord32;
-  }
+  ~ChangeLowering32Test() OVERRIDE {}
+  MachineType WordRepresentation() const FINAL { return kRepWord32; }
 };
 
 
@@ -216,7 +211,7 @@ TARGET_TEST_F(ChangeLowering32Test, ChangeInt32ToTagged) {
 TARGET_TEST_F(ChangeLowering32Test, ChangeInt32ToTaggedSmall) {
   Node* val = Parameter(0);
   Node* node = graph()->NewNode(simplified()->ChangeInt32ToTagged(), val);
-  NodeProperties::SetBounds(val, Bounds(Type::None(), Type::SignedSmall()));
+  NodeProperties::SetBounds(val, Bounds(Type::None(), Type::Signed31()));
   Reduction reduction = Reduce(node);
   ASSERT_TRUE(reduction.Changed());
 
@@ -338,10 +333,8 @@ TARGET_TEST_F(ChangeLowering32Test, ChangeUint32ToTagged) {
 
 class ChangeLowering64Test : public ChangeLoweringTest {
  public:
-  virtual ~ChangeLowering64Test() {}
-  virtual MachineType WordRepresentation() const FINAL OVERRIDE {
-    return kRepWord64;
-  }
+  ~ChangeLowering64Test() OVERRIDE {}
+  MachineType WordRepresentation() const FINAL { return kRepWord64; }
 };
 
 

@@ -31,6 +31,11 @@ GCTracer::ContextDisposalEvent::ContextDisposalEvent(double time) {
 }
 
 
+GCTracer::PromotionEvent::PromotionEvent(double promotion_ratio) {
+  promotion_ratio_ = promotion_ratio;
+}
+
+
 GCTracer::Event::Event(Type type, const char* gc_reason,
                        const char* collector_reason)
     : type(type),
@@ -252,6 +257,11 @@ void GCTracer::AddContextDisposalTime(double time) {
 }
 
 
+void GCTracer::AddPromotionRatio(double promotion_ratio) {
+  promotion_events_.push_front(PromotionEvent(promotion_ratio));
+}
+
+
 void GCTracer::AddIncrementalMarkingStep(double duration, intptr_t bytes) {
   cumulative_incremental_marking_steps_++;
   cumulative_incremental_marking_bytes_ += bytes;
@@ -340,6 +350,8 @@ void GCTracer::PrintNVP() const {
   PrintF("misc_compaction=%.1f ",
          current_.scopes[Scope::MC_UPDATE_MISC_POINTERS]);
   PrintF("weak_closure=%.1f ", current_.scopes[Scope::MC_WEAKCLOSURE]);
+  PrintF("inc_weak_closure=%.1f ",
+         current_.scopes[Scope::MC_INCREMENTAL_WEAKCLOSURE]);
   PrintF("weakcollection_process=%.1f ",
          current_.scopes[Scope::MC_WEAKCOLLECTION_PROCESS]);
   PrintF("weakcollection_clear=%.1f ",
@@ -361,6 +373,8 @@ void GCTracer::PrintNVP() const {
   PrintF("nodes_died_in_new=%d ", heap_->nodes_died_in_new_space_);
   PrintF("nodes_copied_in_new=%d ", heap_->nodes_copied_in_new_space_);
   PrintF("nodes_promoted=%d ", heap_->nodes_promoted_);
+  PrintF("promotion_ratio=%.1f%% ", heap_->promotion_ratio_);
+  PrintF("average_promotion_ratio=%.1f%% ", AveragePromotionRatio());
   PrintF("promotion_rate=%.1f%% ", heap_->promotion_rate_);
   PrintF("semi_space_copy_rate=%.1f%% ", heap_->semi_space_copied_rate_);
   PrintF("new_space_allocation_throughput=%" V8_PTR_PREFIX "d ",
@@ -556,5 +570,27 @@ double GCTracer::ContextDisposalRateInMilliseconds() const {
 
   return (begin - end) / context_disposal_events_.size();
 }
+
+
+double GCTracer::AveragePromotionRatio() const {
+  if (promotion_events_.size() == 0) return 0.0;
+
+  double sum_of_rates = 0.0;
+  PromotionEventBuffer::const_iterator iter = promotion_events_.begin();
+  while (iter != promotion_events_.end()) {
+    sum_of_rates += iter->promotion_ratio_;
+    ++iter;
+  }
+
+  return sum_of_rates / static_cast<double>(promotion_events_.size());
+}
+
+
+bool GCTracer::SurvivalEventsRecorded() const {
+  return promotion_events_.size() > 0;
+}
+
+
+void GCTracer::ResetSurvivalEvents() { promotion_events_.reset(); }
 }
 }  // namespace v8::internal

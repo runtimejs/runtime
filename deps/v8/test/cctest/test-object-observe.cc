@@ -328,11 +328,10 @@ TEST(APITestBasicMutation) {
   // Setting an indexed element via the property setting method
   obj->Set(Number::New(v8_isolate, 1), Number::New(v8_isolate, 5));
   // Setting with a non-String, non-uint32 key
-  obj->ForceSet(Number::New(v8_isolate, 1.1), Number::New(v8_isolate, 6),
-                DontDelete);
+  obj->Set(Number::New(v8_isolate, 1.1), Number::New(v8_isolate, 6));
   obj->Delete(String::NewFromUtf8(v8_isolate, "foo"));
   obj->Delete(1);
-  obj->ForceDelete(Number::New(v8_isolate, 1.1));
+  obj->Delete(Number::New(v8_isolate, 1.1));
 
   // Force delivery
   // TODO(adamk): Should the above set methods trigger delivery themselves?
@@ -804,4 +803,34 @@ TEST(ObjectObserveCallsFunctionTemplateInstance) {
       "obj.foo = 1;"
       "obj.bar = 2;");
   CHECK_EQ(2, numRecordsSent);
+}
+
+
+static void AccessorGetter(Local<String> property,
+                           const PropertyCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(Integer::New(info.GetIsolate(), 42));
+}
+
+
+static void AccessorSetter(Local<String> property, Local<Value> value,
+                           const PropertyCallbackInfo<void>& info) {
+  info.GetReturnValue().SetUndefined();
+}
+
+
+TEST(APIAccessorsShouldNotNotify) {
+  Isolate* isolate = CcTest::isolate();
+  HandleScope handle_scope(isolate);
+  LocalContext context(isolate);
+  Handle<Object> object = Object::New(isolate);
+  object->SetAccessor(String::NewFromUtf8(isolate, "accessor"), &AccessorGetter,
+                      &AccessorSetter);
+  context->Global()->Set(String::NewFromUtf8(isolate, "obj"), object);
+  CompileRun(
+      "var records = null;"
+      "Object.observe(obj, function(r) { records = r });"
+      "obj.accessor = 43;");
+  CHECK(CompileRun("records")->IsNull());
+  CompileRun("Object.defineProperty(obj, 'accessor', { value: 44 });");
+  CHECK(CompileRun("records")->IsNull());
 }

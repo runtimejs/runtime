@@ -10,12 +10,14 @@
 #include "src/compiler/control-reducer.h"
 #include "src/compiler/graph-inl.h"
 #include "src/compiler/js-graph.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 
 using namespace v8::internal;
 using namespace v8::internal::compiler;
 
 static const size_t kNumLeafs = 4;
+
+enum Decision { kFalse, kUnknown, kTrue };
 
 // TODO(titzer): convert this whole file into unit tests.
 
@@ -52,10 +54,8 @@ static int CheckLoop(Node* node, Node* i0 = NULL, Node* i1 = NULL,
 
 
 bool IsUsedBy(Node* a, Node* b) {
-  for (UseIter i = a->uses().begin(); i != a->uses().end(); ++i) {
-    if (b == *i) return true;
-  }
-  return false;
+  auto const uses = a->uses();
+  return std::find(uses.begin(), uses.end(), b) != uses.end();
 }
 
 
@@ -66,7 +66,7 @@ class ControlReducerTester : HandleAndZoneScope {
       : isolate(main_isolate()),
         common(main_zone()),
         graph(main_zone()),
-        jsgraph(&graph, &common, NULL, NULL),
+        jsgraph(main_isolate(), &graph, &common, NULL, NULL),
         start(graph.NewNode(common.Start(1))),
         end(graph.NewNode(common.End(), start)),
         p0(graph.NewNode(common.Parameter(0), start)),
@@ -177,10 +177,25 @@ class ControlReducerTester : HandleAndZoneScope {
     CheckInputs(end, expect);
   }
 
-  void ReduceBranch(Node* expect, Node* branch) {
-    Node* result =
-        ControlReducer::ReduceBranchForTesting(&jsgraph, &common, branch);
-    CHECK_EQ(expect, result);
+  void ReduceBranch(Decision expected, Node* branch) {
+    Node* control = branch->InputAt(1);
+    for (Node* use : branch->uses()) {
+      if (use->opcode() == IrOpcode::kIfTrue) {
+        Node* result =
+            ControlReducer::ReduceIfNodeForTesting(&jsgraph, &common, use);
+        if (expected == kTrue) CHECK_EQ(control, result);
+        if (expected == kFalse) CHECK_EQ(IrOpcode::kDead, result->opcode());
+        if (expected == kUnknown) CHECK_EQ(use, result);
+      } else if (use->opcode() == IrOpcode::kIfFalse) {
+        Node* result =
+            ControlReducer::ReduceIfNodeForTesting(&jsgraph, &common, use);
+        if (expected == kFalse) CHECK_EQ(control, result);
+        if (expected == kTrue) CHECK_EQ(IrOpcode::kDead, result->opcode());
+        if (expected == kUnknown) CHECK_EQ(use, result);
+      } else {
+        UNREACHABLE();
+      }
+    }
   }
 
   Node* Return(Node* val, Node* effect, Node* control) {
@@ -206,7 +221,7 @@ TEST(Trim1_dead) {
   CHECK(IsUsedBy(T.start, T.p0));
   T.Trim();
   CHECK(!IsUsedBy(T.start, T.p0));
-  CHECK_EQ(NULL, T.p0->InputAt(0));
+  CHECK(!T.p0->InputAt(0));
 }
 
 
@@ -237,9 +252,9 @@ TEST(Trim2_dead) {
   CHECK(!IsUsedBy(T.one, phi));
   CHECK(!IsUsedBy(T.half, phi));
   CHECK(!IsUsedBy(T.start, phi));
-  CHECK_EQ(NULL, phi->InputAt(0));
-  CHECK_EQ(NULL, phi->InputAt(1));
-  CHECK_EQ(NULL, phi->InputAt(2));
+  CHECK(!phi->InputAt(0));
+  CHECK(!phi->InputAt(1));
+  CHECK(!phi->InputAt(2));
 }
 
 
@@ -259,7 +274,7 @@ TEST(Trim_chain1) {
   T.Trim();
   for (int i = 0; i < kDepth; i++) {
     CHECK(!IsUsedBy(live[i], dead[i]));
-    CHECK_EQ(NULL, dead[i]->InputAt(0));
+    CHECK(!dead[i]->InputAt(0));
     CHECK_EQ(i == 0 ? T.start : live[i - 1], live[i]->InputAt(0));
   }
 }
@@ -339,9 +354,9 @@ TEST(Trim_cycle2) {
   CHECK(!IsUsedBy(loop, phi));
   CHECK(!IsUsedBy(T.one, phi));
   CHECK(!IsUsedBy(T.half, phi));
-  CHECK_EQ(NULL, phi->InputAt(0));
-  CHECK_EQ(NULL, phi->InputAt(1));
-  CHECK_EQ(NULL, phi->InputAt(2));
+  CHECK(!phi->InputAt(0));
+  CHECK(!phi->InputAt(1));
+  CHECK(!phi->InputAt(2));
 }
 
 
@@ -350,8 +365,8 @@ void CheckTrimConstant(ControlReducerTester* T, Node* k) {
   CHECK(IsUsedBy(k, phi));
   T->Trim();
   CHECK(!IsUsedBy(k, phi));
-  CHECK_EQ(NULL, phi->InputAt(0));
-  CHECK_EQ(NULL, phi->InputAt(1));
+  CHECK(!phi->InputAt(0));
+  CHECK(!phi->InputAt(1));
 }
 
 
@@ -939,7 +954,7 @@ TEST(CMergeReduce_dead_chain1) {
     R.graph.SetEnd(end);
     R.ReduceGraph();
     CHECK(merge->IsDead());
-    CHECK_EQ(NULL, end->InputAt(0));  // end dies.
+    CHECK(!end->InputAt(0));  // end dies.
   }
 }
 
@@ -1030,7 +1045,7 @@ struct While {
 TEST(CBranchReduce_none1) {
   ControlReducerTester R;
   Diamond d(R, R.p0);
-  R.ReduceBranch(d.branch, d.branch);
+  R.ReduceBranch(kUnknown, d.branch);
 }
 
 
@@ -1039,7 +1054,7 @@ TEST(CBranchReduce_none2) {
   Diamond d1(R, R.p0);
   Diamond d2(R, R.p0);
   d2.chain(d1);
-  R.ReduceBranch(d2.branch, d2.branch);
+  R.ReduceBranch(kUnknown, d2.branch);
 }
 
 
@@ -1052,13 +1067,7 @@ TEST(CBranchReduce_true) {
 
   for (size_t i = 0; i < arraysize(true_values); i++) {
     Diamond d(R, true_values[i]);
-    Node* true_use = R.graph.NewNode(R.common.Merge(1), d.if_true);
-    Node* false_use = R.graph.NewNode(R.common.Merge(1), d.if_false);
-    R.ReduceBranch(R.start, d.branch);
-    CHECK_EQ(R.start, true_use->InputAt(0));
-    CHECK_EQ(IrOpcode::kDead, false_use->InputAt(0)->opcode());
-    CHECK(d.if_true->IsDead());   // replaced
-    CHECK(d.if_false->IsDead());  // replaced
+    R.ReduceBranch(kTrue, d.branch);
   }
 }
 
@@ -1070,13 +1079,7 @@ TEST(CBranchReduce_false) {
 
   for (size_t i = 0; i < arraysize(false_values); i++) {
     Diamond d(R, false_values[i]);
-    Node* true_use = R.graph.NewNode(R.common.Merge(1), d.if_true);
-    Node* false_use = R.graph.NewNode(R.common.Merge(1), d.if_false);
-    R.ReduceBranch(R.start, d.branch);
-    CHECK_EQ(R.start, false_use->InputAt(0));
-    CHECK_EQ(IrOpcode::kDead, true_use->InputAt(0)->opcode());
-    CHECK(d.if_true->IsDead());   // replaced
-    CHECK(d.if_false->IsDead());  // replaced
+    R.ReduceBranch(kFalse, d.branch);
   }
 }
 
@@ -1208,172 +1211,6 @@ TEST(CDeadLoop2) {
   R.ReduceMergeIterative(R.start, d.merge);
   CHECK(d.if_true->IsDead());
   CHECK(d.if_false->IsDead());
-}
-
-
-TEST(CNonTermLoop1) {
-  ControlReducerTester R;
-  Node* loop =
-      R.SetSelfReferences(R.graph.NewNode(R.common.Loop(2), R.start, R.self));
-  R.ReduceGraph();
-  Node* end = R.graph.end();
-  CheckLoop(loop, R.start, loop);
-  Node* merge = end->InputAt(0);
-  CheckMerge(merge, R.start, loop);
-}
-
-
-TEST(CNonTermLoop2) {
-  ControlReducerTester R;
-  Diamond d(R, R.p0);
-  Node* loop = R.SetSelfReferences(
-      R.graph.NewNode(R.common.Loop(2), d.if_false, R.self));
-  d.merge->ReplaceInput(1, R.dead);
-  Node* end = R.graph.end();
-  end->ReplaceInput(0, d.merge);
-  R.ReduceGraph();
-  CHECK_EQ(end, R.graph.end());
-  CheckLoop(loop, d.if_false, loop);
-  Node* merge = end->InputAt(0);
-  CheckMerge(merge, d.if_true, loop);
-}
-
-
-TEST(NonTermLoop3) {
-  ControlReducerTester R;
-  Node* loop = R.graph.NewNode(R.common.Loop(2), R.start, R.start);
-  Branch b(R, R.one, loop);
-  loop->ReplaceInput(1, b.if_true);
-  Node* end = R.graph.end();
-  end->ReplaceInput(0, b.if_false);
-
-  R.ReduceGraph();
-
-  CHECK_EQ(end, R.graph.end());
-  CheckInputs(end, loop);
-  CheckInputs(loop, R.start, loop);
-}
-
-
-TEST(CNonTermLoop_terminate1) {
-  ControlReducerTester R;
-  Node* loop = R.graph.NewNode(R.common.Loop(2), R.start, R.start);
-  Node* effect = R.SetSelfReferences(
-      R.graph.NewNode(R.common.EffectPhi(2), R.start, R.self, loop));
-  Branch b(R, R.one, loop);
-  loop->ReplaceInput(1, b.if_true);
-  Node* end = R.graph.end();
-  end->ReplaceInput(0, b.if_false);
-
-  R.ReduceGraph();
-
-  CHECK_EQ(end, R.graph.end());
-  CheckLoop(loop, R.start, loop);
-  Node* terminate = end->InputAt(0);
-  CHECK_EQ(IrOpcode::kTerminate, terminate->opcode());
-  CHECK_EQ(2, terminate->InputCount());
-  CHECK_EQ(1, terminate->op()->EffectInputCount());
-  CHECK_EQ(1, terminate->op()->ControlInputCount());
-  CheckInputs(terminate, effect, loop);
-}
-
-
-TEST(CNonTermLoop_terminate2) {
-  ControlReducerTester R;
-  Node* loop = R.graph.NewNode(R.common.Loop(2), R.start, R.start);
-  Node* effect1 = R.SetSelfReferences(
-      R.graph.NewNode(R.common.EffectPhi(2), R.start, R.self, loop));
-  Node* effect2 = R.SetSelfReferences(
-      R.graph.NewNode(R.common.EffectPhi(2), R.start, R.self, loop));
-  Branch b(R, R.one, loop);
-  loop->ReplaceInput(1, b.if_true);
-  Node* end = R.graph.end();
-  end->ReplaceInput(0, b.if_false);
-
-  R.ReduceGraph();
-
-  CheckLoop(loop, R.start, loop);
-  CHECK_EQ(end, R.graph.end());
-  Node* terminate = end->InputAt(0);
-  CHECK_EQ(IrOpcode::kTerminate, terminate->opcode());
-  CHECK_EQ(3, terminate->InputCount());
-  CHECK_EQ(2, terminate->op()->EffectInputCount());
-  CHECK_EQ(1, terminate->op()->ControlInputCount());
-  Node* e0 = terminate->InputAt(0);
-  Node* e1 = terminate->InputAt(1);
-  CHECK(e0 == effect1 || e1 == effect1);
-  CHECK(e0 == effect2 || e1 == effect2);
-  CHECK_EQ(loop, terminate->InputAt(2));
-}
-
-
-TEST(CNonTermLoop_terminate_m1) {
-  ControlReducerTester R;
-  Node* loop =
-      R.SetSelfReferences(R.graph.NewNode(R.common.Loop(2), R.start, R.self));
-  Node* effect = R.SetSelfReferences(
-      R.graph.NewNode(R.common.EffectPhi(2), R.start, R.self, loop));
-  R.ReduceGraph();
-  Node* end = R.graph.end();
-  CHECK_EQ(R.start, loop->InputAt(0));
-  CHECK_EQ(loop, loop->InputAt(1));
-  Node* merge = end->InputAt(0);
-  CHECK_EQ(IrOpcode::kMerge, merge->opcode());
-  CHECK_EQ(2, merge->InputCount());
-  CHECK_EQ(2, merge->op()->ControlInputCount());
-  CHECK_EQ(R.start, merge->InputAt(0));
-
-  Node* terminate = merge->InputAt(1);
-  CHECK_EQ(IrOpcode::kTerminate, terminate->opcode());
-  CHECK_EQ(2, terminate->InputCount());
-  CHECK_EQ(1, terminate->op()->EffectInputCount());
-  CHECK_EQ(1, terminate->op()->ControlInputCount());
-  CHECK_EQ(effect, terminate->InputAt(0));
-  CHECK_EQ(loop, terminate->InputAt(1));
-}
-
-
-TEST(CNonTermLoop_big1) {
-  ControlReducerTester R;
-  Branch b1(R, R.p0);
-  Node* rt = R.graph.NewNode(R.common.Return(), R.one, R.start, b1.if_true);
-
-  Branch b2(R, R.p0, b1.if_false);
-  Node* rf = R.graph.NewNode(R.common.Return(), R.zero, R.start, b2.if_true);
-  Node* loop = R.SetSelfReferences(
-      R.graph.NewNode(R.common.Loop(2), b2.if_false, R.self));
-  Node* merge = R.graph.NewNode(R.common.Merge(2), rt, rf);
-  R.end->ReplaceInput(0, merge);
-
-  R.ReduceGraph();
-
-  CheckInputs(R.end, merge);
-  CheckInputs(merge, rt, rf, loop);
-  CheckInputs(loop, b2.if_false, loop);
-}
-
-
-TEST(CNonTermLoop_big2) {
-  ControlReducerTester R;
-  Branch b1(R, R.p0);
-  Node* rt = R.graph.NewNode(R.common.Return(), R.one, R.start, b1.if_true);
-
-  Branch b2(R, R.zero, b1.if_false);
-  Node* rf = R.graph.NewNode(R.common.Return(), R.zero, R.start, b2.if_true);
-  Node* loop = R.SetSelfReferences(
-      R.graph.NewNode(R.common.Loop(2), b2.if_false, R.self));
-  Node* merge = R.graph.NewNode(R.common.Merge(2), rt, rf);
-  R.end->ReplaceInput(0, merge);
-
-  R.ReduceGraph();
-
-  Node* new_merge = R.end->InputAt(0);  // old merge was reduced.
-  CHECK_NE(merge, new_merge);
-  CheckInputs(new_merge, rt, loop);
-  CheckInputs(loop, b1.if_false, loop);
-  CHECK(merge->IsDead());
-  CHECK(rf->IsDead());
-  CHECK(b2.if_true->IsDead());
 }
 
 

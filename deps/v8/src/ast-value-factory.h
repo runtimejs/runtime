@@ -64,13 +64,13 @@ class AstString : public ZoneObject {
 
 class AstRawString : public AstString {
  public:
-  virtual int length() const OVERRIDE {
+  int length() const OVERRIDE {
     if (is_one_byte_)
       return literal_bytes_.length();
     return literal_bytes_.length() / 2;
   }
 
-  virtual void Internalize(Isolate* isolate) OVERRIDE;
+  void Internalize(Isolate* isolate) OVERRIDE;
 
   bool AsArrayIndex(uint32_t* index) const;
 
@@ -124,11 +124,9 @@ class AstConsString : public AstString {
       : left_(left),
         right_(right) {}
 
-  virtual int length() const OVERRIDE {
-    return left_->length() + right_->length();
-  }
+  int length() const OVERRIDE { return left_->length() + right_->length(); }
 
-  virtual void Internalize(Isolate* isolate) OVERRIDE;
+  void Internalize(Isolate* isolate) OVERRIDE;
 
  private:
   friend class AstValueFactory;
@@ -255,15 +253,16 @@ class AstValue : public ZoneObject {
   F(make_reference_error, "MakeReferenceErrorEmbedded") \
   F(make_syntax_error, "MakeSyntaxErrorEmbedded")       \
   F(make_type_error, "MakeTypeErrorEmbedded")           \
-  F(module, "module")                                   \
   F(native, "native")                                   \
   F(next, "next")                                       \
   F(proto, "__proto__")                                 \
   F(prototype, "prototype")                             \
   F(this, "this")                                       \
   F(use_asm, "use asm")                                 \
+  F(use_strong, "use strong")                           \
   F(use_strict, "use strict")                           \
-  F(value, "value")
+  F(value, "value")                                     \
+  F(is_construct_call, "_IsConstructCall")
 
 #define OTHER_CONSTANTS(F) \
   F(true_value)            \

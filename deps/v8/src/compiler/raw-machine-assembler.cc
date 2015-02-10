@@ -11,11 +11,11 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-RawMachineAssembler::RawMachineAssembler(Graph* graph,
-                                         MachineSignature* machine_sig,
+RawMachineAssembler::RawMachineAssembler(Isolate* isolate, Graph* graph,
+                                         const MachineSignature* machine_sig,
                                          MachineType word,
                                          MachineOperatorBuilder::Flags flags)
-    : GraphBuilder(graph),
+    : GraphBuilder(isolate, graph),
       schedule_(new (zone()) Schedule(zone())),
       machine_(zone(), word, flags),
       common_(zone()),
@@ -76,6 +76,20 @@ void RawMachineAssembler::Branch(Node* condition, Label* true_val,
 }
 
 
+void RawMachineAssembler::Switch(Node* index, Label** succ_labels,
+                                 size_t succ_count) {
+  DCHECK_NE(schedule()->end(), current_block_);
+  Node* sw = NewNode(common()->Switch(succ_count), index);
+  BasicBlock** succ_blocks =
+      zone()->NewArray<BasicBlock*>(static_cast<int>(succ_count));
+  for (size_t index = 0; index < succ_count; ++index) {
+    succ_blocks[index] = Use(succ_labels[index]);
+  }
+  schedule()->AddSwitch(CurrentBlock(), sw, succ_blocks, succ_count);
+  current_block_ = nullptr;
+}
+
+
 void RawMachineAssembler::Return(Node* value) {
   schedule()->AddReturn(CurrentBlock(), value);
   current_block_ = NULL;
@@ -87,8 +101,8 @@ Node* RawMachineAssembler::CallFunctionStub0(Node* function, Node* receiver,
                                              CallFunctionFlags flags) {
   Callable callable = CodeFactory::CallFunction(isolate(), 0, flags);
   CallDescriptor* desc = Linkage::GetStubCallDescriptor(
-      callable.descriptor(), 1, CallDescriptor::kNeedsFrameState,
-      Operator::kNoProperties, zone());
+      isolate(), zone(), callable.descriptor(), 1,
+      CallDescriptor::kNeedsFrameState, Operator::kNoProperties);
   Node* stub_code = HeapConstant(callable.code());
   Node* call = graph()->NewNode(common()->Call(desc), stub_code, function,
                                 receiver, context, frame_state);
@@ -99,8 +113,8 @@ Node* RawMachineAssembler::CallFunctionStub0(Node* function, Node* receiver,
 
 Node* RawMachineAssembler::CallJS0(Node* function, Node* receiver,
                                    Node* context, Node* frame_state) {
-  CallDescriptor* descriptor =
-      Linkage::GetJSCallDescriptor(1, zone(), CallDescriptor::kNeedsFrameState);
+  CallDescriptor* descriptor = Linkage::GetJSCallDescriptor(
+      zone(), false, 1, CallDescriptor::kNeedsFrameState);
   Node* call = graph()->NewNode(common()->Call(descriptor), function, receiver,
                                 context, frame_state);
   schedule()->AddNode(CurrentBlock(), call);
@@ -112,7 +126,7 @@ Node* RawMachineAssembler::CallRuntime1(Runtime::FunctionId function,
                                         Node* arg0, Node* context,
                                         Node* frame_state) {
   CallDescriptor* descriptor = Linkage::GetRuntimeCallDescriptor(
-      function, 1, Operator::kNoProperties, zone());
+      zone(), function, 1, Operator::kNoProperties);
 
   Node* centry = HeapConstant(CEntryStub(isolate(), 1).GetCode());
   Node* ref = NewNode(
