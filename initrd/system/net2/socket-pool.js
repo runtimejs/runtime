@@ -12,23 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function fullChecksum(u8, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  var ov = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
-  }
+var createHandlePool = require('handle-pool');
 
-  if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
-  }
-
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
+function SocketPool(methods) {
+  this.sockets = new Map();
+  this.handlePool = createHandlePool(methods);
 }
 
-module.exports = {
-  full: fullChecksum
-};
+module.exports = SocketPool;

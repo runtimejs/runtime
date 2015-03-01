@@ -96,6 +96,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         isolate->Set(iv8_, "env", v8::Null(iv8_));
         isolate->Set(iv8_, "system", v8::Null(iv8_));
         isolate->Set(iv8_, "createPipe", v8::FunctionTemplate::New(iv8_, NativesObject::CreatePipe));
+        isolate->Set(iv8_, "sync", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "isolate", isolate);
 
         v8::Local<v8::ObjectTemplate> kernel { v8::ObjectTemplate::New() };
@@ -160,10 +161,11 @@ v8::Local<v8::Value> TemplateCache::NewWrappedFunction(ExternalFunction* data) {
     return scope.Escape(obj);
 }
 
-v8::Local<v8::Value> TemplateCache::GetHandleInstance(uint32_t pool_id, uint32_t handle_id) {
+v8::Local<v8::Value> TemplateCache::GetHandleInstance(uint32_t pool_id, uint32_t handle_id,
+        Pipe* wpipe, Pipe* rpipe) {
     RT_ASSERT(iv8_);
     v8::EscapableHandleScope scope(iv8_);
-    return scope.Escape(handle_object_factory_.Get(pool_id, handle_id));
+    return scope.Escape(handle_object_factory_.Get(pool_id, handle_id, wpipe, rpipe));
 }
 
 v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativeobj) {
@@ -178,7 +180,7 @@ v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativ
     return scope.Escape(obj);
 }
 
-v8::Local<v8::Object> HandleObjectFactory::Get(uint32_t pool_id, uint32_t handle_id) {
+v8::Local<v8::Object> HandleObjectFactory::Get(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe) {
     v8::EscapableHandleScope scope(iv8_);
     uint64_t key = MakeKey(pool_id, handle_id);
     auto value = map_.find(key);
@@ -186,7 +188,7 @@ v8::Local<v8::Object> HandleObjectFactory::Get(uint32_t pool_id, uint32_t handle
         return scope.Escape(v8::Local<v8::Object>::New(iv8_, value->second));
     }
 
-    {   auto handle_object = new HandleObject(pool_id, handle_id);
+    {   auto handle_object = new HandleObject(pool_id, handle_id, wpipe, rpipe);
         auto pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
         RT_ASSERT(pool);
         RT_ASSERT(pool->index() == handle_object->pool_id());
@@ -208,6 +210,16 @@ v8::Local<v8::Object> HandleObjectFactory::Get(uint32_t pool_id, uint32_t handle
 
                 t->Set(name, v8::FunctionTemplate::New(iv8_,
                     NativesObject::HandleMethodCall, v8::External::New(iv8_, reinterpret_cast<void*>(pack))));
+            }
+
+            if (pool->pipes()) {
+                t->Set(iv8_, "push", v8::FunctionTemplate::New(iv8_, HandleObject::PipePush));
+                t->Set(iv8_, "pull", v8::FunctionTemplate::New(iv8_, HandleObject::PipePull));
+
+                t->Set(iv8_, "write", v8::FunctionTemplate::New(iv8_, HandleObject::PipePush));
+                t->Set(iv8_, "read", v8::FunctionTemplate::New(iv8_, HandleObject::PipePull));
+
+                t->Set(iv8_, "close", v8::FunctionTemplate::New(iv8_, HandleObject::PipeClose));
             }
 
             handle_pool_templates_[index].Set(iv8_, t);

@@ -18,6 +18,13 @@
  * This is HTTP server example
  */
 
+function readloop(pipe, fn) {
+  pipe.read(function f(val) {
+    fn(val);
+    pipe.read(f);
+  });
+}
+
 // Some profiler data
 var requestCount = 0;
 var expectRequests = 200;
@@ -33,24 +40,24 @@ var response = [
   body
 ];
 
-var cachedResponse = response.join('\r\n');
+// Very limited binary data encoder/decoder support
+// https://encoding.spec.whatwg.org/
+var enc = new TextEncoder('utf-8');
+var dec = new TextDecoder('utf-8');
+
+var responseBuffer = enc.encode(response.join('\r\n')).buffer;
 
 /**
  * Handle HTTP request
  */
-function httpHandler(socket, netsend, netrecv) {
+function httpHandler(socket) {
   // Profiler (should be enabled in kernel, otherwise noop)
   if (100 === requestCount) {
     kernel.startProfiling();
   }
 
-  // Very limited binary data encoder/decoder support
-  // https://encoding.spec.whatwg.org/
-  var enc = new TextEncoder('utf-8');
-  var dec = new TextDecoder('utf-8');
-
-  // Pull next (and single) buffer from receive pipe
-  netrecv.pull(function(buf) {
+  // Pull next (and single) buffer from socket
+  socket.read(function(buf) {
 
     // Decode ArrayBuffer into string
     var message = dec.decode(buf);
@@ -58,12 +65,9 @@ function httpHandler(socket, netsend, netrecv) {
     // Print some log data
     // isolate.env.stdout(message.split('\r\n').join('\n'));
 
-    // Prepare response buffer
-    var response = enc.encode(cachedResponse).buffer;
-
     // Push response and close pipe
-    netsend.push(response);
-    netsend.close();
+    socket.write(responseBuffer.slice(0));
+    socket.close();
 
     // Profiler (should be enabled in kernel, otherwise noop)
     if (expectRequests === ++requestCount) {
@@ -73,29 +77,11 @@ function httpHandler(socket, netsend, netrecv) {
   });
 }
 
-// Create TCP listening socket
-isolate.system.tcpSocket.createSocket().then(function(data) {
-  // This is the listening socket itself
-  var socket = data.socket;
-
-  // This is the new connections pipe
-  var pipe = data.pipe;
-
-  // Pull next connection from pipe
-  pipe.pull(function pp(data) {
-
-    // Unpack data and call connection handler
-    var socket = data[0];
-    var netsend = data[1];
-    var netrecv = data[2];
-    httpHandler(socket, netsend, netrecv);
-
-    // Pull next connection again
-    pipe.pull(pp);
-  });
-
-  // Listen to TCP port
-  return socket.listen(9000);
-}).then(function() {
+function init() {
+  var socket = isolate.sync(isolate.system.tcpSocket.createSocket());
+  readloop(socket, httpHandler);
+  isolate.sync(socket.listen(9000));
   console.log('tcp server listening to port 9000');
-});
+}
+
+init();

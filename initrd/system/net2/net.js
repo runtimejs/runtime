@@ -12,23 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function fullChecksum(u8, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  var ov = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
-  }
+var assert = require('assert');
+var Interface = require('./interface');
 
-  if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
-  }
+var intfs = [];
 
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
-}
-
-module.exports = {
-  full: fullChecksum
+exports.interfaceAdd = function(opts) {
+  var intf = new Interface(opts.macAddress)
+  intf.setName('intf' + intfs.length);
+  intf.setBufferDataOffset(opts.bufferDataOffset);
+  intfs.push(intf);
+  return intf;
 };

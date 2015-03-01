@@ -15,8 +15,6 @@
 /**
  * Keyboard service
  */
-"use strict";
-
 var listeners = [];
 
 module.exports = {

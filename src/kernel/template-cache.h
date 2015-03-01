@@ -25,6 +25,7 @@ namespace rt {
 
 class ExternalFunction;
 class HandleObject;
+class Pipe;
 
 /**
  * List of available v8-exposed objects
@@ -113,7 +114,7 @@ public:
         RT_ASSERT(iv8_);
     }
 
-    v8::Local<v8::Object> Get(uint32_t pool_id, uint32_t handle_id);
+    v8::Local<v8::Object> Get(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe);
     inline static void WeakCallback(const v8::WeakCallbackData<v8::Object, HandleObjectFactory> &data);
 private:
     inline static uint64_t MakeKey(uint32_t pool_id, uint32_t handle_id) {
@@ -142,7 +143,7 @@ public:
     /**
      * Creates v8 object which represents an object handle
      */
-    v8::Local<v8::Value> GetHandleInstance(uint32_t pool_id, uint32_t handle_id);
+    v8::Local<v8::Value> GetHandleInstance(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe);
 
     /**
      * Creates v8 object which represents native object instance

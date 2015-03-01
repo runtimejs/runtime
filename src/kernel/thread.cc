@@ -309,7 +309,8 @@ bool Thread::Run() {
             RT_ASSERT(!fnval.IsEmpty());
             RT_ASSERT(fnval->IsFunction());
 
-            auto handle_obj = template_cache()->GetHandleInstance(pool_index, message->recv_index3());
+            // TODO: Support wpipe/rpipe
+            auto handle_obj = template_cache()->GetHandleInstance(pool_index, message->recv_index3(), nullptr, nullptr);
             {   RT_ASSERT(!call_wrapper_.IsEmpty());
                 v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
                 v8::Local<v8::Value> argv[] {

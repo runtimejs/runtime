@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var netSocket = require('net/socket.js');
+var netSocket = require('./socket');
 
 var magicCookie = 0x63825363;
 var packetType = {

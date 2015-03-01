@@ -16,11 +16,10 @@
  * Device and driver info for PCI devices. PCI bus driver uses this data
  * to load required device drivers
  */
-"use strict";
 
 var virtioDevice = {
   name: 'Virtio device',
-  driver: 'virtio.js',
+  driver: 'virtio',
   busMaster: true,
   enabled: true,
 };
@@ -34,7 +33,7 @@ var data = {
     devices: {
       0x8139: {
         name: 'Realtek RTL-8139/8139C/8139C+ PCI Fast Ethernet NIC',
-        driver: 'rtl8139.js',
+        driver: 'rtl8139',
         busMaster: true,
         enabled: false,
       },

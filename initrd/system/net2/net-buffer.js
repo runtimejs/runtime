@@ -12,23 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function fullChecksum(u8, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  var ov = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
-  }
+var checksum = require('net/checksum');
 
-  if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
-  }
-
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
+function NetBuffer(u8, len, offset) {
+  this.u8 = u8 || null;
+  this.len = len | 0;
+  this.offset = offset | 0;
+  this.next = null;
 }
 
-module.exports = {
-  full: fullChecksum
+NetBuffer.prototype.checksum = function(sum) {
+  sum = checksum.full(this.u8, this.offset, this.len, sum | 0);
+  return this.next ? this.next.checksum(sum) : sum;
 };
+
+NetBuffer.prototype.length = function() {
+  return (this.len - this.offset) + this.next ? this.next.length() : 0;
+};
+
+NetBuffer.prototype.setNext = function(netbuf) {
+  this.next = netbuf;
+};
+
+module.exports = NetBuffer;

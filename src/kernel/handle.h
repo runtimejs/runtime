@@ -18,6 +18,7 @@
 #include <kernel/vector.h>
 #include <kernel/resource.h>
 #include <include/v8.h>
+#include <atomic>
 
 namespace rt {
 
@@ -27,7 +28,8 @@ namespace rt {
 class HandlePool {
 public:
     HandlePool(uint32_t index, Thread* th, ResourceHandle<EngineThread> recv,
-        SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls);
+        SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls,
+        bool pipes);
 
     const SharedSTLVector<std::string>& methods() const { return methods_; }
     uint32_t index() const { return index_; }
@@ -39,12 +41,18 @@ public:
         RT_ASSERT(method_index < impls_.size());
         return scope.Escape(impls_[method_index].Get(iv8));
     }
+
+    uint32_t AllocNextId() { return max_handle_id_++; }
+    uint32_t max_handle_id() const { return max_handle_id_; }
+    bool pipes() const { return pipes_; }
 private:
     uint32_t index_;
     SharedSTLVector<std::string> methods_;
     SharedSTLVector<v8::Eternal<v8::Value>> impls_;
     Thread* th_;
     ResourceHandle<EngineThread> recv_;
+    std::atomic<uint32_t> max_handle_id_;
+    bool pipes_;
 
     ~HandlePool() {
         RT_ASSERT(!"should not be here");
@@ -66,11 +74,13 @@ public:
     }
 
     HandlePool* CreateHandlePool(Thread* th, ResourceHandle<EngineThread> recv,
-            SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls) {
+            SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls,
+            bool pipes) {
         RT_ASSERT(th);
         RT_ASSERT(pools_count_ < kMaxHandlePools);
         RT_ASSERT(nullptr == pools_[pools_count_]);
-        auto handle_pool = new HandlePool(pools_count_, th, recv, std::move(methods), std::move(impls));
+        auto handle_pool = new HandlePool(pools_count_, th, recv,
+            std::move(methods), std::move(impls), pipes);
         pools_[pools_count_++] = handle_pool;
         return handle_pool;
     }

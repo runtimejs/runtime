@@ -411,12 +411,19 @@ private:
  */
 class HandleObject : public NativeObjectWrapper {
 public:
-    HandleObject(uint32_t pool_id, uint32_t handle_id)
+    HandleObject(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe)
         :	NativeObjectWrapper(NativeTypeId::TYPEID_HANDLE),
-            pool_id_(pool_id), handle_id_(handle_id) { }
+            pool_id_(pool_id), handle_id_(handle_id),
+            wpipe_(wpipe), rpipe_(rpipe) { }
 
     uint32_t pool_id() const { return pool_id_; }
     uint32_t handle_id() const { return handle_id_; }
+    Pipe* wpipe() const { return wpipe_; }
+    Pipe* rpipe() const { return rpipe_; }
+
+    DECLARE_NATIVE(PipePull);
+    DECLARE_NATIVE(PipePush);
+    DECLARE_NATIVE(PipeClose);
 
     static HandleObject* FromInstance(v8::Local<v8::Value> val) {
         if (!val->IsObject()) return nullptr;
@@ -431,6 +438,8 @@ public:
 private:
     uint32_t pool_id_;
     uint32_t handle_id_;
+    Pipe* wpipe_;
+    Pipe* rpipe_;
 };
 
 class HandlePoolObject : public JsObjectWrapper<HandlePoolObject,
@@ -446,15 +455,15 @@ public:
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("createHandle", CreateHandle);
         obj.SetCallback("has", Has);
-
     }
 
     JsObjectWrapperBase* Clone() const {
         return nullptr; // Not clonable
     }
+
+    HandlePool* pool() const { return pool_; }
 private:
     HandlePool* pool_;
-    uint32_t max_handle_id_;
 };
 
 class PipeObject : public JsObjectWrapper<PipeObject,
@@ -468,6 +477,9 @@ public:
     DECLARE_NATIVE(Pull);
     DECLARE_NATIVE(Wait);
     DECLARE_NATIVE(Close);
+
+    static void PushImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args);
+    static void PullImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("push", Push);
@@ -484,6 +496,8 @@ public:
         pipe_->Ref();
         return new PipeObject(pipe_);
     }
+
+    Pipe* pipe() const { return pipe_; }
 private:
     Pipe* pipe_;
 };

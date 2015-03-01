@@ -239,7 +239,9 @@
 
   var cmd = kernel.getCommandLine().trim().split(' ');
   if (cmd.length > 1) {
-    var command = cmd.slice(1).join(' ');
+    var command = cmd.slice(1).map(function(x) {
+      return String(x).replace(/"/g, '');
+    }).join(' ');
     print('Starting ' + command + '\n');
     inputHandler(command);
   }

@@ -12,23 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function fullChecksum(u8, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  var ov = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
-  }
+var table = [];
 
-  if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
-  }
-
-  acc = (acc & 0xffff) + (acc >>> 16);
-  acc += (acc >>> 16);
-  return ((~acc) & 0xffff) >>> 0;
+function Entry(ip, mask, gateway, intf, metric) {
+  this.ip = ip;
+  this.mask = mask;
+  this.gateway = gateway;
+  this.intf = intf;
+  this.metric = metric;
 }
 
-module.exports = {
-  full: fullChecksum
-};
+function ipAND(ip1, ip2) {
+  return [ip1[0] & ip2[0], ip1[1] & ip2[1],
+    ip1[2] & ip2[2], ip1[3] & ip2[3]];
+}
+
+function ipEQUAL(ip1, ip2) {
+  return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
+    ip1[2] === ip2[2] && ip1[3] === ip2[3];
+}
+
+exports.add = function(ip, mask, gateway, intf) {
+  table.push(new Entry(ip, mask, gateway, intf));
+}
+
+exports.get = function(destIP) {
+}

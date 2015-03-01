@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-
 function compareIP4(ip1, ip2) {
   return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
     ip1[2] === ip2[2] && ip1[3] === ip2[3];

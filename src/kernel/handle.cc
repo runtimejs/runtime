@@ -18,15 +18,17 @@
 namespace rt {
 
 HandlePool::HandlePool(uint32_t index, Thread *th, ResourceHandle<EngineThread> recv,
-    SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls)
+    SharedSTLVector<std::string> methods, SharedSTLVector<v8::Eternal<v8::Value>> impls,
+    bool pipes)
     :   index_(index),
         methods_(std::move(methods)),
         impls_(std::move(impls)),
         th_(th),
-        recv_(recv) {
+        recv_(recv),
+        max_handle_id_(0),
+        pipes_(pipes) {
     RT_ASSERT(th);
     RT_ASSERT(methods_.size() == impls_.size());
-
 }
 
 } // namespace rt

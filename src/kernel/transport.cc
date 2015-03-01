@@ -208,6 +208,8 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
                 AppendType(Type::NATIVE_OBJECT_HANDLE);
                 stream_.AppendValue<uint32_t>(baseptr->pool_id());
                 stream_.AppendValue<uint32_t>(baseptr->handle_id());
+                stream_.AppendValue<Pipe*>(baseptr->wpipe());
+                stream_.AppendValue<Pipe*>(baseptr->rpipe());
                 return SerializeError::NONE;
             }
             default:
@@ -343,8 +345,10 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     case Type::NATIVE_OBJECT_HANDLE: {
         uint32_t pool_id = reader.ReadValue<uint32_t>();
         uint32_t handle_id = reader.ReadValue<uint32_t>();
+        Pipe* wpipe = reader.ReadValue<Pipe*>();
+        Pipe* rpipe = reader.ReadValue<Pipe*>();
         RT_ASSERT(thread->template_cache());
-        return scope.Escape(thread->template_cache()->GetHandleInstance(pool_id, handle_id));
+        return scope.Escape(thread->template_cache()->GetHandleInstance(pool_id, handle_id, wpipe, rpipe));
     }
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };

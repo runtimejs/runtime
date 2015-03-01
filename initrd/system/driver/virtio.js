@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var net = require('net/net.js');
-var eth = require('net/eth.js');
-var ip4 = require('net/ip4.js');
-var tcp = require('net/tcp/tcp.js');
-var VirtioDevice = require('driver/virtio/device.js');
+var net = require('net/net');
+var net2 = require('net2/net');
+var MACAddress = require('net2/mac-address');
+var NetBuffer = require('net2/net-buffer');
+var eth = require('net/eth');
+var ip4 = require('net/ip4');
+var tcp = require('net/tcp/tcp');
+var VirtioDevice = require('./virtio/device');
 
 var virtioHeader = (function() {
   var OFFSET_FLAGS = 0;
@@ -123,6 +125,15 @@ function initializeNetworkDevice(pci, allocator) {
     ifc.enable();
   }
 
+  var intf = net2.interfaceAdd({
+    macAddress: new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
+                               hwAddr[3], hwAddr[4], hwAddr[5]),
+    bufferDataOffset: virtioHeader.length,
+    transmit: function() {
+      console.log('transmit called');
+    }
+  });
+
   pci.irq.on(function() {
     if (!dev.hasPendingIRQ()) {
       return;
@@ -150,6 +161,8 @@ function initializeNetworkDevice(pci, allocator) {
       if (networkInterface) {
         networkInterface.recv(dat.buf, dat.len, 0);
       }
+
+      intf.receive(new Uint8Array(dat.buf, 0, dat.len));
     }
 
     fillReceiveQueue();
@@ -187,6 +200,6 @@ module.exports = function(args) {
       initializeNetworkDevice(pci, allocator);
       break;
     default:
-      throw new Error('unknown virtio device');
+      console.log('[virtio] unknown virtio device');
   }
 };
