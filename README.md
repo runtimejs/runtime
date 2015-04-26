@@ -3,7 +3,7 @@ Runtime.JS [![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=m
 
 __Runtime.JS__ is a kernel built on V8 JavaScript engine. It uses event-driven and non-blocking I/O model inspired by Node.js.
 
-The goal of this project is to design and implement a kernel that is optimized to run JavaScript applications. By providing environment for JavaScript code only, it is possible to rethink kernel design to improve security, reliability and performance of the system. 
+The goal of this project is to design and implement a kernel that is optimized to run JavaScript applications. By providing environment for JavaScript code only, it is possible to rethink and improve overall kernel design.
 
 It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
 
