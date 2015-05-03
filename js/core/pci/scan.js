@@ -821,6 +821,10 @@ function listPciDevices() {
   var results = [];
 
   pciManager.each(function(pciDevice) {
+    if (pciDevice.isBridge()) {
+      return;
+    }
+
     var address = pciDevice.address();
     var irqVector = pciDevice.getIRQVector();
     var classData = pciDevice.classData();
