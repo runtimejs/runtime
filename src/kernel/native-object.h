@@ -79,6 +79,11 @@ public:
     DECLARE_NATIVE(HandleIndex);
 
     /**
+     * Extract pipe object from handle
+     */
+    DECLARE_NATIVE(HandleGetPipe);
+
+    /**
      * Handle method call handler
      */
     DECLARE_NATIVE(HandleMethodCall);
@@ -113,6 +118,7 @@ public:
      * Create new handle pool
      */
     DECLARE_NATIVE(CreateHandlePool);
+    DECLARE_NATIVE(HandlePoolCtorFunction);
 
     /**
      * Get array of all initrd file names
@@ -135,6 +141,7 @@ public:
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
         obj.SetCallback("handleIndex", HandleIndex);
+        obj.SetCallback("handleGetPipe", HandleGetPipe);
         obj.SetCallback("netChecksum", NetChecksum);
     }
 
@@ -451,10 +458,12 @@ public:
 
     DECLARE_NATIVE(CreateHandle);
     DECLARE_NATIVE(Has);
+    DECLARE_NATIVE(Ctor);
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("createHandle", CreateHandle);
         obj.SetCallback("has", Has);
+        obj.SetCallback("ctor", Ctor);
     }
 
     JsObjectWrapperBase* Clone() const {
@@ -484,6 +493,10 @@ public:
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("push", Push);
         obj.SetCallback("pull", Pull);
+
+        obj.SetCallback("write", Push);
+        obj.SetCallback("read", Pull);
+
         obj.SetCallback("wait", Wait);
         obj.SetCallback("close", Close);
     }

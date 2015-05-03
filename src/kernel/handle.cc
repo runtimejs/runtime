@@ -26,9 +26,13 @@ HandlePool::HandlePool(uint32_t index, Thread *th, ResourceHandle<EngineThread> 
         th_(th),
         recv_(recv),
         max_handle_id_(0),
-        pipes_(pipes) {
+        pipes_(pipes),
+        has_ctor_(!impls_[0].IsEmpty()),
+        has_dtor_(!impls_[1].IsEmpty()),
+        has_wpipe_(false),
+        has_rpipe_(false) {
     RT_ASSERT(th);
-    RT_ASSERT(methods_.size() == impls_.size());
+    RT_ASSERT(2 + methods_.size() == impls_.size());
 }
 
 } // namespace rt

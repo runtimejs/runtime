@@ -38,6 +38,7 @@ public:
         IRQ_RAISE,
         FUNCTION_CALL,
         HANDLE_METHOD_CALL,
+        HANDLE_METHOD_CALL_NO_RETURN,
         FUNCTION_RETURN_RESOLVE,
         FUNCTION_RETURN_REJECT,
         PIPE_PULL,
@@ -47,7 +48,8 @@ public:
     ThreadMessage(Type type, ResourceHandle<EngineThread> sender,
         TransportData data,
         void* ptr = nullptr,
-        size_t recv_index = 0, size_t recv_index2 = 0, size_t recv_index3 = 0)
+        size_t recv_index = 0, size_t recv_index2 = 0,
+        size_t recv_index3 = 0, void* ptr2 = nullptr)
         :	type_(type),
             sender_(sender),
             data_(std::move(data)),
@@ -55,6 +57,7 @@ public:
             recv_index_(recv_index),
             recv_index2_(recv_index2),
             recv_index3_(recv_index3),
+            ptr2_(ptr2),
             reusable_(false) {}
 
     ~ThreadMessage() {
@@ -64,10 +67,8 @@ public:
     Type type() const { return type_; }
     const TransportData& data() { return data_; }
 
-    void* ptr() {
-        RT_ASSERT(ptr_);
-        return ptr_;
-    }
+    void* ptr() { return ptr_; }
+    void* ptr2() { return ptr2_; }
 
     ResourceHandle<EngineThread> sender() {
         RT_ASSERT(!sender_.empty());
@@ -91,6 +92,7 @@ private:
     size_t recv_index_;
     size_t recv_index2_;
     size_t recv_index3_;
+    void* ptr2_;
     bool reusable_;
 };
 

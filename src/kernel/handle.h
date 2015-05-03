@@ -45,6 +45,10 @@ public:
     uint32_t AllocNextId() { return max_handle_id_++; }
     uint32_t max_handle_id() const { return max_handle_id_; }
     bool pipes() const { return pipes_; }
+    bool has_ctor() const { return has_ctor_; }
+    bool has_dtor() const { return has_dtor_; }
+    bool has_wpipe() const { return has_wpipe_; }
+    bool has_rpipe() const { return has_rpipe_; }
 private:
     uint32_t index_;
     SharedSTLVector<std::string> methods_;
@@ -53,6 +57,10 @@ private:
     ResourceHandle<EngineThread> recv_;
     std::atomic<uint32_t> max_handle_id_;
     bool pipes_;
+    bool has_ctor_;
+    bool has_dtor_;
+    bool has_wpipe_;
+    bool has_rpipe_;
 
     ~HandlePool() {
         RT_ASSERT(!"should not be here");

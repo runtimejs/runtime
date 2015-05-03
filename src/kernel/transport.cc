@@ -119,6 +119,43 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         return SerializeError::NONE;
     }
 
+    if (value->IsArrayBufferView()) {
+        RT_ASSERT(exporter);
+        RT_ASSERT(exporter->IsolateV8());
+        v8::Isolate* iv8 { exporter->IsolateV8() };
+        v8::Local<v8::ArrayBufferView> view { v8::Local<v8::ArrayBufferView>::Cast(value) };
+        v8::Local<v8::ArrayBuffer> b = view->Buffer();
+        if (0 == b->ByteLength()) {
+            return SerializeError::EMPTY_BUFFER;
+        }
+
+        if (view->IsUint8Array()) AppendType(Type::TYPEDARRAY_UINT8);
+        else if (view->IsUint16Array()) AppendType(Type::TYPEDARRAY_UINT16);
+        else if (view->IsUint32Array()) AppendType(Type::TYPEDARRAY_UINT32);
+        else if (view->IsDataView()) AppendType(Type::TYPEDARRAY_DATAVIEW);
+        else if (view->IsInt8Array()) AppendType(Type::TYPEDARRAY_INT8);
+        else if (view->IsInt16Array()) AppendType(Type::TYPEDARRAY_INT16);
+        else if (view->IsInt32Array()) AppendType(Type::TYPEDARRAY_INT32);
+        else if (view->IsUint8ClampedArray()) AppendType(Type::TYPEDARRAY_UINT8_CLAMPED);
+        else return SerializeError::TYPEDARRAY_VIEW;
+
+        // Put ArrayBuffer itself
+        auto ab = ArrayBuffer::FromInstance(iv8, b);
+        stream_.AppendValue<void*>(ab->data());
+        stream_.AppendValue<size_t>(ab->size());
+
+        // Put view data
+        stream_.AppendValue<size_t>(view->ByteOffset());
+        stream_.AppendValue<size_t>(view->ByteLength());
+
+        // Make sure ArrayBuffer wrapper instance is aware
+        // that buffer is neutered here
+        ab->Neuter();
+        RT_ASSERT(0 == ab->size());
+        RT_ASSERT(0 == b->ByteLength());
+        return SerializeError::NONE;
+    }
+
     if (value->IsInt32()) {
         AppendType(Type::INT32);
         stream_.AppendValue<int32_t>(value->Int32Value());
@@ -155,10 +192,6 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         }
 
         return SerializeError::NONE;
-    }
-
-    if (value->IsArrayBufferView()) {
-        return SerializeError::TYPEDARRAY_VIEW;
     }
 
     if (value->IsFunction()) {
@@ -212,6 +245,13 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
                 stream_.AppendValue<Pipe*>(baseptr->rpipe());
                 return SerializeError::NONE;
             }
+            case NativeTypeId::TYPEID_HANDLE_POOL: {
+                HandlePoolObject* baseptr { static_cast<HandlePoolObject*>(ptr) };
+                RT_ASSERT(baseptr);
+                AppendType(Type::HANDLE_CTOR);
+                stream_.AppendValue<HandlePool*>(baseptr->pool());
+                return SerializeError::NONE;
+            }
             default:
                 break;
             }
@@ -263,6 +303,13 @@ v8::Local<v8::Value> TransportData::Unpack(Thread* thread) const {
     return scope.Escape(UnpackValue(thread, reader));
 }
 
+#define TYPEDARRAY_READ                                                 \
+    void* buf = reader.ReadValue<void*>();                              \
+    size_t len = reader.ReadValue<size_t>();                            \
+    size_t byte_offset = reader.ReadValue<size_t>();                    \
+    size_t byte_length = reader.ReadValue<size_t>();                    \
+    auto buffer = ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance()
+
 v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader& reader) const {
     RT_ASSERT(thread);
     RuntimeStateScope<RuntimeState::TRANSPORT_DESERIALIZER> td_state(thread->thread_manager());
@@ -307,6 +354,38 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         size_t len = reader.ReadValue<size_t>();
         return scope.Escape(ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance());
     }
+    case Type::TYPEDARRAY_UINT8: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Uint8Array::New(buffer, byte_offset, byte_length));
+    }
+    case Type::TYPEDARRAY_UINT8_CLAMPED: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Uint8ClampedArray::New(buffer, byte_offset, byte_length));
+    }
+    case Type::TYPEDARRAY_UINT16: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Uint16Array::New(buffer, byte_offset, byte_length >> 1));
+    }
+    case Type::TYPEDARRAY_UINT32: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Uint32Array::New(buffer, byte_offset, byte_length >> 2));
+    }
+    case Type::TYPEDARRAY_INT8: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Int8Array::New(buffer, byte_offset, byte_length));
+    }
+    case Type::TYPEDARRAY_INT16: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Int16Array::New(buffer, byte_offset, byte_length >> 1));
+    }
+    case Type::TYPEDARRAY_INT32: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::Int32Array::New(buffer, byte_offset, byte_length >> 2));
+    }
+    case Type::TYPEDARRAY_DATAVIEW: {
+        TYPEDARRAY_READ;
+        return scope.Escape(v8::DataView::New(buffer, byte_offset, byte_length));
+    }
     case Type::EMPTY_ARRAY:
         return scope.Escape(v8::Array::New(iv8, 0));
     case Type::ARRAY: {
@@ -350,6 +429,12 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         RT_ASSERT(thread->template_cache());
         return scope.Escape(thread->template_cache()->GetHandleInstance(pool_id, handle_id, wpipe, rpipe));
     }
+    case Type::HANDLE_CTOR: {
+        HandlePool* pool = reader.ReadValue<HandlePool*>();
+        RT_ASSERT(pool);
+        RT_ASSERT(thread->template_cache());
+        return scope.Escape(thread->template_cache()->GetHandleCtor(pool));
+    }
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };
         return scope.Escape(v8::Exception::Error(v->ToString()));
@@ -365,5 +450,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     RT_ASSERT(!"should not be here");
     return scope.Escape<v8::Primitive>(v8::Undefined(iv8));
 }
+
+#undef TYPEDARRAY_READ
 
 } // namespace rt

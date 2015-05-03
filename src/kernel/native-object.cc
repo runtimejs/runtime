@@ -144,13 +144,13 @@ NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
         THROW_ERROR("handle does not support this method");
     }
 
-    HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
-    RT_ASSERT(pool);
-
     TransportData data;
     {	TransportData::SerializeError err { data.MoveArgs(th, args) };
         if (TransportData::ThrowError(iv8, err)) return;
     }
+
+    HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
+    RT_ASSERT(pool);
 
     v8::Local<v8::Promise::Resolver> promise_resolver;
     {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
@@ -162,7 +162,8 @@ NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
 
     {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
             ThreadMessage::Type::HANDLE_METHOD_CALL,
-            th->handle(), std::move(data), nullptr, promise_index, pack, handle_id));
+            th->handle(), std::move(data), handle_object->wpipe(),
+            promise_index, pack, handle_id, handle_object->rpipe()));
         pool->thread_handle().getUnsafe()->PushMessage(std::move(msg));
     }
 
@@ -625,18 +626,85 @@ NATIVE_FUNCTION(NativesObject, BufferToString) {
         reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
 }
 
+NATIVE_FUNCTION(NativesObject, HandlePoolCtorFunction) {
+    PROLOGUE_NOTHIS;
+    auto function_data = args.Data();
+    RT_ASSERT(!function_data.IsEmpty());
+    RT_ASSERT(function_data->IsExternal());
+    HandlePool* pool = reinterpret_cast<HandlePool*>(function_data.As<v8::External>()->Value());
+    RT_ASSERT(pool);
+    if (!args.IsConstructCall()) {
+        THROW_ERROR("operator 'new' required to call constructor");
+    }
+
+    TransportData data;
+    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
+        if (TransportData::ThrowError(iv8, err)) return;
+    }
+
+    size_t handle_id = pool->AllocNextId();
+    Pipe* wpipe = nullptr;
+    Pipe* rpipe = nullptr;
+    if (pool->pipes()) {
+        wpipe = GLOBAL_engines()->pipe_manager().CreatePipe();
+        rpipe = GLOBAL_engines()->pipe_manager().CreatePipe();
+        auto obj = th->template_cache()->GetHandleInstance(pool->index(),
+            handle_id, wpipe, rpipe);
+        args.GetReturnValue().Set(obj);
+    } else {
+        auto obj = th->template_cache()->GetHandleInstance(pool->index(),
+            handle_id, nullptr, nullptr);
+        args.GetReturnValue().Set(obj);
+    }
+
+    if (pool->has_ctor()) {
+        uint64_t pack = (static_cast<uint64_t>(pool->index()) << 32) | (0); // 0=ctor
+        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                ThreadMessage::Type::HANDLE_METHOD_CALL_NO_RETURN,
+                th->handle(), std::move(data), wpipe, 0, pack, handle_id, rpipe));
+            pool->thread_handle().getUnsafe()->PushMessage(std::move(msg));
+        }
+    }
+}
+
 NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
     PROLOGUE_NOTHIS;
     USEARG(0);
     USEARG(1);
+    USEARG(2);
 
     SharedSTLVector<std::string> methods;
     SharedSTLVector<v8::Eternal<v8::Value>> impls;
+    impls.reserve(2);
+
+    if (arg2->IsObject()) {
+        LOCAL_V8STRING(s_ctor, "ctor");
+        LOCAL_V8STRING(s_dtor, "dtor");
+        auto obj = arg2->ToObject();
+        auto ctor = obj->Get(s_ctor);
+        auto dtor = obj->Get(s_dtor);
+        if (ctor->IsFunction()) {
+            impls.push_back(v8::Eternal<v8::Value>(iv8, ctor));
+        } else {
+            THROW_TYPE_ERROR("ctor is not a function");
+        }
+
+        if (dtor->IsFunction()) {
+            impls.push_back(v8::Eternal<v8::Value>(iv8, dtor));
+        } else {
+            THROW_TYPE_ERROR("dtor is not a function");
+        }
+    } else {
+        impls.push_back(v8::Eternal<v8::Value>());
+        impls.push_back(v8::Eternal<v8::Value>());
+    }
+
     if (arg0->IsObject()) {
         auto obj = arg0->ToObject();
 
         auto namesArray = obj->GetOwnPropertyNames();
         methods.reserve(namesArray->Length());
+        impls.reserve(namesArray->Length() + 2);
 
         for (uint32_t i = 0; i < namesArray->Length(); ++i) {
             auto name = namesArray->Get(i);
@@ -653,7 +721,7 @@ NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
 
     bool pipes = arg1->BooleanValue();
 
-    RT_ASSERT(methods.size() == impls.size());
+    RT_ASSERT(2 + methods.size() == impls.size());
     auto handle_pool = GLOBAL_engines()->handle_pools().CreateHandlePool(th, th->handle(),
         std::move(methods), std::move(impls), pipes);
 
@@ -746,8 +814,25 @@ NATIVE_FUNCTION(NativesObject, Eval) {
         }
     }
 
-    if (trycatch.HasCaught()) {
-        trycatch.ReThrow();
+
+    v8::Local<v8::Value> ex = trycatch.Exception();
+    if (!ex.IsEmpty() && !trycatch.HasTerminated()) {
+        v8::String::Utf8Value exception_str(ex);
+        v8::Local<v8::Message> message = trycatch.Message();
+        if (message.IsEmpty()) {
+            printf("Uncaught exception: %s\n", *exception_str);
+        } else {
+            v8::String::Utf8Value script_name(message->GetScriptResourceName());
+            int linenum = message->GetLineNumber();
+            printf("Uncaught exception: %s:%i: %s\n", *script_name, linenum, *exception_str);
+        }
+
+        v8::String::Utf8Value stack(trycatch.StackTrace());
+        if (stack.length() > 0) {
+            printf("%s\n", *stack);
+        }
+
+        RT_ASSERT(!"syntax error");
     }
 }
 
@@ -838,23 +923,37 @@ NATIVE_FUNCTION(NativesObject, Debug) {
         v8::Local<v8::ArrayBufferView> view = arg0.As<v8::ArrayBufferView>();
         auto ab = ArrayBuffer::FromInstance(iv8, view->Buffer());
         auto offset = view->ByteOffset();
-        printf("[ ArrayBufferView  ptr=%p offset=%lu bufsize=%lu ]\n", ab->data(), offset, ab->size());
+        auto len = view->ByteLength();
+        printf("[ ArrayBufferView  ptr=%p offset=%lu len=%lu bufsize=%lu ]\n", ab->data(), offset, len, ab->size());
         if (0 != ab->size()) {
-            PrintMemory(ab->data(), offset, std::min(ab->size(), (size_t)600));
+            PrintMemory(ab->data(), offset, offset + len);
         }
-    }
-
-    if (arg0->IsArrayBuffer()) {
+    } else if (arg0->IsArrayBuffer()) {
         v8::Local<v8::ArrayBuffer> buf = arg0.As<v8::ArrayBuffer>();
         auto ab = ArrayBuffer::FromInstance(iv8, buf);
         printf("[ ArrayBuffer  ptr=%p bufsize=%lu ]\n", ab->data(), ab->size());
         if (0 != ab->size()) {
             PrintMemory(ab->data(), 0, std::min(ab->size(), (size_t)600));
         }
+        return;
+    } else if (arg0->IsObject()) {
+        NativeObjectWrapper* ptr { th->template_cache()->GetWrapped(arg0) };
+        if (nullptr != ptr) {
+            switch (ptr->type_id()) {
+                case NativeTypeId::TYPEID_HANDLE: {
+                    HandleObject* baseptr { static_cast<HandleObject*>(ptr) };
+                    printf("[ HandleObject pool_id=%lu handle_id=%lu wpipe=%p rpipe=%p ]\n",
+                        baseptr->pool_id(), baseptr->handle_id(), baseptr->wpipe(), baseptr->rpipe());
+                    return;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
-    printf(" --- STOP --- \n");
-    Cpu::HangSystem();
+//    printf(" --- STOP --- \n");
+//    Cpu::HangSystem();
 }
 
 NATIVE_FUNCTION(NativesObject, PerformanceNow) {
@@ -878,6 +977,33 @@ NATIVE_FUNCTION(NativesObject, HandleIndex) {
 
     RT_ASSERT(handle_object);
     args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, handle_object->handle_id()));
+}
+
+NATIVE_FUNCTION(NativesObject, HandleGetPipe) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    USEARG(1);
+    auto handle_object = HandleObject::FromInstance(arg0);
+    if (nullptr == handle_object) {
+        THROW_ERROR("argument 0 is not a handle object");
+    }
+
+    uint32_t index = arg1->Uint32Value();
+    Pipe* pipe = nullptr;
+    if (0 == index) {
+        pipe = handle_object->wpipe();
+    } else {
+        pipe = handle_object->rpipe();
+    }
+
+    if (!pipe) {
+        THROW_ERROR("could not get handle pipe");
+    }
+
+    RT_ASSERT(pipe);
+    args.GetReturnValue().Set((new PipeObject(pipe))
+        ->BindToTemplateCache(th->template_cache())
+        ->GetInstance());
 }
 
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
@@ -1521,6 +1647,13 @@ NATIVE_FUNCTION(HandlePoolObject, CreateHandle) {
             that->pool_->AllocNextId(), nullptr, nullptr);
         args.GetReturnValue().Set(obj);
     }
+}
+
+
+NATIVE_FUNCTION(HandlePoolObject, Ctor) {
+    PROLOGUE;
+    RT_ASSERT(that->pool_);
+    args.GetReturnValue().Set(th->template_cache()->GetHandleCtor(that->pool_));
 }
 
 NATIVE_FUNCTION(HandlePoolObject, Has) {
