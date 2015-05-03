@@ -14,8 +14,6 @@
 
 define('deviceManager', ['kernelLoader'],
 function(kernelLoader) {
-  "use strict";
-
   /**
    * TODO: move drivers out of the kernel
    */

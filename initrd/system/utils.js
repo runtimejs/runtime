@@ -14,8 +14,6 @@
 
 define('utils', [],
 function() {
-  "use strict";
-
   function waitFor(conditionFunc, delay, maxRetry) {
     if ('undefined' ===  typeof delay) {
       delay = 1;

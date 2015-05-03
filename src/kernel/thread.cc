@@ -230,6 +230,8 @@ bool Thread::Run() {
             auto s_data = v8::String::NewFromUtf8(iv8_, "data");
             auto s_env = v8::String::NewFromUtf8(iv8_, "env");
             auto s_system = v8::String::NewFromUtf8(iv8_, "system");
+            auto s_net = v8::String::NewFromUtf8(iv8_, "net");
+            auto s_net2 = v8::String::NewFromUtf8(iv8_, "net2");
             auto isolate_obj = GetIsolateGlobal();
             RT_ASSERT(!unpacked.IsEmpty());
             RT_ASSERT(unpacked->IsArray());
@@ -238,6 +240,10 @@ bool Thread::Run() {
             isolate_obj->Set(s_data, args_array->Get(0));
             isolate_obj->Set(s_env, args_array->Get(1));
             isolate_obj->Set(s_system, args_array->Get(2));
+
+            // Set isolate.net === isolate.system.net2
+            // TODO: remove system namespace and import directly
+            isolate_obj->Set(s_net, args_array->Get(2).As<v8::Object>()->Get(s_net2));
 
             parent_thread_ = message->sender();
             parent_promise_id_ = message->recv_index();
@@ -293,6 +299,39 @@ bool Thread::Run() {
             }
         }
             break;
+        case ThreadMessage::Type::HANDLE_METHOD_CALL_NO_RETURN: {
+            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+            RT_ASSERT(!unpacked.IsEmpty());
+
+            uint64_t pack = message->recv_index2();
+            uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
+            uint32_t method_index = static_cast<uint32_t>(pack);
+
+            HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(pool_index);
+            RT_ASSERT(pool);
+            RT_ASSERT(pool->thread());
+            RT_ASSERT(pool->thread() == this);
+            v8::Local<v8::Value> fnval = pool->GetImpl(iv8_, method_index);
+            RT_ASSERT(!fnval.IsEmpty());
+            RT_ASSERT(fnval->IsFunction());
+
+            auto handle_obj = template_cache()->GetHandleInstance(
+                pool_index, message->recv_index3(),
+                static_cast<Pipe*>(message->ptr()), static_cast<Pipe*>(message->ptr2()));
+            v8::Local<v8::Function> fn = fnval.As<v8::Function>();
+            RT_ASSERT(unpacked->IsArray());
+            v8::Local<v8::Array> args = unpacked.As<v8::Array>();
+            SharedSTLVector<v8::Local<v8::Value>> argv;
+            uint32_t argc = args->Length();
+            argv.reserve(argc);
+            for (uint32_t i = 0; i < argc; ++i) {
+                argv[i] = args->Get(i);
+            }
+
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+            fn->Call(handle_obj, argc, argv.data());
+        }
+            break;
         case ThreadMessage::Type::HANDLE_METHOD_CALL: {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
@@ -309,7 +348,9 @@ bool Thread::Run() {
             RT_ASSERT(!fnval.IsEmpty());
             RT_ASSERT(fnval->IsFunction());
 
-            auto handle_obj = template_cache()->GetHandleInstance(pool_index, message->recv_index3());
+            auto handle_obj = template_cache()->GetHandleInstance(
+                pool_index, message->recv_index3(),
+                static_cast<Pipe*>(message->ptr()), static_cast<Pipe*>(message->ptr2()));
             {   RT_ASSERT(!call_wrapper_.IsEmpty());
                 v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
                 v8::Local<v8::Value> argv[] {

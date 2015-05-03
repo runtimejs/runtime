@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var resources = require('resources.js')();
-var driverUtils = require('driver-utils.js')
+var resources = require('../resources')();
+var driverUtils = require('../driver-utils');
 
 // Take ownership of the display
 resources.natives.stopVideoLog();

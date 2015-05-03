@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var resources = require('resources.js')();
+var resources = require('./resources')();
 
 var vfs = (function() {
-  "use strict";
 
   function createFsInitrd(initrdFiles, initrdLoad) {
     var rootInode = 1;
@@ -520,4 +518,6 @@ module.exports = {
   setSystem: function(name, value) {
     spawnSystem[name] = value;
   },
+
+  systemExports: spawnSystem
 };

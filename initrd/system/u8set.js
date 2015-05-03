@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function compareIP4(ip1, ip2) {
-  return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
-    ip1[2] === ip2[2] && ip1[3] === ip2[3];
-}
+exports.wordBE = function(u8, offset, value) {
+  u8[offset] = value >>> 8;
+  u8[offset + 1] = value >>> 0;
+};
 
-module.exports = {
-  compareIP4: compareIP4
+exports.dwordBE = function(u8, offset, value) {
+  u8[offset] = value >>> 24;
+  u8[offset + 1] = value >>> 16;
+  u8[offset + 2] = value >>> 8;
+  u8[offset + 3] = value >>> 0;
 };

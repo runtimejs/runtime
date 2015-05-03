@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var keyboard = require('keyboard.js');
-var driverUtils = require('driver-utils.js')
+var keyboard = require('../keyboard');
+var driverUtils = require('../driver-utils');
 
 keyboard.driver.register('PS/2 Keyboard');
 

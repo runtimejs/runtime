@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-var resources = require('resources.js')();
-var netUtils = require('net/utils.js');
-var tcpConn = require('net/tcp/tcpconn.js');
-var tcp = require('net/tcp/tcp.js');
-var intfc = require('interface.js');
-
-"use strict";
+var resources = require('../../resources')();
+var netUtils = require('../utils');
+var tcpConn = require('./tcpconn');
+var tcp = require('./tcp');
+var intfc = require('../../interface');
 
 /**
  * Maps handle -> socket
@@ -28,7 +26,7 @@ var tcpConnections = new Map();
 /**
  * Handle pool for connection sockets
  */
-var tcpConnectionsSocketPool = intfc.createHandlePool();
+var tcpConnectionsSocketPool = intfc.createHandlePool({}, true);
 
 /**
  * Note: No listening to IP address support (0.0.0.0 assumed)
@@ -120,7 +118,7 @@ TCPServerSocket.prototype.accept = function(intf, remoteIP, remotePort, seqNumbe
 function socketInit(connPipe, socket) {
   var writePipe = isolate.createPipe();
   var readPipe = isolate.createPipe();
-  var socketHandle = tcpConnectionsSocketPool.createHandle();
+  var socketHandle = tcpConnectionsSocketPool.createHandle(writePipe, readPipe);
   tcpConnections.set(socketHandle, socket);
   socket.writePipe = writePipe;
   socket.readPipe = readPipe;
@@ -139,7 +137,7 @@ function socketInit(connPipe, socket) {
   }
 
   read();
-  connPipe.push([socketHandle, writePipe, readPipe]);
+  connPipe.push(socketHandle);
 }
 
 TCPServerSocket.prototype.recvAccept = function(intf, ip4Header, tcpHeader) {

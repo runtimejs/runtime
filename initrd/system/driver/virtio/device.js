@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-
-var VRing = require('driver/virtio/vring.js');
+var VRing = require('./vring');
 
 function VirtioDevice(deviceType, pci, allocator) {
   var ioSpace = pci.bars[0].resource;

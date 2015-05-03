@@ -24,6 +24,11 @@ namespace rt {
 
 class PipeObject;
 
+struct QueueTraits : public moodycamel::ConcurrentQueueDefaultTraits {
+    static const size_t BLOCK_SIZE = 32;
+    static const size_t MAX_SUBQUEUE_SIZE = 32;
+};
+
 class Pipe {
 public:
     Pipe(uint64_t id)
@@ -62,7 +67,7 @@ private:
     uint64_t id_;
     std::atomic<uint32_t> refcount_;
     std::atomic<bool> closed_;
-    moodycamel::ConcurrentQueue<TransportData> q_;
+    moodycamel::ConcurrentQueue<TransportData, QueueTraits> q_;
     moodycamel::ConcurrentQueue<ClientItem> pull_queue_;
     moodycamel::ConcurrentQueue<ClientItem> wait_queue_;
     DELETE_COPY_AND_ASSIGN(Pipe);
@@ -79,7 +84,7 @@ public:
         return new Pipe(++next_id_);
     }
 private:
-    uint64_t next_id_;
+    std::atomic<uint64_t> next_id_;
 };
 
 } // namespace rt

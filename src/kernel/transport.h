@@ -278,7 +278,7 @@ public:
             iv8->ThrowException(
                 v8::Exception::Error(
                 v8::String::NewFromUtf8(iv8,
-                "ArrayBufferView can't be transferred, use .buffer to get referenced buffer")));
+                "Unknown typed array cannot be transferred")));
             return true;
         case SerializeError::NOT_CLONABLE:
             iv8->ThrowException(
@@ -305,12 +305,21 @@ private:
         BOOL_TRUE,
         BOOL_FALSE,
         ARRAYBUFFER,
+        TYPEDARRAY_UINT8,
+        TYPEDARRAY_UINT8_CLAMPED,
+        TYPEDARRAY_UINT16,
+        TYPEDARRAY_UINT32,
+        TYPEDARRAY_INT8,
+        TYPEDARRAY_INT16,
+        TYPEDARRAY_INT32,
+        TYPEDARRAY_DATAVIEW,
         ARRAY,
         EMPTY_ARRAY,
         HASHMAP,
         FUNCTION,
         NATIVE_OBJECT,
         NATIVE_OBJECT_HANDLE,
+        HANDLE_CTOR,
         ERROR_OBJ,
         RESOURCES_FN,
     };

@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function compareIP4(ip1, ip2) {
-  return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
-    ip1[2] === ip2[2] && ip1[3] === ip2[3];
-}
-
-module.exports = {
-  compareIP4: compareIP4
+exports.popcount = function(v) {
+  v = v - ((v >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  return ((v + (v >>> 4) & 0xF0F0F0F) * 0x1010101) >>> 24;
 };

@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2015 Runtime.JS project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function compareIP4(ip1, ip2) {
-  return ip1[0] === ip2[0] && ip1[1] === ip2[1] &&
-    ip1[2] === ip2[2] && ip1[3] === ip2[3];
-}
-
-module.exports = {
-  compareIP4: compareIP4
+var icmpType = {
+  echoRequest: 8
 };
+
+var kHeaderLen = 8;
+
+exports.recv = function(intf, ip4Header, reader) {
+  var dataLength = reader.len - reader.offset - kHeaderLen;
+  var buf = reader.buf;
+
+  if (dataLength < 0) {
+    console.log('[icmp] invalid packet size');
+    return;
+  }
+
+  var type = reader.readUint8();
+  var code = reader.readUint8();
+  var cksum = reader.readUint16();
+
+  if (type === icmpType.echoRequest) {
+    var echoId = reader.readUint16();
+    var echoSeq = reader.readUint16();
+  }
+
+}

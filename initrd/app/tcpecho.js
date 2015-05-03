@@ -18,49 +18,30 @@
  * This is simple TCP echo server example
  */
 
-/**
- * Connection handler
- *
- * @param {handle} socket - client socket
- * @param {pipe} netsend - network send pipe for data output
- * @param {pipe} netrecv - network receive pipe for data input
- */
-function connectionHandler(socket, netsend, netrecv) {
-
-   // Pull next buffer from receive pipe
-  netrecv.pull(function pf(buf) {
-
-    // Push received buffer into output
-    netsend.push(buf);
-
-    // Pull next buffer again
-    netrecv.pull(pf);
+function readloop(pipe, fn) {
+  pipe.read(function f(val) {
+    fn(val);
+    pipe.read(f);
   });
 }
 
-// Create TCP listening socket
-isolate.system.tcpSocket.createSocket().then(function(data) {
-  // This is the listening socket itself
-  var socket = data.socket;
+/**
+ * Connection handler
+ * @param {handle} socket - client socket
+ */
+function connectionHandler(socket) {
+  readloop(socket, function(buf) {
 
-  // This is the new connections pipe
-  var pipe = data.pipe;
-
-  // Pull next connection from pipe
-  pipe.pull(function pp(data) {
-
-    // Unpack data and call connection handler
-    var socket = data[0];
-    var netsend = data[1];
-    var netrecv = data[2];
-    connectionHandler(socket, netsend, netrecv);
-
-    // Pull next connection again
-    pipe.pull(pp);
+    // Echo data back
+    socket.write(buf);
   });
+}
 
-  // Listen to TCP port
-  return socket.listen(9000);
-}).then(function() {
+function init() {
+  var socket = isolate.sync(isolate.system.tcpSocket.createSocket());
+  readloop(socket, connectionHandler);
+  isolate.sync(socket.listen(9000));
   console.log('tcp echo server listening to port 9000');
-});
+}
+
+init();
