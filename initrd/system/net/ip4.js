@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var checksum = require('net/checksum.js');
+var checksum = require('./checksum');
 var minHeaderLength = 20;
 var nextId = 0;
 

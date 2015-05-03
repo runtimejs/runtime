@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var resources = require('resources.js')();
+var resources = require('./resources')();
 
 module.exports = {
   physicalMemory: function(address, byteLength) {

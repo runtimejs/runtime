@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var eth = require('net/eth.js');
-var ipAddress = require('net/ip-address.js');
+var eth = require('./eth');
+var ipAddress = require('./ip-address');
 
 var HARDWARE_TYPE_ETHERNET = 1;
 var PROTOCOL_IP4 = 0x0800;
@@ -58,7 +57,7 @@ function parse(reader) {
   var targetProtocol = [reader.readUint8(), reader.readUint8(),
               reader.readUint8(), reader.readUint8()];
 
-  isolate.log('ARP RECV');
+  // isolate.log('ARP RECV');
 
   return {
     senderHardware: senderHardware,
@@ -146,6 +145,8 @@ ARPResolver.prototype.reply = function(targetHW, targetIpAddr) {
 };
 
 ARPResolver.prototype.recv = function(reader) {
+  return;
+
   var self = this;
   var result = parse(reader);
   if (!result) {
@@ -181,7 +182,7 @@ ARPResolver.prototype.recv = function(reader) {
     break;
   }
 
-  isolate.log(JSON.stringify(result));
+  // isolate.log(JSON.stringify(result));
 }
 
 module.exports = {

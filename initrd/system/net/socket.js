@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-var resources = require('resources.js')();
-var udp = require('net/udp.js');
-var tcp = require('net/tcp/tcp.js');
-var netUtils = require('net/utils.js');
-var intfc = require('interface.js');
-var tcpSocket = require('net/tcp/tcpsocket.js');
-var tcpConn = require('net/tcp/tcpconn.js');
-
-"use strict";
+var resources = require('../resources')();
+var udp = require('./udp');
+var tcp = require('./tcp/tcp');
+var netUtils = require('./utils');
+var intfc = require('../interface');
+var tcpSocket = require('./tcp/tcpsocket');
+var tcpConn = require('./tcp/tcpconn');
 
 var getInterfaceByName = null;
 var emptyFunction = function() {};
@@ -73,7 +71,7 @@ var tcpSockets = (function() {
       socket.listen(port);
       return Promise.resolve(this);
     }
-  });
+  }, true);
 
   function recvPacket(intf, ip4Header, tcpHeader, buf, len, dataOffset) {
     var port = tcpHeader.destPort;
@@ -93,10 +91,10 @@ var tcpSockets = (function() {
      * @param {function} onError Socket error callback
      */
     createSocket: function() {
-      var socketHandle = tcpListenersSocketPool.createHandle();
       var connPipe = isolate.createPipe();
+      var socketHandle = tcpListenersSocketPool.createHandle(null, connPipe);
       sockets.set(socketHandle, new tcpSocket.TCPServerSocket(connPipe));
-      return Promise.resolve({ socket: socketHandle, pipe: connPipe });
+      return Promise.resolve(socketHandle);
     },
   };
 

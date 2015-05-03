@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var vfs = require('vfs.js');
-var eth = require('net/eth.js');
-var ip4 = require('net/ip4.js');
-var udp = require('net/udp.js');
-var tcp = require('net/tcp/tcp.js');
-var socket = require('net/socket.js');
-var dhcp = require('net/dhcp.js');
-var arp = require('net/arp.js');
-var checksum = require('net/checksum.js');
+var vfs = require('../vfs');
+var eth = require('./eth');
+var ip4 = require('./ip4');
+var udp = require('./udp');
+var tcp = require('./tcp/tcp');
+var icmp = require('./icmp/icmp');
+var socket = require('./socket');
+var dhcp = require('./dhcp');
+var arp = require('./arp');
+var checksum = require('./checksum');
 
 var ethIndex = 0;
 var interfaces = [];
@@ -303,6 +303,7 @@ function parseIPv4(intf, reader) {
       socket.recvTCP4(intf, ip4Header, tcpHeader, reader.buf, reader.len, reader.offset);
       break;
     case 'ICMP':
+      icmp.recv(intf, ip4Header, reader);
     default: return null;
   }
 }
@@ -367,6 +368,7 @@ function addInterface(name, hwAddr) {
 
 function enableInterface(ifc) {
   if (null !== ifc.hwAddr) {
+    return;
     new dhcp.DHCPClient(ifc.name, ifc.hwAddr, function(config) {
       isolate.log('DHCP autoconfig', JSON.stringify(config));
       ifc.configure(config.yourIP, config.subnetMask, config.routerIPList[0], config.dnsIPList)

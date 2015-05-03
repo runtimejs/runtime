@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var pciDrivers = require('pci/pci-drivers.js');
-var resources = require('resources.js')();
-var vfs = require('vfs.js');
+var pciDrivers = require('./pci-drivers');
+var resources = require('../resources')();
+var vfs = require('../vfs');
 
 var acpi = resources.acpi;
 var io = resources.ioRange;

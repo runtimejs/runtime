@@ -18,109 +18,102 @@ var resources = isolate.data();
 console.log = isolate.log;
 
 // CommonJS kernel loader
-var exports;
-var module = {};
-
 var require = (function() {
-  var cache = {'': {exports: {}}};
-  var requireStack = [''];
-  exports = module.exports = cache[''].exports;
+  var cache = {};
 
-  function pushExports(path) {
-    // save current exports state
-    var currentPath = requireStack[requireStack.length - 1];
-    cache[currentPath].exports = module.exports;
-
-    // load new exports
-    if ('undefined' === typeof cache[path]) {
-      cache[path] = {exports: {}};
-    }
-
-    requireStack.push(path);
-    module = {};
-    exports = module.exports = cache[path].exports;
+  function Module(file) {
+    var pathComponents = file.split('/');
+    this.dirname = pathComponents.slice(0, -1).join('/');
+    this.filename = pathComponents.join('/') + '.js';
+    this.exports = {};
   }
 
-  function popExports() {
-    // save current exports state
-    var currentPath = requireStack.pop();
-    var result = cache[currentPath].exports = module.exports;
+  function join(dirname, path) {
+    var dirComponents = dirname.split('/');
+    var pathComponents = path.split('/');
 
-    // restore previous state
-    var path = requireStack[requireStack.length - 1];
-    module = {};
-    exports = module.exports = cache[path].exports;
-
-    return result;
-  }
-
-  function canonicalize(path) {
-    var currentPath = requireStack[requireStack.length - 1];
-    var dirComponents = currentPath.split('/').slice(0, -1);
-    var pathComponents = path.split('/').filter(function(x) {
-      return '' !== x;
-    });
-
-    if (0 === pathComponents.length) {
-      throw new Error('INVALID_PATH');
-    }
-
-    var loadPath;
-    if ('.' === pathComponents[0]) {
-      loadPath = dirComponents.concat(pathComponents);
+    var combined;
+    if ('.' === pathComponents[0] || '..' === pathComponents[0]) {
+      combined = dirComponents.concat(pathComponents);
     } else {
-      loadPath = pathComponents;
+      combined = pathComponents;
     }
 
-    return loadPath.filter(function(x) { return '.' !== x }).join('/');
+    var r = [];
+    for (var i = 0, l = combined.length; i < l; ++i) {
+      var p = combined[i];
+      if (!p || '.' === p) {
+        continue;
+      }
+
+      if ('..' === p) {
+        if (r.length > 0) {
+          r.pop();
+        } else {
+          throw new Error('cannot resolve module path "' + path + '"');
+        }
+      } else {
+        r.push(p);
+      }
+    }
+
+    return r.join('/');
   }
 
   function readFile(path) {
-    return resources.natives.initrdText('/system/' + path);
+    return resources.natives.initrdText('/system/' + path + '.js');
   }
-  
-  function evalFile(content, path) {
+
+  function evalFile(module, content, path) {
+    var tmp = global.module;
+    global.module = module;
+
     try {
-      isolate.eval('(function(){' + content + '})()', path);
+      isolate.eval(
+        '(function(exports, module, __filename, __dirname){"use strict";' +
+        content +
+        '})(global.module.exports, global.module, global.module.filename, global.module.dirname)'
+        , '/system/' + path + '.js');
+      global.module = tmp;
     } catch (err) {
+      global.module = tmp;
       console.log('Load error \'' + path + '\': ' + err.stack);
       throw new Error('loader errors');
     }
   }
 
-  return function require(path) {
-    path = canonicalize(path);
-
-    var result;
-    if ('undefined' === typeof cache[path]) {
-      var fileContent = readFile(path);
-      pushExports(path);
-      evalFile(fileContent, path);
-      result = popExports();
-
-      if ('undefined' === typeof result) {
-        cache[path] = {};
-      }
-    } else {
-      result = cache[path].exports;
+  function require(path) {
+    if ('string' !== typeof path) {
+      throw new Error('invalid module path "' + path + '"');
     }
 
-    return result;
+    path = join(global.module.dirname, path);
+    if (cache[path]) {
+      return cache[path].exports;
+    }
+
+    var module = new Module(path);
+    evalFile(module, readFile(path), path);
+    cache[path] = module;
+    return module.exports;
   };
+
+  global.module = new Module('kernel');
+  return require;
 })();
 
 // Configure resources module
-resources = require('resources.js')();
+resources = require('./resources')();
 
 // Components
-var keyboard = require('keyboard.js');
-var vga = require('driver/vga.js');
-var vfs = require('vfs.js');
-var net = require('net/net.js');
-var pci = require('pci/pci.js');
+var keyboard = require('./keyboard');
+var vga = require('./driver/vga');
+var vfs = require('./vfs');
+var net = require('./net/net');
+var pci = require('./pci/pci');
 
 // Drivers
-var ps2kbd = require('driver/ps2kbd.js');
+var ps2kbd = require('./driver/ps2kbd');
 
 vfs.getInitrdRoot()({
   action: 'spawn',

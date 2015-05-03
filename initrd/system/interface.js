@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-"use strict";
-var vfs = require('vfs.js');
-var resources = require('resources.js')();
+var vfs = require('./vfs');
+var resources = require('./resources')();
 
 /**
  * Export interface methods into system namespace
