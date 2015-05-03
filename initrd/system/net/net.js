@@ -368,6 +368,7 @@ function addInterface(name, hwAddr) {
 
 function enableInterface(ifc) {
   if (null !== ifc.hwAddr) {
+    return;
     new dhcp.DHCPClient(ifc.name, ifc.hwAddr, function(config) {
       isolate.log('DHCP autoconfig', JSON.stringify(config));
       ifc.configure(config.yourIP, config.subnetMask, config.routerIPList[0], config.dnsIPList)

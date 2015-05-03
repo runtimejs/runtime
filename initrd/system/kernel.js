@@ -73,7 +73,7 @@ var require = (function() {
         '(function(exports, module, __filename, __dirname){"use strict";' +
         content +
         '})(global.module.exports, global.module, global.module.filename, global.module.dirname)'
-        , path);
+        , '/system/' + path + '.js');
       global.module = tmp;
     } catch (err) {
       global.module = tmp;

@@ -30,5 +30,18 @@ function fullChecksum(u8, offset, len, extraSum) {
 }
 
 module.exports = {
-  full: fullChecksum
+  full: fullChecksum,
+  sum: function(u8, offset, len) {
+    var acc = 0;
+    var count = len >>> 1;
+    for (var i = 0; i < count; ++i) {
+      acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
+    }
+
+    if (count * 2 !== len) {
+      acc += u8[offset + count * 2] << 8;
+    }
+
+    return acc;
+  }
 };

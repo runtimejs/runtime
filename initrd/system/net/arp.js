@@ -145,6 +145,8 @@ ARPResolver.prototype.reply = function(targetHW, targetIpAddr) {
 };
 
 ARPResolver.prototype.recv = function(reader) {
+  return;
+
   var self = this;
   var result = parse(reader);
   if (!result) {

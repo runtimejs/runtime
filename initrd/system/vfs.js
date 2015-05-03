@@ -518,4 +518,6 @@ module.exports = {
   setSystem: function(name, value) {
     spawnSystem[name] = value;
   },
+
+  systemExports: spawnSystem
 };

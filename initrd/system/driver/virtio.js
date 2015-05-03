@@ -129,8 +129,16 @@ function initializeNetworkDevice(pci, allocator) {
     macAddress: new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
                                hwAddr[3], hwAddr[4], hwAddr[5]),
     bufferDataOffset: virtioHeader.length,
-    transmit: function() {
+    transmit: function(u8headers, u8data) {
       console.log('transmit called');
+
+      if (u8data) {
+        transmitQueue.placeBuffers([u8headers.buffer, u8data.buffer], false);
+      } else {
+        transmitQueue.placeBuffers([u8headers.buffer], false);
+      }
+
+      dev.queueNotify(QUEUE_ID_TRANSMIT);
     }
   });
 
