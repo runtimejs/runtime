@@ -638,7 +638,7 @@ MUST_USE_RESULT static Object* StringReplaceGlobalRegExpWithEmptyString(
   // thread can not get confused with the filler creation. No synchronization
   // needed.
   heap->CreateFillerObjectAt(end_of_string, delta);
-  heap->AdjustLiveBytes(answer->address(), -delta, Heap::FROM_MUTATOR);
+  heap->AdjustLiveBytes(answer->address(), -delta, Heap::CONCURRENT_TO_SWEEPER);
   return *answer;
 }
 
@@ -759,7 +759,7 @@ RUNTIME_FUNCTION(Runtime_StringSplit) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_RegExpExecRT) {
+RUNTIME_FUNCTION(Runtime_RegExpExec) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 4);
   CONVERT_ARG_HANDLE_CHECKED(JSRegExp, regexp, 0);
@@ -779,7 +779,7 @@ RUNTIME_FUNCTION(Runtime_RegExpExecRT) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_RegExpConstructResult) {
+RUNTIME_FUNCTION(Runtime_RegExpConstructResultRT) {
   HandleScope handle_scope(isolate);
   DCHECK(args.length() == 3);
   CONVERT_SMI_ARG_CHECKED(size, 0);
@@ -797,6 +797,12 @@ RUNTIME_FUNCTION(Runtime_RegExpConstructResult) {
   array->InObjectPropertyAtPut(JSRegExpResult::kIndexIndex, *index);
   array->InObjectPropertyAtPut(JSRegExpResult::kInputIndex, *input);
   return *array;
+}
+
+
+RUNTIME_FUNCTION(Runtime_RegExpConstructResult) {
+  SealHandleScope shs(isolate);
+  return __RT_impl_Runtime_RegExpConstructResultRT(args, isolate);
 }
 
 
@@ -838,6 +844,60 @@ static JSRegExp::Flags RegExpFlagsFromString(Handle<String> flags,
 }
 
 
+template <typename Char>
+inline int CountRequiredEscapes(Handle<String> source) {
+  DisallowHeapAllocation no_gc;
+  int escapes = 0;
+  Vector<const Char> src = source->GetCharVector<Char>();
+  for (int i = 0; i < src.length(); i++) {
+    if (src[i] == '/' && (i == 0 || src[i - 1] != '\\')) escapes++;
+  }
+  return escapes;
+}
+
+
+template <typename Char, typename StringType>
+inline Handle<StringType> WriteEscapedRegExpSource(Handle<String> source,
+                                                   Handle<StringType> result) {
+  DisallowHeapAllocation no_gc;
+  Vector<const Char> src = source->GetCharVector<Char>();
+  Vector<Char> dst(result->GetChars(), result->length());
+  int s = 0;
+  int d = 0;
+  while (s < src.length()) {
+    if (src[s] == '/' && (s == 0 || src[s - 1] != '\\')) dst[d++] = '\\';
+    dst[d++] = src[s++];
+  }
+  DCHECK_EQ(result->length(), d);
+  return result;
+}
+
+
+MaybeHandle<String> EscapeRegExpSource(Isolate* isolate,
+                                       Handle<String> source) {
+  String::Flatten(source);
+  if (source->length() == 0) return isolate->factory()->query_colon_string();
+  bool one_byte = source->IsOneByteRepresentationUnderneath();
+  int escapes = one_byte ? CountRequiredEscapes<uint8_t>(source)
+                         : CountRequiredEscapes<uc16>(source);
+  if (escapes == 0) return source;
+  int length = source->length() + escapes;
+  if (one_byte) {
+    Handle<SeqOneByteString> result;
+    ASSIGN_RETURN_ON_EXCEPTION(isolate, result,
+                               isolate->factory()->NewRawOneByteString(length),
+                               String);
+    return WriteEscapedRegExpSource<uint8_t>(source, result);
+  } else {
+    Handle<SeqTwoByteString> result;
+    ASSIGN_RETURN_ON_EXCEPTION(isolate, result,
+                               isolate->factory()->NewRawTwoByteString(length),
+                               String);
+    return WriteEscapedRegExpSource<uc16>(source, result);
+  }
+}
+
+
 RUNTIME_FUNCTION(Runtime_RegExpInitializeAndCompile) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 3);
@@ -859,6 +919,10 @@ RUNTIME_FUNCTION(Runtime_RegExpInitializeAndCompile) {
         isolate, NewSyntaxError("invalid_regexp_flags", args));
   }
 
+  Handle<String> escaped_source;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, escaped_source,
+                                     EscapeRegExpSource(isolate, source));
+
   Handle<Object> global = factory->ToBoolean(flags.is_global());
   Handle<Object> ignore_case = factory->ToBoolean(flags.is_ignore_case());
   Handle<Object> multiline = factory->ToBoolean(flags.is_multiline());
@@ -866,11 +930,12 @@ RUNTIME_FUNCTION(Runtime_RegExpInitializeAndCompile) {
   Handle<Object> unicode = factory->ToBoolean(flags.is_unicode());
 
   Map* map = regexp->map();
-  Object* constructor = map->constructor();
+  Object* constructor = map->GetConstructor();
   if (!FLAG_harmony_regexps && !FLAG_harmony_unicode_regexps &&
       constructor->IsJSFunction() &&
       JSFunction::cast(constructor)->initial_map() == map) {
     // If we still have the original map, set in-object properties directly.
+    regexp->InObjectPropertyAtPut(JSRegExp::kSourceFieldIndex, *escaped_source);
     // Both true and false are immovable immortal objects so no need for write
     // barrier.
     regexp->InObjectPropertyAtPut(JSRegExp::kGlobalFieldIndex, *global,
@@ -892,6 +957,8 @@ RUNTIME_FUNCTION(Runtime_RegExpInitializeAndCompile) {
     PropertyAttributes writable =
         static_cast<PropertyAttributes>(DONT_ENUM | DONT_DELETE);
     Handle<Object> zero(Smi::FromInt(0), isolate);
+    JSObject::SetOwnPropertyIgnoreAttributes(regexp, factory->source_string(),
+                                             escaped_source, final).Check();
     JSObject::SetOwnPropertyIgnoreAttributes(regexp, factory->global_string(),
                                              global, final).Check();
     JSObject::SetOwnPropertyIgnoreAttributes(
@@ -925,13 +992,7 @@ RUNTIME_FUNCTION(Runtime_MaterializeRegExpLiteral) {
   CONVERT_ARG_HANDLE_CHECKED(String, pattern, 2);
   CONVERT_ARG_HANDLE_CHECKED(String, flags, 3);
 
-  // Get the RegExp function from the context in the literals array.
-  // This is the RegExp function from the context in which the
-  // function was created.  We do not use the RegExp function from the
-  // current native context because this might be the RegExp function
-  // from another context which we should not have access to.
-  Handle<JSFunction> constructor = Handle<JSFunction>(
-      JSFunction::NativeContextFromLiterals(*literals)->regexp_function());
+  Handle<JSFunction> constructor = isolate->regexp_function();
   // Compute the regular expression literal.
   Handle<Object> regexp;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
@@ -1110,19 +1171,16 @@ RUNTIME_FUNCTION(Runtime_RegExpExecMultiple) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_RegExpConstructResult) {
+RUNTIME_FUNCTION(Runtime_RegExpExecReThrow) {
   SealHandleScope shs(isolate);
-  return __RT_impl_Runtime_RegExpConstructResult(args, isolate);
+  DCHECK(args.length() == 4);
+  Object* exception = isolate->pending_exception();
+  isolate->clear_pending_exception();
+  return isolate->ReThrow(exception);
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_RegExpExec) {
-  SealHandleScope shs(isolate);
-  return __RT_impl_Runtime_RegExpExecRT(args, isolate);
-}
-
-
-RUNTIME_FUNCTION(RuntimeReference_IsRegExp) {
+RUNTIME_FUNCTION(Runtime_IsRegExp) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);

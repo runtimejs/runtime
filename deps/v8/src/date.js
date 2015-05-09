@@ -2,23 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-"use strict";
-
 // This file relies on the fact that the following declarations have been made
 // in v8natives.js:
 // var $isFinite = GlobalIsFinite;
 
-var $Date = global.Date;
+var $createDate;
 
 // -------------------------------------------------------------------
 
+(function() {
+
+"use strict";
+
+%CheckIsBootstrapping();
+
+var GlobalDate = global.Date;
+
 // This file contains date support implemented in JavaScript.
-
-// Helper function to throw error.
-function ThrowDateTypeError() {
-  throw new $TypeError('this is not a Date object.');
-}
-
 
 var timezone_cache_time = NAN;
 var timezone_cache_timezone;
@@ -121,7 +121,7 @@ var Date_cache = {
 function DateConstructor(year, month, date, hours, minutes, seconds, ms) {
   if (!%_IsConstructCall()) {
     // ECMA 262 - 15.9.2
-    return (new $Date()).toString();
+    return (new GlobalDate()).toString();
   }
 
   // ECMA 262 - 15.9.3
@@ -156,18 +156,18 @@ function DateConstructor(year, month, date, hours, minutes, seconds, ms) {
       // argument. We therefore use NUMBER_HINT for the conversion,
       // which is the default for everything else than Date objects.
       // This makes us behave like KJS and SpiderMonkey.
-      var time = ToPrimitive(year, NUMBER_HINT);
-      value = IS_STRING(time) ? DateParse(time) : ToNumber(time);
+      var time = $toPrimitive(year, NUMBER_HINT);
+      value = IS_STRING(time) ? DateParse(time) : $toNumber(time);
     }
     SET_UTC_DATE_VALUE(this, value);
   } else {
-    year = ToNumber(year);
-    month = ToNumber(month);
-    date = argc > 2 ? ToNumber(date) : 1;
-    hours = argc > 3 ? ToNumber(hours) : 0;
-    minutes = argc > 4 ? ToNumber(minutes) : 0;
-    seconds = argc > 5 ? ToNumber(seconds) : 0;
-    ms = argc > 6 ? ToNumber(ms) : 0;
+    year = $toNumber(year);
+    month = $toNumber(month);
+    date = argc > 2 ? $toNumber(date) : 1;
+    hours = argc > 3 ? $toNumber(hours) : 0;
+    minutes = argc > 4 ? $toNumber(minutes) : 0;
+    seconds = argc > 5 ? $toNumber(seconds) : 0;
+    ms = argc > 6 ? $toNumber(ms) : 0;
     year = (!NUMBER_IS_NAN(year) &&
             0 <= TO_INTEGER(year) &&
             TO_INTEGER(year) <= 99) ? 1900 + TO_INTEGER(year) : year;
@@ -230,8 +230,8 @@ function LocalTimezoneString(date) {
 
   var timezoneOffset = -TIMEZONE_OFFSET(date);
   var sign = (timezoneOffset >= 0) ? 1 : -1;
-  var hours = FLOOR((sign * timezoneOffset)/60);
-  var min   = FLOOR((sign * timezoneOffset)%60);
+  var hours = $floor((sign * timezoneOffset)/60);
+  var min   = $floor((sign * timezoneOffset)%60);
   var gmt = ' GMT' + ((sign == 1) ? '+' : '-') +
       TwoDigitString(hours) + TwoDigitString(min);
   return gmt + ' (' +  timezone + ')';
@@ -245,11 +245,11 @@ function DatePrintString(date) {
 // -------------------------------------------------------------------
 
 // Reused output buffer. Used when parsing date strings.
-var parse_buffer = $Array(8);
+var parse_buffer = new InternalArray(8);
 
 // ECMA 262 - 15.9.4.2
 function DateParse(string) {
-  var arr = %DateParseString(ToString(string), parse_buffer);
+  var arr = %DateParseString($toString(string), parse_buffer);
   if (IS_NULL(arr)) return NAN;
 
   var day = MakeDay(arr[0], arr[1], arr[2]);
@@ -266,14 +266,14 @@ function DateParse(string) {
 
 // ECMA 262 - 15.9.4.3
 function DateUTC(year, month, date, hours, minutes, seconds, ms) {
-  year = ToNumber(year);
-  month = ToNumber(month);
+  year = $toNumber(year);
+  month = $toNumber(month);
   var argc = %_ArgumentsLength();
-  date = argc > 2 ? ToNumber(date) : 1;
-  hours = argc > 3 ? ToNumber(hours) : 0;
-  minutes = argc > 4 ? ToNumber(minutes) : 0;
-  seconds = argc > 5 ? ToNumber(seconds) : 0;
-  ms = argc > 6 ? ToNumber(ms) : 0;
+  date = argc > 2 ? $toNumber(date) : 1;
+  hours = argc > 3 ? $toNumber(hours) : 0;
+  minutes = argc > 4 ? $toNumber(minutes) : 0;
+  seconds = argc > 5 ? $toNumber(seconds) : 0;
+  ms = argc > 6 ? $toNumber(ms) : 0;
   year = (!NUMBER_IS_NAN(year) &&
           0 <= TO_INTEGER(year) &&
           TO_INTEGER(year) <= 99) ? 1900 + TO_INTEGER(year) : year;
@@ -454,7 +454,7 @@ function DateGetTimezoneOffset() {
 // ECMA 262 - 15.9.5.27
 function DateSetTime(ms) {
   CHECK_DATE(this);
-  SET_UTC_DATE_VALUE(this, ToNumber(ms));
+  SET_UTC_DATE_VALUE(this, $toNumber(ms));
   return UTC_DATE_VALUE(this);
 }
 
@@ -462,7 +462,7 @@ function DateSetTime(ms) {
 // ECMA 262 - 15.9.5.28
 function DateSetMilliseconds(ms) {
   var t = LOCAL_DATE_VALUE(this);
-  ms = ToNumber(ms);
+  ms = $toNumber(ms);
   var time = MakeTime(LOCAL_HOUR(this), LOCAL_MIN(this), LOCAL_SEC(this), ms);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(LOCAL_DAYS(this), time));
 }
@@ -471,7 +471,7 @@ function DateSetMilliseconds(ms) {
 // ECMA 262 - 15.9.5.29
 function DateSetUTCMilliseconds(ms) {
   var t = UTC_DATE_VALUE(this);
-  ms = ToNumber(ms);
+  ms = $toNumber(ms);
   var time = MakeTime(UTC_HOUR(this),
                       UTC_MIN(this),
                       UTC_SEC(this),
@@ -483,8 +483,8 @@ function DateSetUTCMilliseconds(ms) {
 // ECMA 262 - 15.9.5.30
 function DateSetSeconds(sec, ms) {
   var t = LOCAL_DATE_VALUE(this);
-  sec = ToNumber(sec);
-  ms = %_ArgumentsLength() < 2 ? LOCAL_MS(this) : ToNumber(ms);
+  sec = $toNumber(sec);
+  ms = %_ArgumentsLength() < 2 ? LOCAL_MS(this) : $toNumber(ms);
   var time = MakeTime(LOCAL_HOUR(this), LOCAL_MIN(this), sec, ms);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(LOCAL_DAYS(this), time));
 }
@@ -493,8 +493,8 @@ function DateSetSeconds(sec, ms) {
 // ECMA 262 - 15.9.5.31
 function DateSetUTCSeconds(sec, ms) {
   var t = UTC_DATE_VALUE(this);
-  sec = ToNumber(sec);
-  ms = %_ArgumentsLength() < 2 ? UTC_MS(this) : ToNumber(ms);
+  sec = $toNumber(sec);
+  ms = %_ArgumentsLength() < 2 ? UTC_MS(this) : $toNumber(ms);
   var time = MakeTime(UTC_HOUR(this), UTC_MIN(this), sec, ms);
   return SET_UTC_DATE_VALUE(this, MakeDate(UTC_DAYS(this), time));
 }
@@ -503,10 +503,10 @@ function DateSetUTCSeconds(sec, ms) {
 // ECMA 262 - 15.9.5.33
 function DateSetMinutes(min, sec, ms) {
   var t = LOCAL_DATE_VALUE(this);
-  min = ToNumber(min);
+  min = $toNumber(min);
   var argc = %_ArgumentsLength();
-  sec = argc < 2 ? LOCAL_SEC(this) : ToNumber(sec);
-  ms = argc < 3 ? LOCAL_MS(this) : ToNumber(ms);
+  sec = argc < 2 ? LOCAL_SEC(this) : $toNumber(sec);
+  ms = argc < 3 ? LOCAL_MS(this) : $toNumber(ms);
   var time = MakeTime(LOCAL_HOUR(this), min, sec, ms);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(LOCAL_DAYS(this), time));
 }
@@ -515,10 +515,10 @@ function DateSetMinutes(min, sec, ms) {
 // ECMA 262 - 15.9.5.34
 function DateSetUTCMinutes(min, sec, ms) {
   var t = UTC_DATE_VALUE(this);
-  min = ToNumber(min);
+  min = $toNumber(min);
   var argc = %_ArgumentsLength();
-  sec = argc < 2 ? UTC_SEC(this) : ToNumber(sec);
-  ms = argc < 3 ? UTC_MS(this) : ToNumber(ms);
+  sec = argc < 2 ? UTC_SEC(this) : $toNumber(sec);
+  ms = argc < 3 ? UTC_MS(this) : $toNumber(ms);
   var time = MakeTime(UTC_HOUR(this), min, sec, ms);
   return SET_UTC_DATE_VALUE(this, MakeDate(UTC_DAYS(this), time));
 }
@@ -527,11 +527,11 @@ function DateSetUTCMinutes(min, sec, ms) {
 // ECMA 262 - 15.9.5.35
 function DateSetHours(hour, min, sec, ms) {
   var t = LOCAL_DATE_VALUE(this);
-  hour = ToNumber(hour);
+  hour = $toNumber(hour);
   var argc = %_ArgumentsLength();
-  min = argc < 2 ? LOCAL_MIN(this) : ToNumber(min);
-  sec = argc < 3 ? LOCAL_SEC(this) : ToNumber(sec);
-  ms = argc < 4 ? LOCAL_MS(this) : ToNumber(ms);
+  min = argc < 2 ? LOCAL_MIN(this) : $toNumber(min);
+  sec = argc < 3 ? LOCAL_SEC(this) : $toNumber(sec);
+  ms = argc < 4 ? LOCAL_MS(this) : $toNumber(ms);
   var time = MakeTime(hour, min, sec, ms);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(LOCAL_DAYS(this), time));
 }
@@ -540,11 +540,11 @@ function DateSetHours(hour, min, sec, ms) {
 // ECMA 262 - 15.9.5.34
 function DateSetUTCHours(hour, min, sec, ms) {
   var t = UTC_DATE_VALUE(this);
-  hour = ToNumber(hour);
+  hour = $toNumber(hour);
   var argc = %_ArgumentsLength();
-  min = argc < 2 ? UTC_MIN(this) : ToNumber(min);
-  sec = argc < 3 ? UTC_SEC(this) : ToNumber(sec);
-  ms = argc < 4 ? UTC_MS(this) : ToNumber(ms);
+  min = argc < 2 ? UTC_MIN(this) : $toNumber(min);
+  sec = argc < 3 ? UTC_SEC(this) : $toNumber(sec);
+  ms = argc < 4 ? UTC_MS(this) : $toNumber(ms);
   var time = MakeTime(hour, min, sec, ms);
   return SET_UTC_DATE_VALUE(this, MakeDate(UTC_DAYS(this), time));
 }
@@ -553,7 +553,7 @@ function DateSetUTCHours(hour, min, sec, ms) {
 // ECMA 262 - 15.9.5.36
 function DateSetDate(date) {
   var t = LOCAL_DATE_VALUE(this);
-  date = ToNumber(date);
+  date = $toNumber(date);
   var day = MakeDay(LOCAL_YEAR(this), LOCAL_MONTH(this), date);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(day, LOCAL_TIME_IN_DAY(this)));
 }
@@ -562,7 +562,7 @@ function DateSetDate(date) {
 // ECMA 262 - 15.9.5.37
 function DateSetUTCDate(date) {
   var t = UTC_DATE_VALUE(this);
-  date = ToNumber(date);
+  date = $toNumber(date);
   var day = MakeDay(UTC_YEAR(this), UTC_MONTH(this), date);
   return SET_UTC_DATE_VALUE(this, MakeDate(day, UTC_TIME_IN_DAY(this)));
 }
@@ -571,8 +571,8 @@ function DateSetUTCDate(date) {
 // ECMA 262 - 15.9.5.38
 function DateSetMonth(month, date) {
   var t = LOCAL_DATE_VALUE(this);
-  month = ToNumber(month);
-  date = %_ArgumentsLength() < 2 ? LOCAL_DAY(this) : ToNumber(date);
+  month = $toNumber(month);
+  date = %_ArgumentsLength() < 2 ? LOCAL_DAY(this) : $toNumber(date);
   var day = MakeDay(LOCAL_YEAR(this), month, date);
   return SET_LOCAL_DATE_VALUE(this, MakeDate(day, LOCAL_TIME_IN_DAY(this)));
 }
@@ -581,8 +581,8 @@ function DateSetMonth(month, date) {
 // ECMA 262 - 15.9.5.39
 function DateSetUTCMonth(month, date) {
   var t = UTC_DATE_VALUE(this);
-  month = ToNumber(month);
-  date = %_ArgumentsLength() < 2 ? UTC_DAY(this) : ToNumber(date);
+  month = $toNumber(month);
+  date = %_ArgumentsLength() < 2 ? UTC_DAY(this) : $toNumber(date);
   var day = MakeDay(UTC_YEAR(this), month, date);
   return SET_UTC_DATE_VALUE(this, MakeDate(day, UTC_TIME_IN_DAY(this)));
 }
@@ -591,16 +591,16 @@ function DateSetUTCMonth(month, date) {
 // ECMA 262 - 15.9.5.40
 function DateSetFullYear(year, month, date) {
   var t = LOCAL_DATE_VALUE(this);
-  year = ToNumber(year);
+  year = $toNumber(year);
   var argc = %_ArgumentsLength();
   var time ;
   if (NUMBER_IS_NAN(t)) {
-    month = argc < 2 ? 0 : ToNumber(month);
-    date = argc < 3 ? 1 : ToNumber(date);
+    month = argc < 2 ? 0 : $toNumber(month);
+    date = argc < 3 ? 1 : $toNumber(date);
     time = 0;
   } else {
-    month = argc < 2 ? LOCAL_MONTH(this) : ToNumber(month);
-    date = argc < 3 ? LOCAL_DAY(this) : ToNumber(date);
+    month = argc < 2 ? LOCAL_MONTH(this) : $toNumber(month);
+    date = argc < 3 ? LOCAL_DAY(this) : $toNumber(date);
     time = LOCAL_TIME_IN_DAY(this);
   }
   var day = MakeDay(year, month, date);
@@ -611,16 +611,16 @@ function DateSetFullYear(year, month, date) {
 // ECMA 262 - 15.9.5.41
 function DateSetUTCFullYear(year, month, date) {
   var t = UTC_DATE_VALUE(this);
-  year = ToNumber(year);
+  year = $toNumber(year);
   var argc = %_ArgumentsLength();
   var time ;
   if (NUMBER_IS_NAN(t)) {
-    month = argc < 2 ? 0 : ToNumber(month);
-    date = argc < 3 ? 1 : ToNumber(date);
+    month = argc < 2 ? 0 : $toNumber(month);
+    date = argc < 3 ? 1 : $toNumber(date);
     time = 0;
   } else {
-    month = argc < 2 ? UTC_MONTH(this) : ToNumber(month);
-    date = argc < 3 ? UTC_DAY(this) : ToNumber(date);
+    month = argc < 2 ? UTC_MONTH(this) : $toNumber(month);
+    date = argc < 3 ? UTC_DAY(this) : $toNumber(date);
     time = UTC_TIME_IN_DAY(this);
   }
   var day = MakeDay(year, month, date);
@@ -650,7 +650,7 @@ function DateGetYear() {
 // ECMA 262 - B.2.5
 function DateSetYear(year) {
   CHECK_DATE(this);
-  year = ToNumber(year);
+  year = $toNumber(year);
   if (NUMBER_IS_NAN(year)) return SET_UTC_DATE_VALUE(this, NAN);
   year = (0 <= TO_INTEGER(year) && TO_INTEGER(year) <= 99)
       ? 1900 + TO_INTEGER(year) : year;
@@ -684,14 +684,14 @@ function DateToGMTString() {
 
 function PadInt(n, digits) {
   if (digits == 1) return n;
-  return n < MathPow(10, digits - 1) ? '0' + PadInt(n, digits - 1) : n;
+  return n < %_MathPow(10, digits - 1) ? '0' + PadInt(n, digits - 1) : n;
 }
 
 
 // ECMA 262 - 15.9.5.43
 function DateToISOString() {
   var t = UTC_DATE_VALUE(this);
-  if (NUMBER_IS_NAN(t)) throw MakeRangeError("invalid_time_value", []);
+  if (NUMBER_IS_NAN(t)) throw MakeRangeError(kInvalidTimeValue);
   var year = this.getUTCFullYear();
   var year_string;
   if (year >= 0 && year <= 9999) {
@@ -715,8 +715,8 @@ function DateToISOString() {
 
 
 function DateToJSON(key) {
-  var o = ToObject(this);
-  var tv = DefaultNumber(o);
+  var o = $toObject(this);
+  var tv = $defaultNumber(o);
   if (IS_NUMBER(tv) && !NUMBER_IS_FINITE(tv)) {
     return null;
   }
@@ -731,6 +731,7 @@ var date_cache_version = NAN;
 function CheckDateCacheCurrent() {
   if (!date_cache_version_holder) {
     date_cache_version_holder = %DateCacheVersion();
+    if (!date_cache_version_holder) return;
   }
   if (date_cache_version_holder[0] == date_cache_version) {
     return;
@@ -748,79 +749,78 @@ function CheckDateCacheCurrent() {
 
 
 function CreateDate(time) {
-  var date = new $Date();
+  var date = new GlobalDate();
   date.setTime(time);
   return date;
 }
 
 // -------------------------------------------------------------------
 
-function SetUpDate() {
-  %CheckIsBootstrapping();
+%SetCode(GlobalDate, DateConstructor);
+%FunctionSetPrototype(GlobalDate, new GlobalDate(NAN));
 
-  %SetCode($Date, DateConstructor);
-  %FunctionSetPrototype($Date, new $Date(NAN));
+// Set up non-enumerable properties of the Date object itself.
+$installFunctions(GlobalDate, DONT_ENUM, [
+  "UTC", DateUTC,
+  "parse", DateParse,
+  "now", DateNow
+]);
 
-  // Set up non-enumerable properties of the Date object itself.
-  InstallFunctions($Date, DONT_ENUM, $Array(
-    "UTC", DateUTC,
-    "parse", DateParse,
-    "now", DateNow
-  ));
+// Set up non-enumerable constructor property of the Date prototype object.
+%AddNamedProperty(GlobalDate.prototype, "constructor", GlobalDate, DONT_ENUM);
 
-  // Set up non-enumerable constructor property of the Date prototype object.
-  %AddNamedProperty($Date.prototype, "constructor", $Date, DONT_ENUM);
+// Set up non-enumerable functions of the Date prototype object and
+// set their names.
+$installFunctions(GlobalDate.prototype, DONT_ENUM, [
+  "toString", DateToString,
+  "toDateString", DateToDateString,
+  "toTimeString", DateToTimeString,
+  "toLocaleString", DateToLocaleString,
+  "toLocaleDateString", DateToLocaleDateString,
+  "toLocaleTimeString", DateToLocaleTimeString,
+  "valueOf", DateValueOf,
+  "getTime", DateGetTime,
+  "getFullYear", DateGetFullYear,
+  "getUTCFullYear", DateGetUTCFullYear,
+  "getMonth", DateGetMonth,
+  "getUTCMonth", DateGetUTCMonth,
+  "getDate", DateGetDate,
+  "getUTCDate", DateGetUTCDate,
+  "getDay", DateGetDay,
+  "getUTCDay", DateGetUTCDay,
+  "getHours", DateGetHours,
+  "getUTCHours", DateGetUTCHours,
+  "getMinutes", DateGetMinutes,
+  "getUTCMinutes", DateGetUTCMinutes,
+  "getSeconds", DateGetSeconds,
+  "getUTCSeconds", DateGetUTCSeconds,
+  "getMilliseconds", DateGetMilliseconds,
+  "getUTCMilliseconds", DateGetUTCMilliseconds,
+  "getTimezoneOffset", DateGetTimezoneOffset,
+  "setTime", DateSetTime,
+  "setMilliseconds", DateSetMilliseconds,
+  "setUTCMilliseconds", DateSetUTCMilliseconds,
+  "setSeconds", DateSetSeconds,
+  "setUTCSeconds", DateSetUTCSeconds,
+  "setMinutes", DateSetMinutes,
+  "setUTCMinutes", DateSetUTCMinutes,
+  "setHours", DateSetHours,
+  "setUTCHours", DateSetUTCHours,
+  "setDate", DateSetDate,
+  "setUTCDate", DateSetUTCDate,
+  "setMonth", DateSetMonth,
+  "setUTCMonth", DateSetUTCMonth,
+  "setFullYear", DateSetFullYear,
+  "setUTCFullYear", DateSetUTCFullYear,
+  "toGMTString", DateToGMTString,
+  "toUTCString", DateToUTCString,
+  "getYear", DateGetYear,
+  "setYear", DateSetYear,
+  "toISOString", DateToISOString,
+  "toJSON", DateToJSON
+]);
 
-  // Set up non-enumerable functions of the Date prototype object and
-  // set their names.
-  InstallFunctions($Date.prototype, DONT_ENUM, $Array(
-    "toString", DateToString,
-    "toDateString", DateToDateString,
-    "toTimeString", DateToTimeString,
-    "toLocaleString", DateToLocaleString,
-    "toLocaleDateString", DateToLocaleDateString,
-    "toLocaleTimeString", DateToLocaleTimeString,
-    "valueOf", DateValueOf,
-    "getTime", DateGetTime,
-    "getFullYear", DateGetFullYear,
-    "getUTCFullYear", DateGetUTCFullYear,
-    "getMonth", DateGetMonth,
-    "getUTCMonth", DateGetUTCMonth,
-    "getDate", DateGetDate,
-    "getUTCDate", DateGetUTCDate,
-    "getDay", DateGetDay,
-    "getUTCDay", DateGetUTCDay,
-    "getHours", DateGetHours,
-    "getUTCHours", DateGetUTCHours,
-    "getMinutes", DateGetMinutes,
-    "getUTCMinutes", DateGetUTCMinutes,
-    "getSeconds", DateGetSeconds,
-    "getUTCSeconds", DateGetUTCSeconds,
-    "getMilliseconds", DateGetMilliseconds,
-    "getUTCMilliseconds", DateGetUTCMilliseconds,
-    "getTimezoneOffset", DateGetTimezoneOffset,
-    "setTime", DateSetTime,
-    "setMilliseconds", DateSetMilliseconds,
-    "setUTCMilliseconds", DateSetUTCMilliseconds,
-    "setSeconds", DateSetSeconds,
-    "setUTCSeconds", DateSetUTCSeconds,
-    "setMinutes", DateSetMinutes,
-    "setUTCMinutes", DateSetUTCMinutes,
-    "setHours", DateSetHours,
-    "setUTCHours", DateSetUTCHours,
-    "setDate", DateSetDate,
-    "setUTCDate", DateSetUTCDate,
-    "setMonth", DateSetMonth,
-    "setUTCMonth", DateSetUTCMonth,
-    "setFullYear", DateSetFullYear,
-    "setUTCFullYear", DateSetUTCFullYear,
-    "toGMTString", DateToGMTString,
-    "toUTCString", DateToUTCString,
-    "getYear", DateGetYear,
-    "setYear", DateSetYear,
-    "toISOString", DateToISOString,
-    "toJSON", DateToJSON
-  ));
-}
+// Expose to the global scope.
+$createDate = CreateDate;
 
-SetUpDate();
+})();

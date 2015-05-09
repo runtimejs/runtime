@@ -360,10 +360,8 @@ static void CreateRegExpErrorObjectAndThrow(Handle<JSRegExp> re,
   elements->set(0, re->Pattern());
   elements->set(1, *error_message);
   Handle<JSArray> array = factory->NewJSArrayWithElements(elements);
-  Handle<Object> error;
-  MaybeHandle<Object> maybe_error =
-      factory->NewSyntaxError("malformed_regexp", array);
-  if (maybe_error.ToHandle(&error)) isolate->Throw(*error);
+  Handle<Object> error = factory->NewSyntaxError("malformed_regexp", array);
+  isolate->Throw(*error);
 }
 
 
@@ -988,7 +986,12 @@ class RegExpCompiler {
                                            int capture_count,
                                            Handle<String> pattern);
 
-  inline void AddWork(RegExpNode* node) { work_list_->Add(node); }
+  inline void AddWork(RegExpNode* node) {
+    if (!node->on_work_list() && !node->label()->is_bound()) {
+      node->set_on_work_list(true);
+      work_list_->Add(node);
+    }
+  }
 
   static const int kImplementationOffset = 0;
   static const int kNumberOfRegistersOffset = 0;
@@ -1008,6 +1011,10 @@ class RegExpCompiler {
   inline bool one_byte() { return one_byte_; }
   inline bool optimize() { return optimize_; }
   inline void set_optimize(bool value) { optimize_ = value; }
+  inline bool limiting_recursion() { return limiting_recursion_; }
+  inline void set_limiting_recursion(bool value) {
+    limiting_recursion_ = value;
+  }
   FrequencyCollator* frequency_collator() { return &frequency_collator_; }
 
   int current_expansion_factor() { return current_expansion_factor_; }
@@ -1029,6 +1036,7 @@ class RegExpCompiler {
   bool ignore_case_;
   bool one_byte_;
   bool reg_exp_too_big_;
+  bool limiting_recursion_;
   bool optimize_;
   int current_expansion_factor_;
   FrequencyCollator frequency_collator_;
@@ -1063,6 +1071,7 @@ RegExpCompiler::RegExpCompiler(Isolate* isolate, Zone* zone, int capture_count,
       ignore_case_(ignore_case),
       one_byte_(one_byte),
       reg_exp_too_big_(false),
+      limiting_recursion_(false),
       optimize_(FLAG_regexp_optimization),
       current_expansion_factor_(1),
       frequency_collator_(),
@@ -1097,7 +1106,9 @@ RegExpEngine::CompilationResult RegExpCompiler::Assemble(
   macro_assembler_->Bind(&fail);
   macro_assembler_->Fail();
   while (!work_list.is_empty()) {
-    work_list.RemoveLast()->Emit(this, &new_trace);
+    RegExpNode* node = work_list.RemoveLast();
+    node->set_on_work_list(false);
+    if (!node->label()->is_bound()) node->Emit(this, &new_trace);
   }
   if (reg_exp_too_big_) return IrregexpRegExpTooBig(isolate_);
 
@@ -1373,8 +1384,13 @@ void Trace::Flush(RegExpCompiler* compiler, RegExpNode* successor) {
   // Create a new trivial state and generate the node with that.
   Label undo;
   assembler->PushBacktrack(&undo);
-  Trace new_state;
-  successor->Emit(compiler, &new_state);
+  if (successor->KeepRecursing(compiler)) {
+    Trace new_state;
+    successor->Emit(compiler, &new_state);
+  } else {
+    compiler->AddWork(successor);
+    assembler->GoTo(successor->label());
+  }
 
   // On backtrack we need to restore state.
   assembler->Bind(&undo);
@@ -2215,17 +2231,13 @@ RegExpNode::LimitResult RegExpNode::LimitVersions(RegExpCompiler* compiler,
 
   RegExpMacroAssembler* macro_assembler = compiler->macro_assembler();
   if (trace->is_trivial()) {
-    if (label_.is_bound()) {
-      // We are being asked to generate a generic version, but that's already
-      // been done so just go to it.
+    if (label_.is_bound() || on_work_list() || !KeepRecursing(compiler)) {
+      // If a generic version is already scheduled to be generated or we have
+      // recursed too deeply then just generate a jump to that code.
       macro_assembler->GoTo(&label_);
-      return DONE;
-    }
-    if (compiler->recursion_depth() >= RegExpCompiler::kMaxRecursion) {
-      // To avoid too deep recursion we push the node to the work queue and just
-      // generate a goto here.
+      // This will queue it up for generation of a generic version if it hasn't
+      // already been queued.
       compiler->AddWork(this);
-      macro_assembler->GoTo(&label_);
       return DONE;
     }
     // Generate generic version of the node and bind the label for later use.
@@ -2236,16 +2248,25 @@ RegExpNode::LimitResult RegExpNode::LimitVersions(RegExpCompiler* compiler,
   // We are being asked to make a non-generic version.  Keep track of how many
   // non-generic versions we generate so as not to overdo it.
   trace_count_++;
-  if (compiler->optimize() && trace_count_ < kMaxCopiesCodeGenerated &&
-      compiler->recursion_depth() <= RegExpCompiler::kMaxRecursion) {
+  if (KeepRecursing(compiler) && compiler->optimize() &&
+      trace_count_ < kMaxCopiesCodeGenerated) {
     return CONTINUE;
   }
 
   // If we get here code has been generated for this node too many times or
   // recursion is too deep.  Time to switch to a generic version.  The code for
   // generic versions above can handle deep recursion properly.
+  bool was_limiting = compiler->limiting_recursion();
+  compiler->set_limiting_recursion(true);
   trace->Flush(compiler, this);
+  compiler->set_limiting_recursion(was_limiting);
   return DONE;
+}
+
+
+bool RegExpNode::KeepRecursing(RegExpCompiler* compiler) {
+  return !compiler->limiting_recursion() &&
+         compiler->recursion_depth() <= RegExpCompiler::kMaxRecursion;
 }
 
 
@@ -5598,7 +5619,9 @@ void DispatchTable::AddRange(CharacterRange full_range, int value,
   if (tree()->is_empty()) {
     // If this is the first range we just insert into the table.
     ZoneSplayTree<Config>::Locator loc;
-    DCHECK_RESULT(tree()->Insert(current.from(), &loc));
+    bool inserted = tree()->Insert(current.from(), &loc);
+    DCHECK(inserted);
+    USE(inserted);
     loc.set_value(Entry(current.from(), current.to(),
                         empty()->Extend(value, zone)));
     return;
@@ -5624,7 +5647,9 @@ void DispatchTable::AddRange(CharacterRange full_range, int value,
       // to the map and let the next step deal with merging it with
       // the range we're adding.
       ZoneSplayTree<Config>::Locator loc;
-      DCHECK_RESULT(tree()->Insert(right.from(), &loc));
+      bool inserted = tree()->Insert(right.from(), &loc);
+      DCHECK(inserted);
+      USE(inserted);
       loc.set_value(Entry(right.from(),
                           right.to(),
                           entry->out_set()));
@@ -5640,7 +5665,9 @@ void DispatchTable::AddRange(CharacterRange full_range, int value,
       // then we have to add a range covering just that space.
       if (current.from() < entry->from()) {
         ZoneSplayTree<Config>::Locator ins;
-        DCHECK_RESULT(tree()->Insert(current.from(), &ins));
+        bool inserted = tree()->Insert(current.from(), &ins);
+        DCHECK(inserted);
+        USE(inserted);
         ins.set_value(Entry(current.from(),
                             entry->from() - 1,
                             empty()->Extend(value, zone)));
@@ -5651,7 +5678,9 @@ void DispatchTable::AddRange(CharacterRange full_range, int value,
       // we have to snap the right part off and add it separately.
       if (entry->to() > current.to()) {
         ZoneSplayTree<Config>::Locator ins;
-        DCHECK_RESULT(tree()->Insert(current.to() + 1, &ins));
+        bool inserted = tree()->Insert(current.to() + 1, &ins);
+        DCHECK(inserted);
+        USE(inserted);
         ins.set_value(Entry(current.to() + 1,
                             entry->to(),
                             entry->out_set()));
@@ -5671,7 +5700,9 @@ void DispatchTable::AddRange(CharacterRange full_range, int value,
     } else {
       // There is no overlap so we can just add the range
       ZoneSplayTree<Config>::Locator ins;
-      DCHECK_RESULT(tree()->Insert(current.from(), &ins));
+      bool inserted = tree()->Insert(current.from(), &ins);
+      DCHECK(inserted);
+      USE(inserted);
       ins.set_value(Entry(current.from(),
                           current.to(),
                           empty()->Extend(value, zone)));
@@ -6017,7 +6048,7 @@ RegExpEngine::CompilationResult RegExpEngine::Compile(
   RegExpCompiler compiler(isolate, zone, data->capture_count, ignore_case,
                           is_one_byte);
 
-  compiler.set_optimize(!TooMuchRegExpCode(pattern));
+  if (compiler.optimize()) compiler.set_optimize(!TooMuchRegExpCode(pattern));
 
   // Sample some characters from the middle of the string.
   static const int kSampleSize = 128;

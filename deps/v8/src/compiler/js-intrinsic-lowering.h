@@ -5,6 +5,7 @@
 #ifndef V8_COMPILER_JS_INTRINSIC_LOWERING_H_
 #define V8_COMPILER_JS_INTRINSIC_LOWERING_H_
 
+#include "src/compiler/common-operator.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/simplified-operator.h"
 
@@ -19,21 +20,37 @@ class MachineOperatorBuilder;
 
 
 // Lowers certain JS-level runtime calls.
-class JSIntrinsicLowering FINAL : public Reducer {
+class JSIntrinsicLowering final : public Reducer {
  public:
   explicit JSIntrinsicLowering(JSGraph* jsgraph);
-  ~JSIntrinsicLowering() FINAL {}
+  ~JSIntrinsicLowering() final {}
 
-  Reduction Reduce(Node* node) FINAL;
+  Reduction Reduce(Node* node) final;
 
  private:
-  Reduction ReduceInlineIsSmi(Node* node);
-  Reduction ReduceInlineIsNonNegativeSmi(Node* node);
-  Reduction ReduceInlineIsInstanceType(Node* node, InstanceType instance_type);
-  Reduction ReduceInlineValueOf(Node* node);
+  Reduction ReduceConstructDouble(Node* node);
+  Reduction ReduceDeoptimizeNow(Node* node);
+  Reduction ReduceDoubleHi(Node* node);
+  Reduction ReduceDoubleLo(Node* node);
+  Reduction ReduceHeapObjectGetMap(Node* node);
+  Reduction ReduceIncrementStatsCounter(Node* node);
+  Reduction ReduceIsInstanceType(Node* node, InstanceType instance_type);
+  Reduction ReduceIsNonNegativeSmi(Node* node);
+  Reduction ReduceIsSmi(Node* node);
+  Reduction ReduceJSValueGetValue(Node* node);
+  Reduction ReduceMapGetInstanceType(Node* node);
+  Reduction ReduceMathClz32(Node* node);
+  Reduction ReduceMathFloor(Node* node);
+  Reduction ReduceMathSqrt(Node* node);
+  Reduction ReduceSeqStringGetChar(Node* node, String::Encoding encoding);
+  Reduction ReduceSeqStringSetChar(Node* node, String::Encoding encoding);
+  Reduction ReduceStringGetLength(Node* node);
+  Reduction ReduceUnLikely(Node* node, BranchHint hint);
+  Reduction ReduceValueOf(Node* node);
 
   Reduction Change(Node* node, const Operator* op);
   Reduction Change(Node* node, const Operator* op, Node* a, Node* b, Node* c);
+  Reduction ChangeToUndefined(Node* node, Node* effect = nullptr);
 
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }

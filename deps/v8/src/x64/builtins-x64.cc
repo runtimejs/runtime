@@ -516,6 +516,9 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
     __ Push(rax);
     __ SmiToInteger32(rax, rax);
 
+    // Push new.target
+    __ Push(rdx);
+
     // receiver is the hole.
     __ Push(masm->isolate()->factory()->the_hole_value());
 
@@ -531,6 +534,25 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
     __ bind(&entry);
     __ decp(rcx);
     __ j(greater_equal, &loop);
+
+    __ incp(rax);  // Pushed new.target.
+
+    // Handle step in.
+    Label skip_step_in;
+    ExternalReference debug_step_in_fp =
+        ExternalReference::debug_step_in_fp_address(masm->isolate());
+    __ Move(kScratchRegister, debug_step_in_fp);
+    __ cmpp(Operand(kScratchRegister, 0), Immediate(0));
+    __ j(equal, &skip_step_in);
+
+    __ Push(rax);
+    __ Push(rdi);
+    __ Push(rdi);
+    __ CallRuntime(Runtime::kHandleStepInForDerivedConstructors, 1);
+    __ Pop(rdi);
+    __ Pop(rax);
+
+    __ bind(&skip_step_in);
 
     // Call the function.
     ParameterCount actual(rax);
@@ -548,6 +570,49 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
   __ leap(rsp, Operand(rsp, index.reg, index.scale, 1 * kPointerSize));
   __ PushReturnAddressFrom(rcx);
   __ ret(0);
+}
+
+
+enum IsTagged { kRaxIsSmiTagged, kRaxIsUntaggedInt };
+
+
+// Clobbers rcx, rdx, kScratchRegister; preserves all other registers.
+static void Generate_CheckStackOverflow(MacroAssembler* masm,
+                                        const int calleeOffset,
+                                        IsTagged rax_is_tagged) {
+  // rax   : the number of items to be pushed to the stack
+  //
+  // Check the stack for overflow. We are not trying to catch
+  // interruptions (e.g. debug break and preemption) here, so the "real stack
+  // limit" is checked.
+  Label okay;
+  __ LoadRoot(kScratchRegister, Heap::kRealStackLimitRootIndex);
+  __ movp(rcx, rsp);
+  // Make rcx the space we have left. The stack might already be overflowed
+  // here which will cause rcx to become negative.
+  __ subp(rcx, kScratchRegister);
+  // Make rdx the space we need for the array when it is unrolled onto the
+  // stack.
+  if (rax_is_tagged == kRaxIsSmiTagged) {
+    __ PositiveSmiTimesPowerOfTwoToInteger64(rdx, rax, kPointerSizeLog2);
+  } else {
+    DCHECK(rax_is_tagged == kRaxIsUntaggedInt);
+    __ movp(rdx, rax);
+    __ shlq(rdx, Immediate(kPointerSizeLog2));
+  }
+  // Check if the arguments will overflow the stack.
+  __ cmpp(rcx, rdx);
+  __ j(greater, &okay);  // Signed comparison.
+
+  // Out of stack space.
+  __ Push(Operand(rbp, calleeOffset));
+  if (rax_is_tagged == kRaxIsUntaggedInt) {
+    __ Integer32ToSmi(rax, rax);
+  }
+  __ Push(rax);
+  __ InvokeBuiltin(Builtins::STACK_OVERFLOW, CALL_FUNCTION);
+
+  __ bind(&okay);
 }
 
 
@@ -632,6 +697,14 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     // rbx : argv
     // rsi : context
     // rdi : function
+
+    // Check if we have enough stack space to push all arguments.
+    // The function is the first thing that was pushed above after entering
+    // the internal frame.
+    const int kFunctionOffset =
+        InternalFrameConstants::kCodeOffset - kRegisterSize;
+    // Expects argument count in rax. Clobbers rcx, rdx.
+    Generate_CheckStackOverflow(masm, kFunctionOffset, kRaxIsUntaggedInt);
 
     // Copy arguments to the stack in a loop.
     // Register rbx points to array of pointers to handle locations.
@@ -783,6 +856,11 @@ void Builtins::Generate_MarkCodeAsExecutedOnce(MacroAssembler* masm) {
 
 void Builtins::Generate_MarkCodeAsExecutedTwice(MacroAssembler* masm) {
   GenerateMakeCodeYoungAgainCommon(masm);
+}
+
+
+void Builtins::Generate_MarkCodeAsToBeExecutedOnce(MacroAssembler* masm) {
+  Generate_MarkCodeAsExecutedOnce(masm);
 }
 
 
@@ -1029,7 +1107,50 @@ void Builtins::Generate_FunctionCall(MacroAssembler* masm) {
 }
 
 
-void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
+static void Generate_PushAppliedArguments(MacroAssembler* masm,
+                                          const int argumentsOffset,
+                                          const int indexOffset,
+                                          const int limitOffset) {
+  Register receiver = LoadDescriptor::ReceiverRegister();
+  Register key = LoadDescriptor::NameRegister();
+
+  // Copy all arguments from the array to the stack.
+  Label entry, loop;
+  __ movp(key, Operand(rbp, indexOffset));
+  __ jmp(&entry);
+  __ bind(&loop);
+  __ movp(receiver, Operand(rbp, argumentsOffset));  // load arguments
+
+  // Use inline caching to speed up access to arguments.
+  Handle<Code> ic = masm->isolate()->builtins()->KeyedLoadIC_Megamorphic();
+  __ Call(ic, RelocInfo::CODE_TARGET);
+  // It is important that we do not have a test instruction after the
+  // call.  A test instruction after the call is used to indicate that
+  // we have generated an inline version of the keyed load.  In this
+  // case, we know that we are not generating a test instruction next.
+
+  // Push the nth argument.
+  __ Push(rax);
+
+  // Update the index on the stack and in register key.
+  __ movp(key, Operand(rbp, indexOffset));
+  __ SmiAddConstant(key, key, Smi::FromInt(1));
+  __ movp(Operand(rbp, indexOffset), key);
+
+  __ bind(&entry);
+  __ cmpp(key, Operand(rbp, limitOffset));
+  __ j(not_equal, &loop);
+
+  // On exit, the pushed arguments count is in rax, untagged
+  __ SmiToInteger64(rax, key);
+}
+
+
+// Used by FunctionApply and ReflectApply
+static void Generate_ApplyHelper(MacroAssembler* masm, bool targetIsArgument) {
+  const int kFormalParameters = targetIsArgument ? 3 : 2;
+  const int kStackSize = kFormalParameters + 1;
+
   // Stack at entry:
   // rsp     : return address
   // rsp[8]  : arguments
@@ -1049,30 +1170,13 @@ void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
 
     __ Push(Operand(rbp, kFunctionOffset));
     __ Push(Operand(rbp, kArgumentsOffset));
-    __ InvokeBuiltin(Builtins::APPLY_PREPARE, CALL_FUNCTION);
+    if (targetIsArgument) {
+      __ InvokeBuiltin(Builtins::REFLECT_APPLY_PREPARE, CALL_FUNCTION);
+    } else {
+      __ InvokeBuiltin(Builtins::APPLY_PREPARE, CALL_FUNCTION);
+    }
 
-    // Check the stack for overflow. We are not trying to catch
-    // interruptions (e.g. debug break and preemption) here, so the "real stack
-    // limit" is checked.
-    Label okay;
-    __ LoadRoot(kScratchRegister, Heap::kRealStackLimitRootIndex);
-    __ movp(rcx, rsp);
-    // Make rcx the space we have left. The stack might already be overflowed
-    // here which will cause rcx to become negative.
-    __ subp(rcx, kScratchRegister);
-    // Make rdx the space we need for the array when it is unrolled onto the
-    // stack.
-    __ PositiveSmiTimesPowerOfTwoToInteger64(rdx, rax, kPointerSizeLog2);
-    // Check if the arguments will overflow the stack.
-    __ cmpp(rcx, rdx);
-    __ j(greater, &okay);  // Signed comparison.
-
-    // Out of stack space.
-    __ Push(Operand(rbp, kFunctionOffset));
-    __ Push(rax);
-    __ InvokeBuiltin(Builtins::STACK_OVERFLOW, CALL_FUNCTION);
-    __ bind(&okay);
-    // End of stack check.
+    Generate_CheckStackOverflow(masm, kFunctionOffset, kRaxIsSmiTagged);
 
     // Push current index and limit.
     const int kLimitOffset =
@@ -1134,54 +1238,20 @@ void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
     __ bind(&push_receiver);
     __ Push(rbx);
 
-    // Copy all arguments from the array to the stack.
-    Label entry, loop;
-    Register receiver = LoadDescriptor::ReceiverRegister();
-    Register key = LoadDescriptor::NameRegister();
-    __ movp(key, Operand(rbp, kIndexOffset));
-    __ jmp(&entry);
-    __ bind(&loop);
-    __ movp(receiver, Operand(rbp, kArgumentsOffset));  // load arguments
-
-    // Use inline caching to speed up access to arguments.
-    if (FLAG_vector_ics) {
-      // TODO(mvstanton): Vector-based ics need additional infrastructure to
-      // be embedded here. For now, just call the runtime.
-      __ Push(receiver);
-      __ Push(key);
-      __ CallRuntime(Runtime::kGetProperty, 2);
-    } else {
-      Handle<Code> ic = CodeFactory::KeyedLoadIC(masm->isolate()).code();
-      __ Call(ic, RelocInfo::CODE_TARGET);
-      // It is important that we do not have a test instruction after the
-      // call.  A test instruction after the call is used to indicate that
-      // we have generated an inline version of the keyed load.  In this
-      // case, we know that we are not generating a test instruction next.
-    }
-
-    // Push the nth argument.
-    __ Push(rax);
-
-    // Update the index on the stack and in register key.
-    __ movp(key, Operand(rbp, kIndexOffset));
-    __ SmiAddConstant(key, key, Smi::FromInt(1));
-    __ movp(Operand(rbp, kIndexOffset), key);
-
-    __ bind(&entry);
-    __ cmpp(key, Operand(rbp, kLimitOffset));
-    __ j(not_equal, &loop);
+    // Loop over the arguments array, pushing each value to the stack
+    Generate_PushAppliedArguments(
+        masm, kArgumentsOffset, kIndexOffset, kLimitOffset);
 
     // Call the function.
     Label call_proxy;
     ParameterCount actual(rax);
-    __ SmiToInteger32(rax, key);
     __ movp(rdi, Operand(rbp, kFunctionOffset));
     __ CmpObjectType(rdi, JS_FUNCTION_TYPE, rcx);
     __ j(not_equal, &call_proxy);
     __ InvokeFunction(rdi, actual, CALL_FUNCTION, NullCallWrapper());
 
     frame_scope.GenerateLeaveFrame();
-    __ ret(3 * kPointerSize);  // remove this, receiver, and arguments
+    __ ret(kStackSize * kPointerSize);  // remove this, receiver, and arguments
 
     // Call the function proxy.
     __ bind(&call_proxy);
@@ -1194,7 +1264,92 @@ void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
 
     // Leave internal frame.
   }
-  __ ret(3 * kPointerSize);  // remove this, receiver, and arguments
+  __ ret(kStackSize * kPointerSize);  // remove this, receiver, and arguments
+}
+
+
+// Used by ReflectConstruct
+static void Generate_ConstructHelper(MacroAssembler* masm) {
+  const int kFormalParameters = 3;
+  const int kStackSize = kFormalParameters + 1;
+
+  // Stack at entry:
+  // rsp     : return address
+  // rsp[8]  : original constructor (new.target)
+  // rsp[16] : arguments
+  // rsp[24] : constructor
+  {
+    FrameScope frame_scope(masm, StackFrame::INTERNAL);
+    // Stack frame:
+    // rbp     : Old base pointer
+    // rbp[8]  : return address
+    // rbp[16] : original constructor (new.target)
+    // rbp[24] : arguments
+    // rbp[32] : constructor
+    static const int kNewTargetOffset = kFPOnStackSize + kPCOnStackSize;
+    static const int kArgumentsOffset = kNewTargetOffset + kPointerSize;
+    static const int kFunctionOffset = kArgumentsOffset + kPointerSize;
+
+    // If newTarget is not supplied, set it to constructor
+    Label validate_arguments;
+    __ movp(rax, Operand(rbp, kNewTargetOffset));
+    __ CompareRoot(rax, Heap::kUndefinedValueRootIndex);
+    __ j(not_equal, &validate_arguments, Label::kNear);
+    __ movp(rax, Operand(rbp, kFunctionOffset));
+    __ movp(Operand(rbp, kNewTargetOffset), rax);
+
+    // Validate arguments
+    __ bind(&validate_arguments);
+    __ Push(Operand(rbp, kFunctionOffset));
+    __ Push(Operand(rbp, kArgumentsOffset));
+    __ Push(Operand(rbp, kNewTargetOffset));
+    __ InvokeBuiltin(Builtins::REFLECT_CONSTRUCT_PREPARE, CALL_FUNCTION);
+
+    Generate_CheckStackOverflow(masm, kFunctionOffset, kRaxIsSmiTagged);
+
+    // Push current index and limit.
+    const int kLimitOffset =
+        StandardFrameConstants::kExpressionsOffset - 1 * kPointerSize;
+    const int kIndexOffset = kLimitOffset - 1 * kPointerSize;
+    __ Push(rax);  // limit
+    __ Push(Immediate(0));  // index
+    // Push newTarget and callee functions
+    __ Push(Operand(rbp, kNewTargetOffset));
+    __ Push(Operand(rbp, kFunctionOffset));
+
+    // Loop over the arguments array, pushing each value to the stack
+    Generate_PushAppliedArguments(
+        masm, kArgumentsOffset, kIndexOffset, kLimitOffset);
+
+    // Use undefined feedback vector
+    __ LoadRoot(rbx, Heap::kUndefinedValueRootIndex);
+    __ movp(rdi, Operand(rbp, kFunctionOffset));
+
+    // Call the function.
+    CallConstructStub stub(masm->isolate(), SUPER_CONSTRUCTOR_CALL);
+    __ call(stub.GetCode(), RelocInfo::CONSTRUCT_CALL);
+
+    __ Drop(1);
+
+    // Leave internal frame.
+  }
+  // remove this, target, arguments and newTarget
+  __ ret(kStackSize * kPointerSize);
+}
+
+
+void Builtins::Generate_FunctionApply(MacroAssembler* masm) {
+  Generate_ApplyHelper(masm, false);
+}
+
+
+void Builtins::Generate_ReflectApply(MacroAssembler* masm) {
+  Generate_ApplyHelper(masm, true);
+}
+
+
+void Builtins::Generate_ReflectConstruct(MacroAssembler* masm) {
+  Generate_ConstructHelper(masm);
 }
 
 
@@ -1250,6 +1405,7 @@ void Builtins::Generate_ArrayCode(MacroAssembler* masm) {
     __ Check(equal, kUnexpectedInitialMapForArrayFunction);
   }
 
+  __ movp(rdx, rdi);
   // Run the native code for the Array function called as a normal function.
   // tail call a stub
   __ LoadRoot(rbx, Heap::kUndefinedValueRootIndex);

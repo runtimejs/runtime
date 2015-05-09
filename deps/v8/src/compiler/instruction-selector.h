@@ -18,24 +18,29 @@ namespace internal {
 namespace compiler {
 
 // Forward declarations.
+class BasicBlock;
 struct CallBuffer;  // TODO(bmeurer): Remove this.
 class FlagsContinuation;
 class Linkage;
-
+struct SwitchInfo;
 
 typedef ZoneVector<InstructionOperand> InstructionOperandVector;
 
 
 // Instruction selection generates an InstructionSequence for a given Schedule.
-class InstructionSelector FINAL {
+class InstructionSelector final {
  public:
   // Forward declarations.
   class Features;
 
-  InstructionSelector(Zone* zone, size_t node_count, Linkage* linkage,
-                      InstructionSequence* sequence, Schedule* schedule,
-                      SourcePositionTable* source_positions,
-                      Features features = SupportedFeatures());
+  enum SourcePositionMode { kCallSourcePositions, kAllSourcePositions };
+
+  InstructionSelector(
+      Zone* zone, size_t node_count, Linkage* linkage,
+      InstructionSequence* sequence, Schedule* schedule,
+      SourcePositionTable* source_positions,
+      SourcePositionMode source_position_mode = kCallSourcePositions,
+      Features features = SupportedFeatures());
 
   // Visit code for the entire graph with the included schedule.
   void SelectInstructions();
@@ -80,7 +85,7 @@ class InstructionSelector FINAL {
   // ============== Architecture-independent CPU feature methods. ==============
   // ===========================================================================
 
-  class Features FINAL {
+  class Features final {
    public:
     Features() : bits_(0) {}
     explicit Features(unsigned bits) : bits_(bits) {}
@@ -129,8 +134,14 @@ class InstructionSelector FINAL {
   int GetVirtualRegister(const Node* node);
   const std::map<NodeId, int> GetVirtualRegistersForTesting() const;
 
+  Isolate* isolate() const { return sequence()->isolate(); }
+
  private:
   friend class OperandGenerator;
+
+  void EmitTableSwitch(const SwitchInfo& sw, InstructionOperand& index_operand);
+  void EmitLookupSwitch(const SwitchInfo& sw,
+                        InstructionOperand& value_operand);
 
   // Inform the instruction selection that {node} was just defined.
   void MarkAsDefined(Node* node);
@@ -139,21 +150,14 @@ class InstructionSelector FINAL {
   // will need to generate code for it.
   void MarkAsUsed(Node* node);
 
-  // Checks if {node} is marked as double.
-  bool IsDouble(const Node* node) const;
-
-  // Inform the register allocator of a double result.
-  void MarkAsDouble(Node* node);
-
-  // Checks if {node} is marked as reference.
-  bool IsReference(const Node* node) const;
-
-  // Inform the register allocator of a reference result.
-  void MarkAsReference(Node* node);
-
   // Inform the register allocation of the representation of the value produced
   // by {node}.
   void MarkAsRepresentation(MachineType rep, Node* node);
+  void MarkAsWord32(Node* node) { MarkAsRepresentation(kRepWord32, node); }
+  void MarkAsWord64(Node* node) { MarkAsRepresentation(kRepWord64, node); }
+  void MarkAsFloat32(Node* node) { MarkAsRepresentation(kRepFloat32, node); }
+  void MarkAsFloat64(Node* node) { MarkAsRepresentation(kRepFloat64, node); }
+  void MarkAsReference(Node* node) { MarkAsRepresentation(kRepTagged, node); }
 
   // Inform the register allocation of the representation of the unallocated
   // operand {op}.
@@ -169,11 +173,8 @@ class InstructionSelector FINAL {
                             bool call_address_immediate);
 
   FrameStateDescriptor* GetFrameStateDescriptor(Node* node);
-  void FillTypeVectorFromStateValues(ZoneVector<MachineType>* parameters,
-                                     Node* state_values);
   void AddFrameStateInputs(Node* state, InstructionOperandVector* inputs,
                            FrameStateDescriptor* descriptor);
-  MachineType GetMachineType(Node* node);
 
   // ===========================================================================
   // ============= Architecture-specific graph covering methods. ===============
@@ -195,17 +196,19 @@ class InstructionSelector FINAL {
 
   void VisitFinish(Node* node);
   void VisitParameter(Node* node);
+  void VisitIfException(Node* node);
   void VisitOsrValue(Node* node);
   void VisitPhi(Node* node);
   void VisitProjection(Node* node);
   void VisitConstant(Node* node);
-  void VisitCall(Node* call);
+  void VisitCall(Node* call, BasicBlock* handler = nullptr);
+  void VisitTailCall(Node* call);
   void VisitGoto(BasicBlock* target);
   void VisitBranch(Node* input, BasicBlock* tbranch, BasicBlock* fbranch);
-  void VisitSwitch(Node* node, BasicBlock** branches, size_t branch_count);
+  void VisitSwitch(Node* node, const SwitchInfo& sw);
+  void VisitDeoptimize(Node* value);
   void VisitReturn(Node* value);
   void VisitThrow(Node* value);
-  void VisitDeoptimize(Node* deopt);
 
   // ===========================================================================
 
@@ -221,6 +224,7 @@ class InstructionSelector FINAL {
   Linkage* const linkage_;
   InstructionSequence* const sequence_;
   SourcePositionTable* const source_positions_;
+  SourcePositionMode const source_position_mode_;
   Features features_;
   Schedule* const schedule_;
   BasicBlock* current_block_;

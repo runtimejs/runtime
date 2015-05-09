@@ -60,6 +60,7 @@ DEPS_RE = re.compile(r"""^\s*(?:["']v8_revision["']: ["']"""
 BLEEDING_EDGE_TAGS_RE = re.compile(
     r"A \/tags\/([^\s]+) \(from \/branches\/bleeding_edge\:(\d+)\)")
 
+OMAHA_PROXY_URL = "http://omahaproxy.appspot.com/"
 
 def SortBranches(branches):
   """Sort branches with version number names."""
@@ -70,7 +71,7 @@ def FilterDuplicatesAndReverse(cr_releases):
   """Returns the chromium releases in reverse order filtered by v8 revision
   duplicates.
 
-  cr_releases is a list of [cr_rev, v8_rev] reverse-sorted by cr_rev.
+  cr_releases is a list of [cr_rev, v8_hsh] reverse-sorted by cr_rev.
   """
   last = ""
   result = []
@@ -87,8 +88,9 @@ def BuildRevisionRanges(cr_releases):
   The ranges are comma-separated, each range has the form R1:R2. The newest
   entry is the only one of the form R1, as there is no end range.
 
-  cr_releases is a list of [cr_rev, v8_rev] reverse-sorted by cr_rev.
-  cr_rev either refers to a chromium svn revision or a chromium branch number.
+  cr_releases is a list of [cr_rev, v8_hsh] reverse-sorted by cr_rev.
+  cr_rev either refers to a chromium commit position or a chromium branch
+  number.
   """
   range_lists = {}
   cr_releases = FilterDuplicatesAndReverse(cr_releases)
@@ -100,7 +102,6 @@ def BuildRevisionRanges(cr_releases):
     # Assume the chromium revisions are all different.
     assert cr_from[0] != cr_to[0]
 
-    # TODO(machenbach): Subtraction is not git friendly.
     ran = "%s:%d" % (cr_from[0], int(cr_to[0]) - 1)
 
     # Collect the ranges in lists per revision.
@@ -111,7 +112,7 @@ def BuildRevisionRanges(cr_releases):
     range_lists.setdefault(cr_releases[-1][1], []).append(cr_releases[-1][0])
 
   # Stringify and comma-separate the range lists.
-  return dict((rev, ", ".join(ran)) for rev, ran in range_lists.iteritems())
+  return dict((hsh, ", ".join(ran)) for hsh, ran in range_lists.iteritems())
 
 
 def MatchSafe(match):
@@ -207,12 +208,16 @@ class RetrieveV8Releases(Step):
       else:
         patches = self.GetMergedPatches(body)
 
-    title = self.GitLog(n=1, format="%s", git_hash=git_hash)
-    master_hash = self.GetMasterHashFromPush(title)
+    if SortingKey("4.2.69") <= SortingKey(version):
+      master_hash = self.GetLatestReleaseBase(version=version)
+    else:
+      # Legacy: Before version 4.2.69, the master revision was determined
+      # by commit message.
+      title = self.GitLog(n=1, format="%s", git_hash=git_hash)
+      master_hash = self.GetMasterHashFromPush(title)
     master_position = ""
     if master_hash:
       master_position = self.GetCommitPositionNumber(master_hash)
-    # TODO(machenbach): Add the commit position number.
     return self.GetReleaseDict(
         git_hash, master_position, master_hash, branch, version,
         patches, body), self["patch"]
@@ -264,8 +269,8 @@ class RetrieveV8Releases(Step):
       )
       branch = ""
       for b in branches:
-        if b == "origin/candidates":
-          branch = "candidates"
+        if b.startswith("origin/"):
+          branch = b.split("origin/")[1]
           break
         if b.startswith("branch-heads/"):
           branch = b.split("branch-heads/")[1]
@@ -290,7 +295,7 @@ class RetrieveV8Releases(Step):
     releases = []
     if self._options.branch == 'recent':
       # List every release from the last 7 days.
-      revisions = self.GetRecentReleases(max_age=7 * 24 * 60 * 60)
+      revisions = self.GetRecentReleases(max_age=7 * DAY_IN_SECONDS)
       for revision in revisions:
         releases += self.GetReleaseFromRevision(revision)
     elif self._options.branch == 'all':  # pragma: no cover
@@ -310,27 +315,16 @@ class RetrieveV8Releases(Step):
                               reverse=True)
 
 
-class SwitchChromium(Step):
-  MESSAGE = "Switch to Chromium checkout."
-
-  def RunStep(self):
-    cwd = self._options.chromium
-    # Check for a clean workdir.
-    if not self.GitIsWorkdirClean(cwd=cwd):  # pragma: no cover
-      self.Die("Workspace is not clean. Please commit or undo your changes.")
-    # Assert that the DEPS file is there.
-    if not os.path.exists(os.path.join(cwd, "DEPS")):  # pragma: no cover
-      self.Die("DEPS file not present.")
-
-
 class UpdateChromiumCheckout(Step):
-  MESSAGE = "Update the checkout and create a new branch."
+  MESSAGE = "Update the chromium checkout."
 
   def RunStep(self):
     cwd = self._options.chromium
-    self.GitCheckout("master", cwd=cwd)
-    self.GitPull(cwd=cwd)
-    self.GitCreateBranch(self.Config("BRANCHNAME"), cwd=cwd)
+    self.GitFetchOrigin("+refs/heads/*:refs/remotes/origin/*",
+                        "+refs/branch-heads/*:refs/remotes/branch-heads/*",
+                        cwd=cwd)
+    # Update v8 checkout in chromium.
+    self.GitFetchOrigin(cwd=os.path.join(cwd, "v8"))
 
 
 def ConvertToCommitNumber(step, revision):
@@ -346,68 +340,56 @@ class RetrieveChromiumV8Releases(Step):
 
   def RunStep(self):
     cwd = self._options.chromium
-    releases = filter(
-        lambda r: r["branch"] in [self.vc.CandidateBranch(),
-                                  self.vc.MasterBranch()],
-        self["releases"])
-    if not releases:  # pragma: no cover
-      print "No releases detected. Skipping chromium history."
-      return True
 
-    # Update v8 checkout in chromium.
-    self.GitFetchOrigin(cwd=os.path.join(cwd, "v8"))
-
-    oldest_v8_rev = int(releases[-1]["revision"])
+    # All v8 revisions we are interested in.
+    releases_dict = dict((r["revision_git"], r) for r in self["releases"])
 
     cr_releases = []
+    count_past_last_v8 = 0
     try:
       for git_hash in self.GitLog(
-          format="%H", grep="V8", cwd=cwd).splitlines():
-        if "DEPS" not in self.GitChangedFiles(git_hash, cwd=cwd):
-          continue
-        if not self.GitCheckoutFileSafe("DEPS", git_hash, cwd=cwd):
-          break  # pragma: no cover
-        deps = FileToText(os.path.join(cwd, "DEPS"))
+          format="%H", grep="V8", branch="origin/master",
+          path="DEPS", cwd=cwd).splitlines():
+        deps = self.GitShowFile(git_hash, "DEPS", cwd=cwd)
         match = DEPS_RE.search(deps)
         if match:
           cr_rev = self.GetCommitPositionNumber(git_hash, cwd=cwd)
           if cr_rev:
-            v8_rev = ConvertToCommitNumber(self, match.group(1))
-            cr_releases.append([cr_rev, v8_rev])
+            v8_hsh = match.group(1)
+            cr_releases.append([cr_rev, v8_hsh])
 
-          # Stop after reaching beyond the last v8 revision we want to update.
-          # We need a small buffer for possible revert/reland frenzies.
-          # TODO(machenbach): Subtraction is not git friendly.
-          if int(v8_rev) < oldest_v8_rev - 100:
+          if count_past_last_v8:
+            count_past_last_v8 += 1  # pragma: no cover
+
+          if count_past_last_v8 > 20:
             break  # pragma: no cover
+
+          # Stop as soon as we find a v8 revision that we didn't fetch in the
+          # v8-revision-retrieval part above (i.e. a revision that's too old).
+          # Just iterate a few more times in case there were reverts.
+          if v8_hsh not in releases_dict:
+            count_past_last_v8 += 1  # pragma: no cover
 
     # Allow Ctrl-C interrupt.
     except (KeyboardInterrupt, SystemExit):  # pragma: no cover
       pass
 
-    # Clean up.
-    self.GitCheckoutFileSafe("DEPS", "HEAD", cwd=cwd)
-
     # Add the chromium ranges to the v8 candidates and master releases.
     all_ranges = BuildRevisionRanges(cr_releases)
-    releases_dict = dict((r["revision"], r) for r in releases)
-    for revision, ranges in all_ranges.iteritems():
-      releases_dict.get(revision, {})["chromium_revision"] = ranges
+
+    for hsh, ranges in all_ranges.iteritems():
+      releases_dict.get(hsh, {})["chromium_revision"] = ranges
 
 
 # TODO(machenbach): Unify common code with method above.
-class RietrieveChromiumBranches(Step):
+class RetrieveChromiumBranches(Step):
   MESSAGE = "Retrieve Chromium branch information."
 
   def RunStep(self):
     cwd = self._options.chromium
-    cand_releases = filter(lambda r: r["branch"] == self.vc.CandidateBranch(),
-                           self["releases"])
-    if not cand_releases:  # pragma: no cover
-      print "No candidates releases detected. Skipping chromium history."
-      return True
 
-    oldest_v8_rev = int(cand_releases[-1]["revision"])
+    # All v8 revisions we are interested in.
+    releases_dict = dict((r["revision_git"], r) for r in self["releases"])
 
     # Filter out irrelevant branches.
     branches = filter(lambda r: re.match(r"branch-heads/\d+", r),
@@ -420,44 +402,103 @@ class RietrieveChromiumBranches(Step):
     branches = sorted(branches, reverse=True)
 
     cr_branches = []
+    count_past_last_v8 = 0
     try:
       for branch in branches:
-        if not self.GitCheckoutFileSafe("DEPS",
-                                        "branch-heads/%d" % branch,
-                                        cwd=cwd):
-          break  # pragma: no cover
-        deps = FileToText(os.path.join(cwd, "DEPS"))
+        deps = self.GitShowFile(
+            "refs/branch-heads/%d" % branch, "DEPS", cwd=cwd)
         match = DEPS_RE.search(deps)
         if match:
-          v8_rev = ConvertToCommitNumber(self, match.group(1))
-          cr_branches.append([str(branch), v8_rev])
+          v8_hsh = match.group(1)
+          cr_branches.append([str(branch), v8_hsh])
 
-          # Stop after reaching beyond the last v8 revision we want to update.
-          # We need a small buffer for possible revert/reland frenzies.
-          # TODO(machenbach): Subtraction is not git friendly.
-          if int(v8_rev) < oldest_v8_rev - 100:
+          if count_past_last_v8:
+            count_past_last_v8 += 1  # pragma: no cover
+
+          if count_past_last_v8 > 20:
             break  # pragma: no cover
+
+          # Stop as soon as we find a v8 revision that we didn't fetch in the
+          # v8-revision-retrieval part above (i.e. a revision that's too old).
+          # Just iterate a few more times in case there were reverts.
+          if v8_hsh not in releases_dict:
+            count_past_last_v8 += 1  # pragma: no cover
 
     # Allow Ctrl-C interrupt.
     except (KeyboardInterrupt, SystemExit):  # pragma: no cover
       pass
 
-    # Clean up.
-    self.GitCheckoutFileSafe("DEPS", "HEAD", cwd=cwd)
-
     # Add the chromium branches to the v8 candidate releases.
     all_ranges = BuildRevisionRanges(cr_branches)
-    cand_dict = dict((r["revision"], r) for r in cand_releases)
     for revision, ranges in all_ranges.iteritems():
-      cand_dict.get(revision, {})["chromium_branch"] = ranges
+      releases_dict.get(revision, {})["chromium_branch"] = ranges
+
+
+class RetrieveInformationOnChromeReleases(Step):
+  MESSAGE = 'Retrieves relevant information on the latest Chrome releases'
+
+  def Run(self):
+
+    params = None
+    result_raw = self.ReadURL(
+                             OMAHA_PROXY_URL + "all.json",
+                             params,
+                             wait_plan=[5, 20]
+                             )
+    recent_releases = json.loads(result_raw)
+
+    canaries = []
+
+    for current_os in recent_releases:
+      for current_version in current_os["versions"]:
+        if current_version["channel"] != "canary":
+          continue
+
+        current_candidate = self._CreateCandidate(current_version)
+        canaries.append(current_candidate)
+
+    chrome_releases = {"canaries": canaries}
+    self["chrome_releases"] = chrome_releases
+
+  def _GetGitHashForV8Version(self, v8_version):
+    if v8_version == "N/A":
+      return ""
+    if v8_version.split(".")[3]== "0":
+      return self.GitGetHashOfTag(v8_version[:-2])
+
+    return self.GitGetHashOfTag(v8_version)
+
+  def _CreateCandidate(self, current_version):
+    params = None
+    url_to_call = (OMAHA_PROXY_URL + "v8.json?version="
+                   + current_version["previous_version"])
+    result_raw = self.ReadURL(
+                         url_to_call,
+                         params,
+                         wait_plan=[5, 20]
+                         )
+    previous_v8_version = json.loads(result_raw)["v8_version"]
+    v8_previous_version_hash = self._GetGitHashForV8Version(previous_v8_version)
+
+    current_v8_version = current_version["v8_version"]
+    v8_version_hash = self._GetGitHashForV8Version(current_v8_version)
+
+    current_candidate = {
+                        "chrome_version": current_version["version"],
+                        "os": current_version["os"],
+                        "release_date": current_version["current_reldate"],
+                        "v8_version": current_v8_version,
+                        "v8_version_hash": v8_version_hash,
+                        "v8_previous_version": previous_v8_version,
+                        "v8_previous_version_hash": v8_previous_version_hash,
+                       }
+    return current_candidate
 
 
 class CleanUp(Step):
   MESSAGE = "Clean up."
 
   def RunStep(self):
-    self.GitCheckout("master", cwd=self._options.chromium)
-    self.GitDeleteBranch(self.Config("BRANCHNAME"), cwd=self._options.chromium)
     self.CommonCleanup()
 
 
@@ -465,6 +506,12 @@ class WriteOutput(Step):
   MESSAGE = "Print output."
 
   def Run(self):
+
+    output = {
+              "releases": self["releases"],
+              "chrome_releases": self["chrome_releases"],
+              }
+
     if self._options.csv:
       with open(self._options.csv, "w") as f:
         writer = csv.DictWriter(f,
@@ -476,9 +523,9 @@ class WriteOutput(Step):
           writer.writerow(release)
     if self._options.json:
       with open(self._options.json, "w") as f:
-        f.write(json.dumps(self["releases"]))
+        f.write(json.dumps(output))
     if not self._options.csv and not self._options.json:
-      print self["releases"]  # pragma: no cover
+      print output  # pragma: no cover
 
 
 class Releases(ScriptsBase):
@@ -497,6 +544,7 @@ class Releases(ScriptsBase):
     parser.add_argument("--json", help="Path to a JSON file for export.")
 
   def _ProcessOptions(self, options):  # pragma: no cover
+    options.force_readline_defaults = True
     return True
 
   def _Config(self):
@@ -506,13 +554,14 @@ class Releases(ScriptsBase):
     }
 
   def _Steps(self):
+
     return [
       Preparation,
       RetrieveV8Releases,
-      SwitchChromium,
       UpdateChromiumCheckout,
       RetrieveChromiumV8Releases,
-      RietrieveChromiumBranches,
+      RetrieveChromiumBranches,
+      RetrieveInformationOnChromeReleases,
       CleanUp,
       WriteOutput,
     ]

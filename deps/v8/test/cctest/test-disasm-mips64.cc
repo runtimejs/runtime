@@ -34,7 +34,6 @@
 #include "src/disasm.h"
 #include "src/disassembler.h"
 #include "src/macro-assembler.h"
-#include "src/serialize.h"
 #include "test/cctest/cctest.h"
 
 using namespace v8::internal;
@@ -671,4 +670,22 @@ TEST(Type0) {
           "7c62f800       ext     v0, v1, 0, 32");
 
   VERIFY_RUN();
+}
+
+
+TEST(Type1) {
+  if (kArchVariant == kMips64r6) {
+    SET_UP();
+    COMPARE(seleqz(a0, a1, a2), "00a62035       seleqz    a0, a1, a2");
+    COMPARE(selnez(a0, a1, a2), "00a62037       selnez    a0, a1, a2");
+
+
+    COMPARE(seleqz(D, f3, f4, f5), "462520d4       seleqz.d    f3, f4, f5");
+    COMPARE(selnez(D, f3, f4, f5), "462520d7       selnez.d    f3, f4, f5");
+
+    COMPARE(min_d(f3, f4, f5), "462520dc       min.d    f3, f4, f5");
+    COMPARE(max_d(f3, f4, f5), "462520de       max.d    f3, f4, f5");
+    COMPARE(rint_d(f8, f6), "4620321a       rint.d    f8, f6");
+    VERIFY_RUN();
+  }
 }

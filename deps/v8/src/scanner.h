@@ -89,6 +89,9 @@ class Utf16CharacterStream {
   // Must not be used right after calling SeekForward.
   virtual void PushBack(int32_t code_unit) = 0;
 
+  virtual bool SetBookmark();
+  virtual void ResetToBookmark();
+
  protected:
   static const uc32 kEndOfInput = -1;
 
@@ -268,6 +271,17 @@ class LiteralBuffer {
 
   Handle<String> Internalize(Isolate* isolate) const;
 
+  void CopyFrom(const LiteralBuffer* other) {
+    if (other == nullptr) {
+      Reset();
+    } else {
+      is_one_byte_ = other->is_one_byte_;
+      position_ = other->position_;
+      backing_store_.Dispose();
+      backing_store_ = other->backing_store_.Clone();
+    }
+  }
+
  private:
   static const int kInitialCapacity = 16;
   static const int kGrowthFactory = 4;
@@ -340,6 +354,25 @@ class Scanner {
    private:
     Scanner* scanner_;
     bool complete_;
+  };
+
+  // Scoped helper for a re-settable bookmark.
+  class BookmarkScope {
+   public:
+    explicit BookmarkScope(Scanner* scanner) : scanner_(scanner) {
+      DCHECK_NOT_NULL(scanner_);
+    }
+    ~BookmarkScope() { scanner_->DropBookmark(); }
+
+    bool Set() { return scanner_->SetBookmark(); }
+    void Reset() { scanner_->ResetToBookmark(); }
+    bool HasBeenSet() { return scanner_->BookmarkHasBeenSet(); }
+    bool HasBeenReset() { return scanner_->BookmarkHasBeenReset(); }
+
+   private:
+    Scanner* scanner_;
+
+    DISALLOW_COPY_AND_ASSIGN(BookmarkScope);
   };
 
   // Representation of an interval of source positions.
@@ -427,7 +460,6 @@ class Scanner {
     }
   }
 
-  int FindNumber(DuplicateFinder* finder, int value);
   int FindSymbol(DuplicateFinder* finder, int value);
 
   UnicodeCache* unicode_cache() { return unicode_cache_; }
@@ -436,29 +468,20 @@ class Scanner {
   Location octal_position() const { return octal_pos_; }
   void clear_octal_position() { octal_pos_ = Location::invalid(); }
 
+  // Returns the value of the last smi that was scanned.
+  int smi_value() const { return current_.smi_value_; }
+
   // Seek forward to the given position.  This operation does not
   // work in general, for instance when there are pushed back
   // characters, but works for seeking forward until simple delimiter
   // tokens, which is what it is used for.
   void SeekForward(int pos);
 
-  bool HarmonyScoping() const {
-    return harmony_scoping_;
-  }
-  void SetHarmonyScoping(bool scoping) {
-    harmony_scoping_ = scoping;
-  }
   bool HarmonyModules() const {
     return harmony_modules_;
   }
   void SetHarmonyModules(bool modules) {
     harmony_modules_ = modules;
-  }
-  bool HarmonyNumericLiterals() const {
-    return harmony_numeric_literals_;
-  }
-  void SetHarmonyNumericLiterals(bool numeric_literals) {
-    harmony_numeric_literals_ = numeric_literals;
   }
   bool HarmonyClasses() const {
     return harmony_classes_;
@@ -466,8 +489,6 @@ class Scanner {
   void SetHarmonyClasses(bool classes) {
     harmony_classes_ = classes;
   }
-  bool HarmonyTemplates() const { return harmony_templates_; }
-  void SetHarmonyTemplates(bool templates) { harmony_templates_ = templates; }
   bool HarmonyUnicode() const { return harmony_unicode_; }
   void SetHarmonyUnicode(bool unicode) { harmony_unicode_ = unicode; }
 
@@ -503,6 +524,7 @@ class Scanner {
     Location location;
     LiteralBuffer* literal_chars;
     LiteralBuffer* raw_literal_chars;
+    int smi_value_;
   };
 
   static const int kCharacterLookaheadBufferSize = 1;
@@ -521,6 +543,14 @@ class Scanner {
     current_.raw_literal_chars = NULL;
   }
 
+  // Support BookmarkScope functionality.
+  bool SetBookmark();
+  void ResetToBookmark();
+  bool BookmarkHasBeenSet();
+  bool BookmarkHasBeenReset();
+  void DropBookmark();
+  static void CopyTokenDesc(TokenDesc* to, TokenDesc* from);
+
   // Literal buffer support
   inline void StartLiteral() {
     LiteralBuffer* free_buffer = (current_.literal_chars == &literal_buffer1_) ?
@@ -530,8 +560,11 @@ class Scanner {
   }
 
   inline void StartRawLiteral() {
-    raw_literal_buffer_.Reset();
-    next_.raw_literal_chars = &raw_literal_buffer_;
+    LiteralBuffer* free_buffer =
+        (current_.raw_literal_chars == &raw_literal_buffer1_) ?
+            &raw_literal_buffer2_ : &raw_literal_buffer1_;
+    free_buffer->Reset();
+    next_.raw_literal_chars = free_buffer;
   }
 
   INLINE(void AddLiteralChar(uc32 c)) {
@@ -562,12 +595,16 @@ class Scanner {
   }
 
   // Low-level scanning support.
-  template <bool capture_raw = false>
+  template <bool capture_raw = false, bool check_surrogate = true>
   void Advance() {
     if (capture_raw) {
       AddRawLiteralChar(c0_);
     }
     c0_ = source_->Advance();
+    if (check_surrogate) HandleLeadSurrogate();
+  }
+
+  void HandleLeadSurrogate() {
     if (unibrow::Utf16::IsLeadSurrogate(c0_)) {
       uc32 c1 = source_->Advance();
       if (!unibrow::Utf16::IsTrailSurrogate(c1)) {
@@ -710,10 +747,42 @@ class Scanner {
   LiteralBuffer source_mapping_url_;
 
   // Buffer to store raw string values
-  LiteralBuffer raw_literal_buffer_;
+  LiteralBuffer raw_literal_buffer1_;
+  LiteralBuffer raw_literal_buffer2_;
 
   TokenDesc current_;  // desc for current token (as returned by Next())
   TokenDesc next_;     // desc for next token (one token look-ahead)
+
+  // Variables for Scanner::BookmarkScope and the *Bookmark implementation.
+  // These variables contain the scanner state when a bookmark is set.
+  //
+  // We will use bookmark_c0_ as a 'control' variable, where:
+  // - bookmark_c0_ >= 0: A bookmark has been set and this contains c0_.
+  // - bookmark_c0_ == -1: No bookmark has been set.
+  // - bookmark_c0_ == -2: The bookmark has been applied (ResetToBookmark).
+  //
+  // Which state is being bookmarked? The parser state is distributed over
+  // several variables, roughly like this:
+  //   ...    1234        +       5678 ..... [character stream]
+  //       [current_] [next_] c0_ |      [scanner state]
+  // So when the scanner is logically at the beginning of an expression
+  // like "1234 + 4567", then:
+  // - current_ contains "1234"
+  // - next_ contains "+"
+  // - c0_ contains ' ' (the space between "+" and "5678",
+  // - the source_ character stream points to the beginning of "5678".
+  // To be able to restore this state, we will keep copies of current_, next_,
+  // and c0_; we'll ask the stream to bookmark itself, and we'll copy the
+  // contents of current_'s and next_'s literal buffers to bookmark_*_literal_.
+  static const uc32 kNoBookmark = -1;
+  static const uc32 kBookmarkWasApplied = -2;
+  uc32 bookmark_c0_;
+  TokenDesc bookmark_current_;
+  TokenDesc bookmark_next_;
+  LiteralBuffer bookmark_current_literal_;
+  LiteralBuffer bookmark_current_raw_literal_;
+  LiteralBuffer bookmark_next_literal_;
+  LiteralBuffer bookmark_next_raw_literal_;
 
   // Input stream. Must be initialized to an Utf16CharacterStream.
   Utf16CharacterStream* source_;
@@ -732,16 +801,10 @@ class Scanner {
   // Whether there is a multi-line comment that contains a
   // line-terminator after the current token, and before the next.
   bool has_multiline_comment_before_next_;
-  // Whether we scan 'let' as a keyword for harmony block-scoped let bindings.
-  bool harmony_scoping_;
   // Whether we scan 'module', 'import', 'export' as keywords.
   bool harmony_modules_;
-  // Whether we scan 0o777 and 0b111 as numbers.
-  bool harmony_numeric_literals_;
   // Whether we scan 'class', 'extends', 'static' and 'super' as keywords.
   bool harmony_classes_;
-  // Whether we scan TEMPLATE_SPAN and TEMPLATE_TAIL
-  bool harmony_templates_;
   // Whether we allow \u{xxxxx}.
   bool harmony_unicode_;
 };

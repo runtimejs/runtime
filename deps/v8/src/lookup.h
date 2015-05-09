@@ -12,7 +12,7 @@
 namespace v8 {
 namespace internal {
 
-class LookupIterator FINAL BASE_EMBEDDED {
+class LookupIterator final BASE_EMBEDDED {
  public:
   enum Configuration {
     // Configuration bits.
@@ -31,6 +31,7 @@ class LookupIterator FINAL BASE_EMBEDDED {
 
   enum State {
     ACCESS_CHECK,
+    INTEGER_INDEXED_EXOTIC,
     INTERCEPTOR,
     JSPROXY,
     NOT_FOUND,
@@ -46,13 +47,16 @@ class LookupIterator FINAL BASE_EMBEDDED {
                  Configuration configuration = PROTOTYPE_CHAIN)
       : configuration_(ComputeConfiguration(configuration, name)),
         state_(NOT_FOUND),
-        property_details_(NONE, v8::internal::DATA, 0),
+        exotic_index_state_(ExoticIndexState::kUninitialized),
+        interceptor_state_(InterceptorState::kUninitialized),
+        property_details_(PropertyDetails::Empty()),
         isolate_(name->GetIsolate()),
         name_(name),
         receiver_(receiver),
+        holder_(GetRoot(receiver_, isolate_)),
+        holder_map_(holder_->map(), isolate_),
+        initial_holder_(holder_),
         number_(DescriptorArray::kNotFound) {
-    holder_ = GetRoot();
-    holder_map_ = handle(holder_->map(), isolate_);
     Next();
   }
 
@@ -61,12 +65,15 @@ class LookupIterator FINAL BASE_EMBEDDED {
                  Configuration configuration = PROTOTYPE_CHAIN)
       : configuration_(ComputeConfiguration(configuration, name)),
         state_(NOT_FOUND),
-        property_details_(NONE, v8::internal::DATA, 0),
+        exotic_index_state_(ExoticIndexState::kUninitialized),
+        interceptor_state_(InterceptorState::kUninitialized),
+        property_details_(PropertyDetails::Empty()),
         isolate_(name->GetIsolate()),
         name_(name),
-        holder_map_(holder->map(), isolate_),
         receiver_(receiver),
         holder_(holder),
+        holder_map_(holder_->map(), isolate_),
+        initial_holder_(holder_),
         number_(DescriptorArray::kNotFound) {
     Next();
   }
@@ -88,18 +95,18 @@ class LookupIterator FINAL BASE_EMBEDDED {
   bool is_dictionary_holder() const { return holder_map_->is_dictionary_map(); }
   Handle<Map> transition_map() const {
     DCHECK_EQ(TRANSITION, state_);
-    return transition_map_;
+    return Handle<Map>::cast(transition_);
   }
   template <class T>
   Handle<T> GetHolder() const {
     DCHECK(IsFound());
     return Handle<T>::cast(holder_);
   }
-  Handle<JSReceiver> GetRoot() const;
+  static Handle<JSReceiver> GetRoot(Handle<Object> receiver, Isolate* isolate);
   bool HolderIsReceiverOrHiddenPrototype() const;
 
   /* ACCESS_CHECK */
-  bool HasAccess(v8::AccessType access_type) const;
+  bool HasAccess() const;
 
   /* PROPERTY */
   void PrepareForDataProperty(Handle<Object> value);
@@ -107,13 +114,9 @@ class LookupIterator FINAL BASE_EMBEDDED {
                                        PropertyAttributes attributes,
                                        Object::StoreFromKeyed store_mode);
   bool IsCacheableTransition() {
-    bool cacheable =
-        state_ == TRANSITION && transition_map()->GetBackPointer()->IsMap();
-    if (cacheable) {
-      property_details_ = transition_map_->GetLastDescriptorDetails();
-      has_property_ = true;
-    }
-    return cacheable;
+    if (state_ != TRANSITION) return false;
+    return transition_->IsPropertyCell() ||
+           transition_map()->GetBackPointer()->IsMap();
   }
   void ApplyTransitionToDataProperty();
   void ReconfigureDataProperty(Handle<Object> value,
@@ -139,21 +142,25 @@ class LookupIterator FINAL BASE_EMBEDDED {
   Handle<Object> GetDataValue() const;
   // Usually returns the value that was passed in, but may perform
   // non-observable modifications on it, such as internalize strings.
-  Handle<Object> WriteDataValue(Handle<Object> value);
-
-  // Checks whether the receiver is an indexed exotic object
-  // and name is a special numeric index.
-  bool IsSpecialNumericIndex() const;
-
+  void WriteDataValue(Handle<Object> value);
   void InternalizeName();
 
  private:
+  enum class InterceptorState {
+    kUninitialized,
+    kSkipNonMasking,
+    kProcessNonMasking
+  };
+
   Handle<Map> GetReceiverMap() const;
 
   MUST_USE_RESULT inline JSReceiver* NextHolder(Map* map);
   inline State LookupInHolder(Map* map, JSReceiver* holder);
+  void RestartLookupForNonMaskingInterceptors();
+  State LookupNonMaskingInterceptorInHolder(Map* map, JSReceiver* holder);
   Handle<Object> FetchValue() const;
   void ReloadPropertyInformation();
+  bool SkipInterceptor(JSObject* holder);
 
   bool IsBootstrapping() const;
 
@@ -185,19 +192,24 @@ class LookupIterator FINAL BASE_EMBEDDED {
     }
   }
 
+  enum class ExoticIndexState { kUninitialized, kNoIndex, kIndex };
+  bool IsIntegerIndexedExotic(JSReceiver* holder);
+
   // If configuration_ becomes mutable, update
   // HolderIsReceiverOrHiddenPrototype.
-  Configuration configuration_;
+  const Configuration configuration_;
   State state_;
   bool has_property_;
+  ExoticIndexState exotic_index_state_;
+  InterceptorState interceptor_state_;
   PropertyDetails property_details_;
-  Isolate* isolate_;
+  Isolate* const isolate_;
   Handle<Name> name_;
-  Handle<Map> holder_map_;
-  Handle<Map> transition_map_;
-  Handle<Object> receiver_;
+  Handle<Object> transition_;
+  const Handle<Object> receiver_;
   Handle<JSReceiver> holder_;
-
+  Handle<Map> holder_map_;
+  const Handle<JSReceiver> initial_holder_;
   int number_;
 };
 

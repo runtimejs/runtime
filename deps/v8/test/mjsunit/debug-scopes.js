@@ -1049,6 +1049,29 @@ catch_block_7();
 EndTest();
 
 
+BeginTest("Classes and methods 1");
+
+listener_delegate = function(exec_state) {
+  "use strict"
+  CheckScopeChain([debug.ScopeType.Local,
+                   debug.ScopeType.Script,
+                   debug.ScopeType.Global], exec_state);
+  CheckScopeContent({}, 1, exec_state);
+};
+
+(function() {
+  "use strict";
+  class C1 {
+    m() {
+      debugger;
+    }
+  }
+  new C1().m();
+})();
+
+EndTest();
+
+
 assertEquals(begin_test_count, break_count,
              'one or more tests did not enter the debugger');
 assertEquals(begin_test_count, end_test_count,

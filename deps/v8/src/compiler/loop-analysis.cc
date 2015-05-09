@@ -18,10 +18,6 @@ namespace compiler {
 #define BIT(x) (1u << OFFSET(x))
 #define INDEX(x) ((x) >> 5)
 
-// TODO(titzer): don't assume entry edges have a particular index.
-static const int kAssumedLoopEntryIndex = 0;  // assume loops are entered here.
-
-
 // Temporary information for each node during marking.
 struct NodeInfo {
   Node* node;
@@ -460,6 +456,16 @@ LoopTree* LoopFinder::BuildLoopTree(Graph* graph, Zone* zone) {
     finder.Print();
   }
   return loop_tree;
+}
+
+
+Node* LoopTree::HeaderNode(Loop* loop) {
+  Node* first = *HeaderNodes(loop).begin();
+  if (first->opcode() == IrOpcode::kLoop) return first;
+  DCHECK(IrOpcode::IsPhiOpcode(first->opcode()));
+  Node* header = NodeProperties::GetControlInput(first);
+  DCHECK_EQ(IrOpcode::kLoop, header->opcode());
+  return header;
 }
 
 }  // namespace compiler

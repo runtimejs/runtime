@@ -112,8 +112,18 @@ MODES = {
     "execution_mode": "release",
     "output_folder": "release",
   },
-  # This mode requires v8 to be compiled with dchecks and slow dchecks.
+  # Normal trybot release configuration. There, dchecks are always on which
+  # implies debug is set. Hence, the status file needs to assume debug-like
+  # behavior/timeouts.
   "tryrelease": {
+    "flags": RELEASE_FLAGS,
+    "timeout_scalefactor": 1,
+    "status_mode": "debug",
+    "execution_mode": "release",
+    "output_folder": "release",
+  },
+  # This mode requires v8 to be compiled with dchecks and slow dchecks.
+  "slowrelease": {
     "flags": RELEASE_FLAGS + ["--enable-slow-asserts"],
     "timeout_scalefactor": 2,
     "status_mode": "debug",
@@ -130,6 +140,7 @@ GC_STRESS_FLAGS = ["--gc-interval=500", "--stress-compaction",
 SUPPORTED_ARCHS = ["android_arm",
                    "android_arm64",
                    "android_ia32",
+                   "android_x64",
                    "arm",
                    "ia32",
                    "x87",
@@ -147,6 +158,7 @@ SUPPORTED_ARCHS = ["android_arm",
 SLOW_ARCHS = ["android_arm",
               "android_arm64",
               "android_ia32",
+              "android_x64",
               "arm",
               "mips",
               "mipsel",
@@ -340,6 +352,10 @@ def ProcessOptions(options):
 
   if options.asan:
     options.extra_flags.append("--invoke-weak-callbacks")
+    options.extra_flags.append("--omit-quit")
+
+  if options.msan:
+    VARIANTS = ["default"]
 
   if options.tsan:
     VARIANTS = ["default"]

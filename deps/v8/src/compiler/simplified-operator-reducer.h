@@ -18,20 +18,17 @@ class Heap;
 namespace compiler {
 
 // Forward declarations.
-class CommonOperatorBuilder;
 class JSGraph;
 class MachineOperatorBuilder;
 
-class SimplifiedOperatorReducer FINAL : public Reducer {
+class SimplifiedOperatorReducer final : public Reducer {
  public:
   explicit SimplifiedOperatorReducer(JSGraph* jsgraph);
-  ~SimplifiedOperatorReducer() FINAL;
+  ~SimplifiedOperatorReducer() final;
 
-  Reduction Reduce(Node* node) FINAL;
+  Reduction Reduce(Node* node) final;
 
  private:
-  Reduction ReduceAnyToBoolean(Node* node);
-
   Reduction Change(Node* node, const Operator* op, Node* a);
   Reduction ReplaceFloat64(double value);
   Reduction ReplaceInt32(int32_t value);
@@ -44,7 +41,6 @@ class SimplifiedOperatorReducer FINAL : public Reducer {
   Graph* graph() const;
   Factory* factory() const;
   JSGraph* jsgraph() const { return jsgraph_; }
-  CommonOperatorBuilder* common() const;
   MachineOperatorBuilder* machine() const;
   SimplifiedOperatorBuilder* simplified() { return &simplified_; }
 

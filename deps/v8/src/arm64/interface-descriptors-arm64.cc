@@ -60,6 +60,11 @@ const Register MathPowTaggedDescriptor::exponent() { return x11; }
 const Register MathPowIntegerDescriptor::exponent() { return x12; }
 
 
+const Register GrowArrayElementsDescriptor::ObjectRegister() { return x0; }
+const Register GrowArrayElementsDescriptor::KeyRegister() { return x3; }
+const Register GrowArrayElementsDescriptor::CapacityRegister() { return x2; }
+
+
 void FastNewClosureDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   // cp: context
   // x2: function info
@@ -88,6 +93,12 @@ void NumberToStringDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   // cp: context
   // x0: value
   Register registers[] = {cp, x0};
+  data->Initialize(arraysize(registers), registers, NULL);
+}
+
+
+void TypeofDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {cp, x3};
   data->Initialize(arraysize(registers), registers, NULL);
 }
 
@@ -258,6 +269,15 @@ void InternalArrayConstructorDescriptor::Initialize(
                                       Representation::Tagged(),
                                       Representation::Integer32()};
   data->Initialize(arraysize(registers), registers, representations);
+}
+
+
+void CompareDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  // cp: context
+  // x1: left operand
+  // x0: right operand
+  Register registers[] = {cp, x1, x0};
+  data->Initialize(arraysize(registers), registers, NULL);
 }
 
 

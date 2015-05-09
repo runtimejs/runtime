@@ -43,7 +43,13 @@
           'android_stlport': '<(android_toolchain)/sources/cxx-stl/stlport/',
         },
         'android_include': '<(android_sysroot)/usr/include',
-        'android_lib': '<(android_sysroot)/usr/lib',
+        'conditions': [
+          ['target_arch=="x64"', {
+            'android_lib': '<(android_sysroot)/usr/lib64',
+          }, {
+            'android_lib': '<(android_sysroot)/usr/lib',
+          }],
+        ],
         'android_stlport_include': '<(android_stlport)/stlport',
         'android_stlport_libs': '<(android_stlport)/libs',
       }, {
@@ -52,14 +58,17 @@
           'android_stlport': '<(android_ndk_root)/sources/cxx-stl/stlport/',
         },
         'android_include': '<(android_sysroot)/usr/include',
-        'android_lib': '<(android_sysroot)/usr/lib',
+        'conditions': [
+          ['target_arch=="x64"', {
+            'android_lib': '<(android_sysroot)/usr/lib64',
+          }, {
+            'android_lib': '<(android_sysroot)/usr/lib',
+          }],
+        ],
         'android_stlport_include': '<(android_stlport)/stlport',
         'android_stlport_libs': '<(android_stlport)/libs',
       }],
     ],
-    # Enable to use the system stlport, otherwise statically
-    # link the NDK one?
-    'use_system_stlport%': '<(android_webview_build)',
     'android_stlport_library': 'stlport_static',
   },  # variables
   'target_defaults': {
@@ -96,6 +105,7 @@
           # Note: This include is in cflags to ensure that it comes after
           # all of the includes.
           '-I<(android_include)',
+          '-I<(android_stlport_include)',
         ],
         'cflags_cc': [
           '-Wno-error=non-virtual-dtor',  # TODO(michaelbai): Fix warnings.
@@ -115,6 +125,8 @@
         'ldflags': [
           '-nostdlib',
           '-Wl,--no-undefined',
+          '-Wl,-rpath-link=<(android_lib)',
+          '-L<(android_lib)',
         ],
         'libraries!': [
             '-lrt',  # librt is built into Bionic.
@@ -134,12 +146,6 @@
             '-lm',
         ],
         'conditions': [
-          ['android_webview_build==0', {
-            'ldflags': [
-              '-Wl,-rpath-link=<(android_lib)',
-              '-L<(android_lib)',
-            ],
-          }],
           ['target_arch == "arm"', {
             'ldflags': [
               # Enable identical code folding to reduce size.
@@ -152,48 +158,23 @@
               '-mtune=cortex-a8',
               '-mfpu=vfp3',
             ],
-          }],
-          # NOTE: The stlport header include paths below are specified in
-          # cflags rather than include_dirs because they need to come
-          # after include_dirs. Think of them like system headers, but
-          # don't use '-isystem' because the arm-linux-androideabi-4.4.3
-          # toolchain (circa Gingerbread) will exhibit strange errors.
-          # The include ordering here is important; change with caution.
-          ['use_system_stlport==0', {
-            'cflags': [
-              '-I<(android_stlport_include)',
+            'ldflags': [
+              '-L<(android_stlport_libs)/armeabi-v7a',
             ],
-            'conditions': [
-              ['target_arch=="arm" and arm_version==7', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/armeabi-v7a',
-                ],
-              }],
-              ['target_arch=="arm" and arm_version < 7', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/armeabi',
-                ],
-              }],
-              ['target_arch=="mipsel"', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/mips',
-                ],
-              }],
-              ['target_arch=="ia32" or target_arch=="x87"', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/x86',
-                ],
-              }],
-              ['target_arch=="x64"', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/x86_64',
-                ],
-              }],
-              ['target_arch=="arm64"', {
-                'ldflags': [
-                  '-L<(android_stlport_libs)/arm64-v8a',
-                ],
-              }],
+          }],
+          ['target_arch=="arm" and arm_version < 7', {
+            'ldflags': [
+              '-L<(android_stlport_libs)/armeabi',
+            ],
+          }],
+          ['target_arch=="x64"', {
+            'ldflags': [
+              '-L<(android_stlport_libs)/x86_64',
+            ],
+          }],
+          ['target_arch=="arm64"', {
+            'ldflags': [
+              '-L<(android_stlport_libs)/arm64-v8a',
             ],
           }],
           ['target_arch=="ia32" or target_arch=="x87"', {
@@ -204,6 +185,9 @@
             'cflags': [
               '-fno-stack-protector',
             ],
+            'ldflags': [
+              '-L<(android_stlport_libs)/x86',
+            ],
           }],
           ['target_arch=="mipsel"', {
             # The mips toolchain currently has problems with stack-protector.
@@ -213,6 +197,9 @@
             ],
             'cflags': [
               '-fno-stack-protector',
+            ],
+            'ldflags': [
+              '-L<(android_stlport_libs)/mips',
             ],
           }],
           ['(target_arch=="arm" or target_arch=="arm64" or target_arch=="x64") and component!="shared_library"', {
@@ -227,7 +214,7 @@
         'target_conditions': [
           ['_type=="executable"', {
             'conditions': [
-              ['target_arch=="arm64"', {
+              ['target_arch=="arm64" or target_arch=="x64"', {
                 'ldflags': [
                   '-Wl,-dynamic-linker,/system/bin/linker64',
                 ],

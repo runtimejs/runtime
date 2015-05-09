@@ -7,6 +7,8 @@
 
 #include <cmath>
 
+// TODO(turbofan): Move ExternalReference out of assembler.h
+#include "src/assembler.h"
 #include "src/compiler/node.h"
 #include "src/compiler/operator.h"
 #include "src/unique.h"
@@ -27,6 +29,10 @@ struct NodeMatcher {
     return op()->HasProperty(property);
   }
   Node* InputAt(int index) const { return node()->InputAt(index); }
+
+  bool Equals(const Node* node) const { return node_ == node; }
+
+  bool IsComparison() const;
 
 #define DEFINE_IS_OPCODE(Opcode) \
   bool Is##Opcode() const { return opcode() == IrOpcode::k##Opcode; }
@@ -99,7 +105,7 @@ inline ValueMatcher<uint64_t, IrOpcode::kInt64Constant>::ValueMatcher(
 
 // A pattern matcher for integer constants.
 template <typename T, IrOpcode::Value kOpcode>
-struct IntMatcher FINAL : public ValueMatcher<T, kOpcode> {
+struct IntMatcher final : public ValueMatcher<T, kOpcode> {
   explicit IntMatcher(Node* node) : ValueMatcher<T, kOpcode>(node) {}
 
   bool IsMultipleOf(T n) const {
@@ -130,13 +136,14 @@ typedef Uint64Matcher UintPtrMatcher;
 
 // A pattern matcher for floating point constants.
 template <typename T, IrOpcode::Value kOpcode>
-struct FloatMatcher FINAL : public ValueMatcher<T, kOpcode> {
+struct FloatMatcher final : public ValueMatcher<T, kOpcode> {
   explicit FloatMatcher(Node* node) : ValueMatcher<T, kOpcode>(node) {}
 
   bool IsMinusZero() const {
     return this->Is(0.0) && std::signbit(this->Value());
   }
   bool IsNaN() const { return this->HasValue() && std::isnan(this->Value()); }
+  bool IsZero() const { return this->Is(0.0) && !std::signbit(this->Value()); }
 };
 
 typedef FloatMatcher<float, IrOpcode::kFloat32Constant> Float32Matcher;
@@ -146,10 +153,36 @@ typedef FloatMatcher<double, IrOpcode::kNumberConstant> NumberMatcher;
 
 // A pattern matcher for heap object constants.
 template <typename T>
-struct HeapObjectMatcher FINAL
+struct HeapObjectMatcher final
     : public ValueMatcher<Unique<T>, IrOpcode::kHeapConstant> {
   explicit HeapObjectMatcher(Node* node)
       : ValueMatcher<Unique<T>, IrOpcode::kHeapConstant>(node) {}
+};
+
+
+// A pattern matcher for external reference constants.
+struct ExternalReferenceMatcher final
+    : public ValueMatcher<ExternalReference, IrOpcode::kExternalConstant> {
+  explicit ExternalReferenceMatcher(Node* node)
+      : ValueMatcher<ExternalReference, IrOpcode::kExternalConstant>(node) {}
+};
+
+
+// For shorter pattern matching code, this struct matches the inputs to
+// machine-level load operations.
+template <typename Object>
+struct LoadMatcher : public NodeMatcher {
+  explicit LoadMatcher(Node* node)
+      : NodeMatcher(node), object_(InputAt(0)), index_(InputAt(1)) {}
+
+  typedef Object ObjectMatcher;
+
+  Object const& object() const { return object_; }
+  IntPtrMatcher const& index() const { return index_; }
+
+ private:
+  Object const object_;
+  IntPtrMatcher const index_;
 };
 
 
@@ -200,6 +233,7 @@ typedef BinopMatcher<Int64Matcher, Int64Matcher> Int64BinopMatcher;
 typedef BinopMatcher<Uint64Matcher, Uint64Matcher> Uint64BinopMatcher;
 typedef BinopMatcher<IntPtrMatcher, IntPtrMatcher> IntPtrBinopMatcher;
 typedef BinopMatcher<UintPtrMatcher, UintPtrMatcher> UintPtrBinopMatcher;
+typedef BinopMatcher<Float32Matcher, Float32Matcher> Float32BinopMatcher;
 typedef BinopMatcher<Float64Matcher, Float64Matcher> Float64BinopMatcher;
 typedef BinopMatcher<NumberMatcher, NumberMatcher> NumberBinopMatcher;
 
@@ -510,6 +544,54 @@ typedef BaseWithIndexAndDisplacementMatcher<Int32AddMatcher>
     BaseWithIndexAndDisplacement32Matcher;
 typedef BaseWithIndexAndDisplacementMatcher<Int64AddMatcher>
     BaseWithIndexAndDisplacement64Matcher;
+
+struct BranchMatcher : public NodeMatcher {
+  explicit BranchMatcher(Node* branch);
+
+  bool Matched() const { return if_true_ && if_false_; }
+
+  Node* Branch() const { return node(); }
+  Node* IfTrue() const { return if_true_; }
+  Node* IfFalse() const { return if_false_; }
+
+ private:
+  Node* if_true_;
+  Node* if_false_;
+};
+
+
+struct DiamondMatcher : public NodeMatcher {
+  explicit DiamondMatcher(Node* merge);
+
+  bool Matched() const { return branch_; }
+  bool IfProjectionsAreOwned() const {
+    return if_true_->OwnedBy(node()) && if_false_->OwnedBy(node());
+  }
+
+  Node* Branch() const { return branch_; }
+  Node* IfTrue() const { return if_true_; }
+  Node* IfFalse() const { return if_false_; }
+  Node* Merge() const { return node(); }
+
+  Node* TrueInputOf(Node* phi) const {
+    DCHECK(IrOpcode::IsPhiOpcode(phi->opcode()));
+    DCHECK_EQ(3, phi->InputCount());
+    DCHECK_EQ(Merge(), phi->InputAt(2));
+    return phi->InputAt(if_true_ == Merge()->InputAt(0) ? 0 : 1);
+  }
+
+  Node* FalseInputOf(Node* phi) const {
+    DCHECK(IrOpcode::IsPhiOpcode(phi->opcode()));
+    DCHECK_EQ(3, phi->InputCount());
+    DCHECK_EQ(Merge(), phi->InputAt(2));
+    return phi->InputAt(if_true_ == Merge()->InputAt(0) ? 1 : 0);
+  }
+
+ private:
+  Node* branch_;
+  Node* if_true_;
+  Node* if_false_;
+};
 
 }  // namespace compiler
 }  // namespace internal

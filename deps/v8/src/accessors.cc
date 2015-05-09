@@ -6,7 +6,6 @@
 
 #include "src/accessors.h"
 #include "src/api.h"
-#include "src/compiler.h"
 #include "src/contexts.h"
 #include "src/deoptimizer.h"
 #include "src/execution.h"
@@ -14,6 +13,7 @@
 #include "src/frames-inl.h"
 #include "src/isolate.h"
 #include "src/list-inl.h"
+#include "src/messages.h"
 #include "src/property-details.h"
 #include "src/prototype.h"
 
@@ -70,59 +70,60 @@ static V8_INLINE bool CheckForName(Handle<Name> name,
 
 // Returns true for properties that are accessors to object fields.
 // If true, *object_offset contains offset of object field.
-template <class T>
-bool Accessors::IsJSObjectFieldAccessor(typename T::TypeHandle type,
-                                        Handle<Name> name,
+bool Accessors::IsJSObjectFieldAccessor(Handle<Map> map, Handle<Name> name,
                                         int* object_offset) {
   Isolate* isolate = name->GetIsolate();
-
-  if (type->Is(T::String())) {
-    return CheckForName(name, isolate->factory()->length_string(),
-                        String::kLengthOffset, object_offset);
-  }
-
-  if (!type->IsClass()) return false;
-  Handle<Map> map = type->AsClass()->Map();
 
   switch (map->instance_type()) {
     case JS_ARRAY_TYPE:
       return
         CheckForName(name, isolate->factory()->length_string(),
                      JSArray::kLengthOffset, object_offset);
-    case JS_TYPED_ARRAY_TYPE:
-      return
-        CheckForName(name, isolate->factory()->length_string(),
-                     JSTypedArray::kLengthOffset, object_offset) ||
-        CheckForName(name, isolate->factory()->byte_length_string(),
-                     JSTypedArray::kByteLengthOffset, object_offset) ||
-        CheckForName(name, isolate->factory()->byte_offset_string(),
-                     JSTypedArray::kByteOffsetOffset, object_offset);
     case JS_ARRAY_BUFFER_TYPE:
-      return
-        CheckForName(name, isolate->factory()->byte_length_string(),
-                     JSArrayBuffer::kByteLengthOffset, object_offset);
-    case JS_DATA_VIEW_TYPE:
-      return
-        CheckForName(name, isolate->factory()->byte_length_string(),
-                     JSDataView::kByteLengthOffset, object_offset) ||
-        CheckForName(name, isolate->factory()->byte_offset_string(),
-                     JSDataView::kByteOffsetOffset, object_offset);
+      return CheckForName(name, isolate->factory()->byte_length_string(),
+                          JSArrayBuffer::kByteLengthOffset, object_offset);
     default:
+      if (map->instance_type() < FIRST_NONSTRING_TYPE) {
+        return CheckForName(name, isolate->factory()->length_string(),
+                            String::kLengthOffset, object_offset);
+      }
+
       return false;
   }
 }
 
 
-template
-bool Accessors::IsJSObjectFieldAccessor<Type>(Type* type,
-                                              Handle<Name> name,
-                                              int* object_offset);
+bool Accessors::IsJSArrayBufferViewFieldAccessor(Handle<Map> map,
+                                                 Handle<Name> name,
+                                                 int* object_offset) {
+  Isolate* isolate = name->GetIsolate();
 
+  switch (map->instance_type()) {
+    case JS_TYPED_ARRAY_TYPE:
+      // %TypedArray%.prototype is non-configurable, and so are the following
+      // named properties on %TypedArray%.prototype, so we can directly inline
+      // the field-load for typed array maps that still use their
+      // %TypedArray%.prototype.
+      if (JSFunction::cast(map->GetConstructor())->prototype() !=
+          map->prototype()) {
+        return false;
+      }
+      return CheckForName(name, isolate->factory()->length_string(),
+                          JSTypedArray::kLengthOffset, object_offset) ||
+             CheckForName(name, isolate->factory()->byte_length_string(),
+                          JSTypedArray::kByteLengthOffset, object_offset) ||
+             CheckForName(name, isolate->factory()->byte_offset_string(),
+                          JSTypedArray::kByteOffsetOffset, object_offset);
 
-template
-bool Accessors::IsJSObjectFieldAccessor<HeapType>(Handle<HeapType> type,
-                                                  Handle<Name> name,
-                                                  int* object_offset);
+    case JS_DATA_VIEW_TYPE:
+      return CheckForName(name, isolate->factory()->byte_length_string(),
+                          JSDataView::kByteLengthOffset, object_offset) ||
+             CheckForName(name, isolate->factory()->byte_offset_string(),
+                          JSDataView::kByteOffsetOffset, object_offset);
+    default:
+      return false;
+  }
+}
 
 
 bool SetPropertyOnInstanceIfInherited(
@@ -260,14 +261,8 @@ void Accessors::ArrayLengthSetter(
     return;
   }
 
-  Handle<Object> exception;
-  maybe = isolate->factory()->NewRangeError("invalid_array_length",
-                                            HandleVector<Object>(NULL, 0));
-  if (!maybe.ToHandle(&exception)) {
-    isolate->OptionalRescheduleException(false);
-    return;
-  }
-
+  Handle<Object> exception =
+      isolate->factory()->NewRangeError(MessageTemplate::kInvalidArrayLength);
   isolate->ScheduleThrow(*exception);
 }
 
@@ -325,98 +320,6 @@ Handle<AccessorInfo> Accessors::StringLengthInfo(
                       &StringLengthGetter,
                       &StringLengthSetter,
                       attributes);
-}
-
-
-template <typename Char>
-inline int CountRequiredEscapes(Handle<String> source) {
-  DisallowHeapAllocation no_gc;
-  int escapes = 0;
-  Vector<const Char> src = source->GetCharVector<Char>();
-  for (int i = 0; i < src.length(); i++) {
-    if (src[i] == '/' && (i == 0 || src[i - 1] != '\\')) escapes++;
-  }
-  return escapes;
-}
-
-
-template <typename Char, typename StringType>
-inline Handle<StringType> WriteEscapedRegExpSource(Handle<String> source,
-                                                   Handle<StringType> result) {
-  DisallowHeapAllocation no_gc;
-  Vector<const Char> src = source->GetCharVector<Char>();
-  Vector<Char> dst(result->GetChars(), result->length());
-  int s = 0;
-  int d = 0;
-  while (s < src.length()) {
-    if (src[s] == '/' && (s == 0 || src[s - 1] != '\\')) dst[d++] = '\\';
-    dst[d++] = src[s++];
-  }
-  DCHECK_EQ(result->length(), d);
-  return result;
-}
-
-
-MaybeHandle<String> EscapeRegExpSource(Isolate* isolate,
-                                       Handle<String> source) {
-  String::Flatten(source);
-  if (source->length() == 0) return isolate->factory()->query_colon_string();
-  bool one_byte = source->IsOneByteRepresentationUnderneath();
-  int escapes = one_byte ? CountRequiredEscapes<uint8_t>(source)
-                         : CountRequiredEscapes<uc16>(source);
-  if (escapes == 0) return source;
-  int length = source->length() + escapes;
-  if (one_byte) {
-    Handle<SeqOneByteString> result;
-    ASSIGN_RETURN_ON_EXCEPTION(isolate, result,
-                               isolate->factory()->NewRawOneByteString(length),
-                               String);
-    return WriteEscapedRegExpSource<uint8_t>(source, result);
-  } else {
-    Handle<SeqTwoByteString> result;
-    ASSIGN_RETURN_ON_EXCEPTION(isolate, result,
-                               isolate->factory()->NewRawTwoByteString(length),
-                               String);
-    return WriteEscapedRegExpSource<uc16>(source, result);
-  }
-}
-
-
-// Implements ECMA262 ES6 draft 21.2.5.9
-void Accessors::RegExpSourceGetter(
-    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
-  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
-  HandleScope scope(isolate);
-
-  Handle<Object> holder =
-      Utils::OpenHandle(*v8::Local<v8::Value>(info.Holder()));
-  Handle<JSRegExp> regexp = Handle<JSRegExp>::cast(holder);
-  Handle<String> result;
-  if (regexp->TypeTag() == JSRegExp::NOT_COMPILED) {
-    result = isolate->factory()->empty_string();
-  } else {
-    Handle<String> pattern(regexp->Pattern(), isolate);
-    MaybeHandle<String> maybe = EscapeRegExpSource(isolate, pattern);
-    if (!maybe.ToHandle(&result)) {
-      isolate->OptionalRescheduleException(false);
-      return;
-    }
-  }
-  info.GetReturnValue().Set(Utils::ToLocal(result));
-}
-
-
-void Accessors::RegExpSourceSetter(v8::Local<v8::Name> name,
-                                   v8::Local<v8::Value> value,
-                                   const v8::PropertyCallbackInfo<void>& info) {
-  UNREACHABLE();
-}
-
-
-Handle<AccessorInfo> Accessors::RegExpSourceInfo(
-    Isolate* isolate, PropertyAttributes attributes) {
-  return MakeAccessor(isolate, isolate->factory()->source_string(),
-                      &RegExpSourceGetter, &RegExpSourceSetter, attributes);
 }
 
 
@@ -1119,12 +1022,52 @@ void Accessors::FunctionLengthGetter(
 }
 
 
+MUST_USE_RESULT static MaybeHandle<Object> ReplaceAccessorWithDataProperty(
+    Isolate* isolate, Handle<JSObject> object, Handle<Name> name,
+    Handle<Object> value, bool is_observed, Handle<Object> old_value) {
+  LookupIterator it(object, name);
+  CHECK_EQ(LookupIterator::ACCESSOR, it.state());
+  DCHECK(it.HolderIsReceiverOrHiddenPrototype());
+  it.ReconfigureDataProperty(value, it.property_details().attributes());
+  it.WriteDataValue(value);
+
+  if (is_observed && !old_value->SameValue(*value)) {
+    return JSObject::EnqueueChangeRecord(object, "update", name, old_value);
+  }
+
+  return value;
+}
+
+
+MUST_USE_RESULT static MaybeHandle<Object> SetFunctionLength(
+    Isolate* isolate, Handle<JSFunction> function, Handle<Object> value) {
+  Handle<Object> old_value;
+  bool is_observed = function->map()->is_observed();
+  if (is_observed) {
+    old_value = handle(Smi::FromInt(function->shared()->length()), isolate);
+  }
+
+  return ReplaceAccessorWithDataProperty(isolate, function,
+                                         isolate->factory()->length_string(),
+                                         value, is_observed, old_value);
+}
+
+
 void Accessors::FunctionLengthSetter(
     v8::Local<v8::Name> name,
     v8::Local<v8::Value> val,
     const v8::PropertyCallbackInfo<void>& info) {
-  // Function length is non writable, non configurable.
-  UNREACHABLE();
+  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
+  HandleScope scope(isolate);
+  Handle<Object> value = Utils::OpenHandle(*val);
+
+  if (SetPropertyOnInstanceIfInherited(isolate, info, name, value)) return;
+
+  Handle<JSFunction> object =
+      Handle<JSFunction>::cast(Utils::OpenHandle(*info.Holder()));
+  if (SetFunctionLength(isolate, object, value).is_null()) {
+    isolate->OptionalRescheduleException(false);
+  }
 }
 
 
@@ -1155,12 +1098,35 @@ void Accessors::FunctionNameGetter(
 }
 
 
+MUST_USE_RESULT static MaybeHandle<Object> SetFunctionName(
+    Isolate* isolate, Handle<JSFunction> function, Handle<Object> value) {
+  Handle<Object> old_value;
+  bool is_observed = function->map()->is_observed();
+  if (is_observed) {
+    old_value = handle(function->shared()->name(), isolate);
+  }
+
+  return ReplaceAccessorWithDataProperty(isolate, function,
+                                         isolate->factory()->name_string(),
+                                         value, is_observed, old_value);
+}
+
+
 void Accessors::FunctionNameSetter(
     v8::Local<v8::Name> name,
     v8::Local<v8::Value> val,
     const v8::PropertyCallbackInfo<void>& info) {
-  // Function name is non writable, non configurable.
-  UNREACHABLE();
+  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
+  HandleScope scope(isolate);
+  Handle<Object> value = Utils::OpenHandle(*val);
+
+  if (SetPropertyOnInstanceIfInherited(isolate, info, name, value)) return;
+
+  Handle<JSFunction> object =
+      Handle<JSFunction>::cast(Utils::OpenHandle(*info.Holder()));
+  if (SetFunctionName(isolate, object, value).is_null()) {
+    isolate->OptionalRescheduleException(false);
+  }
 }
 
 
@@ -1186,9 +1152,8 @@ static Handle<Object> ArgumentsForInlinedFunction(
   Isolate* isolate = inlined_function->GetIsolate();
   Factory* factory = isolate->factory();
   SlotRefValueBuilder slot_refs(
-      frame,
-      inlined_frame_index,
-      inlined_function->shared()->formal_parameter_count());
+      frame, inlined_frame_index,
+      inlined_function->shared()->internal_formal_parameter_count());
 
   int args_count = slot_refs.args_length();
   Handle<JSObject> arguments =
@@ -1478,14 +1443,8 @@ static void ModuleGetExport(
   if (value->IsTheHole()) {
     Handle<String> name = v8::Utils::OpenHandle(*property);
 
-    Handle<Object> exception;
-    MaybeHandle<Object> maybe = isolate->factory()->NewReferenceError(
-        "not_defined", HandleVector(&name, 1));
-    if (!maybe.ToHandle(&exception)) {
-      isolate->OptionalRescheduleException(false);
-      return;
-    }
-
+    Handle<Object> exception = isolate->factory()->NewReferenceError(
+        MessageTemplate::kNotDefined, name);
     isolate->ScheduleThrow(*exception);
     return;
   }
@@ -1505,14 +1464,8 @@ static void ModuleSetExport(
   Isolate* isolate = context->GetIsolate();
   if (old_value->IsTheHole()) {
     Handle<String> name = v8::Utils::OpenHandle(*property);
-    Handle<Object> exception;
-    MaybeHandle<Object> maybe = isolate->factory()->NewReferenceError(
-        "not_defined", HandleVector(&name, 1));
-    if (!maybe.ToHandle(&exception)) {
-      isolate->OptionalRescheduleException(false);
-      return;
-    }
-
+    Handle<Object> exception = isolate->factory()->NewReferenceError(
+        MessageTemplate::kNotDefined, name);
     isolate->ScheduleThrow(*exception);
     return;
   }

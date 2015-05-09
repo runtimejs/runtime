@@ -115,7 +115,7 @@ void Deoptimizer::CopyDoubleRegisters(FrameDescription* output_frame) {
 
 #define __ masm()->
 
-void Deoptimizer::EntryGenerator::Generate() {
+void Deoptimizer::TableEntryGenerator::Generate() {
   GeneratePrologue();
 
   // TODO(all): This code needs to be revisited. We probably only need to save
@@ -131,6 +131,9 @@ void Deoptimizer::EntryGenerator::Generate() {
   CPURegList saved_registers(CPURegister::kRegister, kXRegSizeInBits, 0, 27);
   saved_registers.Combine(fp);
   __ PushCPURegList(saved_registers);
+
+  __ Mov(x3, Operand(ExternalReference(Isolate::kCEntryFPAddress, isolate())));
+  __ Str(fp, MemOperand(x3));
 
   const int kSavedRegistersAreaSize =
       (saved_registers.Count() * kXRegSize) +

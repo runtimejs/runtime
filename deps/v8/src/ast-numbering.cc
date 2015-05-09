@@ -6,18 +6,19 @@
 
 #include "src/ast.h"
 #include "src/ast-numbering.h"
-#include "src/compiler.h"
 #include "src/scopes.h"
 
 namespace v8 {
 namespace internal {
 
 
-class AstNumberingVisitor FINAL : public AstVisitor {
+class AstNumberingVisitor final : public AstVisitor {
  public:
   explicit AstNumberingVisitor(Isolate* isolate, Zone* zone)
       : AstVisitor(),
         next_id_(BailoutId::FirstUsable().ToInt()),
+        properties_(zone),
+        ic_slot_cache_(FLAG_vector_ics ? 4 : 0),
         dont_optimize_reason_(kNoReason) {
     InitializeAstVisitor(isolate, zone);
   }
@@ -26,14 +27,14 @@ class AstNumberingVisitor FINAL : public AstVisitor {
 
  private:
 // AST node visitor interface.
-#define DEFINE_VISIT(type) virtual void Visit##type(type* node) OVERRIDE;
+#define DEFINE_VISIT(type) virtual void Visit##type(type* node) override;
   AST_NODE_LIST(DEFINE_VISIT)
 #undef DEFINE_VISIT
 
   bool Finish(FunctionLiteral* node);
 
-  void VisitStatements(ZoneList<Statement*>* statements) OVERRIDE;
-  void VisitDeclarations(ZoneList<Declaration*>* declarations) OVERRIDE;
+  void VisitStatements(ZoneList<Statement*>* statements) override;
+  void VisitDeclarations(ZoneList<Declaration*>* declarations) override;
   void VisitArguments(ZoneList<Expression*>* arguments);
   void VisitObjectLiteralProperty(ObjectLiteralProperty* property);
 
@@ -60,14 +61,15 @@ class AstNumberingVisitor FINAL : public AstVisitor {
   template <typename Node>
   void ReserveFeedbackSlots(Node* node) {
     FeedbackVectorRequirements reqs =
-        node->ComputeFeedbackRequirements(isolate());
+        node->ComputeFeedbackRequirements(isolate(), &ic_slot_cache_);
     if (reqs.slots() > 0) {
       node->SetFirstFeedbackSlot(FeedbackVectorSlot(properties_.slots()));
       properties_.increase_slots(reqs.slots());
     }
     if (reqs.ic_slots() > 0) {
       int ic_slots = properties_.ic_slots();
-      node->SetFirstFeedbackICSlot(FeedbackVectorICSlot(ic_slots));
+      node->SetFirstFeedbackICSlot(FeedbackVectorICSlot(ic_slots),
+                                   &ic_slot_cache_);
       properties_.increase_ic_slots(reqs.ic_slots());
       if (FLAG_vector_ics) {
         for (int i = 0; i < reqs.ic_slots(); i++) {
@@ -81,6 +83,9 @@ class AstNumberingVisitor FINAL : public AstVisitor {
 
   int next_id_;
   AstProperties properties_;
+  // The slot cache allows us to reuse certain vector IC slots. It's only used
+  // if FLAG_vector_ics is true.
+  ICSlotCache ic_slot_cache_;
   BailoutReason dont_optimize_reason_;
 
   DEFINE_AST_VISITOR_SUBCLASS_MEMBERS();
@@ -98,12 +103,6 @@ void AstNumberingVisitor::VisitExportDeclaration(ExportDeclaration* node) {
   IncrementNodeCount();
   DisableOptimization(kExportDeclaration);
   VisitVariableProxy(node->proxy());
-}
-
-
-void AstNumberingVisitor::VisitModuleUrl(ModuleUrl* node) {
-  IncrementNodeCount();
-  DisableOptimization(kModuleUrl);
 }
 
 
@@ -174,40 +173,10 @@ void AstNumberingVisitor::VisitSuperReference(SuperReference* node) {
 }
 
 
-void AstNumberingVisitor::VisitModuleDeclaration(ModuleDeclaration* node) {
-  IncrementNodeCount();
-  DisableOptimization(kModuleDeclaration);
-  VisitVariableProxy(node->proxy());
-  Visit(node->module());
-}
-
-
 void AstNumberingVisitor::VisitImportDeclaration(ImportDeclaration* node) {
   IncrementNodeCount();
   DisableOptimization(kImportDeclaration);
   VisitVariableProxy(node->proxy());
-  Visit(node->module());
-}
-
-
-void AstNumberingVisitor::VisitModuleVariable(ModuleVariable* node) {
-  IncrementNodeCount();
-  DisableOptimization(kModuleVariable);
-  Visit(node->proxy());
-}
-
-
-void AstNumberingVisitor::VisitModulePath(ModulePath* node) {
-  IncrementNodeCount();
-  DisableOptimization(kModulePath);
-  Visit(node->module());
-}
-
-
-void AstNumberingVisitor::VisitModuleStatement(ModuleStatement* node) {
-  IncrementNodeCount();
-  DisableOptimization(kModuleStatement);
-  Visit(node->body());
 }
 
 
@@ -266,13 +235,6 @@ void AstNumberingVisitor::VisitFunctionDeclaration(FunctionDeclaration* node) {
   IncrementNodeCount();
   VisitVariableProxy(node->proxy());
   VisitFunctionLiteral(node->fun());
-}
-
-
-void AstNumberingVisitor::VisitModuleLiteral(ModuleLiteral* node) {
-  IncrementNodeCount();
-  DisableCaching(kModuleLiteral);
-  VisitBlock(node->body());
 }
 
 
@@ -363,6 +325,9 @@ void AstNumberingVisitor::VisitCompareOperation(CompareOperation* node) {
   Visit(node->left());
   Visit(node->right());
 }
+
+
+void AstNumberingVisitor::VisitSpread(Spread* node) { UNREACHABLE(); }
 
 
 void AstNumberingVisitor::VisitForInStatement(ForInStatement* node) {

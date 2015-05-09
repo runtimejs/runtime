@@ -131,7 +131,7 @@ bool Deoptimizer::HasAlignmentPadding(JSFunction* function) {
 
 // This code tries to be close to ia32 code so that any changes can be
 // easily ported.
-void Deoptimizer::EntryGenerator::Generate() {
+void Deoptimizer::TableEntryGenerator::Generate() {
   GeneratePrologue();
 
   // Unlike on ARM we don't save all the registers, just the useful ones.
@@ -160,6 +160,9 @@ void Deoptimizer::EntryGenerator::Generate() {
       __ sd(ToRegister(i), MemOperand(sp, kPointerSize * i));
     }
   }
+
+  __ li(a2, Operand(ExternalReference(Isolate::kCEntryFPAddress, isolate())));
+  __ sd(fp, MemOperand(a2));
 
   const int kSavedRegistersAreaSize =
       (kNumberOfRegisters * kPointerSize) + kDoubleRegsSize;
@@ -269,12 +272,12 @@ void Deoptimizer::EntryGenerator::Generate() {
   __ ld(a4, MemOperand(a0, Deoptimizer::output_offset()));  // a4 is output_.
   __ dsll(a1, a1, kPointerSizeLog2);  // Count to offset.
   __ daddu(a1, a4, a1);  // a1 = one past the last FrameDescription**.
-  __ jmp(&outer_loop_header);
+  __ BranchShort(&outer_loop_header);
   __ bind(&outer_push_loop);
   // Inner loop state: a2 = current FrameDescription*, a3 = loop index.
   __ ld(a2, MemOperand(a4, 0));  // output_[ix]
   __ ld(a3, MemOperand(a2, FrameDescription::frame_size_offset()));
-  __ jmp(&inner_loop_header);
+  __ BranchShort(&inner_loop_header);
   __ bind(&inner_push_loop);
   __ Dsubu(a3, a3, Operand(sizeof(uint64_t)));
   __ Daddu(a6, a2, Operand(a3));
@@ -326,39 +329,66 @@ void Deoptimizer::EntryGenerator::Generate() {
 
 
 // Maximum size of a table entry generated below.
-const int Deoptimizer::table_entry_size_ = 11 * Assembler::kInstrSize;
+const int Deoptimizer::table_entry_size_ = 2 * Assembler::kInstrSize;
 
 void Deoptimizer::TableEntryGenerator::GeneratePrologue() {
   Assembler::BlockTrampolinePoolScope block_trampoline_pool(masm());
 
   // Create a sequence of deoptimization entries.
   // Note that registers are still live when jumping to an entry.
-  Label table_start;
+  Label table_start, done, done_special, trampoline_jump;
   __ bind(&table_start);
-  for (int i = 0; i < count(); i++) {
-    Label start;
-    __ bind(&start);
-    __ daddiu(sp, sp, -1 * kPointerSize);
-    // Jump over the remaining deopt entries (including this one).
-    // This code is always reached by calling Jump, which puts the target (label
-    // start) into t9.
-    const int remaining_entries = (count() - i) * table_entry_size_;
-    __ Daddu(t9, t9, remaining_entries);
-    // 'at' was clobbered so we can only load the current entry value here.
-    __ li(t8, i);
-    __ jr(t9);  // Expose delay slot.
-    __ sd(t8, MemOperand(sp, 0 * kPointerSize));  // In the delay slot.
+  int kMaxEntriesBranchReach =
+      (1 << (kImm16Bits - 2)) / (table_entry_size_ / Assembler::kInstrSize);
 
-    // Pad the rest of the code.
-    while (table_entry_size_ > (masm()->SizeOfCodeGeneratedSince(&start))) {
-      __ nop();
+  if (count() <= kMaxEntriesBranchReach) {
+    // Common case.
+    for (int i = 0; i < count(); i++) {
+      Label start;
+      __ bind(&start);
+      DCHECK(is_int16(i));
+      __ BranchShort(USE_DELAY_SLOT, &done);  // Expose delay slot.
+      __ li(at, i);                      // In the delay slot.
+
+      DCHECK_EQ(table_entry_size_, masm()->SizeOfCodeGeneratedSince(&start));
     }
 
-    DCHECK_EQ(table_entry_size_, masm()->SizeOfCodeGeneratedSince(&start));
-  }
+    DCHECK_EQ(masm()->SizeOfCodeGeneratedSince(&table_start),
+              count() * table_entry_size_);
+    __ bind(&done);
+    __ Push(at);
+  } else {
+    // Uncommon case, the branch cannot reach.
+    // Create mini trampoline and adjust id constants to get proper value at
+    // the end of table.
+    for (int i = kMaxEntriesBranchReach; i > 1; i--) {
+      Label start;
+      __ bind(&start);
+      DCHECK(is_int16(i));
+      __ BranchShort(USE_DELAY_SLOT, &trampoline_jump);  // Expose delay slot.
+      __ li(at, -i);                                // In the delay slot.
+      DCHECK_EQ(table_entry_size_, masm()->SizeOfCodeGeneratedSince(&start));
+    }
+    // Entry with id == kMaxEntriesBranchReach - 1.
+    __ bind(&trampoline_jump);
+    __ BranchShort(USE_DELAY_SLOT, &done_special);
+    __ li(at, -1);
 
-  DCHECK_EQ(masm()->SizeOfCodeGeneratedSince(&table_start),
-      count() * table_entry_size_);
+    for (int i = kMaxEntriesBranchReach; i < count(); i++) {
+      Label start;
+      __ bind(&start);
+      DCHECK(is_int16(i));
+      __ Branch(USE_DELAY_SLOT, &done);  // Expose delay slot.
+      __ li(at, i);                      // In the delay slot.
+    }
+
+    DCHECK_EQ(masm()->SizeOfCodeGeneratedSince(&table_start),
+              count() * table_entry_size_);
+    __ bind(&done_special);
+    __ daddiu(at, at, kMaxEntriesBranchReach);
+    __ bind(&done);
+    __ Push(at);
+  }
 }
 
 

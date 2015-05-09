@@ -200,8 +200,8 @@ def _CommonChecks(input_api, output_api):
 
 def _SkipTreeCheck(input_api, output_api):
   """Check the env var whether we want to skip tree check.
-     Only skip if src/version.cc has been updated."""
-  src_version = 'src/version.cc'
+     Only skip if include/v8-version.h has been updated."""
+  src_version = 'include/v8-version.h'
   FilterFile = lambda file: file.LocalPath() == src_version
   if not input_api.AffectedSourceFiles(
       lambda file: file.LocalPath() == src_version):
@@ -244,14 +244,21 @@ def GetPreferredTryMasters(project, change):
   return {
     'tryserver.v8': {
       'v8_linux_rel': set(['defaulttests']),
+      'v8_linux_dbg': set(['defaulttests']),
+      'v8_linux_nodcheck_rel': set(['defaulttests']),
+      'v8_linux_gcc_compile_rel': set(['defaulttests']),
       'v8_linux64_rel': set(['defaulttests']),
       'v8_linux64_asan_rel': set(['defaulttests']),
+      'v8_linux64_avx2_rel': set(['defaulttests']),
       'v8_win_rel': set(['defaulttests']),
       'v8_win_compile_dbg': set(['defaulttests']),
+      'v8_win_nosnap_shared_compile_rel': set(['defaulttests']),
       'v8_win64_rel': set(['defaulttests']),
       'v8_mac_rel': set(['defaulttests']),
       'v8_linux_arm_rel': set(['defaulttests']),
       'v8_linux_arm64_rel': set(['defaulttests']),
+      'v8_linux_mipsel_compile_rel': set(['defaulttests']),
+      'v8_linux_mips64el_compile_rel': set(['defaulttests']),
       'v8_android_arm_compile_rel': set(['defaulttests']),
       'v8_linux_chromium_gn_rel': set(['defaulttests']),
     },

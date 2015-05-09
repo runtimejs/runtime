@@ -17,12 +17,12 @@
 #include "src/hydrogen.h"
 #include "src/isolate.h"
 #include "src/lithium-allocator.h"
-#include "src/natives.h"
 #include "src/objects.h"
 #include "src/runtime-profiler.h"
 #include "src/sampler.h"
-#include "src/serialize.h"
-#include "src/snapshot.h"
+#include "src/snapshot/natives.h"
+#include "src/snapshot/serialize.h"
+#include "src/snapshot/snapshot.h"
 
 
 namespace v8 {
@@ -75,6 +75,11 @@ void V8::InitializeOncePerProcessImpl() {
     FLAG_force_marking_deque_overflows = true;
     FLAG_gc_global = true;
     FLAG_max_semi_space_size = 1;
+  }
+
+  if (FLAG_turbo && strcmp(FLAG_turbo_filter, "~~") == 0) {
+    const char* filter_flag = "--turbo-filter=*";
+    FlagList::SetFlagsFromString(filter_flag, StrLength(filter_flag));
   }
 
   base::OS::Initialize(FLAG_random_seed, FLAG_hard_abort, FLAG_gc_fake_mmap);

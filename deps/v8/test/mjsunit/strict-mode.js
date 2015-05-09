@@ -25,8 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --turbo-deoptimization --noharmony-scoping
-// Flags: --noharmony-classes --noharmony-object-literals
+// Flags: --turbo-deoptimization
 
 function CheckStrictMode(code, exception) {
   assertDoesNotThrow(code);
@@ -286,19 +285,6 @@ CheckStrictMode("function strict() { print(--eval); }", SyntaxError);
 CheckStrictMode("function strict() { print(--arguments); }", SyntaxError);
 CheckStrictMode("function strict() { var x = --eval; }", SyntaxError);
 CheckStrictMode("function strict() { var x = --arguments; }", SyntaxError);
-
-// Use of const in strict mode is disallowed in anticipation of ES Harmony.
-CheckStrictMode("const x = 0;", SyntaxError);
-CheckStrictMode("for (const x = 0; false;) {}", SyntaxError);
-CheckStrictMode("function strict() { const x = 0; }", SyntaxError);
-
-// Strict mode only allows functions in StatementList
-CheckStrictMode("if (true) { function invalid() {} }", SyntaxError);
-CheckStrictMode("for (;false;) { function invalid() {} }", SyntaxError);
-CheckStrictMode("{ function invalid() {} }", SyntaxError);
-CheckStrictMode("try { function invalid() {} } catch(e) {}", SyntaxError);
-CheckStrictMode("try { } catch(e) { function invalid() {} }", SyntaxError);
-CheckStrictMode("function outer() {{ function invalid() {} }}", SyntaxError);
 
 // Delete of an unqualified identifier
 CheckStrictMode("delete unqualified;", SyntaxError);
@@ -1024,7 +1010,35 @@ repeat(10, function() {
 })();
 
 
-function CheckPillDescriptor(func, name) {
+function CheckFunctionPillDescriptor(func, name) {
+
+  function CheckPill(pill) {
+    assertEquals("function", typeof pill);
+    assertInstanceof(pill, Function);
+    pill.property = "value";
+    assertEquals(pill.value, undefined);
+    assertThrows(function() { 'use strict'; pill.property = "value"; },
+                 TypeError);
+    assertThrows(pill, TypeError);
+    assertEquals(pill.prototype, (function(){}).prototype);
+    var d = Object.getOwnPropertyDescriptor(pill, "prototype");
+    assertFalse(d.writable);
+    assertFalse(d.configurable);
+    assertFalse(d.enumerable);
+  }
+
+  // Poisoned accessors are no longer own properties
+  func = Object.getPrototypeOf(func);
+  var descriptor = Object.getOwnPropertyDescriptor(func, name);
+  CheckPill(descriptor.get)
+  CheckPill(descriptor.set);
+  assertFalse(descriptor.enumerable);
+  // In ES6, restricted function properties are configurable
+  assertTrue(descriptor.configurable);
+}
+
+
+function CheckArgumentsPillDescriptor(func, name) {
 
   function CheckPill(pill) {
     assertEquals("function", typeof pill);
@@ -1070,12 +1084,12 @@ function CheckPillDescriptor(func, name) {
   assertThrows(function() { third.caller = 42; }, TypeError);
   assertThrows(function() { third.arguments = 42; }, TypeError);
 
-  CheckPillDescriptor(strict, "caller");
-  CheckPillDescriptor(strict, "arguments");
-  CheckPillDescriptor(another, "caller");
-  CheckPillDescriptor(another, "arguments");
-  CheckPillDescriptor(third, "caller");
-  CheckPillDescriptor(third, "arguments");
+  CheckFunctionPillDescriptor(strict, "caller");
+  CheckFunctionPillDescriptor(strict, "arguments");
+  CheckFunctionPillDescriptor(another, "caller");
+  CheckFunctionPillDescriptor(another, "arguments");
+  CheckFunctionPillDescriptor(third, "caller");
+  CheckFunctionPillDescriptor(third, "arguments");
 })();
 
 
@@ -1107,15 +1121,15 @@ function CheckPillDescriptor(func, name) {
   }
 
   var args = strict();
-  CheckPillDescriptor(args, "caller");
-  CheckPillDescriptor(args, "callee");
+  CheckArgumentsPillDescriptor(args, "caller");
+  CheckArgumentsPillDescriptor(args, "callee");
 
   args = strict(17, "value", strict);
   assertEquals(17, args[0])
   assertEquals("value", args[1])
   assertEquals(strict, args[2]);
-  CheckPillDescriptor(args, "caller");
-  CheckPillDescriptor(args, "callee");
+  CheckArgumentsPillDescriptor(args, "caller");
+  CheckArgumentsPillDescriptor(args, "callee");
 
   function outer() {
     "use strict";
@@ -1126,15 +1140,15 @@ function CheckPillDescriptor(func, name) {
   }
 
   var args = outer()();
-  CheckPillDescriptor(args, "caller");
-  CheckPillDescriptor(args, "callee");
+  CheckArgumentsPillDescriptor(args, "caller");
+  CheckArgumentsPillDescriptor(args, "callee");
 
   args = outer()(17, "value", strict);
   assertEquals(17, args[0])
   assertEquals("value", args[1])
   assertEquals(strict, args[2]);
-  CheckPillDescriptor(args, "caller");
-  CheckPillDescriptor(args, "callee");
+  CheckArgumentsPillDescriptor(args, "caller");
+  CheckArgumentsPillDescriptor(args, "callee");
 })();
 
 

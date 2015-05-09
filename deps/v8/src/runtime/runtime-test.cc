@@ -7,8 +7,8 @@
 #include "src/arguments.h"
 #include "src/deoptimizer.h"
 #include "src/full-codegen.h"
-#include "src/natives.h"
 #include "src/runtime/runtime-utils.h"
+#include "src/snapshot/natives.h"
 
 namespace v8 {
 namespace internal {
@@ -17,6 +17,36 @@ RUNTIME_FUNCTION(Runtime_DeoptimizeFunction) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
+  if (!function->IsOptimized()) return isolate->heap()->undefined_value();
+
+  // TODO(turbofan): Deoptimization is not supported yet.
+  if (function->code()->is_turbofanned() && !FLAG_turbo_deoptimization) {
+    return isolate->heap()->undefined_value();
+  }
+
+  Deoptimizer::DeoptimizeFunction(*function);
+
+  return isolate->heap()->undefined_value();
+}
+
+
+RUNTIME_FUNCTION(Runtime_DeoptimizeNow) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 0);
+
+  Handle<JSFunction> function;
+
+  // If the argument is 'undefined', deoptimize the topmost
+  // function.
+  JavaScriptFrameIterator it(isolate);
+  while (!it.done()) {
+    if (it.frame()->is_java_script()) {
+      function = Handle<JSFunction>(it.frame()->function());
+      break;
+    }
+  }
+  if (function.is_null()) return isolate->heap()->undefined_value();
+
   if (!function->IsOptimized()) return isolate->heap()->undefined_value();
 
   // TODO(turbofan): Deoptimization is not supported yet.
@@ -59,8 +89,6 @@ RUNTIME_FUNCTION(Runtime_OptimizeFunctionOnNextCall) {
                  (function->code()->kind() == Code::FUNCTION &&
                   function->code()->optimizable()));
 
-  if (!isolate->use_crankshaft()) return isolate->heap()->undefined_value();
-
   // If the function is already optimized, just return.
   if (function->IsOptimized()) return isolate->heap()->undefined_value();
 
@@ -81,10 +109,10 @@ RUNTIME_FUNCTION(Runtime_OptimizeFunctionOnNextCall) {
 
 RUNTIME_FUNCTION(Runtime_OptimizeOsr) {
   HandleScope scope(isolate);
-  RUNTIME_ASSERT(args.length() == 0);
+  RUNTIME_ASSERT(args.length() == 0 || args.length() == 1);
   Handle<JSFunction> function = Handle<JSFunction>::null();
 
-  {
+  if (args.length() == 0) {
     // Find the JavaScript function on the top of the stack.
     JavaScriptFrameIterator it(isolate);
     while (!it.done()) {
@@ -94,6 +122,10 @@ RUNTIME_FUNCTION(Runtime_OptimizeOsr) {
       }
     }
     if (function.is_null()) return isolate->heap()->undefined_value();
+  } else {
+    // Function was passed as an argument.
+    CONVERT_ARG_HANDLE_CHECKED(JSFunction, arg, 0);
+    function = arg;
   }
 
   // The following assertion was lifted from the DCHECK inside
@@ -101,8 +133,6 @@ RUNTIME_FUNCTION(Runtime_OptimizeOsr) {
   RUNTIME_ASSERT(function->shared()->allows_lazy_compilation() ||
                  (function->code()->kind() == Code::FUNCTION &&
                   function->code()->optimizable()));
-
-  if (!isolate->use_crankshaft()) return isolate->heap()->undefined_value();
 
   // If the function is already optimized, just return.
   if (function->IsOptimized()) return isolate->heap()->undefined_value();
@@ -145,15 +175,14 @@ RUNTIME_FUNCTION(Runtime_GetOptimizationStatus) {
   if (isolate->concurrent_recompilation_enabled() &&
       sync_with_compiler_thread) {
     while (function->IsInOptimizationQueue()) {
-      isolate->optimizing_compiler_thread()->InstallOptimizedFunctions();
-      base::OS::Sleep(50);
+      isolate->optimizing_compile_dispatcher()->InstallOptimizedFunctions();
+      base::OS::Sleep(base::TimeDelta::FromMilliseconds(50));
     }
   }
   if (FLAG_always_opt) {
-    // We may have always opt, but that is more best-effort than a real
-    // promise, so we still say "no" if it is not optimized.
-    return function->IsOptimized() ? Smi::FromInt(3)   // 3 == "always".
-                                   : Smi::FromInt(2);  // 2 == "no".
+    // With --always-opt, optimization status expectations might not
+    // match up, so just return a sentinel.
+    return Smi::FromInt(3);  // 3 == "always".
   }
   if (FLAG_deopt_every_n_times) {
     return Smi::FromInt(6);  // 6 == "maybe deopted".
@@ -170,7 +199,7 @@ RUNTIME_FUNCTION(Runtime_UnblockConcurrentRecompilation) {
   DCHECK(args.length() == 0);
   RUNTIME_ASSERT(FLAG_block_concurrent_recompilation);
   RUNTIME_ASSERT(isolate->concurrent_recompilation_enabled());
-  isolate->optimizing_compiler_thread()->Unblock();
+  isolate->optimizing_compile_dispatcher()->Unblock();
   return isolate->heap()->undefined_value();
 }
 
@@ -335,6 +364,12 @@ RUNTIME_FUNCTION(Runtime_NativeScriptsCount) {
 }
 
 
+RUNTIME_FUNCTION(Runtime_NativeExtrasCount) {
+  DCHECK(args.length() == 0);
+  return Smi::FromInt(ExtraNatives::GetBuiltinsCount());
+}
+
+
 // Returns V8 version as a string.
 RUNTIME_FUNCTION(Runtime_GetV8Version) {
   HandleScope scope(isolate);
@@ -343,6 +378,23 @@ RUNTIME_FUNCTION(Runtime_GetV8Version) {
   const char* version_string = v8::V8::GetVersion();
 
   return *isolate->factory()->NewStringFromAsciiChecked(version_string);
+}
+
+
+RUNTIME_FUNCTION(Runtime_DisassembleFunction) {
+  HandleScope scope(isolate);
+#ifdef DEBUG
+  DCHECK(args.length() == 1);
+  // Get the function and make sure it is compiled.
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, func, 0);
+  if (!Compiler::EnsureCompiled(func, KEEP_EXCEPTION)) {
+    return isolate->heap()->exception();
+  }
+  OFStream os(stdout);
+  func->code()->Print(os);
+  os << std::endl;
+#endif  // DEBUG
+  return isolate->heap()->undefined_value();
 }
 
 

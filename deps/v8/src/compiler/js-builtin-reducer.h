@@ -18,21 +18,17 @@ class JSGraph;
 class MachineOperatorBuilder;
 
 
-class JSBuiltinReducer FINAL : public Reducer {
+class JSBuiltinReducer final : public Reducer {
  public:
   explicit JSBuiltinReducer(JSGraph* jsgraph);
-  ~JSBuiltinReducer() FINAL {}
+  ~JSBuiltinReducer() final {}
 
-  Reduction Reduce(Node* node) FINAL;
+  Reduction Reduce(Node* node) final;
 
  private:
-  Reduction ReduceMathAbs(Node* node);
-  Reduction ReduceMathSqrt(Node* node);
   Reduction ReduceMathMax(Node* node);
   Reduction ReduceMathImul(Node* node);
   Reduction ReduceMathFround(Node* node);
-  Reduction ReduceMathFloor(Node* node);
-  Reduction ReduceMathCeil(Node* node);
 
   JSGraph* jsgraph() const { return jsgraph_; }
   Graph* graph() const;

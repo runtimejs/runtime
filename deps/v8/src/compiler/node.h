@@ -39,7 +39,7 @@ typedef int32_t NodeId;
 // compilation, e.g. during lowering passes. Other information that needs to be
 // associated with Nodes during compilation must be stored out-of-line indexed
 // by the Node's id.
-class Node FINAL {
+class Node final {
  public:
   static Node* New(Zone* zone, NodeId id, const Operator* op, int input_count,
                    Node** inputs, bool has_extensible_inputs);
@@ -63,14 +63,13 @@ class Node FINAL {
   void AppendInput(Zone* zone, Node* new_to);
   void InsertInput(Zone* zone, int index, Node* new_to);
   void RemoveInput(int index);
-  void RemoveAllInputs();
+  void NullAllInputs();
   void TrimInputCount(int new_input_count);
 
   int UseCount() const;
-  Node* UseAt(int index) const;
   void ReplaceUses(Node* replace_to);
 
-  class InputEdges FINAL {
+  class InputEdges final {
    public:
     typedef Edge value_type;
 
@@ -88,7 +87,7 @@ class Node FINAL {
 
   InputEdges input_edges() { return InputEdges(this); }
 
-  class Inputs FINAL {
+  class Inputs final {
    public:
     typedef Node* value_type;
 
@@ -106,7 +105,7 @@ class Node FINAL {
 
   Inputs inputs() { return Inputs(this); }
 
-  class UseEdges FINAL {
+  class UseEdges final {
    public:
     typedef Edge value_type;
 
@@ -124,7 +123,7 @@ class Node FINAL {
 
   UseEdges use_edges() { return UseEdges(this); }
 
-  class Uses FINAL {
+  class Uses final {
    public:
     typedef Node* value_type;
 
@@ -147,15 +146,18 @@ class Node FINAL {
     return first_use_ && first_use_->from == owner && !first_use_->next;
   }
 
+  // Returns true if {owner1} and {owner2} are the only users of {this} node.
+  bool OwnedBy(Node const* owner1, Node const* owner2) const;
+
  private:
-  struct Use FINAL : public ZoneObject {
+  struct Use final : public ZoneObject {
     Node* from;
     Use* next;
     Use* prev;
     int input_index;
   };
 
-  class Input FINAL {
+  class Input final {
    public:
     Node* to;
     Use* use;
@@ -226,7 +228,6 @@ class Node FINAL {
   NodeId const id_;
   unsigned bit_field_;
   Use* first_use_;
-  Use* last_use_;
   union {
     // When a node is initially allocated, it uses a static buffer to hold its
     // inputs under the assumption that the number of outputs will not increase.
@@ -249,6 +250,7 @@ std::ostream& operator<<(std::ostream& os, const Node& n);
 
 // Typedefs to shorten commonly used Node containers.
 typedef ZoneDeque<Node*> NodeDeque;
+typedef ZoneSet<Node*> NodeSet;
 typedef ZoneVector<Node*> NodeVector;
 typedef ZoneVector<NodeVector> NodeVectorVector;
 
@@ -263,7 +265,7 @@ static inline const T& OpParameter(const Node* node) {
 // An encapsulation for information associated with a single use of node as a
 // input from another node, allowing access to both the defining node and
 // the node having the input.
-class Edge FINAL {
+class Edge final {
  public:
   Node* from() const { return input_->use->from; }
   Node* to() const { return input_->to; }
@@ -289,7 +291,7 @@ class Edge FINAL {
 
 
 // A forward iterator to visit the edges for the input dependencies of a node.
-class Node::InputEdges::iterator FINAL {
+class Node::InputEdges::iterator final {
  public:
   typedef std::forward_iterator_tag iterator_category;
   typedef int difference_type;
@@ -342,7 +344,7 @@ Node::InputEdges::iterator Node::InputEdges::end() const {
 
 
 // A forward iterator to visit the inputs of a node.
-class Node::Inputs::const_iterator FINAL {
+class Node::Inputs::const_iterator final {
  public:
   typedef std::forward_iterator_tag iterator_category;
   typedef int difference_type;
@@ -387,7 +389,7 @@ Node::Inputs::const_iterator Node::Inputs::end() const {
 // A forward iterator to visit the uses edges of a node. The edges are returned
 // in
 // the order in which they were added as inputs.
-class Node::UseEdges::iterator FINAL {
+class Node::UseEdges::iterator final {
  public:
   iterator(const iterator& other)
       : current_(other.current_), next_(other.next_) {}
@@ -433,7 +435,7 @@ Node::UseEdges::iterator Node::UseEdges::end() const {
 
 // A forward iterator to visit the uses of a node. The uses are returned in
 // the order in which they were added as inputs.
-class Node::Uses::const_iterator FINAL {
+class Node::Uses::const_iterator final {
  public:
   typedef std::forward_iterator_tag iterator_category;
   typedef int difference_type;

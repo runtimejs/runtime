@@ -57,12 +57,10 @@ class LinkageHelper {
 
     // The target for JS function calls is the JSFunction object.
     MachineType target_type = kMachAnyTagged;
-    // Unoptimized code doesn't preserve the JSCallFunctionReg, so expect the
-    // closure on the stack.
-    LinkageLocation target_loc =
-        is_osr ? stackloc(Linkage::kJSFunctionCallClosureParamIndex -
-                          js_parameter_count)
-               : regloc(LinkageTraits::JSCallFunctionReg());
+    // TODO(titzer): When entering into an OSR function from unoptimized code,
+    // the JSFunction is not in a register, but it is on the stack in an
+    // unaddressable spill slot. We hack this in the OSR prologue. Fix.
+    LinkageLocation target_loc = regloc(LinkageTraits::JSCallFunctionReg());
     return new (zone) CallDescriptor(     // --
         CallDescriptor::kCallJSFunction,  // kind
         target_type,                      // target MachineType
@@ -138,11 +136,13 @@ class LinkageHelper {
   }
 
 
+  // TODO(all): Add support for return representations/locations to
+  // CallInterfaceDescriptor.
   // TODO(turbofan): cache call descriptors for code stub calls.
   static CallDescriptor* GetStubCallDescriptor(
       Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
       int stack_parameter_count, CallDescriptor::Flags flags,
-      Operator::Properties properties) {
+      Operator::Properties properties, MachineType return_type) {
     const int register_parameter_count =
         descriptor.GetEnvironmentParameterCount();
     const int js_parameter_count =
@@ -157,20 +157,23 @@ class LinkageHelper {
 
     // Add return location.
     AddReturnLocations(&locations);
-    types.AddReturn(kMachAnyTagged);
+    types.AddReturn(return_type);
 
     // Add parameters in registers and on the stack.
     for (int i = 0; i < js_parameter_count; i++) {
       if (i < register_parameter_count) {
         // The first parameters go in registers.
         Register reg = descriptor.GetEnvironmentParameterRegister(i);
+        Representation rep =
+            descriptor.GetEnvironmentParameterRepresentation(i);
         locations.AddParam(regloc(reg));
+        types.AddParam(reptyp(rep));
       } else {
         // The rest of the parameters go on the stack.
         int stack_slot = i - register_parameter_count - stack_parameter_count;
         locations.AddParam(stackloc(stack_slot));
+        types.AddParam(kMachAnyTagged);
       }
-      types.AddParam(kMachAnyTagged);
     }
     // Add context.
     locations.AddParam(regloc(LinkageTraits::ContextReg()));
@@ -212,15 +215,16 @@ class LinkageHelper {
     // The target for C calls is always an address (i.e. machine pointer).
     MachineType target_type = kMachPtr;
     LinkageLocation target_loc = LinkageLocation::AnyRegister();
-    return new (zone) CallDescriptor(  // --
-        CallDescriptor::kCallAddress,  // kind
-        target_type,                   // target MachineType
-        target_loc,                    // target location
-        msig,                          // machine_sig
-        locations.Build(),             // location_sig
-        0,                             // js_parameter_count
-        Operator::kNoProperties,       // properties
-        LinkageTraits::CCalleeSaveRegisters(), CallDescriptor::kNoFlags,
+    return new (zone) CallDescriptor(           // --
+        CallDescriptor::kCallAddress,           // kind
+        target_type,                            // target MachineType
+        target_loc,                             // target location
+        msig,                                   // machine_sig
+        locations.Build(),                      // location_sig
+        0,                                      // js_parameter_count
+        Operator::kNoProperties,                // properties
+        LinkageTraits::CCalleeSaveRegisters(),  // callee-saved registers
+        CallDescriptor::kNoFlags,               // flags
         "c-call");
   }
 
@@ -231,6 +235,34 @@ class LinkageHelper {
   static LinkageLocation stackloc(int i) {
     DCHECK_LT(i, 0);
     return LinkageLocation(i);
+  }
+
+  static MachineType reptyp(Representation representation) {
+    switch (representation.kind()) {
+      case Representation::kInteger8:
+        return kMachInt8;
+      case Representation::kUInteger8:
+        return kMachUint8;
+      case Representation::kInteger16:
+        return kMachInt16;
+      case Representation::kUInteger16:
+        return kMachUint16;
+      case Representation::kInteger32:
+        return kMachInt32;
+      case Representation::kSmi:
+      case Representation::kTagged:
+      case Representation::kHeapObject:
+        return kMachAnyTagged;
+      case Representation::kDouble:
+        return kMachFloat64;
+      case Representation::kExternal:
+        return kMachPtr;
+      case Representation::kNone:
+      case Representation::kNumRepresentations:
+        break;
+    }
+    UNREACHABLE();
+    return kMachNone;
   }
 };
 
@@ -253,7 +285,6 @@ LinkageLocation Linkage::GetOsrValueLocation(int index) const {
     return incoming_->GetInputLocation(parameter_index);
   }
 }
-
 
 }  // namespace compiler
 }  // namespace internal

@@ -37,7 +37,7 @@ namespace base {
 // |TryLock()|. The behavior of a program is undefined if a mutex is destroyed
 // while still owned by some thread. The Mutex class is non-copyable.
 
-class Mutex FINAL {
+class Mutex final {
  public:
   Mutex();
   ~Mutex();
@@ -133,7 +133,7 @@ typedef LazyStaticInstance<Mutex, DefaultConstructTrait<Mutex>,
 // The behavior of a program is undefined if a recursive mutex is destroyed
 // while still owned by some thread. The RecursiveMutex class is non-copyable.
 
-class RecursiveMutex FINAL {
+class RecursiveMutex final {
  public:
   RecursiveMutex();
   ~RecursiveMutex();
@@ -205,7 +205,7 @@ typedef LazyStaticInstance<RecursiveMutex,
 // The LockGuard class is non-copyable.
 
 template <typename Mutex>
-class LockGuard FINAL {
+class LockGuard final {
  public:
   explicit LockGuard(Mutex* mutex) : mutex_(mutex) { mutex_->Lock(); }
   ~LockGuard() { mutex_->Unlock(); }

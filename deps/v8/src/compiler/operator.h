@@ -44,6 +44,7 @@ class Operator : public ZoneObject {
                             // create new scheduling dependencies.
     kNoThrow = 1 << 6,      // Can never generate an exception.
     kFoldable = kNoRead | kNoWrite,
+    kKontrol = kFoldable | kNoThrow,
     kEliminatable = kNoWrite | kNoThrow,
     kPure = kNoRead | kNoWrite | kNoThrow | kIdempotent
   };
@@ -84,6 +85,9 @@ class Operator : public ZoneObject {
 
   Properties properties() const { return properties_; }
 
+  // TODO(bmeurer): Use bit fields below?
+  static const size_t kMaxControlOutputCount = (1u << 16) - 1;
+
   // TODO(titzer): convert return values here to size_t.
   int ValueInputCount() const { return value_in_; }
   int EffectInputCount() const { return effect_in_; }
@@ -92,6 +96,14 @@ class Operator : public ZoneObject {
   int ValueOutputCount() const { return value_out_; }
   int EffectOutputCount() const { return effect_out_; }
   int ControlOutputCount() const { return control_out_; }
+
+  static size_t ZeroIfEliminatable(Properties properties) {
+    return (properties & kEliminatable) == kEliminatable ? 0 : 1;
+  }
+
+  static size_t ZeroIfNoThrow(Properties properties) {
+    return (properties & kNoThrow) == kNoThrow ? 0 : 2;
+  }
 
   static size_t ZeroIfPure(Properties properties) {
     return (properties & kPure) == kPure ? 0 : 1;
@@ -113,7 +125,7 @@ class Operator : public ZoneObject {
   uint16_t control_in_;
   uint16_t value_out_;
   uint8_t effect_out_;
-  uint8_t control_out_;
+  uint16_t control_out_;
 
   DISALLOW_COPY_AND_ASSIGN(Operator);
 };
@@ -141,12 +153,12 @@ class Operator1 : public Operator {
 
   T const& parameter() const { return parameter_; }
 
-  bool Equals(const Operator* other) const FINAL {
+  bool Equals(const Operator* other) const final {
     if (opcode() != other->opcode()) return false;
     const Operator1<T>* that = reinterpret_cast<const Operator1<T>*>(other);
     return this->pred_(this->parameter(), that->parameter());
   }
-  size_t HashCode() const FINAL {
+  size_t HashCode() const final {
     return base::hash_combine(this->opcode(), this->hash_(this->parameter()));
   }
   virtual void PrintParameter(std::ostream& os) const {
@@ -154,7 +166,7 @@ class Operator1 : public Operator {
   }
 
  protected:
-  void PrintTo(std::ostream& os) const FINAL {
+  void PrintTo(std::ostream& os) const final {
     os << mnemonic();
     PrintParameter(os);
   }

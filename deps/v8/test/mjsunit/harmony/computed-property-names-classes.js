@@ -83,9 +83,8 @@ function ID(x) {
   // TODO(arv): It is not clear that we are adding the "standard" properties
   // in the right order. As far as I can tell the spec adds them in alphabetical
   // order.
-  assertArrayEquals(['length', 'name', 'arguments', 'caller', 'prototype',
-      'a', 'b', 'c', 'd'],
-      Object.getOwnPropertyNames(C));
+  assertArrayEquals(['length', 'name', 'prototype', 'a', 'b', 'c', 'd'],
+                    Object.getOwnPropertyNames(C));
 })();
 
 
@@ -102,8 +101,8 @@ function ID(x) {
   assertEquals('D', C[2]());
   // Array indexes first.
   assertArrayEquals([], Object.keys(C));
-  assertArrayEquals(['1', '2', 'length', 'name', 'arguments', 'caller',
-      'prototype', 'a', 'c'], Object.getOwnPropertyNames(C));
+  assertArrayEquals(['1', '2', 'length', 'name', 'prototype', 'a', 'c'],
+                    Object.getOwnPropertyNames(C));
 })();
 
 
@@ -121,9 +120,8 @@ function ID(x) {
   assertEquals('C', C.c());
   assertEquals('D', C[sym2]());
   assertArrayEquals([], Object.keys(C));
-  assertArrayEquals(['length', 'name', 'arguments', 'caller', 'prototype',
-      'a', 'c'],
-      Object.getOwnPropertyNames(C));
+  assertArrayEquals(['length', 'name', 'prototype', 'a', 'c'],
+                    Object.getOwnPropertyNames(C));
   assertArrayEquals([sym1, sym2], Object.getOwnPropertySymbols(C));
 })();
 
@@ -312,41 +310,74 @@ function assertIteratorResult(value, done, result) {
 
 
 (function TestPrototype() {
-  // Normally a static prototype property is not allowed.
-  class C {
-    static ['prototype']() {
-      return 1;
+  assertThrows(function() {
+    class C {
+      static ['prototype']() {
+        return 1;
+      }
     }
-  }
-  assertEquals(1, C.prototype());
+  }, TypeError);
 
-  class C2 {
-    static get ['prototype']() {
-      return 2;
+  assertThrows(function() {
+    class C2 {
+      static get ['prototype']() {
+        return 2;
+      }
     }
-  }
-  assertEquals(2, C2.prototype);
+  }, TypeError);
 
-  var calls = 0;
-  class C3 {
-    static set ['prototype'](x) {
-      assertEquals(3, x);
-      calls++;
+  assertThrows(function() {
+    class C3 {
+      static set ['prototype'](x) {
+        assertEquals(3, x);
+      }
     }
-  }
-  C3.prototype = 3;
-  assertEquals(1, calls);
+  }, TypeError);
 
-  class C4 {
-    static *['prototype']() {
-      yield 1;
-      yield 2;
+  assertThrows(function() {
+    class C4 {
+      static *['prototype']() {
+        yield 1;
+        yield 2;
+      }
     }
-  }
-  var iter = C4.prototype();
-  assertIteratorResult(1, false, iter.next());
-  assertIteratorResult(2, false, iter.next());
-  assertIteratorResult(undefined, true, iter.next());
+  }, TypeError);
+})();
+
+
+(function TestPrototypeConcat() {
+  assertThrows(function() {
+    class C {
+      static ['pro' + 'tot' + 'ype']() {
+        return 1;
+      }
+    }
+  }, TypeError);
+
+  assertThrows(function() {
+    class C2 {
+      static get ['pro' + 'tot' + 'ype']() {
+        return 2;
+      }
+    }
+  }, TypeError);
+
+  assertThrows(function() {
+    class C3 {
+      static set ['pro' + 'tot' + 'ype'](x) {
+        assertEquals(3, x);
+      }
+    }
+  }, TypeError);
+
+  assertThrows(function() {
+    class C4 {
+      static *['pro' + 'tot' + 'ype']() {
+        yield 1;
+        yield 2;
+      }
+    }
+  }, TypeError);
 })();
 
 
@@ -387,4 +418,46 @@ function assertIteratorResult(value, done, result) {
   assertIteratorResult(1, false, iter.next());
   assertIteratorResult(2, false, iter.next());
   assertIteratorResult(undefined, true, iter.next());
+})();
+
+
+(function TestExceptionInName() {
+  function MyError() {};
+  function throwMyError() {
+    throw new MyError();
+  }
+  assertThrows(function() {
+    class C {
+      [throwMyError()]() {}
+    }
+  }, MyError);
+  assertThrows(function() {
+    class C {
+      get [throwMyError()]() { return 42; }
+    }
+  }, MyError);
+  assertThrows(function() {
+    class C {
+      set [throwMyError()](_) { }
+    }
+  }, MyError);
+})();
+
+
+(function TestTdzName() {
+  assertThrows(function() {
+    class C {
+      [C]() {}
+    }
+  }, ReferenceError);
+  assertThrows(function() {
+    class C {
+      get [C]() { return 42; }
+    }
+  }, ReferenceError);
+  assertThrows(function() {
+    class C {
+      set [C](_) { }
+    }
+  }, ReferenceError);
 })();

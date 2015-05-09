@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/node-properties.h"
-
 #include "src/compiler/common-operator.h"
+#include "src/compiler/graph.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
 
 namespace v8 {
@@ -58,9 +58,9 @@ Node* NodeProperties::GetContextInput(Node* node) {
 
 
 // static
-Node* NodeProperties::GetFrameStateInput(Node* node) {
-  DCHECK(OperatorProperties::HasFrameStateInput(node->op()));
-  return node->InputAt(FirstFrameStateIndex(node));
+Node* NodeProperties::GetFrameStateInput(Node* node, int index) {
+  DCHECK_LT(index, OperatorProperties::GetFrameStateInputCount(node->op()));
+  return node->InputAt(FirstFrameStateIndex(node) + index);
 }
 
 
@@ -119,6 +119,15 @@ bool NodeProperties::IsControlEdge(Edge edge) {
 
 
 // static
+bool NodeProperties::IsExceptionalCall(Node* node) {
+  for (Node* const use : node->uses()) {
+    if (use->opcode() == IrOpcode::kIfException) return true;
+  }
+  return false;
+}
+
+
+// static
 void NodeProperties::ReplaceContextInput(Node* node, Node* context) {
   node->ReplaceInput(FirstContextIndex(node), context);
 }
@@ -138,9 +147,10 @@ void NodeProperties::ReplaceEffectInput(Node* node, Node* effect, int index) {
 
 
 // static
-void NodeProperties::ReplaceFrameStateInput(Node* node, Node* frame_state) {
-  DCHECK(OperatorProperties::HasFrameStateInput(node->op()));
-  node->ReplaceInput(FirstFrameStateIndex(node), frame_state);
+void NodeProperties::ReplaceFrameStateInput(Node* node, int index,
+                                            Node* frame_state) {
+  DCHECK_LT(index, OperatorProperties::GetFrameStateInputCount(node->op()));
+  node->ReplaceInput(FirstFrameStateIndex(node) + index, frame_state);
 }
 
 
@@ -150,16 +160,40 @@ void NodeProperties::RemoveNonValueInputs(Node* node) {
 }
 
 
+void NodeProperties::MergeControlToEnd(Graph* graph,
+                                       CommonOperatorBuilder* common,
+                                       Node* node) {
+  // Connect the node to the merge exiting the graph.
+  Node* end_pred = NodeProperties::GetControlInput(graph->end());
+  if (end_pred->opcode() == IrOpcode::kMerge) {
+    int inputs = end_pred->op()->ControlInputCount() + 1;
+    end_pred->AppendInput(graph->zone(), node);
+    end_pred->set_op(common->Merge(inputs));
+  } else {
+    Node* merge = graph->NewNode(common->Merge(2), end_pred, node);
+    NodeProperties::ReplaceControlInput(graph->end(), merge);
+  }
+}
+
+
 // static
-void NodeProperties::ReplaceWithValue(Node* node, Node* value, Node* effect) {
-  DCHECK(node->op()->ControlOutputCount() == 0);
+void NodeProperties::ReplaceWithValue(Node* node, Node* value, Node* effect,
+                                      Node* control) {
   if (!effect && node->op()->EffectInputCount() > 0) {
     effect = NodeProperties::GetEffectInput(node);
   }
+  if (control == nullptr && node->op()->ControlInputCount() > 0) {
+    control = NodeProperties::GetControlInput(node);
+  }
 
-  // Requires distinguishing between value and effect edges.
+  // Requires distinguishing between value, effect and control edges.
   for (Edge edge : node->use_edges()) {
-    if (IsEffectEdge(edge)) {
+    if (IsControlEdge(edge)) {
+      DCHECK_EQ(IrOpcode::kIfSuccess, edge.from()->opcode());
+      DCHECK_NOT_NULL(control);
+      edge.from()->ReplaceUses(control);
+      edge.UpdateTo(NULL);
+    } else if (IsEffectEdge(edge)) {
       DCHECK_NOT_NULL(effect);
       edge.UpdateTo(effect);
     } else {
@@ -178,6 +212,57 @@ Node* NodeProperties::FindProjection(Node* node, size_t projection_index) {
     }
   }
   return nullptr;
+}
+
+
+// static
+void NodeProperties::CollectControlProjections(Node* node, Node** projections,
+                                               size_t projection_count) {
+#ifdef DEBUG
+  DCHECK_LE(static_cast<int>(projection_count), node->UseCount());
+  std::memset(projections, 0, sizeof(*projections) * projection_count);
+#endif
+  size_t if_value_index = 0;
+  for (Node* const use : node->uses()) {
+    size_t index;
+    switch (use->opcode()) {
+      case IrOpcode::kIfTrue:
+        DCHECK_EQ(IrOpcode::kBranch, node->opcode());
+        index = 0;
+        break;
+      case IrOpcode::kIfFalse:
+        DCHECK_EQ(IrOpcode::kBranch, node->opcode());
+        index = 1;
+        break;
+      case IrOpcode::kIfSuccess:
+        DCHECK_EQ(IrOpcode::kCall, node->opcode());
+        index = 0;
+        break;
+      case IrOpcode::kIfException:
+        DCHECK_EQ(IrOpcode::kCall, node->opcode());
+        index = 1;
+        break;
+      case IrOpcode::kIfValue:
+        DCHECK_EQ(IrOpcode::kSwitch, node->opcode());
+        index = if_value_index++;
+        break;
+      case IrOpcode::kIfDefault:
+        DCHECK_EQ(IrOpcode::kSwitch, node->opcode());
+        index = projection_count - 1;
+        break;
+      default:
+        continue;
+    }
+    DCHECK_LT(if_value_index, projection_count);
+    DCHECK_LT(index, projection_count);
+    DCHECK_NULL(projections[index]);
+    projections[index] = use;
+  }
+#ifdef DEBUG
+  for (size_t index = 0; index < projection_count; ++index) {
+    DCHECK_NOT_NULL(projections[index]);
+  }
+#endif
 }
 
 

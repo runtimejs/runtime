@@ -9,6 +9,7 @@
 #include "src/v8.h"
 
 #include "src/assert-scope.h"
+#include "src/char-predicates-inl.h"
 #include "src/conversions-inl.h"
 #include "src/conversions.h"
 #include "src/dtoa.h"
@@ -502,4 +503,61 @@ double StringToDouble(UnicodeCache* unicode_cache, Handle<String> string,
 }
 
 
+bool IsSpecialIndex(UnicodeCache* unicode_cache, String* string) {
+  // Max length of canonical double: -X.XXXXXXXXXXXXXXXXX-eXXX
+  const int kBufferSize = 24;
+  const int length = string->length();
+  if (length == 0 || length > kBufferSize) return false;
+  uint16_t buffer[kBufferSize];
+  String::WriteToFlat(string, buffer, 0, length);
+  // If the first char is not a digit or a '-' or we can't match 'NaN' or
+  // '(-)Infinity', bailout immediately.
+  int offset = 0;
+  if (!IsDecimalDigit(buffer[0])) {
+    if (buffer[0] == '-') {
+      if (length == 1) return false;  // Just '-' is bad.
+      if (!IsDecimalDigit(buffer[1])) {
+        if (buffer[1] == 'I' && length == 9) {
+          // Allow matching of '-Infinity' below.
+        } else {
+          return false;
+        }
+      }
+      offset++;
+    } else if (buffer[0] == 'I' && length == 8) {
+      // Allow matching of 'Infinity' below.
+    } else if (buffer[0] == 'N' && length == 3) {
+      // Match NaN.
+      return buffer[1] == 'a' && buffer[2] == 'N';
+    } else {
+      return false;
+    }
+  }
+  // Expected fast path: key is an integer.
+  static const int kRepresentableIntegerLength = 15;  // (-)XXXXXXXXXXXXXXX
+  if (length - offset <= kRepresentableIntegerLength) {
+    const int initial_offset = offset;
+    bool matches = true;
+    for (; offset < length; offset++) {
+      matches &= IsDecimalDigit(buffer[offset]);
+    }
+    if (matches) {
+      // Match 0 and -0.
+      if (buffer[initial_offset] == '0') return initial_offset == length - 1;
+      return true;
+    }
+  }
+  // Slow path: test DoubleToString(StringToDouble(string)) == string.
+  Vector<const uint16_t> vector(buffer, length);
+  double d = StringToDouble(unicode_cache, vector, NO_FLAGS);
+  if (std::isnan(d)) return false;
+  // Compute reverse string.
+  char reverse_buffer[kBufferSize + 1];  // Result will be /0 terminated.
+  Vector<char> reverse_vector(reverse_buffer, arraysize(reverse_buffer));
+  const char* reverse_string = DoubleToCString(d, reverse_vector);
+  for (int i = 0; i < length; ++i) {
+    if (static_cast<uint16_t>(reverse_string[i]) != buffer[i]) return false;
+  }
+  return true;
+}
 } }  // namespace v8::internal
