@@ -45,6 +45,16 @@
 
 using namespace v8::internal;
 
+class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+ public:
+  virtual void* Allocate(size_t length) {
+    void* data = AllocateUninitialized(length);
+    return data == NULL ? data : memset(data, 0, length);
+  }
+  virtual void* AllocateUninitialized(size_t length) { return malloc(length); }
+  virtual void Free(void* data, size_t) { free(data); }
+};
+
 class StringResource8 : public v8::String::ExternalOneByteStringResource {
  public:
   StringResource8(const char* data, int length)
@@ -88,14 +98,16 @@ std::pair<v8::base::TimeDelta, v8::base::TimeDelta> RunBaselineParser(
   i::ScriptData* cached_data_impl = NULL;
   // First round of parsing (produce data to cache).
   {
-    CompilationInfoWithZone info(script);
-    info.MarkAsGlobal();
-    info.SetCachedData(&cached_data_impl,
-                       v8::ScriptCompiler::kProduceParserCache);
+    Zone zone;
+    ParseInfo info(&zone, script);
+    info.set_global();
+    info.set_cached_data(&cached_data_impl);
+    info.set_compile_options(v8::ScriptCompiler::kProduceParserCache);
     v8::base::ElapsedTimer timer;
     timer.Start();
     // Allow lazy parsing; otherwise we won't produce cached data.
-    bool success = Parser::Parse(&info, true);
+    info.set_allow_lazy_parsing();
+    bool success = Parser::ParseStatic(&info);
     parse_time1 = timer.Elapsed();
     if (!success) {
       fprintf(stderr, "Parsing failed\n");
@@ -104,14 +116,16 @@ std::pair<v8::base::TimeDelta, v8::base::TimeDelta> RunBaselineParser(
   }
   // Second round of parsing (consume cached data).
   {
-    CompilationInfoWithZone info(script);
-    info.MarkAsGlobal();
-    info.SetCachedData(&cached_data_impl,
-                       v8::ScriptCompiler::kConsumeParserCache);
+    Zone zone;
+    ParseInfo info(&zone, script);
+    info.set_global();
+    info.set_cached_data(&cached_data_impl);
+    info.set_compile_options(v8::ScriptCompiler::kConsumeParserCache);
     v8::base::ElapsedTimer timer;
     timer.Start();
     // Allow lazy parsing; otherwise cached data won't help.
-    bool success = Parser::Parse(&info, true);
+    info.set_allow_lazy_parsing();
+    bool success = Parser::ParseStatic(&info);
     parse_time2 = timer.Elapsed();
     if (!success) {
       fprintf(stderr, "Parsing failed\n");
@@ -148,7 +162,10 @@ int main(int argc, char* argv[]) {
       fnames.push_back(std::string(argv[i]));
     }
   }
-  v8::Isolate* isolate = v8::Isolate::New();
+  ArrayBufferAllocator array_buffer_allocator;
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = &array_buffer_allocator;
+  v8::Isolate* isolate = v8::Isolate::New(create_params);
   {
     v8::Isolate::Scope isolate_scope(isolate);
     v8::HandleScope handle_scope(isolate);

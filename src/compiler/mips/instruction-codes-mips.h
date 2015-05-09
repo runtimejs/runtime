@@ -26,6 +26,7 @@ namespace compiler {
   V(MipsAnd)                       \
   V(MipsOr)                        \
   V(MipsXor)                       \
+  V(MipsClz)                       \
   V(MipsShl)                       \
   V(MipsShr)                       \
   V(MipsSar)                       \
@@ -33,16 +34,25 @@ namespace compiler {
   V(MipsMov)                       \
   V(MipsTst)                       \
   V(MipsCmp)                       \
+  V(MipsCmpS)                      \
+  V(MipsAddS)                      \
+  V(MipsSubS)                      \
+  V(MipsMulS)                      \
+  V(MipsDivS)                      \
+  V(MipsModS)                      \
+  V(MipsAbsS)                      \
+  V(MipsSqrtS)                     \
   V(MipsCmpD)                      \
   V(MipsAddD)                      \
   V(MipsSubD)                      \
   V(MipsMulD)                      \
   V(MipsDivD)                      \
   V(MipsModD)                      \
+  V(MipsAbsD)                      \
   V(MipsSqrtD)                     \
-  V(MipsFloat64Floor)              \
-  V(MipsFloat64Ceil)               \
+  V(MipsFloat64RoundDown)          \
   V(MipsFloat64RoundTruncate)      \
+  V(MipsFloat64RoundUp)            \
   V(MipsCvtSD)                     \
   V(MipsCvtDS)                     \
   V(MipsTruncWD)                   \
@@ -61,6 +71,10 @@ namespace compiler {
   V(MipsSwc1)                      \
   V(MipsLdc1)                      \
   V(MipsSdc1)                      \
+  V(MipsFloat64ExtractLowWord32)   \
+  V(MipsFloat64ExtractHighWord32)  \
+  V(MipsFloat64InsertLowWord32)    \
+  V(MipsFloat64InsertHighWord32)   \
   V(MipsPush)                      \
   V(MipsStoreToStackSlot)          \
   V(MipsStackClaim)                \

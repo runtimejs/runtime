@@ -16,6 +16,7 @@
 #include "src/ic/ic-inl.h"
 #include "src/ic/ic-compiler.h"
 #include "src/ic/stub-cache.h"
+#include "src/messages.h"
 #include "src/prototype.h"
 #include "src/runtime/runtime.h"
 
@@ -230,6 +231,14 @@ bool IC::AddressIsOptimizedCode() const {
 }
 
 
+bool IC::AddressIsDeoptimizedCode() const {
+  Code* host =
+      isolate()->inner_pointer_to_code_cache()->GetCacheEntry(address())->code;
+  return host->kind() == Code::OPTIMIZED_FUNCTION &&
+         host->marked_for_deoptimization();
+}
+
+
 static void LookupForRead(LookupIterator* it) {
   for (; it->IsFound(); it->Next()) {
     switch (it->state()) {
@@ -249,12 +258,12 @@ static void LookupForRead(LookupIterator* it) {
       case LookupIterator::ACCESS_CHECK:
         // PropertyHandlerCompiler::CheckPrototypes() knows how to emit
         // access checks for global proxies.
-        if (it->GetHolder<JSObject>()->IsJSGlobalProxy() &&
-            it->HasAccess(v8::ACCESS_GET)) {
+        if (it->GetHolder<JSObject>()->IsJSGlobalProxy() && it->HasAccess()) {
           break;
         }
         return;
       case LookupIterator::ACCESSOR:
+      case LookupIterator::INTEGER_INDEXED_EXOTIC:
       case LookupIterator::DATA:
         return;
     }
@@ -265,11 +274,10 @@ static void LookupForRead(LookupIterator* it) {
 bool IC::TryRemoveInvalidPrototypeDependentStub(Handle<Object> receiver,
                                                 Handle<String> name) {
   if (!IsNameCompatibleWithPrototypeFailure(name)) return false;
-  Handle<Map> receiver_map = TypeToMap(*receiver_type(), isolate());
   if (UseVector()) {
-    maybe_handler_ = nexus()->FindHandlerForMap(receiver_map);
+    maybe_handler_ = nexus()->FindHandlerForMap(receiver_map());
   } else {
-    maybe_handler_ = target()->FindHandlerForMap(*receiver_map);
+    maybe_handler_ = target()->FindHandlerForMap(*receiver_map());
   }
 
   // The current map wasn't handled yet. There's no reason to stay monomorphic,
@@ -278,21 +286,20 @@ bool IC::TryRemoveInvalidPrototypeDependentStub(Handle<Object> receiver,
   // TODO(verwaest): Check if the current map is actually what the old map
   // would transition to.
   if (maybe_handler_.is_null()) {
-    if (!receiver_map->IsJSObjectMap()) return false;
+    if (!receiver_map()->IsJSObjectMap()) return false;
     Map* first_map = FirstTargetMap();
     if (first_map == NULL) return false;
     Handle<Map> old_map(first_map);
     if (old_map->is_deprecated()) return true;
     if (IsMoreGeneralElementsKindTransition(old_map->elements_kind(),
-                                            receiver_map->elements_kind())) {
+                                            receiver_map()->elements_kind())) {
       return true;
     }
     return false;
   }
 
   CacheHolderFlag flag;
-  Handle<Map> ic_holder_map(
-      GetICCacheHolder(*receiver_type(), isolate(), &flag));
+  Handle<Map> ic_holder_map(GetICCacheHolder(receiver_map(), isolate(), &flag));
 
   DCHECK(flag != kCacheOnReceiver || receiver->IsJSObject());
   DCHECK(flag != kCacheOnPrototype || !receiver->IsJSReceiver());
@@ -310,8 +317,7 @@ bool IC::TryRemoveInvalidPrototypeDependentStub(Handle<Object> receiver,
     LookupIterator it(global, name, LookupIterator::OWN_SKIP_INTERCEPTOR);
     if (it.state() == LookupIterator::ACCESS_CHECK) return false;
     if (!it.IsFound()) return false;
-    Handle<PropertyCell> cell = it.GetPropertyCell();
-    return cell->type()->IsConstant();
+    return it.property_details().cell_type() == PropertyCellType::kConstant;
   }
 
   return true;
@@ -332,7 +338,7 @@ bool IC::IsNameCompatibleWithPrototypeFailure(Handle<Object> name) {
 
 
 void IC::UpdateState(Handle<Object> receiver, Handle<Object> name) {
-  update_receiver_type(receiver);
+  update_receiver_map(receiver);
   if (!name->IsString()) return;
   if (state() != MONOMORPHIC && state() != POLYMORPHIC) return;
   if (receiver->IsUndefined() || receiver->IsNull()) return;
@@ -364,10 +370,10 @@ MaybeHandle<Object> IC::TypeError(const char* type, Handle<Object> object,
 }
 
 
-MaybeHandle<Object> IC::ReferenceError(const char* type, Handle<Name> name) {
+MaybeHandle<Object> IC::ReferenceError(Handle<Name> name) {
   HandleScope scope(isolate());
-  THROW_NEW_ERROR(isolate(), NewReferenceError(type, HandleVector(&name, 1)),
-                  Object);
+  THROW_NEW_ERROR(
+      isolate(), NewReferenceError(MessageTemplate::kNotDefined, name), Object);
 }
 
 
@@ -650,16 +656,16 @@ void IC::ConfigureVectorState(IC::State new_state) {
 }
 
 
-void IC::ConfigureVectorState(Handle<Name> name, Handle<HeapType> type,
+void IC::ConfigureVectorState(Handle<Name> name, Handle<Map> map,
                               Handle<Code> handler) {
   DCHECK(UseVector());
   if (kind() == Code::LOAD_IC) {
     LoadICNexus* nexus = casted_nexus<LoadICNexus>();
-    nexus->ConfigureMonomorphic(type, handler);
+    nexus->ConfigureMonomorphic(map, handler);
   } else {
     DCHECK(kind() == Code::KEYED_LOAD_IC);
     KeyedLoadICNexus* nexus = casted_nexus<KeyedLoadICNexus>();
-    nexus->ConfigureMonomorphic(name, type, handler);
+    nexus->ConfigureMonomorphic(name, map, handler);
   }
 
   vector_set_ = true;
@@ -668,16 +674,16 @@ void IC::ConfigureVectorState(Handle<Name> name, Handle<HeapType> type,
 }
 
 
-void IC::ConfigureVectorState(Handle<Name> name, TypeHandleList* types,
+void IC::ConfigureVectorState(Handle<Name> name, MapHandleList* maps,
                               CodeHandleList* handlers) {
   DCHECK(UseVector());
   if (kind() == Code::LOAD_IC) {
     LoadICNexus* nexus = casted_nexus<LoadICNexus>();
-    nexus->ConfigurePolymorphic(types, handlers);
+    nexus->ConfigurePolymorphic(maps, handlers);
   } else {
     DCHECK(kind() == Code::KEYED_LOAD_IC);
     KeyedLoadICNexus* nexus = casted_nexus<KeyedLoadICNexus>();
-    nexus->ConfigurePolymorphic(name, types, handlers);
+    nexus->ConfigurePolymorphic(name, maps, handlers);
   }
 
   vector_set_ = true;
@@ -716,7 +722,7 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<Name> name) {
 
   bool use_ic = MigrateDeprecated(object) ? false : FLAG_use_ic;
 
-  if (FLAG_harmony_scoping && object->IsGlobalObject() && name->IsString()) {
+  if (object->IsGlobalObject() && name->IsString()) {
     // Look up in script context table.
     Handle<String> str_name = Handle<String>::cast(name);
     Handle<GlobalObject> global = Handle<GlobalObject>::cast(object);
@@ -732,7 +738,7 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<Name> name) {
       if (*result == *isolate()->factory()->the_hole_value()) {
         // Do not install stubs and stay pre-monomorphic for
         // uninitialized accesses.
-        return ReferenceError("not_defined", name);
+        return ReferenceError(name);
       }
 
       if (use_ic && LoadScriptContextFieldStub::Accepted(&lookup_result)) {
@@ -762,7 +768,7 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<Name> name) {
       return result;
     }
   }
-  return ReferenceError("not_defined", name);
+  return ReferenceError(name);
 }
 
 
@@ -783,74 +789,70 @@ static bool AddOneReceiverMapIfMissing(MapHandleList* receiver_maps,
 bool IC::UpdatePolymorphicIC(Handle<Name> name, Handle<Code> code) {
   if (!code->is_handler()) return false;
   if (target()->is_keyed_stub() && state() != PROTOTYPE_FAILURE) return false;
-  Handle<HeapType> type = receiver_type();
-  TypeHandleList types;
+  Handle<Map> map = receiver_map();
+  MapHandleList maps;
   CodeHandleList handlers;
 
-  TargetTypes(&types);
-  int number_of_types = types.length();
-  int deprecated_types = 0;
+  TargetMaps(&maps);
+  int number_of_maps = maps.length();
+  int deprecated_maps = 0;
   int handler_to_overwrite = -1;
 
-  for (int i = 0; i < number_of_types; i++) {
-    Handle<HeapType> current_type = types.at(i);
-    if (current_type->IsClass() &&
-        current_type->AsClass()->Map()->is_deprecated()) {
+  for (int i = 0; i < number_of_maps; i++) {
+    Handle<Map> current_map = maps.at(i);
+    if (current_map->is_deprecated()) {
       // Filter out deprecated maps to ensure their instances get migrated.
-      ++deprecated_types;
-    } else if (type->NowIs(current_type)) {
+      ++deprecated_maps;
+    } else if (map.is_identical_to(current_map)) {
       // If the receiver type is already in the polymorphic IC, this indicates
       // there was a prototoype chain failure. In that case, just overwrite the
       // handler.
       handler_to_overwrite = i;
-    } else if (handler_to_overwrite == -1 && current_type->IsClass() &&
-               type->IsClass() &&
-               IsTransitionOfMonomorphicTarget(*current_type->AsClass()->Map(),
-                                               *type->AsClass()->Map())) {
+    } else if (handler_to_overwrite == -1 &&
+               IsTransitionOfMonomorphicTarget(*current_map, *map)) {
       handler_to_overwrite = i;
     }
   }
 
-  int number_of_valid_types =
-      number_of_types - deprecated_types - (handler_to_overwrite != -1);
+  int number_of_valid_maps =
+      number_of_maps - deprecated_maps - (handler_to_overwrite != -1);
 
-  if (number_of_valid_types >= 4) return false;
-  if (number_of_types == 0 && state() != MONOMORPHIC &&
-      state() != POLYMORPHIC) {
+  if (number_of_valid_maps >= 4) return false;
+  if (number_of_maps == 0 && state() != MONOMORPHIC && state() != POLYMORPHIC) {
     return false;
   }
   if (UseVector()) {
-    if (!nexus()->FindHandlers(&handlers, types.length())) return false;
+    if (!nexus()->FindHandlers(&handlers, maps.length())) return false;
   } else {
-    if (!target()->FindHandlers(&handlers, types.length())) return false;
+    if (!target()->FindHandlers(&handlers, maps.length())) return false;
   }
 
-  number_of_valid_types++;
-  if (number_of_valid_types > 1 && target()->is_keyed_stub()) return false;
+  number_of_valid_maps++;
+  if (number_of_valid_maps > 1 && target()->is_keyed_stub()) return false;
   Handle<Code> ic;
-  if (number_of_valid_types == 1) {
+  if (number_of_valid_maps == 1) {
     if (UseVector()) {
-      ConfigureVectorState(name, receiver_type(), code);
+      ConfigureVectorState(name, receiver_map(), code);
     } else {
-      ic = PropertyICCompiler::ComputeMonomorphic(kind(), name, type, code,
+      ic = PropertyICCompiler::ComputeMonomorphic(kind(), name, map, code,
                                                   extra_ic_state());
     }
   } else {
     if (handler_to_overwrite >= 0) {
       handlers.Set(handler_to_overwrite, code);
-      if (!type->NowIs(types.at(handler_to_overwrite))) {
-        types.Set(handler_to_overwrite, type);
+      if (!map.is_identical_to(maps.at(handler_to_overwrite))) {
+        maps.Set(handler_to_overwrite, map);
       }
     } else {
-      types.Add(type);
+      maps.Add(map);
       handlers.Add(code);
     }
 
     if (UseVector()) {
-      ConfigureVectorState(name, &types, &handlers);
+      ConfigureVectorState(name, &maps, &handlers);
     } else {
-      ic = PropertyICCompiler::ComputePolymorphic(kind(), &types, &handlers,
-                                                  number_of_valid_types, name,
+      ic = PropertyICCompiler::ComputePolymorphic(kind(), &maps, &handlers,
+                                                  number_of_valid_maps, name,
                                                   extra_ic_state());
     }
   }
@@ -860,66 +862,25 @@ bool IC::UpdatePolymorphicIC(Handle<Name> name, Handle<Code> code) {
 }
 
 
-Handle<HeapType> IC::CurrentTypeOf(Handle<Object> object, Isolate* isolate) {
-  return object->IsJSGlobalObject()
-             ? HeapType::Constant(Handle<JSGlobalObject>::cast(object), isolate)
-             : HeapType::NowOf(object, isolate);
-}
-
-
-Handle<Map> IC::TypeToMap(HeapType* type, Isolate* isolate) {
-  if (type->Is(HeapType::Number()))
-    return isolate->factory()->heap_number_map();
-  if (type->Is(HeapType::Boolean())) return isolate->factory()->boolean_map();
-  if (type->IsConstant()) {
-    return handle(
-        Handle<JSGlobalObject>::cast(type->AsConstant()->Value())->map());
-  }
-  DCHECK(type->IsClass());
-  return type->AsClass()->Map();
-}
-
-
-template <class T>
-typename T::TypeHandle IC::MapToType(Handle<Map> map,
-                                     typename T::Region* region) {
-  if (map->instance_type() == HEAP_NUMBER_TYPE) {
-    return T::Number(region);
-  } else if (map->instance_type() == ODDBALL_TYPE) {
-    // The only oddballs that can be recorded in ICs are booleans.
-    return T::Boolean(region);
-  } else {
-    return T::Class(map, region);
-  }
-}
-
-
-template Type* IC::MapToType<Type>(Handle<Map> map, Zone* zone);
-
-
-template Handle<HeapType> IC::MapToType<HeapType>(Handle<Map> map,
-                                                  Isolate* region);
-
-
 void IC::UpdateMonomorphicIC(Handle<Code> handler, Handle<Name> name) {
   DCHECK(handler->is_handler());
   if (UseVector()) {
-    ConfigureVectorState(name, receiver_type(), handler);
+    ConfigureVectorState(name, receiver_map(), handler);
   } else {
     Handle<Code> ic = PropertyICCompiler::ComputeMonomorphic(
-        kind(), name, receiver_type(), handler, extra_ic_state());
+        kind(), name, receiver_map(), handler, extra_ic_state());
     set_target(*ic);
   }
 }
 
 
 void IC::CopyICToMegamorphicCache(Handle<Name> name) {
-  TypeHandleList types;
+  MapHandleList maps;
   CodeHandleList handlers;
-  TargetTypes(&types);
-  if (!target()->FindHandlers(&handlers, types.length())) return;
-  for (int i = 0; i < types.length(); i++) {
-    UpdateMegamorphicCache(*types.at(i), *name, *handlers.at(i));
+  TargetMaps(&maps);
+  if (!target()->FindHandlers(&handlers, maps.length())) return;
+  for (int i = 0; i < maps.length(); i++) {
+    UpdateMegamorphicCache(*maps.at(i), *name, *handlers.at(i));
   }
 }
 
@@ -961,7 +922,7 @@ void IC::PatchCache(Handle<Name> name, Handle<Code> code) {
       }
     // Fall through.
     case MEGAMORPHIC:
-      UpdateMegamorphicCache(*receiver_type(), *name, *code);
+      UpdateMegamorphicCache(*receiver_map(), *name, *code);
       // Indicate that we've handled this case.
       if (UseVector()) {
         vector_set_ = true;
@@ -989,12 +950,48 @@ Handle<Code> LoadIC::initialize_stub(Isolate* isolate,
 }
 
 
-Handle<Code> LoadIC::initialize_stub_in_optimized_code(
-    Isolate* isolate, ExtraICState extra_state) {
-  if (FLAG_vector_ics) {
-    return VectorLoadStub(isolate, LoadICState(extra_state)).GetCode();
+Handle<Code> LoadIC::load_global(Isolate* isolate, Handle<GlobalObject> global,
+                                 Handle<String> name) {
+  // This special IC doesn't work with vector ics.
+  DCHECK(!FLAG_vector_ics);
+
+  Handle<ScriptContextTable> script_contexts(
+      global->native_context()->script_context_table());
+
+  ScriptContextTable::LookupResult lookup_result;
+  if (ScriptContextTable::Lookup(script_contexts, name, &lookup_result)) {
+    return initialize_stub(isolate, LoadICState(CONTEXTUAL).GetExtraICState());
   }
-  return initialize_stub(isolate, extra_state);
+
+  Handle<Map> global_map(global->map());
+  Handle<Code> handler = PropertyHandlerCompiler::Find(
+      name, global_map, Code::LOAD_IC, kCacheOnReceiver, Code::NORMAL);
+  if (handler.is_null()) {
+    LookupIterator it(global, name);
+    if (!it.IsFound() || !it.GetHolder<JSObject>().is_identical_to(global) ||
+        it.state() != LookupIterator::DATA) {
+      return initialize_stub(isolate,
+                             LoadICState(CONTEXTUAL).GetExtraICState());
+    }
+    NamedLoadHandlerCompiler compiler(isolate, global_map, global,
+                                      kCacheOnReceiver);
+    Handle<PropertyCell> cell = it.GetPropertyCell();
+    handler = compiler.CompileLoadGlobal(cell, name, it.IsConfigurable());
+    Map::UpdateCodeCache(global_map, name, handler);
+  }
+  return PropertyICCompiler::ComputeMonomorphic(
+      Code::LOAD_IC, name, handle(global->map()), handler,
+      LoadICState(CONTEXTUAL).GetExtraICState());
+}
+
+
+Handle<Code> LoadIC::initialize_stub_in_optimized_code(
+    Isolate* isolate, ExtraICState extra_state, State initialization_state) {
+  if (FLAG_vector_ics) {
+    return VectorRawLoadStub(isolate, LoadICState(extra_state)).GetCode();
+  }
+  return PropertyICCompiler::ComputeLoad(isolate, initialization_state,
+                                         extra_state);
 }
 
 
@@ -1007,11 +1004,45 @@ Handle<Code> KeyedLoadIC::initialize_stub(Isolate* isolate) {
 }
 
 
-Handle<Code> KeyedLoadIC::initialize_stub_in_optimized_code(Isolate* isolate) {
-  if (FLAG_vector_ics) {
-    return VectorKeyedLoadStub(isolate).GetCode();
+Handle<Code> KeyedLoadIC::initialize_stub_in_optimized_code(
+    Isolate* isolate, State initialization_state) {
+  if (FLAG_vector_ics && initialization_state != MEGAMORPHIC) {
+    return VectorRawKeyedLoadStub(isolate).GetCode();
   }
-  return initialize_stub(isolate);
+  switch (initialization_state) {
+    case UNINITIALIZED:
+      return isolate->builtins()->KeyedLoadIC_Initialize();
+    case PREMONOMORPHIC:
+      return isolate->builtins()->KeyedLoadIC_PreMonomorphic();
+    case MEGAMORPHIC:
+      return isolate->builtins()->KeyedLoadIC_Megamorphic();
+    default:
+      UNREACHABLE();
+  }
+  return Handle<Code>();
+}
+
+
+Handle<Code> KeyedStoreIC::initialize_stub(Isolate* isolate,
+                                           LanguageMode language_mode,
+                                           State initialization_state) {
+  switch (initialization_state) {
+    case UNINITIALIZED:
+      return is_strict(language_mode)
+                 ? isolate->builtins()->KeyedStoreIC_Initialize_Strict()
+                 : isolate->builtins()->KeyedStoreIC_Initialize();
+    case PREMONOMORPHIC:
+      return is_strict(language_mode)
+                 ? isolate->builtins()->KeyedStoreIC_PreMonomorphic_Strict()
+                 : isolate->builtins()->KeyedStoreIC_PreMonomorphic();
+    case MEGAMORPHIC:
+      return is_strict(language_mode)
+                 ? isolate->builtins()->KeyedStoreIC_Megamorphic_Strict()
+                 : isolate->builtins()->KeyedStoreIC_Megamorphic();
+    default:
+      UNREACHABLE();
+  }
+  return Handle<Code>();
 }
 
 
@@ -1074,7 +1105,7 @@ void LoadIC::UpdateCaches(LookupIterator* lookup) {
   } else if (!lookup->IsFound()) {
     if (kind() == Code::LOAD_IC) {
       code = NamedLoadHandlerCompiler::ComputeLoadNonexistent(lookup->name(),
-                                                              receiver_type());
+                                                              receiver_map());
       // TODO(jkummerow/verwaest): Introduce a builtin that handles this case.
       if (code.is_null()) code = slow_stub();
     } else {
@@ -1089,8 +1120,7 @@ void LoadIC::UpdateCaches(LookupIterator* lookup) {
 }
 
 
-void IC::UpdateMegamorphicCache(HeapType* type, Name* name, Code* code) {
-  Map* map = *TypeToMap(type, isolate());
+void IC::UpdateMegamorphicCache(Map* map, Name* name, Code* code) {
   isolate()->stub_cache()->Set(name, map, code);
 }
 
@@ -1100,7 +1130,7 @@ Handle<Code> IC::ComputeHandler(LookupIterator* lookup, Handle<Object> value) {
       lookup->GetReceiver().is_identical_to(lookup->GetHolder<JSObject>());
   CacheHolderFlag flag;
   Handle<Map> stub_holder_map = IC::GetHandlerCacheHolder(
-      *receiver_type(), receiver_is_holder, isolate(), &flag);
+      receiver_map(), receiver_is_holder, isolate(), &flag);
 
   Handle<Code> code = PropertyHandlerCompiler::Find(
       lookup->name(), stub_holder_map, kind(), flag,
@@ -1173,14 +1203,13 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
     return function_prototype_stub.GetCode();
   }
 
-  Handle<HeapType> type = receiver_type();
+  Handle<Map> map = receiver_map();
   Handle<JSObject> holder = lookup->GetHolder<JSObject>();
   bool receiver_is_holder = receiver.is_identical_to(holder);
   switch (lookup->state()) {
     case LookupIterator::INTERCEPTOR: {
       DCHECK(!holder->GetNamedInterceptor()->getter()->IsUndefined());
-      NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
-                                        cache_holder);
+      NamedLoadHandlerCompiler compiler(isolate(), map, holder, cache_holder);
       // Perform a lookup behind the interceptor. Copy the LookupIterator since
       // the original iterator will be used to fetch the value.
       LookupIterator it = *lookup;
@@ -1191,16 +1220,19 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
 
     case LookupIterator::ACCESSOR: {
       // Use simple field loads for some well-known callback properties.
-      if (receiver_is_holder) {
-        DCHECK(receiver->IsJSObject());
-        Handle<JSObject> js_receiver = Handle<JSObject>::cast(receiver);
-        int object_offset;
-        if (Accessors::IsJSObjectFieldAccessor<HeapType>(type, lookup->name(),
-                                                         &object_offset)) {
-          FieldIndex index =
-              FieldIndex::ForInObjectOffset(object_offset, js_receiver->map());
-          return SimpleFieldLoad(index);
-        }
+      // The method will only return true for absolute truths based on the
+      // receiver maps.
+      int object_offset;
+      if (Accessors::IsJSObjectFieldAccessor(map, lookup->name(),
+                                             &object_offset)) {
+        FieldIndex index = FieldIndex::ForInObjectOffset(object_offset, *map);
+        return SimpleFieldLoad(index);
+      }
+      if (Accessors::IsJSArrayBufferViewFieldAccessor(map, lookup->name(),
+                                                      &object_offset)) {
+        FieldIndex index = FieldIndex::ForInObjectOffset(object_offset, *map);
+        ArrayBufferViewLoadFieldStub stub(isolate(), index);
+        return stub.GetCode();
       }
 
       Handle<Object> accessors = lookup->GetAccessors();
@@ -1208,13 +1240,12 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
         Handle<ExecutableAccessorInfo> info =
             Handle<ExecutableAccessorInfo>::cast(accessors);
         if (v8::ToCData<Address>(info->getter()) == 0) break;
-        if (!ExecutableAccessorInfo::IsCompatibleReceiverType(isolate(), info,
-                                                              type)) {
+        if (!ExecutableAccessorInfo::IsCompatibleReceiverMap(isolate(), info,
+                                                             map)) {
           break;
         }
         if (!holder->HasFastProperties()) break;
-        NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
-                                          cache_holder);
+        NamedLoadHandlerCompiler compiler(isolate(), map, holder, cache_holder);
         return compiler.CompileLoadCallback(lookup->name(), info);
       }
       if (accessors->IsAccessorPair()) {
@@ -1230,14 +1261,14 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
           break;
         }
         CallOptimization call_optimization(function);
-        NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
-                                          cache_holder);
+        NamedLoadHandlerCompiler compiler(isolate(), map, holder, cache_holder);
         if (call_optimization.is_simple_api_call() &&
             call_optimization.IsCompatibleReceiver(receiver, holder)) {
           return compiler.CompileLoadCallback(lookup->name(), call_optimization,
                                               lookup->GetAccessorIndex());
         }
-        int expected_arguments = function->shared()->formal_parameter_count();
+        int expected_arguments =
+            function->shared()->internal_formal_parameter_count();
         return compiler.CompileLoadViaGetter(
             lookup->name(), lookup->GetAccessorIndex(), expected_arguments);
       }
@@ -1248,15 +1279,15 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
       if (lookup->is_dictionary_holder()) {
         if (kind() != Code::LOAD_IC) break;
         if (holder->IsGlobalObject()) {
-          NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
+          NamedLoadHandlerCompiler compiler(isolate(), map, holder,
                                             cache_holder);
           Handle<PropertyCell> cell = lookup->GetPropertyCell();
           Handle<Code> code = compiler.CompileLoadGlobal(
               cell, lookup->name(), lookup->IsConfigurable());
           // TODO(verwaest): Move caching of these NORMAL stubs outside as well.
           CacheHolderFlag flag;
-          Handle<Map> stub_holder_map = GetHandlerCacheHolder(
-              *type, receiver_is_holder, isolate(), &flag);
+          Handle<Map> stub_holder_map =
+              GetHandlerCacheHolder(map, receiver_is_holder, isolate(), &flag);
           Map::UpdateCodeCache(stub_holder_map, lookup->name(), code);
           return code;
         }
@@ -1274,8 +1305,7 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
         if (receiver_is_holder) {
           return SimpleFieldLoad(field);
         }
-        NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
-                                          cache_holder);
+        NamedLoadHandlerCompiler compiler(isolate(), map, holder, cache_holder);
         return compiler.CompileLoadField(lookup->name(), field);
       }
 
@@ -1285,12 +1315,13 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
         LoadConstantStub stub(isolate(), lookup->GetConstantIndex());
         return stub.GetCode();
       }
-      NamedLoadHandlerCompiler compiler(isolate(), receiver_type(), holder,
-                                        cache_holder);
+      NamedLoadHandlerCompiler compiler(isolate(), map, holder, cache_holder);
       return compiler.CompileLoadConstant(lookup->name(),
                                           lookup->GetConstantIndex());
     }
 
+    case LookupIterator::INTEGER_INDEXED_EXOTIC:
+      return slow_stub();
     case LookupIterator::ACCESS_CHECK:
     case LookupIterator::JSPROXY:
     case LookupIterator::NOT_FOUND:
@@ -1333,7 +1364,7 @@ Handle<Code> KeyedLoadIC::LoadElementStub(Handle<HeapObject> receiver) {
     if (FLAG_vector_ics) {
       Handle<Code> handler =
           PropertyICCompiler::ComputeKeyedLoadMonomorphicHandler(receiver_map);
-      ConfigureVectorState(Handle<Name>::null(), receiver_type(), handler);
+      ConfigureVectorState(Handle<Name>::null(), receiver_map, handler);
       return null_handle;
     }
     return PropertyICCompiler::ComputeKeyedLoadMonomorphic(receiver_map);
@@ -1353,7 +1384,7 @@ Handle<Code> KeyedLoadIC::LoadElementStub(Handle<HeapObject> receiver) {
     if (FLAG_vector_ics) {
       Handle<Code> handler =
           PropertyICCompiler::ComputeKeyedLoadMonomorphicHandler(receiver_map);
-      ConfigureVectorState(Handle<Name>::null(), receiver_type(), handler);
+      ConfigureVectorState(Handle<Name>::null(), receiver_map, handler);
       return null_handle;
     }
     return PropertyICCompiler::ComputeKeyedLoadMonomorphic(receiver_map);
@@ -1381,11 +1412,8 @@ Handle<Code> KeyedLoadIC::LoadElementStub(Handle<HeapObject> receiver) {
     CodeHandleList handlers(target_receiver_maps.length());
     ElementHandlerCompiler compiler(isolate());
     compiler.CompileElementHandlers(&target_receiver_maps, &handlers);
-    TypeHandleList types(target_receiver_maps.length());
-    for (int i = 0; i < target_receiver_maps.length(); i++) {
-      types.Add(HeapType::Class(target_receiver_maps.at(i), isolate()));
-    }
-    ConfigureVectorState(Handle<Name>::null(), &types, &handlers);
+    ConfigureVectorState(Handle<Name>::null(), &target_receiver_maps,
+                         &handlers);
     return null_handle;
   }
 
@@ -1484,6 +1512,8 @@ bool StoreIC::LookupForWrite(LookupIterator* it, Handle<Object> value,
         break;
       case LookupIterator::ACCESSOR:
         return !it->IsReadOnly();
+      case LookupIterator::INTEGER_INDEXED_EXOTIC:
+        return false;
       case LookupIterator::DATA: {
         if (it->IsReadOnly()) return false;
         Handle<JSObject> holder = it->GetHolder<JSObject>();
@@ -1491,7 +1521,7 @@ bool StoreIC::LookupForWrite(LookupIterator* it, Handle<Object> value,
           it->PrepareForDataProperty(value);
           // The previous receiver map might just have been deprecated,
           // so reload it.
-          update_receiver_type(receiver);
+          update_receiver_map(receiver);
           return true;
         }
 
@@ -1508,7 +1538,6 @@ bool StoreIC::LookupForWrite(LookupIterator* it, Handle<Object> value,
     }
   }
 
-  if (it->IsSpecialNumericIndex()) return false;
   it->PrepareTransitionToDataProperty(value, NONE, store_mode);
   return it->IsCacheableTransition();
 }
@@ -1517,7 +1546,7 @@ bool StoreIC::LookupForWrite(LookupIterator* it, Handle<Object> value,
 MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
                                    Handle<Object> value,
                                    JSReceiver::StoreFromKeyed store_mode) {
-  if (FLAG_harmony_scoping && object->IsGlobalObject() && name->IsString()) {
+  if (object->IsGlobalObject() && name->IsString()) {
     // Look up in script context table.
     Handle<String> str_name = Handle<String>::cast(name);
     Handle<GlobalObject> global = Handle<GlobalObject>::cast(object);
@@ -1529,7 +1558,16 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
       Handle<Context> script_context = ScriptContextTable::GetContext(
           script_contexts, lookup_result.context_index);
       if (lookup_result.mode == CONST) {
-        return TypeError("harmony_const_assign", object, name);
+        return TypeError("const_assign", object, name);
+      }
+
+      Handle<Object> previous_value =
+          FixedArray::get(script_context, lookup_result.slot_index);
+
+      if (*previous_value == *isolate()->factory()->the_hole_value()) {
+        // Do not install stubs and stay pre-monomorphic for
+        // uninitialized accesses.
+        return ReferenceError(name);
       }
 
       if (FLAG_use_ic &&
@@ -1615,10 +1653,14 @@ Handle<Code> CallIC::initialize_stub_in_optimized_code(
 
 
 Handle<Code> StoreIC::initialize_stub(Isolate* isolate,
-                                      LanguageMode language_mode) {
+                                      LanguageMode language_mode,
+                                      State initialization_state) {
+  DCHECK(initialization_state == UNINITIALIZED ||
+         initialization_state == PREMONOMORPHIC ||
+         initialization_state == MEGAMORPHIC);
   ExtraICState extra_state = ComputeExtraICState(language_mode);
-  Handle<Code> ic =
-      PropertyICCompiler::ComputeStore(isolate, UNINITIALIZED, extra_state);
+  Handle<Code> ic = PropertyICCompiler::ComputeStore(
+      isolate, initialization_state, extra_state);
   return ic;
 }
 
@@ -1676,6 +1718,22 @@ void StoreIC::UpdateCaches(LookupIterator* lookup, Handle<Object> value,
 }
 
 
+static Handle<Code> PropertyCellStoreHandler(
+    Isolate* isolate, Handle<JSObject> receiver, Handle<GlobalObject> holder,
+    Handle<Name> name, Handle<PropertyCell> cell, PropertyCellType type) {
+  auto constant_type = Nothing<PropertyCellConstantType>();
+  if (type == PropertyCellType::kConstantType) {
+    constant_type = Just(cell->GetConstantType());
+  }
+  StoreGlobalStub stub(isolate, type, constant_type,
+                       receiver->IsJSGlobalProxy());
+  auto code = stub.GetCodeCopyFromTemplate(holder, cell);
+  // TODO(verwaest): Move caching of these NORMAL stubs outside as well.
+  HeapObject::UpdateMapCodeCache(receiver, name, code);
+  return code;
+}
+
+
 Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
                                      Handle<Object> value,
                                      CacheHolderFlag cache_holder) {
@@ -1688,6 +1746,17 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
 
   switch (lookup->state()) {
     case LookupIterator::TRANSITION: {
+      auto store_target = lookup->GetStoreTarget();
+      if (store_target->IsGlobalObject()) {
+        // TODO(dcarney): this currently just deopts. Use the transition cell.
+        auto cell = isolate()->factory()->NewPropertyCell();
+        cell->set_value(*value);
+        auto code = PropertyCellStoreHandler(
+            isolate(), store_target, Handle<GlobalObject>::cast(store_target),
+            lookup->name(), cell, PropertyCellType::kConstant);
+        cell->set_value(isolate()->heap()->the_hole_value());
+        return code;
+      }
       Handle<Map> transition = lookup->transition_map();
       // Currently not handled by CompileStoreTransition.
       if (!holder->HasFastProperties()) {
@@ -1696,13 +1765,13 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
       }
 
       DCHECK(lookup->IsCacheableTransition());
-      NamedStoreHandlerCompiler compiler(isolate(), receiver_type(), holder);
+      NamedStoreHandlerCompiler compiler(isolate(), receiver_map(), holder);
       return compiler.CompileStoreTransition(transition, lookup->name());
     }
 
     case LookupIterator::INTERCEPTOR: {
       DCHECK(!holder->GetNamedInterceptor()->setter()->IsUndefined());
-      NamedStoreHandlerCompiler compiler(isolate(), receiver_type(), holder);
+      NamedStoreHandlerCompiler compiler(isolate(), receiver_map(), holder);
       return compiler.CompileStoreInterceptor(lookup->name());
     }
 
@@ -1719,14 +1788,13 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
           TRACE_GENERIC_IC(isolate(), "StoreIC", "setter == 0");
           break;
         }
-        if (!ExecutableAccessorInfo::IsCompatibleReceiverType(
-                isolate(), info, receiver_type())) {
+        if (!ExecutableAccessorInfo::IsCompatibleReceiverMap(isolate(), info,
+                                                             receiver_map())) {
           TRACE_GENERIC_IC(isolate(), "StoreIC", "incompatible receiver type");
           break;
         }
-        NamedStoreHandlerCompiler compiler(isolate(), receiver_type(), holder);
-        return compiler.CompileStoreCallback(receiver, lookup->name(),
-                                             lookup->GetAccessorIndex());
+        NamedStoreHandlerCompiler compiler(isolate(), receiver_map(), holder);
+        return compiler.CompileStoreCallback(receiver, lookup->name(), info);
       } else if (accessors->IsAccessorPair()) {
         Handle<Object> setter(Handle<AccessorPair>::cast(accessors)->setter(),
                               isolate());
@@ -1736,14 +1804,15 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
         }
         Handle<JSFunction> function = Handle<JSFunction>::cast(setter);
         CallOptimization call_optimization(function);
-        NamedStoreHandlerCompiler compiler(isolate(), receiver_type(), holder);
+        NamedStoreHandlerCompiler compiler(isolate(), receiver_map(), holder);
         if (call_optimization.is_simple_api_call() &&
             call_optimization.IsCompatibleReceiver(receiver, holder)) {
           return compiler.CompileStoreCallback(receiver, lookup->name(),
                                                call_optimization,
                                                lookup->GetAccessorIndex());
         }
-        int expected_arguments = function->shared()->formal_parameter_count();
+        int expected_arguments =
+            function->shared()->internal_formal_parameter_count();
         return compiler.CompileStoreViaSetter(receiver, lookup->name(),
                                               lookup->GetAccessorIndex(),
                                               expected_arguments);
@@ -1754,16 +1823,14 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
     case LookupIterator::DATA: {
       if (lookup->is_dictionary_holder()) {
         if (holder->IsGlobalObject()) {
-          Handle<PropertyCell> cell = lookup->GetPropertyCell();
-          Handle<HeapType> union_type = PropertyCell::UpdatedType(cell, value);
           DCHECK(holder.is_identical_to(receiver) ||
                  receiver->map()->prototype() == *holder);
-          StoreGlobalStub stub(isolate(), union_type->IsConstant(),
-                               receiver->IsJSGlobalProxy());
-          Handle<Code> code = stub.GetCodeCopyFromTemplate(
-              Handle<GlobalObject>::cast(holder), cell);
-          // TODO(verwaest): Move caching of these NORMAL stubs outside as well.
-          HeapObject::UpdateMapCodeCache(receiver, lookup->name(), code);
+          auto cell = lookup->GetPropertyCell();
+          auto updated_type = PropertyCell::UpdatedType(
+              cell, value, lookup->property_details());
+          auto code = PropertyCellStoreHandler(
+              isolate(), receiver, Handle<GlobalObject>::cast(holder),
+              lookup->name(), cell, updated_type);
           return code;
         }
         DCHECK(holder.is_identical_to(receiver));
@@ -1784,7 +1851,7 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
                               lookup->representation());
           return stub.GetCode();
         }
-        NamedStoreHandlerCompiler compiler(isolate(), receiver_type(), holder);
+        NamedStoreHandlerCompiler compiler(isolate(), receiver_map(), holder);
         return compiler.CompileStoreField(lookup);
       }
 
@@ -1794,6 +1861,7 @@ Handle<Code> StoreIC::CompileHandler(LookupIterator* lookup,
       break;
     }
 
+    case LookupIterator::INTEGER_INDEXED_EXOTIC:
     case LookupIterator::ACCESS_CHECK:
     case LookupIterator::JSPROXY:
     case LookupIterator::NOT_FOUND:
@@ -2140,7 +2208,9 @@ MaybeHandle<Object> KeyedStoreIC::Store(Handle<Object> object,
     TRACE_GENERIC_IC(isolate(), "KeyedStoreIC", "slow stub");
   }
   DCHECK(!stub.is_null());
-  set_target(*stub);
+  if (!AddressIsDeoptimizedCode()) {
+    set_target(*stub);
+  }
   TRACE_IC("StoreIC", key);
 
   return store_handle;
@@ -2510,16 +2580,24 @@ MaybeHandle<Object> BinaryOpIC::Transition(
 
   // Compute the actual result using the builtin for the binary operation.
   Object* builtin = isolate()->js_builtins_object()->javascript_builtin(
-      TokenToJSBuiltin(state.op()));
+      TokenToJSBuiltin(state.op(), state.language_mode()));
   Handle<JSFunction> function = handle(JSFunction::cast(builtin), isolate());
   Handle<Object> result;
   ASSIGN_RETURN_ON_EXCEPTION(
       isolate(), result, Execution::Call(isolate(), function, left, 1, &right),
       Object);
 
+  // Do not try to update the target if the code was marked for lazy
+  // deoptimization. (Since we do not relocate addresses in these
+  // code objects, an attempt to access the target could fail.)
+  if (AddressIsDeoptimizedCode()) {
+    return result;
+  }
+
   // Execution::Call can execute arbitrary JavaScript, hence potentially
   // update the state of this very IC, so we must update the stored state.
   UpdateTarget();
+
   // Compute the new state.
   BinaryOpICState old_state(isolate(), target()->extra_ic_state());
   state.Update(left, right, result);
@@ -2739,43 +2817,38 @@ RUNTIME_FUNCTION(Unreachable) {
 }
 
 
-Builtins::JavaScript BinaryOpIC::TokenToJSBuiltin(Token::Value op) {
-  switch (op) {
-    default:
-      UNREACHABLE();
-    case Token::ADD:
-      return Builtins::ADD;
-      break;
-    case Token::SUB:
-      return Builtins::SUB;
-      break;
-    case Token::MUL:
-      return Builtins::MUL;
-      break;
-    case Token::DIV:
-      return Builtins::DIV;
-      break;
-    case Token::MOD:
-      return Builtins::MOD;
-      break;
-    case Token::BIT_OR:
-      return Builtins::BIT_OR;
-      break;
-    case Token::BIT_AND:
-      return Builtins::BIT_AND;
-      break;
-    case Token::BIT_XOR:
-      return Builtins::BIT_XOR;
-      break;
-    case Token::SAR:
-      return Builtins::SAR;
-      break;
-    case Token::SHR:
-      return Builtins::SHR;
-      break;
-    case Token::SHL:
-      return Builtins::SHL;
-      break;
+Builtins::JavaScript BinaryOpIC::TokenToJSBuiltin(Token::Value op,
+                                                  LanguageMode language_mode) {
+  if (is_strong(language_mode)) {
+    switch (op) {
+      default: UNREACHABLE();
+      case Token::ADD: return Builtins::ADD_STRONG;
+      case Token::SUB: return Builtins::SUB_STRONG;
+      case Token::MUL: return Builtins::MUL_STRONG;
+      case Token::DIV: return Builtins::DIV_STRONG;
+      case Token::MOD: return Builtins::MOD_STRONG;
+      case Token::BIT_OR: return Builtins::BIT_OR_STRONG;
+      case Token::BIT_AND: return Builtins::BIT_AND_STRONG;
+      case Token::BIT_XOR: return Builtins::BIT_XOR_STRONG;
+      case Token::SAR: return Builtins::SAR_STRONG;
+      case Token::SHR: return Builtins::SHR_STRONG;
+      case Token::SHL: return Builtins::SHL_STRONG;
+    }
+  } else {
+    switch (op) {
+      default: UNREACHABLE();
+      case Token::ADD: return Builtins::ADD;
+      case Token::SUB: return Builtins::SUB;
+      case Token::MUL: return Builtins::MUL;
+      case Token::DIV: return Builtins::DIV;
+      case Token::MOD: return Builtins::MOD;
+      case Token::BIT_OR: return Builtins::BIT_OR;
+      case Token::BIT_AND: return Builtins::BIT_AND;
+      case Token::BIT_XOR: return Builtins::BIT_XOR;
+      case Token::SAR: return Builtins::SAR;
+      case Token::SHR: return Builtins::SHR;
+      case Token::SHL: return Builtins::SHL;
+    }
   }
 }
 
@@ -2802,14 +2875,16 @@ RUNTIME_FUNCTION(ToBooleanIC_Miss) {
 RUNTIME_FUNCTION(StoreCallbackProperty) {
   Handle<JSObject> receiver = args.at<JSObject>(0);
   Handle<JSObject> holder = args.at<JSObject>(1);
-  Handle<Smi> accessor_index = args.at<Smi>(2);
+  Handle<HeapObject> callback_or_cell = args.at<HeapObject>(2);
   Handle<Name> name = args.at<Name>(3);
   Handle<Object> value = args.at<Object>(4);
   HandleScope scope(isolate);
 
-  Handle<ExecutableAccessorInfo> callback(ExecutableAccessorInfo::cast(
-      holder->map()->instance_descriptors()->GetCallbacksObject(
-          accessor_index->value())));
+  Handle<ExecutableAccessorInfo> callback(
+      callback_or_cell->IsWeakCell()
+          ? ExecutableAccessorInfo::cast(
+                WeakCell::cast(*callback_or_cell)->value())
+          : ExecutableAccessorInfo::cast(*callback_or_cell));
 
   DCHECK(callback->IsCompatibleReceiver(*receiver));
 
@@ -2843,30 +2918,10 @@ RUNTIME_FUNCTION(LoadPropertyWithInterceptorOnly) {
   Handle<JSObject> holder =
       args.at<JSObject>(NamedLoadHandlerCompiler::kInterceptorArgsHolderIndex);
   HandleScope scope(isolate);
-  Handle<InterceptorInfo> interceptor_info(holder->GetNamedInterceptor());
-
-  if (name->IsSymbol() && !interceptor_info->can_intercept_symbols())
-    return isolate->heap()->no_interceptor_result_sentinel();
-
-  Address getter_address = v8::ToCData<Address>(interceptor_info->getter());
-  v8::GenericNamedPropertyGetterCallback getter =
-      FUNCTION_CAST<v8::GenericNamedPropertyGetterCallback>(getter_address);
-  DCHECK(getter != NULL);
-
-  PropertyCallbackArguments callback_args(isolate, interceptor_info->data(),
-                                          *receiver, *holder);
-  {
-    // Use the interceptor getter.
-    v8::Handle<v8::Value> r =
-        callback_args.Call(getter, v8::Utils::ToLocal(name));
-    RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
-    if (!r.IsEmpty()) {
-      Handle<Object> result = v8::Utils::OpenHandle(*r);
-      result->VerifyApiCallResultType();
-      return *v8::Utils::OpenHandle(*r);
-    }
-  }
-
+  auto res = JSObject::GetPropertyWithInterceptor(holder, receiver, name);
+  RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
+  Handle<Object> result;
+  if (res.ToHandle(&result)) return *result;
   return isolate->heap()->no_interceptor_result_sentinel();
 }
 
@@ -2883,7 +2938,7 @@ static Object* ThrowReferenceError(Isolate* isolate, Name* name) {
   // Throw a reference error.
   Handle<Name> name_handle(name);
   THROW_NEW_ERROR_RETURN_FAILURE(
-      isolate, NewReferenceError("not_defined", HandleVector(&name_handle, 1)));
+      isolate, NewReferenceError(MessageTemplate::kNotDefined, name_handle));
 }
 
 

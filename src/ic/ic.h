@@ -92,38 +92,25 @@ class IC {
   bool IsCallStub() const { return target()->is_call_stub(); }
 #endif
 
-  template <class TypeClass>
-  static JSFunction* GetRootConstructor(TypeClass* type,
-                                        Context* native_context);
-  static inline Handle<Map> GetHandlerCacheHolder(HeapType* type,
+  static inline JSFunction* GetRootConstructor(Map* receiver_map,
+                                               Context* native_context);
+  static inline Handle<Map> GetHandlerCacheHolder(Handle<Map> receiver_map,
                                                   bool receiver_is_holder,
                                                   Isolate* isolate,
                                                   CacheHolderFlag* flag);
-  static inline Handle<Map> GetICCacheHolder(HeapType* type, Isolate* isolate,
+  static inline Handle<Map> GetICCacheHolder(Handle<Map> receiver_map,
+                                             Isolate* isolate,
                                              CacheHolderFlag* flag);
 
   static bool IsCleared(Code* code) {
     InlineCacheState state = code->ic_state();
-    return state == UNINITIALIZED || state == PREMONOMORPHIC;
+    return !FLAG_use_ic || state == UNINITIALIZED || state == PREMONOMORPHIC;
   }
 
   static bool IsCleared(FeedbackNexus* nexus) {
     InlineCacheState state = nexus->StateFromFeedback();
-    return state == UNINITIALIZED || state == PREMONOMORPHIC;
+    return !FLAG_use_ic || state == UNINITIALIZED || state == PREMONOMORPHIC;
   }
-
-  // Utility functions to convert maps to types and back. There are two special
-  // cases:
-  // - The heap_number_map is used as a marker which includes heap numbers as
-  //   well as smis.
-  // - The oddball map is only used for booleans.
-  static Handle<Map> TypeToMap(HeapType* type, Isolate* isolate);
-  template <class T>
-  static typename T::TypeHandle MapToType(Handle<Map> map,
-                                          typename T::Region* region);
-
-  static Handle<HeapType> CurrentTypeOf(Handle<Object> object,
-                                        Isolate* isolate);
 
   static bool ICUseVector(Code::Kind kind) {
     return (FLAG_vector_ics &&
@@ -147,6 +134,7 @@ class IC {
   Code* GetOriginalCode() const;
 
   bool AddressIsOptimizedCode() const;
+  bool AddressIsDeoptimizedCode() const;
 
   // Set the call-site target.
   inline void set_target(Code* code);
@@ -163,10 +151,10 @@ class IC {
   // Configure for most states.
   void ConfigureVectorState(IC::State new_state);
   // Configure the vector for MONOMORPHIC.
-  void ConfigureVectorState(Handle<Name> name, Handle<HeapType> type,
+  void ConfigureVectorState(Handle<Name> name, Handle<Map> map,
                             Handle<Code> handler);
   // Configure the vector for POLYMORPHIC.
-  void ConfigureVectorState(Handle<Name> name, TypeHandleList* types,
+  void ConfigureVectorState(Handle<Name> name, MapHandleList* maps,
                             CodeHandleList* handlers);
 
   char TransitionMarkFromState(IC::State state);
@@ -176,7 +164,7 @@ class IC {
 
   MaybeHandle<Object> TypeError(const char* type, Handle<Object> object,
                                 Handle<Object> key);
-  MaybeHandle<Object> ReferenceError(const char* type, Handle<Name> name);
+  MaybeHandle<Object> ReferenceError(Handle<Name> name);
 
   // Access the target code for the given IC address.
   static inline Code* GetTargetAtAddress(Address address,
@@ -204,7 +192,7 @@ class IC {
 
   void UpdateMonomorphicIC(Handle<Code> handler, Handle<Name> name);
   bool UpdatePolymorphicIC(Handle<Name> name, Handle<Code> code);
-  void UpdateMegamorphicCache(HeapType* type, Name* name, Code* code);
+  void UpdateMegamorphicCache(Map* map, Name* name, Code* code);
 
   void CopyICToMegamorphicCache(Handle<Name> name);
   bool IsTransitionOfMonomorphicTarget(Map* source_map, Map* target_map);
@@ -227,22 +215,19 @@ class IC {
   ExtraICState extra_ic_state() const { return extra_ic_state_; }
   void set_extra_ic_state(ExtraICState state) { extra_ic_state_ = state; }
 
-  Handle<HeapType> receiver_type() { return receiver_type_; }
-  void update_receiver_type(Handle<Object> receiver) {
-    receiver_type_ = CurrentTypeOf(receiver, isolate_);
+  Handle<Map> receiver_map() { return receiver_map_; }
+  void update_receiver_map(Handle<Object> receiver) {
+    if (receiver->IsSmi()) {
+      receiver_map_ = isolate_->factory()->heap_number_map();
+    } else {
+      receiver_map_ = handle(HeapObject::cast(*receiver)->map());
+    }
   }
 
   void TargetMaps(MapHandleList* list) {
     FindTargetMaps();
     for (int i = 0; i < target_maps_.length(); i++) {
       list->Add(target_maps_.at(i));
-    }
-  }
-
-  void TargetTypes(TypeHandleList* list) {
-    FindTargetMaps();
-    for (int i = 0; i < target_maps_.length(); i++) {
-      list->Add(MapToType<HeapType>(target_maps_.at(i), isolate_));
     }
   }
 
@@ -309,7 +294,7 @@ class IC {
   State old_state_;  // For saving if we marked as prototype failure.
   State state_;
   Code::Kind kind_;
-  Handle<HeapType> receiver_type_;
+  Handle<Map> receiver_map_;
   MaybeHandle<Code> maybe_handler_;
 
   ExtraICState extra_ic_state_;
@@ -412,7 +397,9 @@ class LoadIC : public IC {
   static Handle<Code> initialize_stub(Isolate* isolate,
                                       ExtraICState extra_state);
   static Handle<Code> initialize_stub_in_optimized_code(
-      Isolate* isolate, ExtraICState extra_state);
+      Isolate* isolate, ExtraICState extra_state, State initialization_state);
+  static Handle<Code> load_global(Isolate* isolate, Handle<GlobalObject> global,
+                                  Handle<String> name);
 
   MUST_USE_RESULT MaybeHandle<Object> Load(Handle<Object> object,
                                            Handle<Name> name);
@@ -431,7 +418,7 @@ class LoadIC : public IC {
     }
   }
 
-  Handle<Code> megamorphic_stub() OVERRIDE;
+  Handle<Code> megamorphic_stub() override;
 
   // Update the inline cache and the global stub cache based on the
   // lookup result.
@@ -439,7 +426,7 @@ class LoadIC : public IC {
 
   virtual Handle<Code> CompileHandler(LookupIterator* lookup,
                                       Handle<Object> unused,
-                                      CacheHolderFlag cache_holder) OVERRIDE;
+                                      CacheHolderFlag cache_holder) override;
 
  private:
   virtual Handle<Code> pre_monomorphic_stub() const;
@@ -497,7 +484,8 @@ class KeyedLoadIC : public LoadIC {
       (1 << Map::kIsAccessCheckNeeded) | (1 << Map::kHasIndexedInterceptor);
 
   static Handle<Code> initialize_stub(Isolate* isolate);
-  static Handle<Code> initialize_stub_in_optimized_code(Isolate* isolate);
+  static Handle<Code> initialize_stub_in_optimized_code(
+      Isolate* isolate, State initialization_state);
   static Handle<Code> ChooseMegamorphicStub(Isolate* isolate);
   static Handle<Code> pre_monomorphic_stub(Isolate* isolate);
 
@@ -555,7 +543,8 @@ class StoreIC : public IC {
                                          LanguageMode language_mode);
 
   static Handle<Code> initialize_stub(Isolate* isolate,
-                                      LanguageMode language_mode);
+                                      LanguageMode language_mode,
+                                      State initialization_state);
 
   MUST_USE_RESULT MaybeHandle<Object> Store(
       Handle<Object> object, Handle<Name> name, Handle<Object> value,
@@ -567,7 +556,7 @@ class StoreIC : public IC {
 
  protected:
   // Stub accessors.
-  Handle<Code> megamorphic_stub() OVERRIDE;
+  Handle<Code> megamorphic_stub() override;
   Handle<Code> slow_stub() const;
 
   virtual Handle<Code> pre_monomorphic_stub() const {
@@ -583,7 +572,7 @@ class StoreIC : public IC {
                     JSReceiver::StoreFromKeyed store_mode);
   virtual Handle<Code> CompileHandler(LookupIterator* lookup,
                                       Handle<Object> value,
-                                      CacheHolderFlag cache_holder) OVERRIDE;
+                                      CacheHolderFlag cache_holder) override;
 
  private:
   inline void set_target(Code* code);
@@ -647,6 +636,10 @@ class KeyedStoreIC : public StoreIC {
                                   LanguageMode language_mode);
   static void GenerateSloppyArguments(MacroAssembler* masm);
 
+  static Handle<Code> initialize_stub(Isolate* isolate,
+                                      LanguageMode language_mode,
+                                      State initialization_state);
+
  protected:
   virtual Handle<Code> pre_monomorphic_stub() const {
     return pre_monomorphic_stub(isolate(), language_mode());
@@ -689,7 +682,8 @@ class BinaryOpIC : public IC {
  public:
   explicit BinaryOpIC(Isolate* isolate) : IC(EXTRA_CALL_FRAME, isolate) {}
 
-  static Builtins::JavaScript TokenToJSBuiltin(Token::Value op);
+  static Builtins::JavaScript TokenToJSBuiltin(Token::Value op,
+                                               LanguageMode language_mode);
 
   MaybeHandle<Object> Transition(Handle<AllocationSite> allocation_site,
                                  Handle<Object> left,

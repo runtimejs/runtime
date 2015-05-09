@@ -8,6 +8,21 @@
   "resources": ["base.js"],
   "tests": [
     {
+      "name": "SpreadCalls",
+      "path": ["SpreadCalls"],
+      "main": "run.js",
+      "resources": ["spreadcalls.js"],
+      "flags": ["--harmony-spreadcalls"],
+      "run_count": 5,
+      "units": "score",
+      "results_regexp": "^%s\\-SpreadCalls\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "Call"},
+        {"name": "CallMethod"},
+        {"name": "CallNew"}
+      ]
+    },
+    {
       "name": "Classes",
       "path": ["Classes"],
       "main": "run.js",
@@ -60,7 +75,6 @@
       "path": ["Strings"],
       "main": "run.js",
       "resources": ["harmony-string.js"],
-      "flags": ["--harmony-strings"],
       "results_regexp": "^%s\\-Strings\\(Score\\): (.+)$",
       "tests": [
         {"name": "StringFunctions"}
@@ -71,7 +85,6 @@
       "path": ["Templates"],
       "main": "run.js",
       "resources": ["templates.js"],
-      "flags": ["--harmony-templates"],
       "run_count": 5,
       "units": "score",
       "results_regexp": "^%s\\-Templates\\(Score\\): (.+)$",
@@ -80,6 +93,17 @@
         {"name": "Untagged"},
         {"name": "LargeUntagged"},
         {"name": "Tagged"}
+      ]
+    },
+    {
+      "name": "Object",
+      "path": ["Object"],
+      "main": "run.js",
+      "resources": ["assign.js"],
+      "flags": ["--harmony-object"],
+      "results_regexp": "^%s\\-Object\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "Assign"}
       ]
     }
   ]

@@ -24,7 +24,7 @@ class SimplifiedOperatorReducerTest : public TypedGraphTest {
  public:
   explicit SimplifiedOperatorReducerTest(int num_parameters = 1)
       : TypedGraphTest(num_parameters), simplified_(zone()) {}
-  ~SimplifiedOperatorReducerTest() OVERRIDE {}
+  ~SimplifiedOperatorReducerTest() override {}
 
  protected:
   Reduction Reduce(Node* node) {
@@ -49,7 +49,7 @@ class SimplifiedOperatorReducerTestWithParam
  public:
   explicit SimplifiedOperatorReducerTestWithParam(int num_parameters = 1)
       : SimplifiedOperatorReducerTest(num_parameters) {}
-  ~SimplifiedOperatorReducerTestWithParam() OVERRIDE {}
+  ~SimplifiedOperatorReducerTestWithParam() override {}
 };
 
 
@@ -116,39 +116,6 @@ const double kNaNs[] = {-std::numeric_limits<double>::quiet_NaN(),
                         bit_cast<double>(V8_UINT64_C(0xFFFFFFFFFFFFFFFF))};
 
 }  // namespace
-
-
-// -----------------------------------------------------------------------------
-// AnyToBoolean
-
-
-TEST_F(SimplifiedOperatorReducerTest, AnyToBooleanWithBoolean) {
-  Node* p = Parameter(Type::Boolean());
-  Reduction r = Reduce(graph()->NewNode(simplified()->AnyToBoolean(), p));
-  ASSERT_TRUE(r.Changed());
-  EXPECT_EQ(p, r.replacement());
-}
-
-
-TEST_F(SimplifiedOperatorReducerTest, AnyToBooleanWithOrderedNumber) {
-  Node* p = Parameter(Type::OrderedNumber());
-  Reduction r = Reduce(graph()->NewNode(simplified()->AnyToBoolean(), p));
-  ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(r.replacement(),
-              IsBooleanNot(IsNumberEqual(p, IsNumberConstant(0))));
-}
-
-
-TEST_F(SimplifiedOperatorReducerTest, AnyToBooleanWithString) {
-  Node* p = Parameter(Type::String());
-  Reduction r = Reduce(graph()->NewNode(simplified()->AnyToBoolean(), p));
-  ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(r.replacement(),
-              IsBooleanNot(
-                  IsNumberEqual(IsLoadField(AccessBuilder::ForStringLength(), p,
-                                            graph()->start(), graph()->start()),
-                                IsNumberConstant(0))));
-}
 
 
 // -----------------------------------------------------------------------------

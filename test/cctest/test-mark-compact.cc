@@ -41,10 +41,10 @@
 
 #include "src/full-codegen.h"
 #include "src/global-handles.h"
-#include "src/snapshot.h"
 #include "test/cctest/cctest.h"
 
 using namespace v8::internal;
+using v8::Just;
 
 
 TEST(MarkingDeque) {
@@ -92,11 +92,11 @@ TEST(Promotion) {
   CHECK(heap->InSpace(*array, NEW_SPACE));
 
   // Call mark compact GC, so array becomes an old object.
-  heap->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
-  heap->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
+  heap->CollectAllGarbage();
+  heap->CollectAllGarbage();
 
   // Array now sits in the old space
-  CHECK(heap->InSpace(*array, OLD_POINTER_SPACE));
+  CHECK(heap->InSpace(*array, OLD_SPACE));
 }
 
 
@@ -118,15 +118,16 @@ TEST(NoPromotion) {
   CHECK(heap->InSpace(*array, NEW_SPACE));
 
   // Simulate a full old space to make promotion fail.
-  SimulateFullSpace(heap->old_pointer_space());
+  SimulateFullSpace(heap->old_space());
 
   // Call mark compact GC, and it should pass.
-  heap->CollectGarbage(OLD_POINTER_SPACE);
+  heap->CollectGarbage(OLD_SPACE);
 }
 
 
 TEST(MarkCompactCollector) {
   FLAG_incremental_marking = false;
+  FLAG_retain_maps_for_n_gc = 0;
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
   TestHeap* heap = CcTest::test_heap();
@@ -136,7 +137,7 @@ TEST(MarkCompactCollector) {
   Handle<GlobalObject> global(isolate->context()->global_object());
 
   // call mark-compact when heap is empty
-  heap->CollectGarbage(OLD_POINTER_SPACE, "trigger 1");
+  heap->CollectGarbage(OLD_SPACE, "trigger 1");
 
   // keep allocating garbage in new space until it fails
   const int arraysize = 100;
@@ -163,13 +164,11 @@ TEST(MarkCompactCollector) {
     factory->NewJSObject(function);
   }
 
-  heap->CollectGarbage(OLD_POINTER_SPACE, "trigger 4");
+  heap->CollectGarbage(OLD_SPACE, "trigger 4");
 
   { HandleScope scope(isolate);
     Handle<String> func_name = factory->InternalizeUtf8String("theFunction");
-    v8::Maybe<bool> maybe = JSReceiver::HasOwnProperty(global, func_name);
-    CHECK(maybe.has_value);
-    CHECK(maybe.value);
+    CHECK(Just(true) == JSReceiver::HasOwnProperty(global, func_name));
     Handle<Object> func_value =
         Object::GetProperty(global, func_name).ToHandleChecked();
     CHECK(func_value->IsJSFunction());
@@ -183,13 +182,11 @@ TEST(MarkCompactCollector) {
     JSReceiver::SetProperty(obj, prop_name, twenty_three, SLOPPY).Check();
   }
 
-  heap->CollectGarbage(OLD_POINTER_SPACE, "trigger 5");
+  heap->CollectGarbage(OLD_SPACE, "trigger 5");
 
   { HandleScope scope(isolate);
     Handle<String> obj_name = factory->InternalizeUtf8String("theObject");
-    v8::Maybe<bool> maybe = JSReceiver::HasOwnProperty(global, obj_name);
-    CHECK(maybe.has_value);
-    CHECK(maybe.value);
+    CHECK(Just(true) == JSReceiver::HasOwnProperty(global, obj_name));
     Handle<Object> object =
         Object::GetProperty(global, obj_name).ToHandleChecked();
     CHECK(object->IsJSObject());
@@ -310,7 +307,7 @@ TEST(ObjectGroups) {
                                  g2c1.location());
   }
   // Do a full GC
-  heap->CollectGarbage(OLD_POINTER_SPACE);
+  heap->CollectGarbage(OLD_SPACE);
 
   // All object should be alive.
   CHECK_EQ(0, NumberOfWeakCalls);
@@ -337,7 +334,7 @@ TEST(ObjectGroups) {
                                  g2c1.location());
   }
 
-  heap->CollectGarbage(OLD_POINTER_SPACE);
+  heap->CollectGarbage(OLD_SPACE);
 
   // All objects should be gone. 5 global handles in total.
   CHECK_EQ(5, NumberOfWeakCalls);
@@ -350,7 +347,7 @@ TEST(ObjectGroups) {
                           reinterpret_cast<void*>(&g2c1_and_id),
                           &WeakPointerCallback);
 
-  heap->CollectGarbage(OLD_POINTER_SPACE);
+  heap->CollectGarbage(OLD_SPACE);
   CHECK_EQ(7, NumberOfWeakCalls);
 }
 
@@ -426,7 +423,7 @@ static intptr_t MemoryInUse() {
 
   const int kBufSize = 10000;
   char buffer[kBufSize];
-  int length = read(fd, buffer, kBufSize);
+  ssize_t length = read(fd, buffer, kBufSize);
   intptr_t line_start = 0;
   CHECK_LT(length, kBufSize);  // Make the buffer bigger.
   CHECK_GT(length, 0);  // We have to find some data in the file.
@@ -473,7 +470,9 @@ static intptr_t MemoryInUse() {
 
 
 intptr_t ShortLivingIsolate() {
-  v8::Isolate* isolate = v8::Isolate::New();
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
+  v8::Isolate* isolate = v8::Isolate::New(create_params);
   { v8::Isolate::Scope isolate_scope(isolate);
     v8::Locker lock(isolate);
     v8::HandleScope handle_scope(isolate);

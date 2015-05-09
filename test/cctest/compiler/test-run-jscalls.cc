@@ -158,7 +158,7 @@ TEST(RuntimeCallCPP2) {
 
 TEST(RuntimeCallJS) {
   FLAG_allow_natives_syntax = true;
-  FunctionTester T("(function(a) { return %ToString(a); })");
+  FunctionTester T("(function(a) { return %$toString(a); })");
 
   T.CheckCall(T.Val("23"), T.Val(23), T.undefined());
   T.CheckCall(T.Val("4.2"), T.Val(4.2), T.undefined());
@@ -181,26 +181,6 @@ TEST(RuntimeCallInline) {
   T.CheckCall(T.false_value(), T.undefined(), T.undefined());
   T.CheckCall(T.true_value(), T.NewObject("({})"), T.undefined());
   T.CheckCall(T.true_value(), T.NewObject("([])"), T.undefined());
-}
-
-
-TEST(RuntimeCallBooleanize) {
-  // TODO(turbofan): %Booleanize will disappear, don't hesitate to remove this
-  // test case, two-argument case is covered by the above test already.
-  FLAG_allow_natives_syntax = true;
-  FunctionTester T("(function(a,b) { return %Booleanize(a, b); })");
-
-  T.CheckCall(T.true_value(), T.Val(-1), T.Val(Token::LT));
-  T.CheckCall(T.false_value(), T.Val(-1), T.Val(Token::EQ));
-  T.CheckCall(T.false_value(), T.Val(-1), T.Val(Token::GT));
-
-  T.CheckCall(T.false_value(), T.Val(0.0), T.Val(Token::LT));
-  T.CheckCall(T.true_value(), T.Val(0.0), T.Val(Token::EQ));
-  T.CheckCall(T.false_value(), T.Val(0.0), T.Val(Token::GT));
-
-  T.CheckCall(T.false_value(), T.Val(1), T.Val(Token::LT));
-  T.CheckCall(T.false_value(), T.Val(1), T.Val(Token::EQ));
-  T.CheckCall(T.true_value(), T.Val(1), T.Val(Token::GT));
 }
 
 

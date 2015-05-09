@@ -2,19 +2,29 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-"use strict";
-
 // ECMAScript 402 API implementation.
 
 /**
  * Intl object is a single object that has some named properties,
  * all of which are constructors.
  */
-$Object.defineProperty(global, "Intl", { enumerable: false, value: (function() {
+(function() {
+
+"use strict";
+
+%CheckIsBootstrapping();
+
+var GlobalBoolean = global.Boolean;
+var GlobalDate = global.Date;
+var GlobalNumber = global.Number;
+var GlobalRegExp = global.RegExp;
+var GlobalString = global.String;
+
+var undefined = global.undefined;
 
 var Intl = {};
 
-var undefined = global.undefined;
+%AddNamedProperty(global, "Intl", Intl, DONT_ENUM);
 
 var AVAILABLE_SERVICES = ['collator',
                           'numberformat',
@@ -48,7 +58,7 @@ var UNICODE_EXTENSION_RE = undefined;
 
 function GetUnicodeExtensionRE() {
   if (UNICODE_EXTENSION_RE === undefined) {
-    UNICODE_EXTENSION_RE = new $RegExp('-u(-[a-z0-9]{2,8})+', 'g');
+    UNICODE_EXTENSION_RE = new GlobalRegExp('-u(-[a-z0-9]{2,8})+', 'g');
   }
   return UNICODE_EXTENSION_RE;
 }
@@ -60,7 +70,7 @@ var ANY_EXTENSION_RE = undefined;
 
 function GetAnyExtensionRE() {
   if (ANY_EXTENSION_RE === undefined) {
-    ANY_EXTENSION_RE = new $RegExp('-[a-z0-9]{1}-.*', 'g');
+    ANY_EXTENSION_RE = new GlobalRegExp('-[a-z0-9]{1}-.*', 'g');
   }
   return ANY_EXTENSION_RE;
 }
@@ -72,7 +82,7 @@ var QUOTED_STRING_RE = undefined;
 
 function GetQuotedStringRE() {
   if (QUOTED_STRING_RE === undefined) {
-    QUOTED_STRING_RE = new $RegExp("'[^']+'", 'g');
+    QUOTED_STRING_RE = new GlobalRegExp("'[^']+'", 'g');
   }
   return QUOTED_STRING_RE;
 }
@@ -85,7 +95,7 @@ var SERVICE_RE = undefined;
 function GetServiceRE() {
   if (SERVICE_RE === undefined) {
     SERVICE_RE =
-        new $RegExp('^(collator|numberformat|dateformat|breakiterator)$');
+        new GlobalRegExp('^(collator|numberformat|dateformat|breakiterator)$');
   }
   return SERVICE_RE;
 }
@@ -135,7 +145,7 @@ var TIMEZONE_NAME_CHECK_RE = undefined;
 function GetTimezoneNameCheckRE() {
   if (TIMEZONE_NAME_CHECK_RE === undefined) {
     TIMEZONE_NAME_CHECK_RE =
-        new $RegExp('^([A-Za-z]+)/([A-Za-z]+)(?:_([A-Za-z]+))*$');
+        new GlobalRegExp('^([A-Za-z]+)/([A-Za-z]+)(?:_([A-Za-z]+))*$');
   }
   return TIMEZONE_NAME_CHECK_RE;
 }
@@ -209,8 +219,7 @@ var ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR =
 function addBoundMethod(obj, methodName, implementation, length) {
   function getter() {
     if (!%IsInitializedIntlObject(this)) {
-        throw new $TypeError('Method ' + methodName + ' called on a ' +
-                            'non-object or on a wrong type of object.');
+      throw MakeTypeError(kMethodCalledOnWrongObject, methodName);
     }
     var internalName = '__bound' + methodName + '__';
     if (this[internalName] === undefined) {
@@ -219,21 +228,21 @@ function addBoundMethod(obj, methodName, implementation, length) {
       if (length === undefined || length === 2) {
         boundMethod = function(x, y) {
           if (%_IsConstructCall()) {
-            throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+            throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
           }
           return implementation(that, x, y);
         }
       } else if (length === 1) {
         boundMethod = function(x) {
           if (%_IsConstructCall()) {
-            throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+            throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
           }
           return implementation(that, x);
         }
       } else {
         boundMethod = function() {
           if (%_IsConstructCall()) {
-            throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+            throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
           }
           // DateTimeFormat.format needs to be 0 arg method, but can stil
           // receive optional dateValue param. If one was provided, pass it
@@ -245,7 +254,7 @@ function addBoundMethod(obj, methodName, implementation, length) {
           }
         }
       }
-      %FunctionSetName(boundMethod, internalName);
+      $setFunctionName(boundMethod, internalName);
       %FunctionRemovePrototype(boundMethod);
       %SetNativeFlag(boundMethod);
       this[internalName] = boundMethod;
@@ -253,11 +262,11 @@ function addBoundMethod(obj, methodName, implementation, length) {
     return this[internalName];
   }
 
-  %FunctionSetName(getter, methodName);
+  $setFunctionName(getter, methodName);
   %FunctionRemovePrototype(getter);
   %SetNativeFlag(getter);
 
-  ObjectDefineProperty(obj.prototype, methodName, {
+  $objectDefineProperty(obj.prototype, methodName, {
     get: getter,
     enumerable: false,
     configurable: true
@@ -271,21 +280,21 @@ function addBoundMethod(obj, methodName, implementation, length) {
  */
 function supportedLocalesOf(service, locales, options) {
   if (IS_NULL(service.match(GetServiceRE()))) {
-    throw new $Error('Internal error, wrong service type: ' + service);
+    throw MakeError(kWrongServiceType, service);
   }
 
   // Provide defaults if matcher was not specified.
   if (options === undefined) {
     options = {};
   } else {
-    options = ToObject(options);
+    options = $toObject(options);
   }
 
   var matcher = options.localeMatcher;
   if (matcher !== undefined) {
-    matcher = $String(matcher);
+    matcher = GlobalString(matcher);
     if (matcher !== 'lookup' && matcher !== 'best fit') {
-      throw new $RangeError('Illegal value for localeMatcher:' + matcher);
+      throw MakeRangeError(kLocaleMatcher, matcher);
     }
   } else {
     matcher = 'best fit';
@@ -356,30 +365,26 @@ function bestFitSupportedLocalesOf(requestedLocales, availableLocales) {
  * is out of range for that property it throws RangeError.
  */
 function getGetOption(options, caller) {
-  if (options === undefined) {
-    throw new $Error('Internal ' + caller + ' error. ' +
-                    'Default options are missing.');
-  }
+  if (options === undefined) throw MakeError(kDefaultOptionsMissing, caller);
 
   var getOption = function getOption(property, type, values, defaultValue) {
     if (options[property] !== undefined) {
       var value = options[property];
       switch (type) {
         case 'boolean':
-          value = $Boolean(value);
+          value = GlobalBoolean(value);
           break;
         case 'string':
-          value = $String(value);
+          value = GlobalString(value);
           break;
         case 'number':
-          value = $Number(value);
+          value = GlobalNumber(value);
           break;
         default:
-          throw new $Error('Internal error. Wrong value type.');
+          throw MakeError(kWrongValueType);
       }
       if (values !== undefined && values.indexOf(value) === -1) {
-        throw new $RangeError('Value ' + value + ' out of range for ' + caller +
-                             ' options property ' + property);
+        throw MakeRangeError(kValueOutOfRange, value, caller, property);
       }
 
       return value;
@@ -428,7 +433,7 @@ function resolveLocale(service, requestedLocales, options) {
  */
 function lookupMatcher(service, requestedLocales) {
   if (IS_NULL(service.match(GetServiceRE()))) {
-    throw new $Error('Internal error, wrong service type: ' + service);
+    throw MakeError(kWrongServiceType, service);
   }
 
   // Cache these, they don't ever change per service.
@@ -525,7 +530,7 @@ function setOptions(inOptions, extensionMap, keyValues, getOption, outOptions) {
   var extension = '';
 
   var updateExtension = function updateExtension(key, value) {
-    return '-' + key + '-' + $String(value);
+    return '-' + key + '-' + GlobalString(value);
   }
 
   var updateProperty = function updateProperty(property, type, value) {
@@ -580,14 +585,14 @@ function setOptions(inOptions, extensionMap, keyValues, getOption, outOptions) {
  */
 function freezeArray(array) {
   array.forEach(function(element, index) {
-    ObjectDefineProperty(array, index, {value: element,
-                                          configurable: false,
-                                          writable: false,
-                                          enumerable: true});
+    $objectDefineProperty(array, index, {value: element,
+                                         configurable: false,
+                                         writable: false,
+                                         enumerable: true});
   });
 
-  ObjectDefineProperty(array, 'length', {value: array.length,
-                                         writable: false});
+  $objectDefineProperty(array, 'length', {value: array.length,
+                                          writable: false});
   return array;
 }
 
@@ -614,7 +619,7 @@ function getOptimalLanguageTag(original, resolved) {
   }
 
   // Preserve extensions of resolved locale, but swap base tags with original.
-  var resolvedBase = new $RegExp('^' + locales[1].base);
+  var resolvedBase = new GlobalRegExp('^' + locales[1].base);
   return resolved.replace(resolvedBase, locales[0].base);
 }
 
@@ -648,8 +653,8 @@ function getAvailableLocalesOf(service) {
  * Configurable is false by default.
  */
 function defineWEProperty(object, property, value) {
-  ObjectDefineProperty(object, property,
-                       {value: value, writable: true, enumerable: true});
+  $objectDefineProperty(object, property,
+                        {value: value, writable: true, enumerable: true});
 }
 
 
@@ -668,11 +673,10 @@ function addWEPropertyIfDefined(object, property, value) {
  * Defines a property and sets writable, enumerable and configurable to true.
  */
 function defineWECProperty(object, property, value) {
-  ObjectDefineProperty(object, property,
-                       {value: value,
-                        writable: true,
-                        enumerable: true,
-                        configurable: true});
+  $objectDefineProperty(object, property, {value: value,
+                                           writable: true,
+                                           enumerable: true,
+                                           configurable: true});
 }
 
 
@@ -701,13 +705,13 @@ function canonicalizeLanguageTag(localeID) {
   // null is typeof 'object' so we have to do extra check.
   if (typeof localeID !== 'string' && typeof localeID !== 'object' ||
       IS_NULL(localeID)) {
-    throw new $TypeError('Language ID should be string or object.');
+    throw MakeTypeError(kLanguageID);
   }
 
-  var localeString = $String(localeID);
+  var localeString = GlobalString(localeID);
 
   if (isValidLanguageTag(localeString) === false) {
-    throw new $RangeError('Invalid language tag: ' + localeString);
+    throw MakeRangeError(kInvalidLanguageTag, localeString);
   }
 
   // This call will strip -kn but not -kn-true extensions.
@@ -716,7 +720,7 @@ function canonicalizeLanguageTag(localeID) {
   // upgrade to ICU 4.9.
   var tag = %CanonicalizeLanguageTag(localeString);
   if (tag === 'invalid-tag') {
-    throw new $RangeError('Invalid language tag: ' + localeString);
+    throw MakeRangeError(kInvalidLanguageTag, localeString);
   }
 
   return tag;
@@ -739,7 +743,7 @@ function initializeLocaleList(locales) {
       return freezeArray(seen);
     }
 
-    var o = ToObject(locales);
+    var o = $toObject(locales);
     // Converts it to UInt32 (>>> is shr on 32bit integers).
     var len = o.length >>> 0;
 
@@ -833,12 +837,12 @@ function BuildLanguageTagREs() {
   var privateUse = '(x(-' + alphanum + '{1,8})+)';
 
   var singleton = '(' + digit + '|[A-WY-Za-wy-z])';
-  LANGUAGE_SINGLETON_RE = new $RegExp('^' + singleton + '$', 'i');
+  LANGUAGE_SINGLETON_RE = new GlobalRegExp('^' + singleton + '$', 'i');
 
   var extension = '(' + singleton + '(-' + alphanum + '{2,8})+)';
 
   var variant = '(' + alphanum + '{5,8}|(' + digit + alphanum + '{3}))';
-  LANGUAGE_VARIANT_RE = new $RegExp('^' + variant + '$', 'i');
+  LANGUAGE_VARIANT_RE = new GlobalRegExp('^' + variant + '$', 'i');
 
   var region = '(' + alpha + '{2}|' + digit + '{3})';
   var script = '(' + alpha + '{4})';
@@ -850,7 +854,7 @@ function BuildLanguageTagREs() {
 
   var languageTag =
       '^(' + langTag + '|' + privateUse + '|' + grandfathered + ')$';
-  LANGUAGE_TAG_RE = new $RegExp(languageTag, 'i');
+  LANGUAGE_TAG_RE = new GlobalRegExp(languageTag, 'i');
 }
 
 /**
@@ -859,7 +863,7 @@ function BuildLanguageTagREs() {
  */
 function initializeCollator(collator, locales, options) {
   if (%IsInitializedIntlObject(collator)) {
-    throw new $TypeError('Trying to re-initialize Collator object.');
+    throw MakeTypeError(kReinitializeIntl, "Collator");
   }
 
   if (options === undefined) {
@@ -912,7 +916,7 @@ function initializeCollator(collator, locales, options) {
   // problems. If malicious user decides to redefine Object.prototype.locale
   // we can't just use plain x.locale = 'us' or in C++ Set("locale", "us").
   // ObjectDefineProperties will either succeed defining or throw an error.
-  var resolved = ObjectDefineProperties({}, {
+  var resolved = $objectDefineProperties({}, {
     caseFirst: {writable: true},
     collation: {value: internalOptions.collation, writable: true},
     ignorePunctuation: {writable: true},
@@ -930,7 +934,7 @@ function initializeCollator(collator, locales, options) {
 
   // Writable, configurable and enumerable are set to false by default.
   %MarkAsInitializedIntlObjectOfType(collator, 'collator', internalCollator);
-  ObjectDefineProperty(collator, 'resolved', {value: resolved});
+  $objectDefineProperty(collator, 'resolved', {value: resolved});
 
   return collator;
 }
@@ -951,7 +955,7 @@ function initializeCollator(collator, locales, options) {
       return new Intl.Collator(locales, options);
     }
 
-    return initializeCollator(ToObject(this), locales, options);
+    return initializeCollator($toObject(this), locales, options);
   },
   DONT_ENUM
 );
@@ -962,12 +966,11 @@ function initializeCollator(collator, locales, options) {
  */
 %AddNamedProperty(Intl.Collator.prototype, 'resolvedOptions', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     if (!%IsInitializedIntlObjectOfType(this, 'collator')) {
-      throw new $TypeError('resolvedOptions method called on a non-object ' +
-                           'or on a object that is not Intl.Collator.');
+      throw MakeTypeError(kResolvedOptionsCalledOnNonObject, "Collator");
     }
 
     var coll = this;
@@ -986,7 +989,7 @@ function initializeCollator(collator, locales, options) {
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.Collator.prototype.resolvedOptions, 'resolvedOptions');
+$setFunctionName(Intl.Collator.prototype.resolvedOptions, 'resolvedOptions');
 %FunctionRemovePrototype(Intl.Collator.prototype.resolvedOptions);
 %SetNativeFlag(Intl.Collator.prototype.resolvedOptions);
 
@@ -999,14 +1002,14 @@ function initializeCollator(collator, locales, options) {
  */
 %AddNamedProperty(Intl.Collator, 'supportedLocalesOf', function(locales) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     return supportedLocalesOf('collator', locales, %_Arguments(1));
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.Collator.supportedLocalesOf, 'supportedLocalesOf');
+$setFunctionName(Intl.Collator.supportedLocalesOf, 'supportedLocalesOf');
 %FunctionRemovePrototype(Intl.Collator.supportedLocalesOf);
 %SetNativeFlag(Intl.Collator.supportedLocalesOf);
 
@@ -1023,7 +1026,7 @@ function initializeCollator(collator, locales, options) {
  */
 function compare(collator, x, y) {
   return %InternalCompare(%GetImplFromInitializedIntlObject(collator),
-                          $String(x), $String(y));
+                          GlobalString(x), GlobalString(y));
 };
 
 
@@ -1048,9 +1051,9 @@ function isWellFormedCurrencyCode(currency) {
 function getNumberOption(options, property, min, max, fallback) {
   var value = options[property];
   if (value !== undefined) {
-    value = $Number(value);
+    value = GlobalNumber(value);
     if ($isNaN(value) || value < min || value > max) {
-      throw new $RangeError(property + ' value is out of range.');
+      throw MakeRangeError(kPropertyValueOutOfRange, property);
     }
     return $floor(value);
   }
@@ -1065,7 +1068,7 @@ function getNumberOption(options, property, min, max, fallback) {
  */
 function initializeNumberFormat(numberFormat, locales, options) {
   if (%IsInitializedIntlObject(numberFormat)) {
-    throw new $TypeError('Trying to re-initialize NumberFormat object.');
+    throw MakeTypeError(kReinitializeIntl, "NumberFormat");
   }
 
   if (options === undefined) {
@@ -1082,11 +1085,11 @@ function initializeNumberFormat(numberFormat, locales, options) {
 
   var currency = getOption('currency', 'string');
   if (currency !== undefined && !isWellFormedCurrencyCode(currency)) {
-    throw new $RangeError('Invalid currency code: ' + currency);
+    throw MakeRangeError(kInvalidCurrencyCode, currency);
   }
 
   if (internalOptions.style === 'currency' && currency === undefined) {
-    throw new $TypeError('Currency code is required with currency style.');
+    throw MakeTypeError(kCurrencyCode);
   }
 
   var currencyDisplay = getOption(
@@ -1127,7 +1130,7 @@ function initializeNumberFormat(numberFormat, locales, options) {
                              getOption, internalOptions);
 
   var requestedLocale = locale.locale + extension;
-  var resolved = ObjectDefineProperties({}, {
+  var resolved = $objectDefineProperties({}, {
     currency: {writable: true},
     currencyDisplay: {writable: true},
     locale: {writable: true},
@@ -1152,12 +1155,12 @@ function initializeNumberFormat(numberFormat, locales, options) {
   // We can't get information about number or currency style from ICU, so we
   // assume user request was fulfilled.
   if (internalOptions.style === 'currency') {
-    ObjectDefineProperty(resolved, 'currencyDisplay', {value: currencyDisplay,
-                                                       writable: true});
+    $objectDefineProperty(resolved, 'currencyDisplay', {value: currencyDisplay,
+                                                        writable: true});
   }
 
   %MarkAsInitializedIntlObjectOfType(numberFormat, 'numberformat', formatter);
-  ObjectDefineProperty(numberFormat, 'resolved', {value: resolved});
+  $objectDefineProperty(numberFormat, 'resolved', {value: resolved});
 
   return numberFormat;
 }
@@ -1178,7 +1181,7 @@ function initializeNumberFormat(numberFormat, locales, options) {
       return new Intl.NumberFormat(locales, options);
     }
 
-    return initializeNumberFormat(ToObject(this), locales, options);
+    return initializeNumberFormat($toObject(this), locales, options);
   },
   DONT_ENUM
 );
@@ -1189,12 +1192,11 @@ function initializeNumberFormat(numberFormat, locales, options) {
  */
 %AddNamedProperty(Intl.NumberFormat.prototype, 'resolvedOptions', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     if (!%IsInitializedIntlObjectOfType(this, 'numberformat')) {
-      throw new $TypeError('resolvedOptions method called on a non-object' +
-          ' or on a object that is not Intl.NumberFormat.');
+      throw MakeTypeError(kResolvedOptionsCalledOnNonObject, "NumberFormat");
     }
 
     var format = this;
@@ -1231,7 +1233,7 @@ function initializeNumberFormat(numberFormat, locales, options) {
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.NumberFormat.prototype.resolvedOptions,
+$setFunctionName(Intl.NumberFormat.prototype.resolvedOptions,
                  'resolvedOptions');
 %FunctionRemovePrototype(Intl.NumberFormat.prototype.resolvedOptions);
 %SetNativeFlag(Intl.NumberFormat.prototype.resolvedOptions);
@@ -1245,14 +1247,14 @@ function initializeNumberFormat(numberFormat, locales, options) {
  */
 %AddNamedProperty(Intl.NumberFormat, 'supportedLocalesOf', function(locales) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     return supportedLocalesOf('numberformat', locales, %_Arguments(1));
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.NumberFormat.supportedLocalesOf, 'supportedLocalesOf');
+$setFunctionName(Intl.NumberFormat.supportedLocalesOf, 'supportedLocalesOf');
 %FunctionRemovePrototype(Intl.NumberFormat.supportedLocalesOf);
 %SetNativeFlag(Intl.NumberFormat.supportedLocalesOf);
 
@@ -1264,7 +1266,7 @@ function initializeNumberFormat(numberFormat, locales, options) {
  */
 function formatNumber(formatter, value) {
   // Spec treats -0 and +0 as 0.
-  var number = $Number(value) + 0;
+  var number = $toNumber(value) + 0;
 
   return %InternalNumberFormat(%GetImplFromInitializedIntlObject(formatter),
                                number);
@@ -1276,7 +1278,7 @@ function formatNumber(formatter, value) {
  */
 function parseNumber(formatter, value) {
   return %InternalNumberParse(%GetImplFromInitializedIntlObject(formatter),
-                              $String(value));
+                              GlobalString(value));
 }
 
 
@@ -1448,33 +1450,33 @@ function toDateTimeOptions(options, required, defaults) {
   }
 
   if (needsDefault && (defaults === 'date' || defaults === 'all')) {
-    ObjectDefineProperty(options, 'year', {value: 'numeric',
-                                           writable: true,
-                                           enumerable: true,
-                                           configurable: true});
-    ObjectDefineProperty(options, 'month', {value: 'numeric',
+    $objectDefineProperty(options, 'year', {value: 'numeric',
                                             writable: true,
                                             enumerable: true,
                                             configurable: true});
-    ObjectDefineProperty(options, 'day', {value: 'numeric',
-                                          writable: true,
-                                          enumerable: true,
-                                          configurable: true});
-  }
-
-  if (needsDefault && (defaults === 'time' || defaults === 'all')) {
-    ObjectDefineProperty(options, 'hour', {value: 'numeric',
+    $objectDefineProperty(options, 'month', {value: 'numeric',
                                              writable: true,
                                              enumerable: true,
                                              configurable: true});
-    ObjectDefineProperty(options, 'minute', {value: 'numeric',
-                                               writable: true,
-                                               enumerable: true,
-                                               configurable: true});
-    ObjectDefineProperty(options, 'second', {value: 'numeric',
-                                               writable: true,
-                                               enumerable: true,
-                                               configurable: true});
+    $objectDefineProperty(options, 'day', {value: 'numeric',
+                                           writable: true,
+                                           enumerable: true,
+                                           configurable: true});
+  }
+
+  if (needsDefault && (defaults === 'time' || defaults === 'all')) {
+    $objectDefineProperty(options, 'hour', {value: 'numeric',
+                                            writable: true,
+                                            enumerable: true,
+                                            configurable: true});
+    $objectDefineProperty(options, 'minute', {value: 'numeric',
+                                              writable: true,
+                                              enumerable: true,
+                                              configurable: true});
+    $objectDefineProperty(options, 'second', {value: 'numeric',
+                                              writable: true,
+                                              enumerable: true,
+                                              configurable: true});
   }
 
   return options;
@@ -1488,7 +1490,7 @@ function toDateTimeOptions(options, required, defaults) {
 function initializeDateTimeFormat(dateFormat, locales, options) {
 
   if (%IsInitializedIntlObject(dateFormat)) {
-    throw new $TypeError('Trying to re-initialize DateTimeFormat object.');
+    throw MakeTypeError(kReinitializeIntl, "DateTimeFormat");
   }
 
   if (options === undefined) {
@@ -1522,7 +1524,7 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
                              getOption, internalOptions);
 
   var requestedLocale = locale.locale + extension;
-  var resolved = ObjectDefineProperties({}, {
+  var resolved = $objectDefineProperties({}, {
     calendar: {writable: true},
     day: {writable: true},
     era: {writable: true},
@@ -1546,11 +1548,11 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
     requestedLocale, {skeleton: ldmlString, timeZone: tz}, resolved);
 
   if (tz !== undefined && tz !== resolved.timeZone) {
-    throw new $RangeError('Unsupported time zone specified ' + tz);
+    throw MakeRangeError(kUnsupportedTimeZone, tz);
   }
 
   %MarkAsInitializedIntlObjectOfType(dateFormat, 'dateformat', formatter);
-  ObjectDefineProperty(dateFormat, 'resolved', {value: resolved});
+  $objectDefineProperty(dateFormat, 'resolved', {value: resolved});
 
   return dateFormat;
 }
@@ -1571,7 +1573,7 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
       return new Intl.DateTimeFormat(locales, options);
     }
 
-    return initializeDateTimeFormat(ToObject(this), locales, options);
+    return initializeDateTimeFormat($toObject(this), locales, options);
   },
   DONT_ENUM
 );
@@ -1582,12 +1584,11 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
  */
 %AddNamedProperty(Intl.DateTimeFormat.prototype, 'resolvedOptions', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     if (!%IsInitializedIntlObjectOfType(this, 'dateformat')) {
-      throw new $TypeError('resolvedOptions method called on a non-object or ' +
-          'on a object that is not Intl.DateTimeFormat.');
+      throw MakeTypeError(kResolvedOptionsCalledOnNonObject, "DateTimeFormat");
     }
 
     var format = this;
@@ -1624,8 +1625,8 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.DateTimeFormat.prototype.resolvedOptions,
-                 'resolvedOptions');
+$setFunctionName(Intl.DateTimeFormat.prototype.resolvedOptions,
+                'resolvedOptions');
 %FunctionRemovePrototype(Intl.DateTimeFormat.prototype.resolvedOptions);
 %SetNativeFlag(Intl.DateTimeFormat.prototype.resolvedOptions);
 
@@ -1638,14 +1639,14 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
  */
 %AddNamedProperty(Intl.DateTimeFormat, 'supportedLocalesOf', function(locales) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     return supportedLocalesOf('dateformat', locales, %_Arguments(1));
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.DateTimeFormat.supportedLocalesOf, 'supportedLocalesOf');
+$setFunctionName(Intl.DateTimeFormat.supportedLocalesOf, 'supportedLocalesOf');
 %FunctionRemovePrototype(Intl.DateTimeFormat.supportedLocalesOf);
 %SetNativeFlag(Intl.DateTimeFormat.supportedLocalesOf);
 
@@ -1658,17 +1659,15 @@ function initializeDateTimeFormat(dateFormat, locales, options) {
 function formatDate(formatter, dateValue) {
   var dateMs;
   if (dateValue === undefined) {
-    dateMs = $Date.now();
+    dateMs = GlobalDate.now();
   } else {
-    dateMs = $Number(dateValue);
+    dateMs = $toNumber(dateValue);
   }
 
-  if (!$isFinite(dateMs)) {
-    throw new $RangeError('Provided date is not in valid range.');
-  }
+  if (!$isFinite(dateMs)) throw MakeRangeError(kDateRange);
 
   return %InternalDateFormat(%GetImplFromInitializedIntlObject(formatter),
-                             new $Date(dateMs));
+                             new GlobalDate(dateMs));
 }
 
 
@@ -1680,7 +1679,7 @@ function formatDate(formatter, dateValue) {
  */
 function parseDate(formatter, value) {
   return %InternalDateParse(%GetImplFromInitializedIntlObject(formatter),
-                            $String(value));
+                            GlobalString(value));
 }
 
 
@@ -1709,9 +1708,7 @@ function canonicalizeTimeZoneID(tzID) {
   // We expect only _ and / beside ASCII letters.
   // All inputs should conform to Area/Location from now on.
   var match = GetTimezoneNameCheckRE().exec(tzID);
-  if (IS_NULL(match)) {
-    throw new $RangeError('Expected Area/Location for time zone, got ' + tzID);
-  }
+  if (IS_NULL(match)) throw MakeRangeError(kExpectedLocation, tzID);
 
   var result = toTitleCaseWord(match[1]) + '/' + toTitleCaseWord(match[2]);
   var i = 3;
@@ -1729,7 +1726,7 @@ function canonicalizeTimeZoneID(tzID) {
  */
 function initializeBreakIterator(iterator, locales, options) {
   if (%IsInitializedIntlObject(iterator)) {
-    throw new $TypeError('Trying to re-initialize v8BreakIterator object.');
+    throw MakeTypeError(kReinitializeIntl, "v8BreakIterator");
   }
 
   if (options === undefined) {
@@ -1744,7 +1741,7 @@ function initializeBreakIterator(iterator, locales, options) {
     'type', 'string', ['character', 'word', 'sentence', 'line'], 'word'));
 
   var locale = resolveLocale('breakiterator', locales, options);
-  var resolved = ObjectDefineProperties({}, {
+  var resolved = $objectDefineProperties({}, {
     requestedLocale: {value: locale.locale, writable: true},
     type: {value: internalOptions.type, writable: true},
     locale: {writable: true}
@@ -1756,7 +1753,7 @@ function initializeBreakIterator(iterator, locales, options) {
 
   %MarkAsInitializedIntlObjectOfType(iterator, 'breakiterator',
                                      internalIterator);
-  ObjectDefineProperty(iterator, 'resolved', {value: resolved});
+  $objectDefineProperty(iterator, 'resolved', {value: resolved});
 
   return iterator;
 }
@@ -1777,7 +1774,7 @@ function initializeBreakIterator(iterator, locales, options) {
       return new Intl.v8BreakIterator(locales, options);
     }
 
-    return initializeBreakIterator(ToObject(this), locales, options);
+    return initializeBreakIterator($toObject(this), locales, options);
   },
   DONT_ENUM
 );
@@ -1789,12 +1786,11 @@ function initializeBreakIterator(iterator, locales, options) {
 %AddNamedProperty(Intl.v8BreakIterator.prototype, 'resolvedOptions',
   function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     if (!%IsInitializedIntlObjectOfType(this, 'breakiterator')) {
-      throw new $TypeError('resolvedOptions method called on a non-object or ' +
-          'on a object that is not Intl.v8BreakIterator.');
+      throw MakeTypeError(kResolvedOptionsCalledOnNonObject, "v8BreakIterator");
     }
 
     var segmenter = this;
@@ -1808,8 +1804,8 @@ function initializeBreakIterator(iterator, locales, options) {
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.v8BreakIterator.prototype.resolvedOptions,
-                 'resolvedOptions');
+$setFunctionName(Intl.v8BreakIterator.prototype.resolvedOptions,
+                'resolvedOptions');
 %FunctionRemovePrototype(Intl.v8BreakIterator.prototype.resolvedOptions);
 %SetNativeFlag(Intl.v8BreakIterator.prototype.resolvedOptions);
 
@@ -1823,14 +1819,14 @@ function initializeBreakIterator(iterator, locales, options) {
 %AddNamedProperty(Intl.v8BreakIterator, 'supportedLocalesOf',
   function(locales) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     return supportedLocalesOf('breakiterator', locales, %_Arguments(1));
   },
   DONT_ENUM
 );
-%FunctionSetName(Intl.v8BreakIterator.supportedLocalesOf, 'supportedLocalesOf');
+$setFunctionName(Intl.v8BreakIterator.supportedLocalesOf, 'supportedLocalesOf');
 %FunctionRemovePrototype(Intl.v8BreakIterator.supportedLocalesOf);
 %SetNativeFlag(Intl.v8BreakIterator.supportedLocalesOf);
 
@@ -1841,7 +1837,7 @@ function initializeBreakIterator(iterator, locales, options) {
  */
 function adoptText(iterator, text) {
   %BreakIteratorAdoptText(%GetImplFromInitializedIntlObject(iterator),
-                          $String(text));
+                          GlobalString(text));
 }
 
 
@@ -1924,28 +1920,21 @@ function cachedOrNewService(service, locales, options, defaults) {
  * Compares this and that, and returns less than 0, 0 or greater than 0 value.
  * Overrides the built-in method.
  */
-ObjectDefineProperty($String.prototype, 'localeCompare', {
-  value: function(that) {
+$overrideFunction(GlobalString.prototype, 'localeCompare', function(that) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     if (IS_NULL_OR_UNDEFINED(this)) {
-      throw new $TypeError('Method invoked on undefined or null value.');
+      throw MakeTypeError(kMethodInvokedOnNullOrUndefined);
     }
 
     var locales = %_Arguments(1);
     var options = %_Arguments(2);
     var collator = cachedOrNewService('collator', locales, options);
     return compare(collator, this, that);
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($String.prototype.localeCompare, 'localeCompare');
-%FunctionRemovePrototype($String.prototype.localeCompare);
-%SetNativeFlag($String.prototype.localeCompare);
+  }
+);
 
 
 /**
@@ -1955,67 +1944,52 @@ ObjectDefineProperty($String.prototype, 'localeCompare', {
  * If the form is not one of "NFC", "NFD", "NFKC", or "NFKD", then throw
  * a RangeError Exception.
  */
-ObjectDefineProperty($String.prototype, 'normalize', {
-  value: function(that) {
+$overrideFunction(GlobalString.prototype, 'normalize', function(that) {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     CHECK_OBJECT_COERCIBLE(this, "String.prototype.normalize");
 
-    var form = $String(%_Arguments(0) || 'NFC');
+    var form = GlobalString(%_Arguments(0) || 'NFC');
 
     var normalizationForm = NORMALIZATION_FORMS.indexOf(form);
     if (normalizationForm === -1) {
-      throw new $RangeError('The normalization form should be one of '
-          + NORMALIZATION_FORMS.join(', ') + '.');
+      throw MakeRangeError(kNormalizationForm, NORMALIZATION_FORMS.join(', '));
     }
 
     return %StringNormalize(this, normalizationForm);
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($String.prototype.normalize, 'normalize');
-%FunctionRemovePrototype($String.prototype.normalize);
-%SetNativeFlag($String.prototype.normalize);
+  }
+);
 
 
 /**
  * Formats a Number object (this) using locale and options values.
  * If locale or options are omitted, defaults are used.
  */
-ObjectDefineProperty($Number.prototype, 'toLocaleString', {
-  value: function() {
+$overrideFunction(GlobalNumber.prototype, 'toLocaleString', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
-    if (!(this instanceof $Number) && typeof(this) !== 'number') {
-      throw new $TypeError('Method invoked on an object that is not Number.');
+    if (!(this instanceof GlobalNumber) && typeof(this) !== 'number') {
+      throw MakeTypeError(kMethodInvokedOnWrongType, "Number");
     }
 
     var locales = %_Arguments(0);
     var options = %_Arguments(1);
     var numberFormat = cachedOrNewService('numberformat', locales, options);
     return formatNumber(numberFormat, this);
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($Number.prototype.toLocaleString, 'toLocaleString');
-%FunctionRemovePrototype($Number.prototype.toLocaleString);
-%SetNativeFlag($Number.prototype.toLocaleString);
+  }
+);
 
 
 /**
  * Returns actual formatted date or fails if date parameter is invalid.
  */
 function toLocaleDateTime(date, locales, options, required, defaults, service) {
-  if (!(date instanceof $Date)) {
-    throw new $TypeError('Method invoked on an object that is not Date.');
+  if (!(date instanceof GlobalDate)) {
+    throw MakeTypeError(kMethodInvokedOnWrongType, "Date");
   }
 
   if ($isNaN(date)) {
@@ -2036,24 +2010,17 @@ function toLocaleDateTime(date, locales, options, required, defaults, service) {
  * If locale or options are omitted, defaults are used - both date and time are
  * present in the output.
  */
-ObjectDefineProperty($Date.prototype, 'toLocaleString', {
-  value: function() {
+$overrideFunction(GlobalDate.prototype, 'toLocaleString', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     var locales = %_Arguments(0);
     var options = %_Arguments(1);
     return toLocaleDateTime(
         this, locales, options, 'any', 'all', 'dateformatall');
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($Date.prototype.toLocaleString, 'toLocaleString');
-%FunctionRemovePrototype($Date.prototype.toLocaleString);
-%SetNativeFlag($Date.prototype.toLocaleString);
+  }
+);
 
 
 /**
@@ -2061,24 +2028,17 @@ ObjectDefineProperty($Date.prototype, 'toLocaleString', {
  * If locale or options are omitted, defaults are used - only date is present
  * in the output.
  */
-ObjectDefineProperty($Date.prototype, 'toLocaleDateString', {
-  value: function() {
+$overrideFunction(GlobalDate.prototype, 'toLocaleDateString', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     var locales = %_Arguments(0);
     var options = %_Arguments(1);
     return toLocaleDateTime(
         this, locales, options, 'date', 'date', 'dateformatdate');
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($Date.prototype.toLocaleDateString, 'toLocaleDateString');
-%FunctionRemovePrototype($Date.prototype.toLocaleDateString);
-%SetNativeFlag($Date.prototype.toLocaleDateString);
+  }
+);
 
 
 /**
@@ -2086,24 +2046,16 @@ ObjectDefineProperty($Date.prototype, 'toLocaleDateString', {
  * If locale or options are omitted, defaults are used - only time is present
  * in the output.
  */
-ObjectDefineProperty($Date.prototype, 'toLocaleTimeString', {
-  value: function() {
+$overrideFunction(GlobalDate.prototype, 'toLocaleTimeString', function() {
     if (%_IsConstructCall()) {
-      throw new $TypeError(ORDINARY_FUNCTION_CALLED_AS_CONSTRUCTOR);
+      throw MakeTypeError(kOrdinaryFunctionCalledAsConstructor);
     }
 
     var locales = %_Arguments(0);
     var options = %_Arguments(1);
     return toLocaleDateTime(
         this, locales, options, 'time', 'time', 'dateformattime');
-  },
-  writable: true,
-  configurable: true,
-  enumerable: false
-});
-%FunctionSetName($Date.prototype.toLocaleTimeString, 'toLocaleTimeString');
-%FunctionRemovePrototype($Date.prototype.toLocaleTimeString);
-%SetNativeFlag($Date.prototype.toLocaleTimeString);
+  }
+);
 
-return Intl;
-}())});
+})();

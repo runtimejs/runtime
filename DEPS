@@ -8,17 +8,17 @@ vars = {
 
 deps = {
   "v8/build/gyp":
-    Var("git_url") + "/external/gyp.git" + "@" + "4d7c139b1820c5fcb993868c61f170a02cda8a40",
+    Var("git_url") + "/external/gyp.git" + "@" + "0bb67471bca068996e15b56738fa4824dfa19de0",
   "v8/third_party/icu":
-    Var("git_url") + "/chromium/deps/icu.git" + "@" + "4e3266f32c62d30a3f9e2232a753c60129d1e670",
+    Var("git_url") + "/chromium/deps/icu.git" + "@" + "f8c0e585b0a046d83d72b5d37356cb50d5b2031a",
   "v8/buildtools":
-    Var("git_url") + "/chromium/buildtools.git" + "@" + "da0df3fdac6036e862addb1155a2d6c11b6c18d5",
+    Var("git_url") + "/chromium/buildtools.git" + "@" + "b0ede9c89f9d5fbe5387d961ad4c0ec665b6c821",
   "v8/testing/gtest":
     Var("git_url") + "/external/googletest.git" + "@" + "be1868139ffe0ccd0e8e3b37292b84c821d9c8ad",
   "v8/testing/gmock":
     Var("git_url") + "/external/googlemock.git" + "@" + "29763965ab52f24565299976b936d1265cb6a271",  # from svn revision 501
   "v8/tools/clang":
-    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "5489bbf01a5292a6c44d4cad7875ba2cb4ac975b",
+    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "bda3bddc01a91a513ec245ed1079b31cf5d7ded3",
 }
 
 deps_os = {
@@ -46,6 +46,17 @@ skip_child_includes = [
 ]
 
 hooks = [
+  {
+    # This clobbers when necessary (based on get_landmines.py). It must be the
+    # first hook so that other things that get/generate into the output
+    # directory will not subsequently be clobbered.
+    'name': 'landmines',
+    'pattern': '.',
+    'action': [
+        'python',
+        'v8/build/landmines.py',
+    ],
+  },
   # Pull clang-format binaries using checked-in hashes.
   {
     "name": "clang_format_win",
@@ -78,6 +89,17 @@ hooks = [
                 "--no_auth",
                 "--bucket", "chromium-clang-format",
                 "-s", "v8/buildtools/linux64/clang-format.sha1",
+    ],
+  },
+  # Pull binutils for linux, enabled debug fission for faster linking /
+  # debugging when used with clang on Ubuntu Precise.
+  # https://code.google.com/p/chromium/issues/detail?id=352046
+  {
+    'name': 'binutils',
+    'pattern': 'v8/third_party/binutils',
+    'action': [
+        'python',
+        'v8/third_party/binutils/download.py',
     ],
   },
   {

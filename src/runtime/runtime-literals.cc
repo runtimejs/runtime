@@ -42,14 +42,7 @@ MUST_USE_RESULT static MaybeHandle<Object> CreateObjectLiteralBoilerplate(
     Isolate* isolate, Handle<FixedArray> literals,
     Handle<FixedArray> constant_properties, bool should_have_fast_elements,
     bool has_function_literal) {
-  // Get the native context from the literals array.  This is the
-  // context in which the function was created and we use the object
-  // function from this context to create the object literal.  We do
-  // not use the object function from the current native context
-  // because this might be the object function from another context
-  // which we should not have access to.
-  Handle<Context> context =
-      Handle<Context>(JSFunction::NativeContextFromLiterals(*literals));
+  Handle<Context> context = isolate->native_context();
 
   // In case we have function literals, we want the object to be in
   // slow properties mode for now. We don't go in the map cache because
@@ -146,8 +139,7 @@ MaybeHandle<Object> Runtime::CreateArrayLiteralBoilerplate(
     Isolate* isolate, Handle<FixedArray> literals,
     Handle<FixedArray> elements) {
   // Create the JSArray.
-  Handle<JSFunction> constructor(
-      JSFunction::NativeContextFromLiterals(*literals)->array_function());
+  Handle<JSFunction> constructor = isolate->array_function();
 
   PretenureFlag pretenure_flag =
       isolate->heap()->InNewSpace(*literals) ? NOT_TENURED : TENURED;
@@ -245,6 +237,7 @@ RUNTIME_FUNCTION(Runtime_CreateObjectLiteral) {
   CONVERT_SMI_ARG_CHECKED(flags, 3);
   bool should_have_fast_elements = (flags & ObjectLiteral::kFastElements) != 0;
   bool has_function_literal = (flags & ObjectLiteral::kHasFunction) != 0;
+  bool enable_mementos = (flags & ObjectLiteral::kDisableMementos) == 0;
 
   RUNTIME_ASSERT(literals_index >= 0 && literals_index < literals->length());
 
@@ -275,7 +268,7 @@ RUNTIME_FUNCTION(Runtime_CreateObjectLiteral) {
         Handle<JSObject>(JSObject::cast(site->transition_info()), isolate);
   }
 
-  AllocationSiteUsageContext usage_context(isolate, site, true);
+  AllocationSiteUsageContext usage_context(isolate, site, enable_mementos);
   usage_context.EnterNewScope();
   MaybeHandle<Object> maybe_copy =
       JSObject::DeepCopy(boilerplate, &usage_context);

@@ -33,19 +33,18 @@ class Segment;
 //
 // Note: The implementation is inherently not thread safe. Do not use
 // from multi-threaded code.
-class Zone FINAL {
+class Zone final {
  public:
   Zone();
   ~Zone();
 
   // Allocate 'size' bytes of memory in the Zone; expands the Zone by
   // allocating new segments of memory on demand using malloc().
-  void* New(int size);
+  void* New(size_t size);
 
   template <typename T>
-  T* NewArray(int length) {
-    DCHECK(std::numeric_limits<int>::max() / static_cast<int>(sizeof(T)) >
-           length);
+  T* NewArray(size_t length) {
+    DCHECK_LT(length, std::numeric_limits<size_t>::max() / sizeof(T));
     return static_cast<T*>(New(length * sizeof(T)));
   }
 
@@ -63,51 +62,51 @@ class Zone FINAL {
     return segment_bytes_allocated_ > kExcessLimit;
   }
 
-  unsigned allocation_size() const { return allocation_size_; }
+  size_t allocation_size() const { return allocation_size_; }
 
  private:
   // All pointers returned from New() have this alignment.  In addition, if the
   // object being allocated has a size that is divisible by 8 then its alignment
   // will be 8. ASan requires 8-byte alignment.
 #ifdef V8_USE_ADDRESS_SANITIZER
-  static const int kAlignment = 8;
+  static const size_t kAlignment = 8;
   STATIC_ASSERT(kPointerSize <= 8);
 #else
-  static const int kAlignment = kPointerSize;
+  static const size_t kAlignment = kPointerSize;
 #endif
 
   // Never allocate segments smaller than this size in bytes.
-  static const int kMinimumSegmentSize = 8 * KB;
+  static const size_t kMinimumSegmentSize = 8 * KB;
 
   // Never allocate segments larger than this size in bytes.
-  static const int kMaximumSegmentSize = 1 * MB;
+  static const size_t kMaximumSegmentSize = 1 * MB;
 
   // Never keep segments larger than this size in bytes around.
-  static const int kMaximumKeptSegmentSize = 64 * KB;
+  static const size_t kMaximumKeptSegmentSize = 64 * KB;
 
   // Report zone excess when allocation exceeds this limit.
-  static const int kExcessLimit = 256 * MB;
+  static const size_t kExcessLimit = 256 * MB;
 
   // The number of bytes allocated in this zone so far.
-  unsigned allocation_size_;
+  size_t allocation_size_;
 
   // The number of bytes allocated in segments.  Note that this number
   // includes memory allocated from the OS but not yet allocated from
   // the zone.
-  int segment_bytes_allocated_;
+  size_t segment_bytes_allocated_;
 
   // Expand the Zone to hold at least 'size' more bytes and allocate
   // the bytes. Returns the address of the newly allocated chunk of
   // memory in the Zone. Should only be called if there isn't enough
   // room in the Zone already.
-  Address NewExpand(int size);
+  Address NewExpand(size_t size);
 
   // Creates a new segment, sets it size, and pushes it to the front
   // of the segment chain. Returns the new segment.
-  inline Segment* NewSegment(int size);
+  inline Segment* NewSegment(size_t size);
 
   // Deletes the given segment. Does not touch the segment chain.
-  inline void DeleteSegment(Segment* segment, int size);
+  inline void DeleteSegment(Segment* segment, size_t size);
 
   // The free region in the current (front) segment is represented as
   // the half-open interval [position, limit). The 'position' variable
@@ -124,9 +123,7 @@ class Zone FINAL {
 class ZoneObject {
  public:
   // Allocate a new ZoneObject of 'size' bytes in the Zone.
-  void* operator new(size_t size, Zone* zone) {
-    return zone->New(static_cast<int>(size));
-  }
+  void* operator new(size_t size, Zone* zone) { return zone->New(size); }
 
   // Ideally, the delete operator should be private instead of
   // public, but unfortunately the compiler sometimes synthesizes
@@ -143,7 +140,7 @@ class ZoneObject {
 
 // The ZoneScope is used to automatically call DeleteAll() on a
 // Zone when the ZoneScope is destroyed (i.e. goes out of scope)
-class ZoneScope FINAL {
+class ZoneScope final {
  public:
   explicit ZoneScope(Zone* zone) : zone_(zone) { }
   ~ZoneScope() { zone_->DeleteAll(); }
@@ -157,10 +154,10 @@ class ZoneScope FINAL {
 
 // The ZoneAllocationPolicy is used to specialize generic data
 // structures to allocate themselves and their elements in the Zone.
-class ZoneAllocationPolicy FINAL {
+class ZoneAllocationPolicy final {
  public:
   explicit ZoneAllocationPolicy(Zone* zone) : zone_(zone) { }
-  void* New(size_t size) { return zone()->New(static_cast<int>(size)); }
+  void* New(size_t size) { return zone()->New(size); }
   static void Delete(void* pointer) {}
   Zone* zone() const { return zone_; }
 
@@ -174,16 +171,14 @@ class ZoneAllocationPolicy FINAL {
 // Zone. ZoneLists cannot be deleted individually; you can delete all
 // objects in the Zone by calling Zone::DeleteAll().
 template <typename T>
-class ZoneList FINAL : public List<T, ZoneAllocationPolicy> {
+class ZoneList final : public List<T, ZoneAllocationPolicy> {
  public:
   // Construct a new ZoneList with the given capacity; the length is
   // always zero. The capacity must be non-negative.
   ZoneList(int capacity, Zone* zone)
       : List<T, ZoneAllocationPolicy>(capacity, ZoneAllocationPolicy(zone)) { }
 
-  void* operator new(size_t size, Zone* zone) {
-    return zone->New(static_cast<int>(size));
-  }
+  void* operator new(size_t size, Zone* zone) { return zone->New(size); }
 
   // Construct a new ZoneList by copying the elements of the given ZoneList.
   ZoneList(const ZoneList<T>& other, Zone* zone)
@@ -228,7 +223,7 @@ class ZoneList FINAL : public List<T, ZoneAllocationPolicy> {
 // different configurations of a concrete splay tree (see splay-tree.h).
 // The tree itself and all its elements are allocated in the Zone.
 template <typename Config>
-class ZoneSplayTree FINAL : public SplayTree<Config, ZoneAllocationPolicy> {
+class ZoneSplayTree final : public SplayTree<Config, ZoneAllocationPolicy> {
  public:
   explicit ZoneSplayTree(Zone* zone)
       : SplayTree<Config, ZoneAllocationPolicy>(ZoneAllocationPolicy(zone)) {}
@@ -239,9 +234,7 @@ class ZoneSplayTree FINAL : public SplayTree<Config, ZoneAllocationPolicy> {
     SplayTree<Config, ZoneAllocationPolicy>::ResetRoot();
   }
 
-  void* operator new(size_t size, Zone* zone) {
-    return zone->New(static_cast<int>(size));
-  }
+  void* operator new(size_t size, Zone* zone) { return zone->New(size); }
 
   void operator delete(void* pointer) { UNREACHABLE(); }
   void operator delete(void* pointer, Zone* zone) { UNREACHABLE(); }

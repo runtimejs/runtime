@@ -11,13 +11,36 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-// Performs strength reduction on nodes that have common operators.
-class CommonOperatorReducer FINAL : public Reducer {
- public:
-  CommonOperatorReducer() {}
-  ~CommonOperatorReducer() FINAL {}
+// Forward declarations.
+class CommonOperatorBuilder;
+class Graph;
+class JSGraph;
+class MachineOperatorBuilder;
+class Operator;
 
-  Reduction Reduce(Node* node) FINAL;
+
+// Performs strength reduction on nodes that have common operators.
+class CommonOperatorReducer final : public Reducer {
+ public:
+  explicit CommonOperatorReducer(JSGraph* jsgraph) : jsgraph_(jsgraph) {}
+  ~CommonOperatorReducer() final {}
+
+  Reduction Reduce(Node* node) final;
+
+ private:
+  Reduction ReduceEffectPhi(Node* node);
+  Reduction ReducePhi(Node* node);
+  Reduction ReduceSelect(Node* node);
+
+  Reduction Change(Node* node, Operator const* op, Node* a);
+  Reduction Change(Node* node, Operator const* op, Node* a, Node* b);
+
+  CommonOperatorBuilder* common() const;
+  Graph* graph() const;
+  JSGraph* jsgraph() const { return jsgraph_; }
+  MachineOperatorBuilder* machine() const;
+
+  JSGraph* const jsgraph_;
 };
 
 }  // namespace compiler

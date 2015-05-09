@@ -34,7 +34,6 @@
 #include "src/disassembler.h"
 #include "src/ic/ic.h"
 #include "src/macro-assembler.h"
-#include "src/serialize.h"
 #include "test/cctest/cctest.h"
 
 using namespace v8::internal;
@@ -409,6 +408,12 @@ TEST(DisasmIa320) {
     __ subss(xmm1, Operand(ebx, ecx, times_4, 10000));
     __ divss(xmm1, xmm0);
     __ divss(xmm1, Operand(ebx, ecx, times_4, 10000));
+    __ maxss(xmm1, xmm0);
+    __ maxss(xmm1, Operand(ebx, ecx, times_4, 10000));
+    __ minss(xmm1, xmm0);
+    __ minss(xmm1, Operand(ebx, ecx, times_4, 10000));
+    __ sqrtss(xmm1, xmm0);
+    __ sqrtss(xmm1, Operand(ebx, ecx, times_4, 10000));
     __ addps(xmm1, xmm0);
     __ addps(xmm1, Operand(ebx, ecx, times_4, 10000));
     __ subps(xmm1, xmm0);
@@ -442,6 +447,10 @@ TEST(DisasmIa320) {
     __ subsd(xmm1, Operand(ebx, ecx, times_4, 10000));
     __ divsd(xmm1, xmm0);
     __ divsd(xmm1, Operand(ebx, ecx, times_4, 10000));
+    __ minsd(xmm1, xmm0);
+    __ minsd(xmm1, Operand(ebx, ecx, times_4, 10000));
+    __ maxsd(xmm1, xmm0);
+    __ maxsd(xmm1, Operand(ebx, ecx, times_4, 10000));
     __ ucomisd(xmm0, xmm1);
     __ cmpltsd(xmm0, xmm1);
 
@@ -451,6 +460,11 @@ TEST(DisasmIa320) {
     __ psrlq(xmm0, 17);
     __ psrlq(xmm0, xmm1);
     __ por(xmm0, xmm1);
+
+    __ pcmpeqd(xmm1, xmm0);
+
+    __ punpckldq(xmm1, xmm6);
+    __ punpckhdq(xmm7, xmm5);
   }
 
   // cmov.
@@ -494,6 +508,33 @@ TEST(DisasmIa320) {
       __ vsubsd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
       __ vdivsd(xmm0, xmm1, xmm2);
       __ vdivsd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vminsd(xmm0, xmm1, xmm2);
+      __ vminsd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vmaxsd(xmm0, xmm1, xmm2);
+      __ vmaxsd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+
+      __ vaddss(xmm0, xmm1, xmm2);
+      __ vaddss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vmulss(xmm0, xmm1, xmm2);
+      __ vmulss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vsubss(xmm0, xmm1, xmm2);
+      __ vsubss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vdivss(xmm0, xmm1, xmm2);
+      __ vdivss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vminss(xmm0, xmm1, xmm2);
+      __ vminss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vmaxss(xmm0, xmm1, xmm2);
+      __ vmaxss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+
+      __ vandps(xmm0, xmm1, xmm2);
+      __ vandps(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vxorps(xmm0, xmm1, xmm2);
+      __ vxorps(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+
+      __ vandpd(xmm0, xmm1, xmm2);
+      __ vandpd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+      __ vxorpd(xmm0, xmm1, xmm2);
+      __ vxorpd(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
     }
   }
 
@@ -556,6 +597,66 @@ TEST(DisasmIa320) {
       __ vfnmsub213ss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
       __ vfnmsub231ss(xmm0, xmm1, xmm2);
       __ vfnmsub231ss(xmm0, xmm1, Operand(ebx, ecx, times_4, 10000));
+    }
+  }
+
+  // BMI1 instructions
+  {
+    if (CpuFeatures::IsSupported(BMI1)) {
+      CpuFeatureScope scope(&assm, BMI1);
+      __ andn(eax, ebx, ecx);
+      __ andn(eax, ebx, Operand(ebx, ecx, times_4, 10000));
+      __ bextr(eax, ebx, ecx);
+      __ bextr(eax, Operand(ebx, ecx, times_4, 10000), ebx);
+      __ blsi(eax, ebx);
+      __ blsi(eax, Operand(ebx, ecx, times_4, 10000));
+      __ blsmsk(eax, ebx);
+      __ blsmsk(eax, Operand(ebx, ecx, times_4, 10000));
+      __ blsr(eax, ebx);
+      __ blsr(eax, Operand(ebx, ecx, times_4, 10000));
+      __ tzcnt(eax, ebx);
+      __ tzcnt(eax, Operand(ebx, ecx, times_4, 10000));
+    }
+  }
+
+  // LZCNT instructions
+  {
+    if (CpuFeatures::IsSupported(LZCNT)) {
+      CpuFeatureScope scope(&assm, LZCNT);
+      __ lzcnt(eax, ebx);
+      __ lzcnt(eax, Operand(ebx, ecx, times_4, 10000));
+    }
+  }
+
+  // POPCNT instructions
+  {
+    if (CpuFeatures::IsSupported(POPCNT)) {
+      CpuFeatureScope scope(&assm, POPCNT);
+      __ popcnt(eax, ebx);
+      __ popcnt(eax, Operand(ebx, ecx, times_4, 10000));
+    }
+  }
+
+  // BMI2 instructions
+  {
+    if (CpuFeatures::IsSupported(BMI2)) {
+      CpuFeatureScope scope(&assm, BMI2);
+      __ bzhi(eax, ebx, ecx);
+      __ bzhi(eax, Operand(ebx, ecx, times_4, 10000), ebx);
+      __ mulx(eax, ebx, ecx);
+      __ mulx(eax, ebx, Operand(ebx, ecx, times_4, 10000));
+      __ pdep(eax, ebx, ecx);
+      __ pdep(eax, ebx, Operand(ebx, ecx, times_4, 10000));
+      __ pext(eax, ebx, ecx);
+      __ pext(eax, ebx, Operand(ebx, ecx, times_4, 10000));
+      __ sarx(eax, ebx, ecx);
+      __ sarx(eax, Operand(ebx, ecx, times_4, 10000), ebx);
+      __ shlx(eax, ebx, ecx);
+      __ shlx(eax, Operand(ebx, ecx, times_4, 10000), ebx);
+      __ shrx(eax, ebx, ecx);
+      __ shrx(eax, Operand(ebx, ecx, times_4, 10000), ebx);
+      __ rorx(eax, ebx, 31);
+      __ rorx(eax, Operand(ebx, ecx, times_4, 10000), 31);
     }
   }
 

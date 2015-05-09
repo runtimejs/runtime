@@ -42,8 +42,8 @@
     ((__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__) >=   \
      ((major) * 10000 + (minor) * 100 + (patchlevel)))
 #elif defined(__GNUC__) && defined(__GNUC_MINOR__)
-# define V8_GNUC_PREREQ(major, minor, patchlevel)       \
-    ((__GNUC__ * 10000 + __GNUC_MINOR__) >=             \
+# define V8_GNUC_PREREQ(major, minor, patchlevel)      \
+    ((__GNUC__ * 10000 + __GNUC_MINOR__ * 100) >=      \
      ((major) * 10000 + (minor) * 100 + (patchlevel)))
 #else
 # define V8_GNUC_PREREQ(major, minor, patchlevel) 0
@@ -124,6 +124,7 @@
 //  V8_LIBC_BIONIC  - Bionic libc
 //  V8_LIBC_BSD     - BSD libc derivate
 //  V8_LIBC_GLIBC   - GNU C library
+//  V8_LIBC_UCLIBC  - uClibc
 //
 // Note that testing for libc must be done using #if not #ifdef. For example,
 // to test for the GNU C library, use:
@@ -136,6 +137,9 @@
 #elif defined(__BIONIC__)
 # define V8_LIBC_BIONIC 1
 # define V8_LIBC_BSD 1
+#elif defined(__UCLIBC__)
+// Must test for UCLIBC before GLIBC, as UCLIBC pretends to be GLIBC.
+# define V8_LIBC_UCLIBC 1
 #elif defined(__GLIBC__) || defined(__GNU_LIBRARY__)
 # define V8_LIBC_GLIBC 1
 #else
@@ -158,9 +162,6 @@
 //  V8_HAS_CXX11_ALIGNAS        - alignas specifier supported
 //  V8_HAS_CXX11_ALIGNOF        - alignof(type) operator supported
 //  V8_HAS_CXX11_STATIC_ASSERT  - static_assert() supported
-//  V8_HAS_CXX11_DELETE         - deleted functions supported
-//  V8_HAS_CXX11_FINAL          - final marker supported
-//  V8_HAS_CXX11_OVERRIDE       - override marker supported
 //
 // Compiler-specific feature detection
 //
@@ -186,7 +187,6 @@
 //  V8_HAS_DECLSPEC_DEPRECATED          - __declspec(deprecated) supported
 //  V8_HAS_DECLSPEC_NOINLINE            - __declspec(noinline) supported
 //  V8_HAS_DECLSPEC_SELECTANY           - __declspec(selectany) supported
-//  V8_HAS___FINAL                      - __final supported in non-C++11 mode
 //  V8_HAS___FORCEINLINE                - __forceinline supported
 //
 // Note that testing for compilers and/or features must be done using #if
@@ -226,9 +226,6 @@
 
 # define V8_HAS_CXX11_ALIGNAS (__has_feature(cxx_alignas))
 # define V8_HAS_CXX11_STATIC_ASSERT (__has_feature(cxx_static_assert))
-# define V8_HAS_CXX11_DELETE (__has_feature(cxx_deleted_functions))
-# define V8_HAS_CXX11_FINAL (__has_feature(cxx_override_control))
-# define V8_HAS_CXX11_OVERRIDE (__has_feature(cxx_override_control))
 
 #elif defined(__GNUC__)
 
@@ -270,12 +267,6 @@
 #  define V8_HAS_CXX11_ALIGNAS (V8_GNUC_PREREQ(4, 8, 0))
 #  define V8_HAS_CXX11_ALIGNOF (V8_GNUC_PREREQ(4, 8, 0))
 #  define V8_HAS_CXX11_STATIC_ASSERT (V8_GNUC_PREREQ(4, 3, 0))
-#  define V8_HAS_CXX11_DELETE (V8_GNUC_PREREQ(4, 4, 0))
-#  define V8_HAS_CXX11_OVERRIDE (V8_GNUC_PREREQ(4, 7, 0))
-#  define V8_HAS_CXX11_FINAL (V8_GNUC_PREREQ(4, 7, 0))
-# else
-// '__final' is a non-C++11 GCC synonym for 'final', per GCC r176655.
-#  define V8_HAS___FINAL (V8_GNUC_PREREQ(4, 7, 0))
 # endif
 
 #elif defined(_MSC_VER)
@@ -283,9 +274,6 @@
 # define V8_CC_MSVC 1
 
 # define V8_HAS___ALIGNOF 1
-
-# define V8_HAS_CXX11_FINAL 1
-# define V8_HAS_CXX11_OVERRIDE 1
 
 # define V8_HAS_DECLSPEC_ALIGN 1
 # define V8_HAS_DECLSPEC_DEPRECATED 1
@@ -339,6 +327,10 @@ declarator __attribute__((deprecated))
 #endif
 
 
+// a macro to make it easier to see what will be deprecated.
+#define V8_DEPRECATE_SOON(message, declarator) declarator
+
+
 // A macro to provide the compiler with branch prediction information.
 #if V8_HAS_BUILTIN_EXPECT
 # define V8_UNLIKELY(condition) (__builtin_expect(!!(condition), 0))
@@ -346,26 +338,6 @@ declarator __attribute__((deprecated))
 #else
 # define V8_UNLIKELY(condition) (condition)
 # define V8_LIKELY(condition) (condition)
-#endif
-
-
-// A macro to specify that a method is deleted from the corresponding class.
-// Any attempt to use the method will always produce an error at compile time
-// when this macro can be implemented (i.e. if the compiler supports C++11).
-// If the current compiler does not support C++11, use of the annotated method
-// will still cause an error, but the error will most likely occur at link time
-// rather than at compile time. As a backstop, method declarations using this
-// macro should be private.
-// Use like:
-//   class A {
-//    private:
-//     A(const A& other) V8_DELETE;
-//     A& operator=(const A& other) V8_DELETE;
-//   };
-#if V8_HAS_CXX11_DELETE
-# define V8_DELETE = delete
-#else
-# define V8_DELETE /* NOT SUPPORTED */
 #endif
 
 
@@ -419,6 +391,15 @@ declarator __attribute__((deprecated))
 // should only be used as a last resort.
 namespace v8 { template <typename T> class AlignOfHelper { char c; T t; }; }
 # define V8_ALIGNOF(type) (sizeof(::v8::AlignOfHelper<type>) - sizeof(type))
+#endif
+
+// Annotate a function indicating the caller must examine the return value.
+// Use like:
+//   int foo() WARN_UNUSED_RESULT;
+#if V8_HAS_ATTRIBUTE_WARN_UNUSED_RESULT
+#define V8_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+#else
+#define V8_WARN_UNUSED_RESULT /* NOT SUPPORTED */
 #endif
 
 #endif  // V8CONFIG_H_

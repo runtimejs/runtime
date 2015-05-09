@@ -22,7 +22,6 @@ enum DebugEvent {
   CompileError = 6,
   PromiseEvent = 7,
   AsyncTaskEvent = 8,
-  BreakForCommand = 9
 };
 
 
@@ -170,13 +169,6 @@ class V8_EXPORT Debug {
   // Check if a debugger break is scheduled in the given isolate.
   static bool CheckDebugBreak(Isolate* isolate);
 
-  // Break execution of JavaScript in the given isolate (this method
-  // can be invoked from a non-VM thread) for further client command
-  // execution on a VM thread. Client data is then passed in
-  // EventDetails to EventCallback2 at the moment when the VM actually
-  // stops.
-  static void DebugBreakForCommand(Isolate* isolate, ClientData* data);
-
   // Message based interface. The message protocol is JSON.
   static void SetMessageHandler(MessageHandler handler);
 
@@ -202,13 +194,22 @@ class V8_EXPORT Debug {
   *   }
   * \endcode
   */
-  static Local<Value> Call(v8::Handle<v8::Function> fun,
-                           Handle<Value> data = Handle<Value>());
+  static V8_DEPRECATE_SOON(
+      "Use maybe version",
+      Local<Value> Call(v8::Handle<v8::Function> fun,
+                        Handle<Value> data = Handle<Value>()));
+  // TODO(dcarney): data arg should be a MaybeLocal
+  static MaybeLocal<Value> Call(Local<Context> context,
+                                v8::Handle<v8::Function> fun,
+                                Handle<Value> data = Handle<Value>());
 
   /**
    * Returns a mirror object for the given object.
    */
-  static Local<Value> GetMirror(v8::Handle<v8::Value> obj);
+  static V8_DEPRECATE_SOON("Use maybe version",
+                           Local<Value> GetMirror(v8::Handle<v8::Value> obj));
+  static MaybeLocal<Value> GetMirror(Local<Context> context,
+                                     v8::Handle<v8::Value> obj);
 
   /**
    * Makes V8 process all pending debug messages.

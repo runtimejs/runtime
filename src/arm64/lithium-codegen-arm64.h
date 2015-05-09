@@ -37,14 +37,8 @@ class LCodeGen: public LCodeGenBase {
         frame_is_built_(false),
         safepoints_(info->zone()),
         resolver_(this),
-        expected_safepoint_kind_(Safepoint::kSimple),
-        after_push_argument_(false),
-        inlined_arguments_(false) {
+        expected_safepoint_kind_(Safepoint::kSimple) {
     PopulateDeoptimizationLiteralsWithInlinedFunctions();
-  }
-
-  ~LCodeGen() {
-    DCHECK(!after_push_argument_ || inlined_arguments_);
   }
 
   // Simple accessors.
@@ -87,9 +81,7 @@ class LCodeGen: public LCodeGenBase {
   Register ToRegister32(LOperand* op) const;
   Operand ToOperand(LOperand* op);
   Operand ToOperand32(LOperand* op);
-  enum StackMode { kMustUseFramePointer, kCanUseStackPointer };
-  MemOperand ToMemOperand(LOperand* op,
-                          StackMode stack_mode = kCanUseStackPointer) const;
+  MemOperand ToMemOperand(LOperand* op) const;
   Handle<Object> ToHandle(LConstantOperand* op) const;
 
   template <class LI>
@@ -284,7 +276,7 @@ class LCodeGen: public LCodeGenBase {
   void RestoreCallerDoubles();
 
   // Code generation steps.  Returns true if code generation should continue.
-  void GenerateBodyInstructionPre(LInstruction* instr) OVERRIDE;
+  void GenerateBodyInstructionPre(LInstruction* instr) override;
   bool GeneratePrologue();
   bool GenerateDeferredCode();
   bool GenerateJumpTable();
@@ -332,7 +324,7 @@ class LCodeGen: public LCodeGenBase {
                          LInstruction* instr);
 
   // Support for recording safepoint and position information.
-  void RecordAndWritePosition(int position) OVERRIDE;
+  void RecordAndWritePosition(int position) override;
   void RecordSafepoint(LPointerMap* pointers,
                        Safepoint::Kind kind,
                        int arguments,
@@ -345,7 +337,7 @@ class LCodeGen: public LCodeGenBase {
   void RecordSafepointWithLazyDeopt(LInstruction* instr,
                                     SafepointMode safepoint_mode);
 
-  void EnsureSpaceForLazyDeopt(int space_needed) OVERRIDE;
+  void EnsureSpaceForLazyDeopt(int space_needed) override;
 
   ZoneList<LEnvironment*> deoptimizations_;
   ZoneList<Deoptimizer::JumpTableEntry*> jump_table_;
@@ -365,15 +357,6 @@ class LCodeGen: public LCodeGenBase {
   LGapResolver resolver_;
 
   Safepoint::Kind expected_safepoint_kind_;
-
-  // This flag is true when we are after a push (but before a call).
-  // In this situation, jssp no longer references the end of the stack slots so,
-  // we can only reference a stack slot via fp.
-  bool after_push_argument_;
-  // If we have inlined arguments, we are no longer able to use jssp because
-  // jssp is modified and we never know if we are in a block after or before
-  // the pop of the arguments (which restores jssp).
-  bool inlined_arguments_;
 
   int old_position_;
 

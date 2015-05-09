@@ -4,11 +4,9 @@
 
 #include "src/compiler/simplified-operator-reducer.h"
 
-#include "src/compiler/access-builder.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
 
 namespace v8 {
@@ -24,8 +22,6 @@ SimplifiedOperatorReducer::~SimplifiedOperatorReducer() {}
 
 Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
   switch (node->opcode()) {
-    case IrOpcode::kAnyToBoolean:
-      return ReduceAnyToBoolean(node);
     case IrOpcode::kBooleanNot: {
       HeapObjectMatcher<HeapObject> m(node->InputAt(0));
       if (m.Is(Unique<HeapObject>::CreateImmovable(factory()->false_value()))) {
@@ -104,34 +100,23 @@ Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
       if (m.HasValue()) return ReplaceNumber(FastUI2D(m.Value()));
       break;
     }
+    case IrOpcode::kStoreField: {
+      // TODO(turbofan): Poor man's store elimination, remove this once we have
+      // a fully featured store elimination in place.
+      Node* const effect = node->InputAt(2);
+      if (effect->op()->Equals(node->op()) && effect->OwnedBy(node) &&
+          effect->InputAt(0) == node->InputAt(0)) {
+        // The {effect} is a store to the same field in the same object, and
+        // {node} is the only effect observer, so we can kill {effect} and
+        // instead make {node} depend on the incoming effect to {effect}.
+        node->ReplaceInput(2, effect->InputAt(2));
+        effect->Kill();
+        return Changed(node);
+      }
+      break;
+    }
     default:
       break;
-  }
-  return NoChange();
-}
-
-
-Reduction SimplifiedOperatorReducer::ReduceAnyToBoolean(Node* node) {
-  Node* const input = NodeProperties::GetValueInput(node, 0);
-  Type* const input_type = NodeProperties::GetBounds(input).upper;
-  if (input_type->Is(Type::Boolean())) {
-    // AnyToBoolean(x:boolean) => x
-    return Replace(input);
-  }
-  if (input_type->Is(Type::OrderedNumber())) {
-    // AnyToBoolean(x:ordered-number) => BooleanNot(NumberEqual(x, #0))
-    Node* compare = graph()->NewNode(simplified()->NumberEqual(), input,
-                                     jsgraph()->ZeroConstant());
-    return Change(node, simplified()->BooleanNot(), compare);
-  }
-  if (input_type->Is(Type::String())) {
-    // AnyToBoolean(x:string) => BooleanNot(NumberEqual(x.length, #0))
-    FieldAccess const access = AccessBuilder::ForStringLength();
-    Node* length = graph()->NewNode(simplified()->LoadField(access), input,
-                                    graph()->start(), graph()->start());
-    Node* compare = graph()->NewNode(simplified()->NumberEqual(), length,
-                                     jsgraph()->ZeroConstant());
-    return Change(node, simplified()->BooleanNot(), compare);
   }
   return NoChange();
 }
@@ -172,11 +157,6 @@ Graph* SimplifiedOperatorReducer::graph() const { return jsgraph()->graph(); }
 
 Factory* SimplifiedOperatorReducer::factory() const {
   return jsgraph()->isolate()->factory();
-}
-
-
-CommonOperatorBuilder* SimplifiedOperatorReducer::common() const {
-  return jsgraph()->common();
 }
 
 

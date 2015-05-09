@@ -30,7 +30,6 @@
 #include "src/v8.h"
 
 #include "src/global-handles.h"
-#include "src/snapshot.h"
 #include "test/cctest/cctest.h"
 
 using namespace v8::internal;
@@ -183,8 +182,9 @@ TEST(Regress2060a) {
   Handle<JSWeakMap> weakmap = AllocateJSWeakMap(isolate);
 
   // Start second old-space page so that values land on evacuation candidate.
-  Page* first_page = heap->old_pointer_space()->anchor()->next_page();
-  factory->NewFixedArray(900 * KB / kPointerSize, TENURED);
+  Page* first_page = heap->old_space()->anchor()->next_page();
+  int dummy_array_size = Page::kMaxRegularHeapObjectSize - 92 * KB;
+  factory->NewFixedArray(dummy_array_size / kPointerSize, TENURED);
 
   // Fill up weak map with values on an evacuation candidate.
   {
@@ -199,7 +199,7 @@ TEST(Regress2060a) {
 
   // Force compacting garbage collection.
   CHECK(FLAG_always_compact);
-  heap->CollectAllGarbage(Heap::kNoGCFlags);
+  heap->CollectAllGarbage();
 }
 
 
@@ -221,8 +221,9 @@ TEST(Regress2060b) {
       factory->function_string());
 
   // Start second old-space page so that keys land on evacuation candidate.
-  Page* first_page = heap->old_pointer_space()->anchor()->next_page();
-  factory->NewFixedArray(900 * KB / kPointerSize, TENURED);
+  Page* first_page = heap->old_space()->anchor()->next_page();
+  int dummy_array_size = Page::kMaxRegularHeapObjectSize - 92 * KB;
+  factory->NewFixedArray(dummy_array_size / kPointerSize, TENURED);
 
   // Fill up weak map with keys on an evacuation candidate.
   Handle<JSObject> keys[32];
@@ -240,9 +241,9 @@ TEST(Regress2060b) {
   // Force compacting garbage collection. The subsequent collections are used
   // to verify that key references were actually updated.
   CHECK(FLAG_always_compact);
-  heap->CollectAllGarbage(Heap::kNoGCFlags);
-  heap->CollectAllGarbage(Heap::kNoGCFlags);
-  heap->CollectAllGarbage(Heap::kNoGCFlags);
+  heap->CollectAllGarbage();
+  heap->CollectAllGarbage();
+  heap->CollectAllGarbage();
 }
 
 
@@ -259,5 +260,5 @@ TEST(Regress399527) {
   // The weak map is marked black here but leaving the handle scope will make
   // the object unreachable. Aborting incremental marking will clear all the
   // marking bits which makes the weak map garbage.
-  heap->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
+  heap->CollectAllGarbage();
 }

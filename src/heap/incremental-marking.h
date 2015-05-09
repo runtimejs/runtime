@@ -41,7 +41,8 @@ class IncrementalMarking {
   bool weak_closure_was_overapproximated() const {
     return weak_closure_was_overapproximated_;
   }
-  void set_weak_closure_was_overapproximated(bool val) {
+
+  void SetWeakClosureWasOverApproximatedForTesting(bool val) {
     weak_closure_was_overapproximated_ = val;
   }
 
@@ -53,19 +54,24 @@ class IncrementalMarking {
 
   inline bool IsComplete() { return state() == COMPLETE; }
 
+  inline bool IsReadyToOverApproximateWeakClosure() const {
+    return request_type_ == OVERAPPROXIMATION &&
+           !weak_closure_was_overapproximated_;
+  }
+
   GCRequestType request_type() const { return request_type_; }
 
-  bool WorthActivating();
+  bool CanBeActivated();
 
-  bool ShouldActivate();
+  bool ShouldActivateEvenWithoutIdleNotification();
 
   bool WasActivated();
 
-  enum CompactionFlag { ALLOW_COMPACTION, PREVENT_COMPACTION };
-
-  void Start(CompactionFlag flag = ALLOW_COMPACTION);
+  void Start();
 
   void Stop();
+
+  void MarkObjectGroups();
 
   void PrepareForScavenge();
 
@@ -77,7 +83,7 @@ class IncrementalMarking {
 
   void Abort();
 
-  void OverApproximateWeakClosure();
+  void OverApproximateWeakClosure(CompletionAction action);
 
   void MarkingComplete(CompletionAction action);
 
@@ -163,19 +169,7 @@ class IncrementalMarking {
 
   void ActivateGeneratedStub(Code* stub);
 
-  void NotifyOfHighPromotionRate() {
-    if (IsMarking()) {
-      if (marking_speed_ < kFastMarking) {
-        if (FLAG_trace_gc) {
-          PrintPID(
-              "Increasing marking speed to %d "
-              "due to high promotion rate\n",
-              static_cast<int>(kFastMarking));
-        }
-        marking_speed_ = kFastMarking;
-      }
-    }
-  }
+  void NotifyOfHighPromotionRate();
 
   void EnterNoMarkingScope() { no_marking_scope_depth_++; }
 
@@ -189,6 +183,10 @@ class IncrementalMarking {
 
   bool IsIdleMarkingDelayCounterLimitReached();
 
+  INLINE(static void MarkObject(Heap* heap, HeapObject* object));
+
+  Heap* heap() const { return heap_; }
+
  private:
   int64_t SpaceLeftInOldSpace();
 
@@ -196,7 +194,7 @@ class IncrementalMarking {
 
   void ResetStepCounters();
 
-  void StartMarking(CompactionFlag flag);
+  void StartMarking();
 
   void ActivateIncrementalWriteBarrier(PagedSpace* space);
   static void ActivateIncrementalWriteBarrier(NewSpace* space);
@@ -242,6 +240,8 @@ class IncrementalMarking {
   bool was_activated_;
 
   bool weak_closure_was_overapproximated_;
+
+  int weak_closure_approximation_rounds_;
 
   GCRequestType request_type_;
 

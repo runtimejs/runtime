@@ -45,9 +45,13 @@
 #include "src/basic-block-profiler.h"
 #include "src/d8-debug.h"
 #include "src/debug.h"
-#include "src/natives.h"
+#include "src/snapshot/natives.h"
 #include "src/v8.h"
 #endif  // !V8_SHARED
+
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+#include "src/startup-data-util.h"
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
 
 #if !defined(_WIN32) && !defined(_WIN64)
 #include <unistd.h>  // NOLINT
@@ -62,7 +66,45 @@
 #define DCHECK(condition) assert(condition)
 #endif
 
+#ifndef CHECK
+#define CHECK(condition) assert(condition)
+#endif
+
 namespace v8 {
+
+namespace {
+
+const int MB = 1024 * 1024;
+
+
+class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+ public:
+  virtual void* Allocate(size_t length) {
+    void* data = AllocateUninitialized(length);
+    return data == NULL ? data : memset(data, 0, length);
+  }
+  virtual void* AllocateUninitialized(size_t length) { return malloc(length); }
+  virtual void Free(void* data, size_t) { free(data); }
+};
+
+
+class MockArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+ public:
+  void* Allocate(size_t length) override {
+    size_t actual_length = length > 10 * MB ? 1 : length;
+    void* data = AllocateUninitialized(actual_length);
+    return data == NULL ? data : memset(data, 0, actual_length);
+  }
+  void* AllocateUninitialized(size_t length) override {
+    return length > 10 * MB ? malloc(1) : malloc(length);
+  }
+  void Free(void* p, size_t) override { free(p); }
+};
+
+
+v8::Platform* g_platform = NULL;
+
+}  // namespace
 
 
 static Handle<Value> Throw(Isolate* isolate, const char* message) {
@@ -155,10 +197,7 @@ Persistent<Context> Shell::evaluation_context_;
 ShellOptions Shell::options;
 const char* Shell::kPrompt = "d8> ";
 
-
 #ifndef V8_SHARED
-const int MB = 1024 * 1024;
-
 bool CounterMap::Match(void* key1, void* key2) {
   const char* name1 = reinterpret_cast<const char*>(key1);
   const char* name2 = reinterpret_cast<const char*>(key2);
@@ -187,7 +226,10 @@ ScriptCompiler::CachedData* CompileForCachedData(
     name_buffer = new uint16_t[name_length];
     name_string->Write(name_buffer, 0, name_length);
   }
-  Isolate* temp_isolate = Isolate::New();
+  ShellArrayBufferAllocator allocator;
+  Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = &allocator;
+  Isolate* temp_isolate = Isolate::New(create_params);
   ScriptCompiler::CachedData* result = NULL;
   {
     Isolate::Scope isolate_scope(temp_isolate);
@@ -221,14 +263,17 @@ ScriptCompiler::CachedData* CompileForCachedData(
 
 
 // Compile a string within the current v8 context.
-Local<UnboundScript> Shell::CompileString(
+Local<Script> Shell::CompileString(
     Isolate* isolate, Local<String> source, Local<Value> name,
-    ScriptCompiler::CompileOptions compile_options) {
+    ScriptCompiler::CompileOptions compile_options, SourceType source_type) {
   ScriptOrigin origin(name);
   if (compile_options == ScriptCompiler::kNoCompileOptions) {
     ScriptCompiler::Source script_source(source, origin);
-    return ScriptCompiler::CompileUnbound(isolate, &script_source,
-                                          compile_options);
+    return source_type == SCRIPT
+               ? ScriptCompiler::Compile(isolate, &script_source,
+                                         compile_options)
+               : ScriptCompiler::CompileModule(isolate, &script_source,
+                                               compile_options);
   }
 
   ScriptCompiler::CachedData* data =
@@ -242,17 +287,20 @@ Local<UnboundScript> Shell::CompileString(
     DCHECK(false);  // A new compile option?
   }
   if (data == NULL) compile_options = ScriptCompiler::kNoCompileOptions;
-  return ScriptCompiler::CompileUnbound(isolate, &cached_source,
-                                        compile_options);
+  Local<Script> result =
+      source_type == SCRIPT
+          ? ScriptCompiler::Compile(isolate, &cached_source, compile_options)
+          : ScriptCompiler::CompileModule(isolate, &cached_source,
+                                          compile_options);
+  CHECK(data == NULL || !data->rejected);
+  return result;
 }
 
 
 // Executes a string within the current v8 context.
-bool Shell::ExecuteString(Isolate* isolate,
-                          Handle<String> source,
-                          Handle<Value> name,
-                          bool print_result,
-                          bool report_exceptions) {
+bool Shell::ExecuteString(Isolate* isolate, Handle<String> source,
+                          Handle<Value> name, bool print_result,
+                          bool report_exceptions, SourceType source_type) {
 #ifndef V8_SHARED
   bool FLAG_debugger = i::FLAG_debugger;
 #else
@@ -266,61 +314,61 @@ bool Shell::ExecuteString(Isolate* isolate,
     try_catch.SetVerbose(true);
   }
 
-  Handle<UnboundScript> script =
-      Shell::CompileString(isolate, source, name, options.compile_options);
-  if (script.IsEmpty()) {
-    // Print errors that happened during compilation.
-    if (report_exceptions && !FLAG_debugger)
-      ReportException(isolate, &try_catch);
-    return false;
-  } else {
+  Handle<Value> result;
+  {
     PerIsolateData* data = PerIsolateData::Get(isolate);
     Local<Context> realm =
         Local<Context>::New(isolate, data->realms_[data->realm_current_]);
-    realm->Enter();
-    Handle<Value> result = script->BindToCurrentContext()->Run();
-    realm->Exit();
-    data->realm_current_ = data->realm_switch_;
-    if (result.IsEmpty()) {
-      DCHECK(try_catch.HasCaught());
-      // Print errors that happened during execution.
+    Context::Scope context_scope(realm);
+    Handle<Script> script = Shell::CompileString(
+        isolate, source, name, options.compile_options, source_type);
+    if (script.IsEmpty()) {
+      // Print errors that happened during compilation.
       if (report_exceptions && !FLAG_debugger)
         ReportException(isolate, &try_catch);
       return false;
-    } else {
-      DCHECK(!try_catch.HasCaught());
-      if (print_result) {
-#if !defined(V8_SHARED)
-        if (options.test_shell) {
-#endif
-          if (!result->IsUndefined()) {
-            // If all went well and the result wasn't undefined then print
-            // the returned value.
-            v8::String::Utf8Value str(result);
-            fwrite(*str, sizeof(**str), str.length(), stdout);
-            printf("\n");
-          }
-#if !defined(V8_SHARED)
-        } else {
-          v8::TryCatch try_catch;
-          v8::Local<v8::Context> context =
-              v8::Local<v8::Context>::New(isolate, utility_context_);
-          v8::Context::Scope context_scope(context);
-          Handle<Object> global = context->Global();
-          Handle<Value> fun =
-              global->Get(String::NewFromUtf8(isolate, "Stringify"));
-          Handle<Value> argv[1] = { result };
-          Handle<Value> s = Handle<Function>::Cast(fun)->Call(global, 1, argv);
-          if (try_catch.HasCaught()) return true;
-          v8::String::Utf8Value str(s);
-          fwrite(*str, sizeof(**str), str.length(), stdout);
-          printf("\n");
-        }
-#endif
-      }
-      return true;
     }
+    result = script->Run();
+    data->realm_current_ = data->realm_switch_;
   }
+  if (result.IsEmpty()) {
+    DCHECK(try_catch.HasCaught());
+    // Print errors that happened during execution.
+    if (report_exceptions && !FLAG_debugger)
+      ReportException(isolate, &try_catch);
+    return false;
+  }
+  DCHECK(!try_catch.HasCaught());
+  if (print_result) {
+#if !defined(V8_SHARED)
+    if (options.test_shell) {
+#endif
+      if (!result->IsUndefined()) {
+        // If all went well and the result wasn't undefined then print
+        // the returned value.
+        v8::String::Utf8Value str(result);
+        fwrite(*str, sizeof(**str), str.length(), stdout);
+        printf("\n");
+      }
+#if !defined(V8_SHARED)
+    } else {
+      v8::TryCatch try_catch;
+      v8::Local<v8::Context> context =
+          v8::Local<v8::Context>::New(isolate, utility_context_);
+      v8::Context::Scope context_scope(context);
+      Handle<Object> global = context->Global();
+      Handle<Value> fun =
+          global->Get(String::NewFromUtf8(isolate, "Stringify"));
+      Handle<Value> argv[1] = {result};
+      Handle<Value> s = Handle<Function>::Cast(fun)->Call(global, 1, argv);
+      if (try_catch.HasCaught()) return true;
+      v8::String::Utf8Value str(s);
+      fwrite(*str, sizeof(**str), str.length(), stdout);
+      printf("\n");
+    }
+#endif
+  }
+  return true;
 }
 
 
@@ -453,6 +501,8 @@ void Shell::RealmDispose(const v8::FunctionCallbackInfo<v8::Value>& args) {
     return;
   }
   data->realms_[index].Reset();
+  isolate->ContextDisposedNotification();
+  isolate->IdleNotificationDeadline(g_platform->MonotonicallyIncreasingTime());
 }
 
 
@@ -824,7 +874,20 @@ void Shell::AddHistogramSample(void* histogram, int sample) {
 }
 
 
+class NoUseStrongForUtilityScriptScope {
+ public:
+  NoUseStrongForUtilityScriptScope() : flag_(i::FLAG_use_strong) {
+    i::FLAG_use_strong = false;
+  }
+  ~NoUseStrongForUtilityScriptScope() { i::FLAG_use_strong = flag_; }
+
+ private:
+  bool flag_;
+};
+
+
 void Shell::InstallUtilityScript(Isolate* isolate) {
+  NoUseStrongForUtilityScriptScope no_use_strong;
   HandleScope scope(isolate);
   // If we use the utility context, we have to set the security tokens so that
   // utility, evaluation and debug context can all access each other.
@@ -893,8 +956,13 @@ Handle<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
                        FunctionTemplate::New(isolate, ReadLine));
   global_template->Set(String::NewFromUtf8(isolate, "load"),
                        FunctionTemplate::New(isolate, Load));
-  global_template->Set(String::NewFromUtf8(isolate, "quit"),
-                       FunctionTemplate::New(isolate, Quit));
+  // Some Emscripten-generated code tries to call 'quit', which in turn would
+  // call C's exit(). This would lead to memory leaks, because there is no way
+  // we can terminate cleanly then, so we need a way to hide 'quit'.
+  if (!options.omit_quit) {
+    global_template->Set(String::NewFromUtf8(isolate, "quit"),
+                         FunctionTemplate::New(isolate, Quit));
+  }
   global_template->Set(String::NewFromUtf8(isolate, "version"),
                        FunctionTemplate::New(isolate, Version));
 
@@ -936,15 +1004,9 @@ Handle<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
 
 void Shell::Initialize(Isolate* isolate) {
 #ifndef V8_SHARED
-  Shell::counter_map_ = new CounterMap();
   // Set up counters
   if (i::StrLength(i::FLAG_map_counters) != 0)
     MapCounters(isolate, i::FLAG_map_counters);
-  if (i::FLAG_dump_counters || i::FLAG_track_gc_object_stats) {
-    isolate->SetCounterFunction(LookupCounter);
-    isolate->SetCreateHistogramFunction(CreateHistogram);
-    isolate->SetAddHistogramSampleFunction(AddHistogramSample);
-  }
 #endif  // !V8_SHARED
 }
 
@@ -1083,30 +1145,35 @@ static char* ReadChars(Isolate* isolate, const char* name, int* size_out) {
   if (file == NULL) return NULL;
 
   fseek(file, 0, SEEK_END);
-  int size = ftell(file);
+  size_t size = ftell(file);
   rewind(file);
 
   char* chars = new char[size + 1];
   chars[size] = '\0';
-  for (int i = 0; i < size;) {
-    int read = static_cast<int>(fread(&chars[i], 1, size - i, file));
-    i += read;
+  for (size_t i = 0; i < size;) {
+    i += fread(&chars[i], 1, size - i, file);
+    if (ferror(file)) {
+      fclose(file);
+      delete[] chars;
+      return nullptr;
+    }
   }
   fclose(file);
-  *size_out = size;
+  *size_out = static_cast<int>(size);
   return chars;
 }
 
 
 struct DataAndPersistent {
   uint8_t* data;
-  Persistent<ArrayBuffer> handle;
+  int byte_length;
+  Global<ArrayBuffer> handle;
 };
 
 
 static void ReadBufferWeakCallback(
-    const v8::WeakCallbackData<ArrayBuffer, DataAndPersistent>& data) {
-  size_t byte_length = data.GetValue()->ByteLength();
+    const v8::WeakCallbackInfo<DataAndPersistent>& data) {
+  int byte_length = data.GetParameter()->byte_length;
   data.GetIsolate()->AdjustAmountOfExternalAllocatedMemory(
       -static_cast<intptr_t>(byte_length));
 
@@ -1134,10 +1201,12 @@ void Shell::ReadBuffer(const v8::FunctionCallbackInfo<v8::Value>& args) {
     Throw(args.GetIsolate(), "Error reading file");
     return;
   }
+  data->byte_length = length;
   Handle<v8::ArrayBuffer> buffer =
       ArrayBuffer::New(isolate, data->data, length);
   data->handle.Reset(isolate, buffer);
-  data->handle.SetWeak(data, ReadBufferWeakCallback);
+  data->handle.SetWeak(data, ReadBufferWeakCallback,
+                       v8::WeakCallbackType::kParameter);
   data->handle.MarkIndependent();
   isolate->AdjustAmountOfExternalAllocatedMemory(length);
 
@@ -1189,6 +1258,7 @@ void SourceGroup::Execute(Isolate* isolate) {
   bool exception_was_thrown = false;
   for (int i = begin_offset_; i < end_offset_; ++i) {
     const char* arg = argv_[i];
+    Shell::SourceType source_type = Shell::SCRIPT;
     if (strcmp(arg, "-e") == 0 && i + 1 < end_offset_) {
       // Execute argument given to -e option directly.
       HandleScope handle_scope(isolate);
@@ -1199,21 +1269,28 @@ void SourceGroup::Execute(Isolate* isolate) {
         break;
       }
       ++i;
+      continue;
+    } else if (strcmp(arg, "--module") == 0 && i + 1 < end_offset_) {
+      // Treat the next file as a module.
+      source_type = Shell::MODULE;
+      arg = argv_[++i];
     } else if (arg[0] == '-') {
       // Ignore other options. They have been parsed already.
-    } else {
-      // Use all other arguments as names of files to load and run.
-      HandleScope handle_scope(isolate);
-      Handle<String> file_name = String::NewFromUtf8(isolate, arg);
-      Handle<String> source = ReadFile(isolate, arg);
-      if (source.IsEmpty()) {
-        printf("Error reading '%s'\n", arg);
-        Shell::Exit(1);
-      }
-      if (!Shell::ExecuteString(isolate, source, file_name, false, true)) {
-        exception_was_thrown = true;
-        break;
-      }
+      continue;
+    }
+
+    // Use all other arguments as names of files to load and run.
+    HandleScope handle_scope(isolate);
+    Handle<String> file_name = String::NewFromUtf8(isolate, arg);
+    Handle<String> source = ReadFile(isolate, arg);
+    if (source.IsEmpty()) {
+      printf("Error reading '%s'\n", arg);
+      Shell::Exit(1);
+    }
+    if (!Shell::ExecuteString(isolate, source, file_name, false, true,
+                              source_type)) {
+      exception_was_thrown = true;
+      break;
     }
   }
   if (exception_was_thrown != Shell::options.expected_to_throw) {
@@ -1244,7 +1321,10 @@ base::Thread::Options SourceGroup::GetThreadOptions() {
 
 
 void SourceGroup::ExecuteInThread() {
-  Isolate* isolate = Isolate::New();
+  ShellArrayBufferAllocator allocator;
+  Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = &allocator;
+  Isolate* isolate = Isolate::New(create_params);
   do {
     next_semaphore_.Wait();
     {
@@ -1260,9 +1340,11 @@ void SourceGroup::ExecuteInThread() {
         }
       }
       if (Shell::options.send_idle_notification) {
-        const int kLongIdlePauseInMs = 1000;
+        const double kLongIdlePauseInSeconds = 1.0;
         isolate->ContextDisposedNotification();
-        isolate->IdleNotification(kLongIdlePauseInMs);
+        isolate->IdleNotificationDeadline(
+            g_platform->MonotonicallyIncreasingTime() +
+            kLongIdlePauseInSeconds);
       }
       if (Shell::options.invoke_weak_callbacks) {
         // By sending a low memory notifications, we will try hard to collect
@@ -1339,6 +1421,9 @@ bool Shell::SetOptions(int argc, char* argv[]) {
       // TODO(jochen) See issue 3351
       options.send_idle_notification = true;
       argv[i] = NULL;
+    } else if (strcmp(argv[i], "--omit-quit") == 0) {
+      options.omit_quit = true;
+      argv[i] = NULL;
     } else if (strcmp(argv[i], "-f") == 0) {
       // Ignore any -f flags for compatibility with other stand-alone
       // JavaScript engines.
@@ -1398,6 +1483,8 @@ bool Shell::SetOptions(int argc, char* argv[]) {
 
   v8::V8::SetFlagsFromCommandLine(&argc, argv, true);
 
+  bool enable_harmony_modules = false;
+
   // Set up isolated source groups.
   options.isolate_sources = new SourceGroup[options.num_isolates];
   SourceGroup* current = options.isolate_sources;
@@ -1408,6 +1495,9 @@ bool Shell::SetOptions(int argc, char* argv[]) {
       current->End(i);
       current++;
       current->Begin(argv, i + 1);
+    } else if (strcmp(str, "--module") == 0) {
+      // Pass on to SourceGroup, which understands this option.
+      enable_harmony_modules = true;
     } else if (strncmp(argv[i], "--", 2) == 0) {
       printf("Warning: unknown flag %s.\nTry --help for options\n", argv[i]);
     }
@@ -1416,6 +1506,10 @@ bool Shell::SetOptions(int argc, char* argv[]) {
 
   if (!logfile_per_isolate && options.num_isolates) {
     SetFlagsFromString("--nologfile_per_isolate");
+  }
+
+  if (enable_harmony_modules) {
+    SetFlagsFromString("--harmony-modules");
   }
 
   return true;
@@ -1449,9 +1543,10 @@ int Shell::RunMain(Isolate* isolate, int argc, char* argv[]) {
     }
   }
   if (options.send_idle_notification) {
-    const int kLongIdlePauseInMs = 1000;
+    const double kLongIdlePauseInSeconds = 1.0;
     isolate->ContextDisposedNotification();
-    isolate->IdleNotification(kLongIdlePauseInMs);
+    isolate->IdleNotificationDeadline(
+        g_platform->MonotonicallyIncreasingTime() + kLongIdlePauseInSeconds);
   }
   if (options.invoke_weak_callbacks) {
     // By sending a low memory notifications, we will try hard to collect all
@@ -1526,109 +1621,6 @@ static void DumpHeapConstants(i::Isolate* isolate) {
 #endif  // !V8_SHARED
 
 
-class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
- public:
-  virtual void* Allocate(size_t length) {
-    void* data = AllocateUninitialized(length);
-    return data == NULL ? data : memset(data, 0, length);
-  }
-  virtual void* AllocateUninitialized(size_t length) { return malloc(length); }
-  virtual void Free(void* data, size_t) { free(data); }
-};
-
-
-class MockArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
- public:
-  void* Allocate(size_t) OVERRIDE { return malloc(1); }
-  void* AllocateUninitialized(size_t length) OVERRIDE { return malloc(1); }
-  void Free(void* p, size_t) OVERRIDE { free(p); }
-};
-
-
-#ifdef V8_USE_EXTERNAL_STARTUP_DATA
-class StartupDataHandler {
- public:
-  StartupDataHandler(const char* exec_path, const char* natives_blob,
-                     const char* snapshot_blob) {
-    // If we have (at least one) explicitly given blob, use those.
-    // If not, use the default blob locations next to the d8 binary.
-    if (natives_blob || snapshot_blob) {
-      LoadFromFiles(natives_blob, snapshot_blob);
-    } else {
-      char* natives;
-      char* snapshot;
-      LoadFromFiles(RelativePath(&natives, exec_path, "natives_blob.bin"),
-                    RelativePath(&snapshot, exec_path, "snapshot_blob.bin"));
-
-      free(natives);
-      free(snapshot);
-    }
-  }
-
-  ~StartupDataHandler() {
-    delete[] natives_.data;
-    delete[] snapshot_.data;
-  }
-
- private:
-  static char* RelativePath(char** buffer, const char* exec_path,
-                            const char* name) {
-    DCHECK(exec_path);
-    const char* last_slash = strrchr(exec_path, '/');
-    if (last_slash) {
-      int after_slash = last_slash - exec_path + 1;
-      int name_length = static_cast<int>(strlen(name));
-      *buffer =
-          reinterpret_cast<char*>(calloc(after_slash + name_length + 1, 1));
-      strncpy(*buffer, exec_path, after_slash);
-      strncat(*buffer, name, name_length);
-    } else {
-      *buffer = strdup(name);
-    }
-    return *buffer;
-  }
-
-  void LoadFromFiles(const char* natives_blob, const char* snapshot_blob) {
-    Load(natives_blob, &natives_, v8::V8::SetNativesDataBlob);
-    Load(snapshot_blob, &snapshot_, v8::V8::SetSnapshotDataBlob);
-  }
-
-  void Load(const char* blob_file,
-            v8::StartupData* startup_data,
-            void (*setter_fn)(v8::StartupData*)) {
-    startup_data->data = NULL;
-    startup_data->raw_size = 0;
-
-    if (!blob_file)
-      return;
-
-    FILE* file = fopen(blob_file, "rb");
-    if (!file)
-      return;
-
-    fseek(file, 0, SEEK_END);
-    startup_data->raw_size = ftell(file);
-    rewind(file);
-
-    startup_data->data = new char[startup_data->raw_size];
-    int read_size =
-        static_cast<int>(fread(const_cast<char*>(startup_data->data), 1,
-                               startup_data->raw_size, file));
-    fclose(file);
-
-    if (startup_data->raw_size == read_size) (*setter_fn)(startup_data);
-  }
-
-  v8::StartupData natives_;
-  v8::StartupData snapshot_;
-
-  // Disallow copy & assign.
-  StartupDataHandler(const StartupDataHandler& other);
-  void operator=(const StartupDataHandler& other);
-};
-#endif  // V8_USE_EXTERNAL_STARTUP_DATA
-
-
 int Shell::Main(int argc, char* argv[]) {
 #if (defined(_WIN32) || defined(_WIN64))
   UINT new_flags =
@@ -1647,25 +1639,25 @@ int Shell::Main(int argc, char* argv[]) {
 #endif  // defined(_WIN32) || defined(_WIN64)
   if (!SetOptions(argc, argv)) return 1;
   v8::V8::InitializeICU(options.icu_data_file);
-  v8::Platform* platform = v8::platform::CreateDefaultPlatform();
-  v8::V8::InitializePlatform(platform);
+  g_platform = v8::platform::CreateDefaultPlatform();
+  v8::V8::InitializePlatform(g_platform);
   v8::V8::Initialize();
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  StartupDataHandler startup_data(argv[0], options.natives_blob,
-                                  options.snapshot_blob);
+  v8::StartupDataHandler startup_data(argv[0], options.natives_blob,
+                                      options.snapshot_blob);
 #endif
   SetFlagsFromString("--trace-hydrogen-file=hydrogen.cfg");
   SetFlagsFromString("--trace-turbo-cfg-file=turbo.cfg");
   SetFlagsFromString("--redirect-code-traces-to=code.asm");
+  int result = 0;
+  Isolate::CreateParams create_params;
   ShellArrayBufferAllocator array_buffer_allocator;
   MockArrayBufferAllocator mock_arraybuffer_allocator;
   if (options.mock_arraybuffer_allocator) {
-    v8::V8::SetArrayBufferAllocator(&mock_arraybuffer_allocator);
+    create_params.array_buffer_allocator = &mock_arraybuffer_allocator;
   } else {
-    v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
+    create_params.array_buffer_allocator = &array_buffer_allocator;
   }
-  int result = 0;
-  Isolate::CreateParams create_params;
 #if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
   if (i::FLAG_gdbjit) {
     create_params.code_event_handler = i::GDBJITInterface::EventHandler;
@@ -1677,8 +1669,14 @@ int Shell::Main(int argc, char* argv[]) {
 #ifndef V8_SHARED
   create_params.constraints.ConfigureDefaults(
       base::SysInfo::AmountOfPhysicalMemory(),
-      base::SysInfo::AmountOfVirtualMemory(),
-      base::SysInfo::NumberOfProcessors());
+      base::SysInfo::AmountOfVirtualMemory());
+
+  Shell::counter_map_ = new CounterMap();
+  if (i::FLAG_dump_counters || i::FLAG_track_gc_object_stats) {
+    create_params.counter_lookup_callback = LookupCounter;
+    create_params.create_histogram_callback = CreateHistogram;
+    create_params.add_histogram_sample_callback = AddHistogramSample;
+  }
 #endif
   Isolate* isolate = Isolate::New(create_params);
   DumbLineEditor dumb_line_editor(isolate);
@@ -1744,7 +1742,7 @@ int Shell::Main(int argc, char* argv[]) {
   isolate->Dispose();
   V8::Dispose();
   V8::ShutdownPlatform();
-  delete platform;
+  delete g_platform;
 
   return result;
 }

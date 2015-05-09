@@ -24,11 +24,13 @@
 .cproject
 .d8_history
 .gclient_entries
+.landmines
 .project
 .pydevproject
 .settings
 .*.sw?
 bsuite
+compile_commands.json
 d8
 d8_g
 gccauses

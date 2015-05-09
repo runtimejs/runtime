@@ -236,6 +236,9 @@ inline size_t NumberToSize(Isolate* isolate,
   return result;
 }
 
+
+// returns DoubleToString(StringToDouble(string)) == string
+bool IsSpecialIndex(UnicodeCache* unicode_cache, String* string);
 } }  // namespace v8::internal
 
 #endif  // V8_CONVERSIONS_H_

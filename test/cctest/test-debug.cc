@@ -397,7 +397,7 @@ void CheckDebuggerUnloaded(bool check_functions) {
   CHECK(!CcTest::i_isolate()->debug()->debug_info_list_);
 
   // Collect garbage to ensure weak handles are cleared.
-  CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
+  CcTest::heap()->CollectAllGarbage();
   CcTest::heap()->CollectAllGarbage(Heap::kMakeHeapIterableMask);
 
   // Iterate the head and check that there are no debugger related objects left.
@@ -416,7 +416,7 @@ void CheckDebuggerUnloaded(bool check_functions) {
           if (RelocInfo::IsCodeTarget(rmode)) {
             CHECK(!Debug::IsDebugBreak(it.rinfo()->target_address()));
           } else if (RelocInfo::IsJSReturn(rmode)) {
-            CHECK(!Debug::IsDebugBreakAtReturn(it.rinfo()));
+            CHECK(!it.rinfo()->IsPatchedReturnSequence());
           }
         }
       }
@@ -437,47 +437,36 @@ static void CheckDebuggerUnloaded(bool check_functions = false) {
 }
 
 
-// Inherit from BreakLocationIterator to get access to protected parts for
-// testing.
-class TestBreakLocationIterator: public v8::internal::BreakLocationIterator {
- public:
-  explicit TestBreakLocationIterator(Handle<v8::internal::DebugInfo> debug_info)
-    : BreakLocationIterator(debug_info, v8::internal::SOURCE_BREAK_LOCATIONS) {}
-  v8::internal::RelocIterator* it() { return reloc_iterator_; }
-  v8::internal::RelocIterator* it_original() {
-    return reloc_iterator_original_;
-  }
-};
-
-
 // Compile a function, set a break point and check that the call at the break
 // location in the code is the expected debug_break function.
 void CheckDebugBreakFunction(DebugLocalContext* env,
                              const char* source, const char* name,
                              int position, v8::internal::RelocInfo::Mode mode,
                              Code* debug_break) {
-  v8::internal::Debug* debug = CcTest::i_isolate()->debug();
+  i::Debug* debug = CcTest::i_isolate()->debug();
 
   // Create function and set the break point.
-  Handle<v8::internal::JSFunction> fun = v8::Utils::OpenHandle(
-      *CompileFunction(env, source, name));
+  Handle<i::JSFunction> fun =
+      v8::Utils::OpenHandle(*CompileFunction(env, source, name));
   int bp = SetBreakPoint(fun, position);
 
   // Check that the debug break function is as expected.
-  Handle<v8::internal::SharedFunctionInfo> shared(fun->shared());
+  Handle<i::SharedFunctionInfo> shared(fun->shared());
   CHECK(Debug::HasDebugInfo(shared));
-  TestBreakLocationIterator it1(Debug::GetDebugInfo(shared));
-  it1.FindBreakLocationFromPosition(position, v8::internal::STATEMENT_ALIGNED);
-  v8::internal::RelocInfo::Mode actual_mode = it1.it()->rinfo()->rmode();
-  if (actual_mode == v8::internal::RelocInfo::CODE_TARGET_WITH_ID) {
-    actual_mode = v8::internal::RelocInfo::CODE_TARGET;
+  i::BreakLocation location = i::BreakLocation::FromPosition(
+      Debug::GetDebugInfo(shared), i::SOURCE_BREAK_LOCATIONS, position,
+      i::STATEMENT_ALIGNED);
+  i::RelocInfo::Mode actual_mode = location.rmode();
+  if (actual_mode == i::RelocInfo::CODE_TARGET_WITH_ID) {
+    actual_mode = i::RelocInfo::CODE_TARGET;
   }
   CHECK_EQ(mode, actual_mode);
-  if (mode != v8::internal::RelocInfo::JS_RETURN) {
-    CHECK_EQ(debug_break,
-        Code::GetCodeFromTargetAddress(it1.it()->rinfo()->target_address()));
+  if (mode != i::RelocInfo::JS_RETURN) {
+    CHECK_EQ(debug_break, *location.CodeTarget());
   } else {
-    CHECK(Debug::IsDebugBreakAtReturn(it1.it()->rinfo()));
+    i::RelocInfo rinfo = location.rinfo();
+    CHECK(i::RelocInfo::IsJSReturn(rinfo.rmode()));
+    CHECK(rinfo.IsPatchedReturnSequence());
   }
 
   // Clear the break point and check that the debug break function is no longer
@@ -485,15 +474,17 @@ void CheckDebugBreakFunction(DebugLocalContext* env,
   ClearBreakPoint(bp);
   CHECK(!debug->HasDebugInfo(shared));
   CHECK(debug->EnsureDebugInfo(shared, fun));
-  TestBreakLocationIterator it2(Debug::GetDebugInfo(shared));
-  it2.FindBreakLocationFromPosition(position, v8::internal::STATEMENT_ALIGNED);
-  actual_mode = it2.it()->rinfo()->rmode();
-  if (actual_mode == v8::internal::RelocInfo::CODE_TARGET_WITH_ID) {
-    actual_mode = v8::internal::RelocInfo::CODE_TARGET;
+  location = i::BreakLocation::FromPosition(Debug::GetDebugInfo(shared),
+                                            i::SOURCE_BREAK_LOCATIONS, position,
+                                            i::STATEMENT_ALIGNED);
+  actual_mode = location.rmode();
+  if (actual_mode == i::RelocInfo::CODE_TARGET_WITH_ID) {
+    actual_mode = i::RelocInfo::CODE_TARGET;
   }
   CHECK_EQ(mode, actual_mode);
-  if (mode == v8::internal::RelocInfo::JS_RETURN) {
-    CHECK(!Debug::IsDebugBreakAtReturn(it2.it()->rinfo()));
+  if (mode == i::RelocInfo::JS_RETURN) {
+    i::RelocInfo rinfo = location.rinfo();
+    CHECK(!rinfo.IsPatchedReturnSequence());
   }
 }
 
@@ -879,7 +870,7 @@ static void DebugEventBreakPointCollectGarbage(
       CcTest::heap()->CollectGarbage(v8::internal::NEW_SPACE);
     } else {
       // Mark sweep compact.
-      CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
+      CcTest::heap()->CollectAllGarbage();
     }
   }
 }
@@ -1385,7 +1376,7 @@ static void CallAndGC(v8::Local<v8::Object> recv,
     CHECK_EQ(2 + i * 3, break_point_hit_count);
 
     // Mark sweep (and perhaps compact) and call function.
-    CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
+    CcTest::heap()->CollectAllGarbage();
     f->Call(recv, 0, NULL);
     CHECK_EQ(3 + i * 3, break_point_hit_count);
   }
@@ -2229,7 +2220,7 @@ TEST(ScriptBreakPointLineTopLevel) {
   f = v8::Local<v8::Function>::Cast(
       env->Global()->Get(v8::String::NewFromUtf8(env->GetIsolate(), "f")));
 
-  CcTest::heap()->CollectAllGarbage(Heap::kNoGCFlags);
+  CcTest::heap()->CollectAllGarbage();
 
   SetScriptBreakPointByNameFromJS(env->GetIsolate(), "test.html", 3, -1);
 
@@ -4779,7 +4770,7 @@ TEST(NoHiddenProperties) {
 // The Wait() call blocks a thread until it is called for the Nth time, then all
 // calls return.  Each ThreadBarrier object can only be used once.
 template <int N>
-class ThreadBarrier FINAL {
+class ThreadBarrier final {
  public:
   ThreadBarrier() : num_blocked_(0) {}
 
@@ -5245,7 +5236,9 @@ void V8Thread::Run() {
       "\n"
       "foo();\n";
 
-  isolate_ = v8::Isolate::New();
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
+  isolate_ = v8::Isolate::New(create_params);
   threaded_debugging_barriers.barrier_3.Wait();
   {
     v8::Isolate::Scope isolate_scope(isolate_);
@@ -5376,7 +5369,9 @@ void BreakpointsV8Thread::Run() {
   const char* source_2 = "cat(17);\n"
     "cat(19);\n";
 
-  isolate_ = v8::Isolate::New();
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
+  isolate_ = v8::Isolate::New(create_params);
   breakpoints_barriers->barrier_3.Wait();
   {
     v8::Isolate::Scope isolate_scope(isolate_);
@@ -6740,6 +6735,10 @@ TEST(Backtrace) {
 
   v8::Debug::SetMessageHandler(BacktraceData::MessageHandler);
 
+  // TODO(mstarzinger): This doesn't work with --always-opt because we don't
+  // have correct source positions in optimized code. Enable once we have.
+  i::FLAG_always_opt = false;
+
   const int kBufferSize = 1000;
   uint16_t buffer[kBufferSize];
   const char* scripts_command =
@@ -6951,80 +6950,6 @@ TEST(DebugEventContext) {
 }
 
 
-static void* expected_break_data;
-static bool was_debug_break_called;
-static bool was_debug_event_called;
-static void DebugEventBreakDataChecker(const v8::Debug::EventDetails& details) {
-  if (details.GetEvent() == v8::BreakForCommand) {
-    CHECK_EQ(expected_break_data, details.GetClientData());
-    was_debug_event_called = true;
-  } else if (details.GetEvent() == v8::Break) {
-    was_debug_break_called = true;
-  }
-}
-
-
-// Check that event details contain context where debug event occured.
-TEST(DebugEventBreakData) {
-  DebugLocalContext env;
-  v8::Isolate* isolate = env->GetIsolate();
-  v8::HandleScope scope(isolate);
-  v8::Debug::SetDebugEventListener(DebugEventBreakDataChecker);
-
-  TestClientData::constructor_call_counter = 0;
-  TestClientData::destructor_call_counter = 0;
-
-  expected_break_data = NULL;
-  was_debug_event_called = false;
-  was_debug_break_called = false;
-  v8::Debug::DebugBreakForCommand(isolate, NULL);
-  v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
-                                              "(function(x){return x;})(1);"))
-      ->Run();
-  CHECK(was_debug_event_called);
-  CHECK(!was_debug_break_called);
-
-  TestClientData* data1 = new TestClientData();
-  expected_break_data = data1;
-  was_debug_event_called = false;
-  was_debug_break_called = false;
-  v8::Debug::DebugBreakForCommand(isolate, data1);
-  v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
-                                              "(function(x){return x+1;})(1);"))
-      ->Run();
-  CHECK(was_debug_event_called);
-  CHECK(!was_debug_break_called);
-
-  expected_break_data = NULL;
-  was_debug_event_called = false;
-  was_debug_break_called = false;
-  v8::Debug::DebugBreak(isolate);
-  v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
-                                              "(function(x){return x+2;})(1);"))
-      ->Run();
-  CHECK(!was_debug_event_called);
-  CHECK(was_debug_break_called);
-
-  TestClientData* data2 = new TestClientData();
-  expected_break_data = data2;
-  was_debug_event_called = false;
-  was_debug_break_called = false;
-  v8::Debug::DebugBreak(isolate);
-  v8::Debug::DebugBreakForCommand(isolate, data2);
-  v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(),
-                                              "(function(x){return x+3;})(1);"))
-      ->Run();
-  CHECK(was_debug_event_called);
-  CHECK(was_debug_break_called);
-
-  CHECK_EQ(2, TestClientData::constructor_call_counter);
-  CHECK_EQ(TestClientData::constructor_call_counter,
-           TestClientData::destructor_call_counter);
-
-  v8::Debug::SetDebugEventListener(NULL);
-  CheckDebuggerUnloaded();
-}
-
 static bool debug_event_break_deoptimize_done = false;
 
 static void DebugEventBreakDeoptimize(
@@ -7070,7 +6995,6 @@ TEST(DeoptimizeDuringDebugBreak) {
                                         frame_function_name_source,
                                         "frame_function_name");
 
-
   // Set a debug event listener which will keep interrupting execution until
   // debug break. When inside function bar it will deoptimize all functions.
   // This tests lazy deoptimization bailout for the stack check, as the first
@@ -7079,13 +7003,12 @@ TEST(DeoptimizeDuringDebugBreak) {
   v8::Debug::SetDebugEventListener(DebugEventBreakDeoptimize);
 
   // Compile and run function bar which will optimize it for some flag settings.
-  v8::Script::Compile(v8::String::NewFromUtf8(
-                          env->GetIsolate(), "function bar(){}; bar()"))->Run();
+  v8::Local<v8::Function> f = CompileFunction(&env, "function bar(){}", "bar");
+  f->Call(v8::Undefined(env->GetIsolate()), 0, NULL);
 
   // Set debug break and call bar again.
   v8::Debug::DebugBreak(env->GetIsolate());
-  v8::Script::Compile(v8::String::NewFromUtf8(env->GetIsolate(), "bar()"))
-      ->Run();
+  f->Call(v8::Undefined(env->GetIsolate()), 0, NULL);
 
   CHECK(debug_event_break_deoptimize_done);
 
@@ -7655,7 +7578,6 @@ static void DebugHarmonyScopingListener(
 
 
 TEST(DebugBreakInLexicalScopes) {
-  i::FLAG_harmony_scoping = true;
   i::FLAG_allow_natives_syntax = true;
 
   DebugLocalContext env;

@@ -212,7 +212,7 @@ TEST(BinopLessThan) {
 }
 
 
-TEST(BinopLessThanEqual) {
+TEST(BinopLessThanOrEqual) {
   FunctionTester T("(function(a,b) { return a <= b; })");
 
   T.CheckTrue(7, 8);
@@ -451,7 +451,6 @@ TEST(LookupStore) {
 
 
 TEST(BlockLoadStore) {
-  FLAG_harmony_scoping = true;
   FunctionTester T("(function(a) { 'use strict'; { let x = a+a; return x; }})");
 
   T.CheckCall(T.Val(46), T.Val(23));
@@ -460,7 +459,6 @@ TEST(BlockLoadStore) {
 
 
 TEST(BlockLoadStoreNested) {
-  FLAG_harmony_scoping = true;
   const char* src =
       "(function(a,b) {"
       "'use strict';"

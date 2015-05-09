@@ -7,6 +7,7 @@
 #include "src/arguments.h"
 #include "src/bootstrapper.h"
 #include "src/debug.h"
+#include "src/messages.h"
 #include "src/runtime/runtime.h"
 #include "src/runtime/runtime-utils.h"
 
@@ -249,12 +250,10 @@ MaybeHandle<Object> Runtime::GetPrototype(Isolate* isolate,
   PrototypeIterator iter(isolate, obj, PrototypeIterator::START_AT_RECEIVER);
   do {
     if (PrototypeIterator::GetCurrent(iter)->IsAccessCheckNeeded() &&
-        !isolate->MayNamedAccess(
-            Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter)),
-            isolate->factory()->proto_string(), v8::ACCESS_GET)) {
+        !isolate->MayAccess(
+            Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter)))) {
       isolate->ReportFailedAccessCheck(
-          Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter)),
-          v8::ACCESS_GET);
+          Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter)));
       RETURN_EXCEPTION_IF_SCHEDULED_EXCEPTION(isolate, Object);
       return isolate->factory()->undefined_value();
     }
@@ -297,10 +296,8 @@ RUNTIME_FUNCTION(Runtime_SetPrototype) {
   DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(JSObject, obj, 0);
   CONVERT_ARG_HANDLE_CHECKED(Object, prototype, 1);
-  if (obj->IsAccessCheckNeeded() &&
-      !isolate->MayNamedAccess(obj, isolate->factory()->proto_string(),
-                               v8::ACCESS_SET)) {
-    isolate->ReportFailedAccessCheck(obj, v8::ACCESS_SET);
+  if (obj->IsAccessCheckNeeded() && !isolate->MayAccess(obj)) {
+    isolate->ReportFailedAccessCheck(obj);
     RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
     return isolate->heap()->undefined_value();
   }
@@ -372,8 +369,8 @@ MUST_USE_RESULT static MaybeHandle<Object> GetOwnProperty(Isolate* isolate,
     // Get attributes.
     Maybe<PropertyAttributes> maybe =
         JSReceiver::GetOwnElementAttribute(obj, index);
-    if (!maybe.has_value) return MaybeHandle<Object>();
-    attrs = maybe.value;
+    if (!maybe.IsJust()) return MaybeHandle<Object>();
+    attrs = maybe.FromJust();
     if (attrs == ABSENT) return factory->undefined_value();
 
     // Get AccessorPair if present.
@@ -389,8 +386,8 @@ MUST_USE_RESULT static MaybeHandle<Object> GetOwnProperty(Isolate* isolate,
     // Get attributes.
     LookupIterator it(obj, name, LookupIterator::HIDDEN);
     Maybe<PropertyAttributes> maybe = JSObject::GetPropertyAttributes(&it);
-    if (!maybe.has_value) return MaybeHandle<Object>();
-    attrs = maybe.value;
+    if (!maybe.IsJust()) return MaybeHandle<Object>();
+    attrs = maybe.FromJust();
     if (attrs == ABSENT) return factory->undefined_value();
 
     // Get AccessorPair if present.
@@ -609,6 +606,7 @@ RUNTIME_FUNCTION(Runtime_KeyedGetProperty) {
             (dictionary->DetailsAt(entry).type() == DATA)) {
           Object* value = dictionary->ValueAt(entry);
           if (!receiver->IsGlobalObject()) return value;
+          DCHECK(value->IsPropertyCell());
           value = PropertyCell::cast(value)->value();
           if (!value->IsTheHole()) return value;
           // If value is the hole (meaning, absent) do the general lookup.
@@ -671,7 +669,7 @@ RUNTIME_FUNCTION(Runtime_AddNamedProperty) {
   DCHECK(!key->ToArrayIndex(&index));
   LookupIterator it(object, key, LookupIterator::OWN_SKIP_INTERCEPTOR);
   Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-  if (!maybe.has_value) return isolate->heap()->exception();
+  if (!maybe.IsJust()) return isolate->heap()->exception();
   RUNTIME_ASSERT(!it.IsFound());
 #endif
 
@@ -740,8 +738,8 @@ static Object* HasOwnPropertyImplementation(Isolate* isolate,
                                             Handle<JSObject> object,
                                             Handle<Name> key) {
   Maybe<bool> maybe = JSReceiver::HasOwnProperty(object, key);
-  if (!maybe.has_value) return isolate->heap()->exception();
-  if (maybe.value) return isolate->heap()->true_value();
+  if (!maybe.IsJust()) return isolate->heap()->exception();
+  if (maybe.FromJust()) return isolate->heap()->true_value();
   // Handle hidden prototypes.  If there's a hidden prototype above this thing
   // then we have to check it for properties, because they are supposed to
   // look like they are on this object.
@@ -776,15 +774,15 @@ RUNTIME_FUNCTION(Runtime_HasOwnProperty) {
     // Fast case: either the key is a real named property or it is not
     // an array index and there are no interceptors or hidden
     // prototypes.
-    Maybe<bool> maybe;
+    Maybe<bool> maybe = Nothing<bool>();
     if (key_is_array_index) {
       maybe = JSObject::HasOwnElement(js_obj, index);
     } else {
       maybe = JSObject::HasRealNamedProperty(js_obj, key);
     }
-    if (!maybe.has_value) return isolate->heap()->exception();
+    if (!maybe.IsJust()) return isolate->heap()->exception();
     DCHECK(!isolate->has_pending_exception());
-    if (maybe.value) {
+    if (maybe.FromJust()) {
       return isolate->heap()->true_value();
     }
     Map* map = js_obj->map();
@@ -813,8 +811,8 @@ RUNTIME_FUNCTION(Runtime_HasProperty) {
   CONVERT_ARG_HANDLE_CHECKED(Name, key, 1);
 
   Maybe<bool> maybe = JSReceiver::HasProperty(receiver, key);
-  if (!maybe.has_value) return isolate->heap()->exception();
-  return isolate->heap()->ToBoolean(maybe.value);
+  if (!maybe.IsJust()) return isolate->heap()->exception();
+  return isolate->heap()->ToBoolean(maybe.FromJust());
 }
 
 
@@ -825,8 +823,8 @@ RUNTIME_FUNCTION(Runtime_HasElement) {
   CONVERT_SMI_ARG_CHECKED(index, 1);
 
   Maybe<bool> maybe = JSReceiver::HasElement(receiver, index);
-  if (!maybe.has_value) return isolate->heap()->exception();
-  return isolate->heap()->ToBoolean(maybe.value);
+  if (!maybe.IsJust()) return isolate->heap()->exception();
+  return isolate->heap()->ToBoolean(maybe.FromJust());
 }
 
 
@@ -839,9 +837,9 @@ RUNTIME_FUNCTION(Runtime_IsPropertyEnumerable) {
 
   Maybe<PropertyAttributes> maybe =
       JSReceiver::GetOwnPropertyAttributes(object, key);
-  if (!maybe.has_value) return isolate->heap()->exception();
-  if (maybe.value == ABSENT) maybe.value = DONT_ENUM;
-  return isolate->heap()->ToBoolean((maybe.value & DONT_ENUM) == 0);
+  if (!maybe.IsJust()) return isolate->heap()->exception();
+  if (maybe.FromJust() == ABSENT) maybe = Just(DONT_ENUM);
+  return isolate->heap()->ToBoolean((maybe.FromJust() & DONT_ENUM) == 0);
 }
 
 
@@ -917,10 +915,8 @@ RUNTIME_FUNCTION(Runtime_GetOwnPropertyNames) {
   // real global object.
   if (obj->IsJSGlobalProxy()) {
     // Only collect names if access is permitted.
-    if (obj->IsAccessCheckNeeded() &&
-        !isolate->MayNamedAccess(obj, isolate->factory()->undefined_value(),
-                                 v8::ACCESS_KEYS)) {
-      isolate->ReportFailedAccessCheck(obj, v8::ACCESS_KEYS);
+    if (obj->IsAccessCheckNeeded() && !isolate->MayAccess(obj)) {
+      isolate->ReportFailedAccessCheck(obj);
       RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
       return *isolate->factory()->NewJSArray(0);
     }
@@ -941,11 +937,8 @@ RUNTIME_FUNCTION(Runtime_GetOwnPropertyNames) {
       Handle<JSObject> jsproto =
           Handle<JSObject>::cast(PrototypeIterator::GetCurrent(iter));
       // Only collect names if access is permitted.
-      if (jsproto->IsAccessCheckNeeded() &&
-          !isolate->MayNamedAccess(jsproto,
-                                   isolate->factory()->undefined_value(),
-                                   v8::ACCESS_KEYS)) {
-        isolate->ReportFailedAccessCheck(jsproto, v8::ACCESS_KEYS);
+      if (jsproto->IsAccessCheckNeeded() && !isolate->MayAccess(jsproto)) {
+        isolate->ReportFailedAccessCheck(jsproto);
         RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
         return *isolate->factory()->NewJSArray(0);
       }
@@ -1094,10 +1087,8 @@ RUNTIME_FUNCTION(Runtime_OwnKeys) {
 
   if (object->IsJSGlobalProxy()) {
     // Do access checks before going to the global object.
-    if (object->IsAccessCheckNeeded() &&
-        !isolate->MayNamedAccess(object, isolate->factory()->undefined_value(),
-                                 v8::ACCESS_KEYS)) {
-      isolate->ReportFailedAccessCheck(object, v8::ACCESS_KEYS);
+    if (object->IsAccessCheckNeeded() && !isolate->MayAccess(object)) {
+      isolate->ReportFailedAccessCheck(object);
       RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
       return *isolate->factory()->NewJSArray(0);
     }
@@ -1155,77 +1146,6 @@ RUNTIME_FUNCTION(Runtime_ToBool) {
 }
 
 
-// Returns the type string of a value; see ECMA-262, 11.4.3 (p 47).
-// Possible optimizations: put the type string into the oddballs.
-RUNTIME_FUNCTION(Runtime_Typeof) {
-  SealHandleScope shs(isolate);
-  DCHECK(args.length() == 1);
-  CONVERT_ARG_CHECKED(Object, obj, 0);
-  if (obj->IsNumber()) return isolate->heap()->number_string();
-  HeapObject* heap_obj = HeapObject::cast(obj);
-
-  // typeof an undetectable object is 'undefined'
-  if (heap_obj->map()->is_undetectable()) {
-    return isolate->heap()->undefined_string();
-  }
-
-  InstanceType instance_type = heap_obj->map()->instance_type();
-  if (instance_type < FIRST_NONSTRING_TYPE) {
-    return isolate->heap()->string_string();
-  }
-
-  switch (instance_type) {
-    case ODDBALL_TYPE:
-      if (heap_obj->IsTrue() || heap_obj->IsFalse()) {
-        return isolate->heap()->boolean_string();
-      }
-      if (heap_obj->IsNull()) {
-        return isolate->heap()->object_string();
-      }
-      DCHECK(heap_obj->IsUndefined());
-      return isolate->heap()->undefined_string();
-    case SYMBOL_TYPE:
-      return isolate->heap()->symbol_string();
-    case JS_FUNCTION_TYPE:
-    case JS_FUNCTION_PROXY_TYPE:
-      return isolate->heap()->function_string();
-    default:
-      // For any kind of object not handled above, the spec rule for
-      // host objects gives that it is okay to return "object"
-      return isolate->heap()->object_string();
-  }
-}
-
-
-RUNTIME_FUNCTION(Runtime_Booleanize) {
-  SealHandleScope shs(isolate);
-  DCHECK(args.length() == 2);
-  CONVERT_ARG_CHECKED(Object, value_raw, 0);
-  CONVERT_SMI_ARG_CHECKED(token_raw, 1);
-  intptr_t value = reinterpret_cast<intptr_t>(value_raw);
-  Token::Value token = static_cast<Token::Value>(token_raw);
-  switch (token) {
-    case Token::EQ:
-    case Token::EQ_STRICT:
-      return isolate->heap()->ToBoolean(value == 0);
-    case Token::NE:
-    case Token::NE_STRICT:
-      return isolate->heap()->ToBoolean(value != 0);
-    case Token::LT:
-      return isolate->heap()->ToBoolean(value < 0);
-    case Token::GT:
-      return isolate->heap()->ToBoolean(value > 0);
-    case Token::LTE:
-      return isolate->heap()->ToBoolean(value <= 0);
-    case Token::GTE:
-      return isolate->heap()->ToBoolean(value >= 0);
-    default:
-      // This should only happen during natives fuzzing.
-      return isolate->heap()->undefined_value();
-  }
-}
-
-
 RUNTIME_FUNCTION(Runtime_NewStringWrapper) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 1);
@@ -1245,25 +1165,24 @@ static Object* Runtime_NewObjectHelper(Isolate* isolate,
                                        Handle<Object> constructor,
                                        Handle<Object> original_constructor,
                                        Handle<AllocationSite> site) {
-  // TODO(dslomov): implement prototype rewiring.
-  // The check below is a sanity check.
-  CHECK(*constructor == *original_constructor);
-
   // If the constructor isn't a proper function we throw a type error.
   if (!constructor->IsJSFunction()) {
-    Vector<Handle<Object> > arguments = HandleVector(&constructor, 1);
-    THROW_NEW_ERROR_RETURN_FAILURE(isolate,
-                                   NewTypeError("not_constructor", arguments));
+    THROW_NEW_ERROR_RETURN_FAILURE(
+        isolate, NewTypeError(MessageTemplate::kNotConstructor, constructor));
   }
 
   Handle<JSFunction> function = Handle<JSFunction>::cast(constructor);
 
+  CHECK(original_constructor->IsJSFunction());
+  Handle<JSFunction> original_function =
+      Handle<JSFunction>::cast(original_constructor);
+
+
   // If function should not have prototype, construction is not allowed. In this
   // case generated code bailouts here, since function has no initial_map.
   if (!function->should_have_prototype() && !function->shared()->bound()) {
-    Vector<Handle<Object> > arguments = HandleVector(&constructor, 1);
-    THROW_NEW_ERROR_RETURN_FAILURE(isolate,
-                                   NewTypeError("not_constructor", arguments));
+    THROW_NEW_ERROR_RETURN_FAILURE(
+        isolate, NewTypeError(MessageTemplate::kNotConstructor, constructor));
   }
 
   Debug* debug = isolate->debug();
@@ -1298,6 +1217,18 @@ static Object* Runtime_NewObjectHelper(Isolate* isolate,
     result = isolate->factory()->NewJSObject(function);
   } else {
     result = isolate->factory()->NewJSObjectWithMemento(function, site);
+  }
+
+  // Set up the prototoype using original function.
+  // TODO(dslomov): instead of setting the __proto__,
+  // use and cache the correct map.
+  if (*original_function != *function) {
+    if (original_function->has_instance_prototype()) {
+      Handle<Object> prototype =
+          handle(original_function->instance_prototype(), isolate);
+      RETURN_FAILURE_ON_EXCEPTION(
+          isolate, JSObject::SetPrototype(result, prototype, false));
+    }
   }
 
   isolate->counters()->constructed_objects()->Increment();
@@ -1458,7 +1389,7 @@ RUNTIME_FUNCTION(Runtime_DefineDataPropertyUnchecked) {
 
   LookupIterator it(js_object, name, LookupIterator::OWN_SKIP_INTERCEPTOR);
   if (it.IsFound() && it.state() == LookupIterator::ACCESS_CHECK) {
-    if (!isolate->MayNamedAccess(js_object, name, v8::ACCESS_SET)) {
+    if (!isolate->MayAccess(js_object)) {
       return isolate->heap()->undefined_value();
     }
     it.Next();
@@ -1504,7 +1435,7 @@ RUNTIME_FUNCTION(Runtime_HasFastPackedElements) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_ValueOf) {
+RUNTIME_FUNCTION(Runtime_ValueOf) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -1513,7 +1444,7 @@ RUNTIME_FUNCTION(RuntimeReference_ValueOf) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_SetValueOf) {
+RUNTIME_FUNCTION(Runtime_SetValueOf) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 2);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -1524,7 +1455,31 @@ RUNTIME_FUNCTION(RuntimeReference_SetValueOf) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_ObjectEquals) {
+RUNTIME_FUNCTION(Runtime_JSValueGetValue) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 1);
+  CONVERT_ARG_CHECKED(JSValue, obj, 0);
+  return JSValue::cast(obj)->value();
+}
+
+
+RUNTIME_FUNCTION(Runtime_HeapObjectGetMap) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 1);
+  CONVERT_ARG_CHECKED(HeapObject, obj, 0);
+  return obj->map();
+}
+
+
+RUNTIME_FUNCTION(Runtime_MapGetInstanceType) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 1);
+  CONVERT_ARG_CHECKED(Map, map, 0);
+  return Smi::FromInt(map->instance_type());
+}
+
+
+RUNTIME_FUNCTION(Runtime_ObjectEquals) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 2);
   CONVERT_ARG_CHECKED(Object, obj1, 0);
@@ -1533,7 +1488,7 @@ RUNTIME_FUNCTION(RuntimeReference_ObjectEquals) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_IsObject) {
+RUNTIME_FUNCTION(Runtime_IsObject) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -1548,7 +1503,7 @@ RUNTIME_FUNCTION(RuntimeReference_IsObject) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_IsUndetectableObject) {
+RUNTIME_FUNCTION(Runtime_IsUndetectableObject) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -1556,7 +1511,7 @@ RUNTIME_FUNCTION(RuntimeReference_IsUndetectableObject) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_IsSpecObject) {
+RUNTIME_FUNCTION(Runtime_IsSpecObject) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -1564,7 +1519,7 @@ RUNTIME_FUNCTION(RuntimeReference_IsSpecObject) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_ClassOf) {
+RUNTIME_FUNCTION(Runtime_ClassOf) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);

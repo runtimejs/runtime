@@ -61,6 +61,9 @@
     # Similar to the ARM hard float ABI but on MIPS.
     'v8_use_mips_abi_hardfloat%': 'true',
 
+    # Force disable libstdc++ debug mode.
+    'disable_glibcxx_debug%': 0,
+
     'v8_enable_backtrace%': 0,
 
     # Enable profiling support. Only required on Windows.
@@ -86,16 +89,48 @@
     # Allow to suppress the array bounds warning (default is no suppression).
     'wno_array_bounds%': '',
 
+    # Override where to find binutils
+    'binutils_dir%': '',
+
+    'conditions': [
+      ['OS=="linux" and host_arch=="x64"', {
+        'binutils_dir%': 'third_party/binutils/Linux_x64/Release/bin',
+      }],
+      ['OS=="linux" and host_arch=="ia32"', {
+        'binutils_dir%': 'third_party/binutils/Linux_ia32/Release/bin',
+      }],
+
+      # linux_use_bundled_gold: whether to use the gold linker binary checked
+      # into third_party/binutils.  Force this off via GYP_DEFINES when you
+      # are using a custom toolchain and need to control -B in ldflags.
+      # Do not use 32-bit gold on 32-bit hosts as it runs out address space
+      # for component=static_library builds.
+      ['OS=="linux" and (target_arch=="x64" or target_arch=="arm")', {
+        'linux_use_bundled_gold%': 1,
+      }, {
+        'linux_use_bundled_gold%': 0,
+      }],
+      # linux_use_bundled_binutils: whether to use the binary binutils
+      # checked into third_party/binutils.  These are not multi-arch so cannot
+      # be used except on x86 and x86-64 (the only two architectures which
+      # are currently checke in).  Force this off via GYP_DEFINES when you
+      # are using a custom toolchain and need to control -B in cflags.
+      ['OS=="linux" and (target_arch=="ia32" or target_arch=="x64")', {
+        'linux_use_bundled_binutils%': 1,
+      }, {
+        'linux_use_bundled_binutils%': 0,
+      }],
+      # linux_use_gold_flags: whether to use build flags that rely on gold.
+      # On by default for x64 Linux.
+      ['OS=="linux" and target_arch=="x64"', {
+        'linux_use_gold_flags%': 1,
+      }, {
+        'linux_use_gold_flags%': 0,
+      }],
+    ],
+
     # Link-Time Optimizations
     'use_lto%': 0,
-
-    'variables': {
-      # This is set when building the Android WebView inside the Android build
-      # system, using the 'android' gyp backend.
-      'android_webview_build%': 0,
-    },
-    # Copy it out one scope.
-    'android_webview_build%': '<(android_webview_build)',
   },
   'conditions': [
     ['host_arch=="ia32" or host_arch=="x64" or \
@@ -160,7 +195,7 @@
         'target_conditions': [
           ['_toolset=="host"', {
             'conditions': [
-              ['v8_target_arch==host_arch and android_webview_build==0', {
+              ['v8_target_arch==host_arch', {
                 # Host built with an Arm CXX compiler.
                 'conditions': [
                   [ 'arm_version==7', {
@@ -203,7 +238,7 @@
           }],  # _toolset=="host"
           ['_toolset=="target"', {
             'conditions': [
-              ['v8_target_arch==target_arch and android_webview_build==0', {
+              ['v8_target_arch==target_arch', {
                 # Target built with an Arm CXX compiler.
                 'conditions': [
                   [ 'arm_version==7', {
@@ -327,9 +362,12 @@
         'target_conditions': [
           ['_toolset=="target"', {
             'conditions': [
-              ['v8_target_arch==target_arch and android_webview_build==0', {
+              ['v8_target_arch==target_arch', {
                 # Target built with a Mips CXX compiler.
-                'cflags': ['-EB'],
+                'cflags': [
+                  '-EB',
+                  '-Wno-error=array-bounds',  # Workaround https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56273
+                ],
                 'ldflags': ['-EB'],
                 'conditions': [
                   [ 'v8_use_mips_abi_hardfloat=="true"', {
@@ -511,9 +549,12 @@
         'target_conditions': [
           ['_toolset=="target"', {
             'conditions': [
-              ['v8_target_arch==target_arch and android_webview_build==0', {
+              ['v8_target_arch==target_arch', {
                 # Target built with a Mips CXX compiler.
-                'cflags': ['-EL'],
+                'cflags': [
+                  '-EL',
+                  '-Wno-error=array-bounds',  # Workaround https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56273
+                ],
                 'ldflags': ['-EL'],
                 'conditions': [
                   [ 'v8_use_mips_abi_hardfloat=="true"', {
@@ -712,8 +753,11 @@
         'target_conditions': [
           ['_toolset=="target"', {
             'conditions': [
-              ['v8_target_arch==target_arch and android_webview_build==0', {
-                'cflags': ['-EL'],
+              ['v8_target_arch==target_arch', {
+                'cflags': [
+                  '-EL',
+                  '-Wno-error=array-bounds',  # Workaround https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56273
+                ],
                 'ldflags': ['-EL'],
                 'conditions': [
                   [ 'v8_use_mips_abi_hardfloat=="true"', {
@@ -797,6 +841,26 @@
           '-mx32',
         ],
       }],  # v8_target_arch=="x32"
+      ['linux_use_gold_flags==1', {
+        # Newer gccs and clangs support -fuse-ld, use the flag to force gold
+        # selection.
+        # gcc -- http://gcc.gnu.org/onlinedocs/gcc-4.8.0/gcc/Optimize-Options.html
+        'ldflags': [ '-fuse-ld=gold', ],
+      }],
+      ['linux_use_bundled_binutils==1', {
+        'cflags': [
+          '-B<!(cd <(DEPTH) && pwd -P)/<(binutils_dir)',
+        ],
+      }],
+      ['linux_use_bundled_gold==1', {
+        # Put our binutils, which contains gold in the search path. We pass
+        # the path to gold to the compiler. gyp leaves unspecified what the
+        # cwd is when running the compiler, so the normal gyp path-munging
+        # fails us. This hack gets the right path.
+        'ldflags': [
+          '-B<!(cd <(DEPTH) && pwd -P)/<(binutils_dir)',
+        ],
+      }],
       ['OS=="win"', {
         'defines': [
           'WIN32',
@@ -857,12 +921,6 @@
                 'cflags': [ '-m32' ],
                 'ldflags': [ '-m32' ],
               }],
-              # Enable feedback-directed optimisation when building in android.
-              [ 'android_webview_build == 1', {
-                'aosp_build_settings': {
-                  'LOCAL_FDO_SUPPORT': 'true',
-                },
-              }],
             ],
             'xcode_settings': {
               'ARCHS': [ 'i386' ],
@@ -887,12 +945,6 @@
                ['target_cxx_is_biarch==1', {
                  'cflags': [ '-m64' ],
                  'ldflags': [ '-m64' ],
-               }],
-               # Enable feedback-directed optimisation when building in android.
-               [ 'android_webview_build == 1', {
-                 'aosp_build_settings': {
-                   'LOCAL_FDO_SUPPORT': 'true',
-                 },
                }],
              ]
            }],
@@ -1065,8 +1117,18 @@
             # Support for backtrace_symbols.
             'ldflags': [ '-rdynamic' ],
           }],
+          ['OS=="linux" and disable_glibcxx_debug==0', {
+            # Enable libstdc++ debugging facilities to help catch problems
+            # early, see http://crbug.com/65151 .
+            'defines': ['_GLIBCXX_DEBUG=1',],
+          }],
           ['OS=="aix"', {
             'ldflags': [ '-Wl,-bbigtoc' ],
+            'conditions': [
+              ['v8_target_arch=="ppc64"', {
+                'cflags': [ '-maix64 -mcmodel=large' ],
+              }],
+            ],
           }],
           ['OS=="android"', {
             'variables': {
@@ -1079,6 +1141,21 @@
                 'defines!': [
                   'DEBUG',
                   'ENABLE_SLOW_DCHECKS',
+                ],
+              }],
+            ],
+          }],
+          ['linux_use_gold_flags==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'ldflags': [
+                  # Experimentation found that using four linking threads
+                  # saved ~20% of link time.
+                  # https://groups.google.com/a/chromium.org/group/chromium-dev/browse_thread/thread/281527606915bb36
+                  # Only apply this to the target linker, since the host
+                  # linker might not be gold, but isn't used much anyway.
+                  '-Wl,--threads',
+                  '-Wl,--thread-count=4',
                 ],
               }],
             ],

@@ -272,10 +272,9 @@ BasicJsonStringifier::Result BasicJsonStringifier::StackPush(
     for (int i = 0; i < length; i++) {
       if (elements->get(i) == *object) {
         AllowHeapAllocation allow_to_return_error;
-        Handle<Object> error;
-        MaybeHandle<Object> maybe_error = factory()->NewTypeError(
+        Handle<Object> error = factory()->NewTypeError(
             "circular_structure", HandleVector<Object>(NULL, 0));
-        if (maybe_error.ToHandle(&error)) isolate_->Throw(*error);
+        isolate_->Throw(*error);
         return EXCEPTION;
       }
     }
@@ -362,8 +361,9 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeGeneric(
     bool deferred_comma,
     bool deferred_key) {
   Handle<JSObject> builtins(isolate_->native_context()->builtins(), isolate_);
-  Handle<JSFunction> builtin = Handle<JSFunction>::cast(Object::GetProperty(
-      isolate_, builtins, "JSONSerializeAdapter").ToHandleChecked());
+  Handle<JSFunction> builtin = Handle<JSFunction>::cast(
+      Object::GetProperty(isolate_, builtins, "$jsonSerializeAdapter")
+          .ToHandleChecked());
 
   Handle<Object> argv[] = { key, object };
   Handle<Object> result;
@@ -396,11 +396,14 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSValue(
         isolate_, value, Execution::ToNumber(isolate_, object), EXCEPTION);
     if (value->IsSmi()) return SerializeSmi(Smi::cast(*value));
     SerializeHeapNumber(Handle<HeapNumber>::cast(value));
-  } else {
-    DCHECK(class_name == isolate_->heap()->Boolean_string());
+  } else if (class_name == isolate_->heap()->Boolean_string()) {
     Object* value = JSValue::cast(*object)->value();
     DCHECK(value->IsBoolean());
     builder_.AppendCString(value->IsTrue() ? "true" : "false");
+  } else {
+    // Fail gracefully for special value wrappers.
+    isolate_->ThrowIllegalOperation();
+    return EXCEPTION;
   }
   return SUCCESS;
 }

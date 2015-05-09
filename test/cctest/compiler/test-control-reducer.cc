@@ -6,9 +6,10 @@
 #include "test/cctest/cctest.h"
 
 #include "src/base/bits.h"
+#include "src/compiler/all-nodes.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/control-reducer.h"
-#include "src/compiler/graph-inl.h"
+#include "src/compiler/graph.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-properties.h"
 
@@ -142,15 +143,19 @@ class ControlReducerTester : HandleAndZoneScope {
 
   void Trim() { ControlReducer::TrimGraph(main_zone(), &jsgraph); }
 
-  void ReduceGraph() {
-    ControlReducer::ReduceGraph(main_zone(), &jsgraph, &common);
-  }
+  void ReduceGraph() { ControlReducer::ReduceGraph(main_zone(), &jsgraph); }
 
   // Checks one-step reduction of a phi.
   void ReducePhi(Node* expect, Node* phi) {
-    Node* result = ControlReducer::ReducePhiForTesting(&jsgraph, &common, phi);
+    Node* result = ControlReducer::ReducePhiForTesting(&jsgraph, phi);
     CHECK_EQ(expect, result);
     ReducePhiIterative(expect, phi);  // iterative should give the same result.
+  }
+
+  // Checks one-step reduction of a phi.
+  void ReducePhiNonIterative(Node* expect, Node* phi) {
+    Node* result = ControlReducer::ReducePhiForTesting(&jsgraph, phi);
+    CHECK_EQ(expect, result);
   }
 
   void ReducePhiIterative(Node* expect, Node* phi) {
@@ -158,14 +163,13 @@ class ControlReducerTester : HandleAndZoneScope {
     Node* ret = graph.NewNode(common.Return(), phi, start, start);
     Node* end = graph.NewNode(common.End(), ret);
     graph.SetEnd(end);
-    ControlReducer::ReduceGraph(main_zone(), &jsgraph, &common);
+    ControlReducer::ReduceGraph(main_zone(), &jsgraph);
     CheckInputs(end, ret);
     CheckInputs(ret, expect, start, start);
   }
 
   void ReduceMerge(Node* expect, Node* merge) {
-    Node* result =
-        ControlReducer::ReduceMergeForTesting(&jsgraph, &common, merge);
+    Node* result = ControlReducer::ReduceMerge(&jsgraph, merge);
     CHECK_EQ(expect, result);
   }
 
@@ -181,14 +185,12 @@ class ControlReducerTester : HandleAndZoneScope {
     Node* control = branch->InputAt(1);
     for (Node* use : branch->uses()) {
       if (use->opcode() == IrOpcode::kIfTrue) {
-        Node* result =
-            ControlReducer::ReduceIfNodeForTesting(&jsgraph, &common, use);
+        Node* result = ControlReducer::ReduceIfNodeForTesting(&jsgraph, use);
         if (expected == kTrue) CHECK_EQ(control, result);
         if (expected == kFalse) CHECK_EQ(IrOpcode::kDead, result->opcode());
         if (expected == kUnknown) CHECK_EQ(use, result);
       } else if (use->opcode() == IrOpcode::kIfFalse) {
-        Node* result =
-            ControlReducer::ReduceIfNodeForTesting(&jsgraph, &common, use);
+        Node* result = ControlReducer::ReduceIfNodeForTesting(&jsgraph, use);
         if (expected == kFalse) CHECK_EQ(control, result);
         if (expected == kTrue) CHECK_EQ(IrOpcode::kDead, result->opcode());
         if (expected == kUnknown) CHECK_EQ(use, result);
@@ -202,6 +204,109 @@ class ControlReducerTester : HandleAndZoneScope {
     Node* ret = graph.NewNode(common.Return(), val, effect, control);
     end->ReplaceInput(0, ret);
     return ret;
+  }
+};
+
+
+struct Branch {
+  Node* branch;
+  Node* if_true;
+  Node* if_false;
+
+  Branch(ControlReducerTester& R, Node* cond, Node* control = NULL) {
+    if (control == NULL) control = R.start;
+    branch = R.graph.NewNode(R.common.Branch(), cond, control);
+    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
+  }
+};
+
+
+// TODO(titzer): use the diamonds from src/compiler/diamond.h here.
+struct Diamond {
+  Node* branch;
+  Node* if_true;
+  Node* if_false;
+  Node* merge;
+  Node* phi;
+
+  Diamond(ControlReducerTester& R, Node* cond) {
+    branch = R.graph.NewNode(R.common.Branch(), cond, R.start);
+    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
+    merge = R.graph.NewNode(R.common.Merge(2), if_true, if_false);
+    phi = NULL;
+  }
+
+  Diamond(ControlReducerTester& R, Node* cond, Node* tv, Node* fv) {
+    branch = R.graph.NewNode(R.common.Branch(), cond, R.start);
+    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
+    merge = R.graph.NewNode(R.common.Merge(2), if_true, if_false);
+    phi = R.graph.NewNode(R.common.Phi(kMachAnyTagged, 2), tv, fv, merge);
+  }
+
+  void chain(Diamond& that) { branch->ReplaceInput(1, that.merge); }
+
+  // Nest {this} into either the if_true or if_false branch of {that}.
+  void nest(Diamond& that, bool if_true) {
+    if (if_true) {
+      branch->ReplaceInput(1, that.if_true);
+      that.merge->ReplaceInput(0, merge);
+    } else {
+      branch->ReplaceInput(1, that.if_false);
+      that.merge->ReplaceInput(1, merge);
+    }
+  }
+};
+
+
+struct While {
+  Node* branch;
+  Node* if_true;
+  Node* exit;
+  Node* loop;
+
+  While(ControlReducerTester& R, Node* cond) {
+    loop = R.graph.NewNode(R.common.Loop(2), R.start, R.start);
+    branch = R.graph.NewNode(R.common.Branch(), cond, loop);
+    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+    exit = R.graph.NewNode(R.common.IfFalse(), branch);
+    loop->ReplaceInput(1, if_true);
+  }
+
+  void chain(Node* control) { loop->ReplaceInput(0, control); }
+};
+
+
+// Helper for checking that nodes are *not* reachable from end.
+struct DeadChecker {
+  Zone zone;
+  AllNodes nodes;
+  explicit DeadChecker(Graph* graph) : zone(), nodes(&zone, graph) {}
+
+  void Check(Node* node) { CHECK(!nodes.IsLive(node)); }
+
+  void Check(Diamond& d) {
+    Check(d.branch);
+    Check(d.if_true);
+    Check(d.if_false);
+    Check(d.merge);
+    if (d.phi != NULL) Check(d.phi);
+  }
+
+  void CheckLive(Diamond& d, bool live_phi = true) {
+    CheckInputs(d.merge, d.if_true, d.if_false);
+    CheckInputs(d.if_true, d.branch);
+    CheckInputs(d.if_false, d.branch);
+    if (d.phi != NULL) {
+      if (live_phi) {
+        CHECK_EQ(3, d.phi->InputCount());
+        CHECK_EQ(d.merge, d.phi->InputAt(2));
+      } else {
+        Check(d.phi);
+      }
+    }
   }
 };
 
@@ -395,6 +500,24 @@ TEST(Trim_constants) {
 }
 
 
+TEST(Trim_EmptyFrameState1) {
+  ControlReducerTester T;
+
+  Node* node = T.jsgraph.EmptyFrameState();
+  T.Trim();
+
+  for (Node* input : node->inputs()) {
+    CHECK_NOT_NULL(input);
+  }
+}
+
+
+TEST(Trim_EmptyFrameState2) {
+  ControlReducerTester T;
+  CheckTrimConstant(&T, T.jsgraph.EmptyFrameState());
+}
+
+
 TEST(CReducePhi1) {
   ControlReducerTester R;
 
@@ -485,10 +608,10 @@ TEST(CReducePhi2_dead) {
   for (size_t i = 1; i < kNumLeafs; i++) {
     Node* a = R.leaf[i], *b = R.leaf[0];
     Node* phi1 = R.Phi(b, a, R.dead);
-    R.ReducePhi(phi1, phi1);
+    R.ReducePhiNonIterative(phi1, phi1);
 
     Node* phi2 = R.Phi(a, b, R.dead);
-    R.ReducePhi(phi2, phi2);
+    R.ReducePhiNonIterative(phi2, phi2);
   }
 }
 
@@ -689,9 +812,9 @@ TEST(CMergeReduce_none1) {
 TEST(CMergeReduce_none2) {
   ControlReducerTester R;
 
-  Node* t = R.graph.NewNode(R.common.IfTrue(), R.start);
-  Node* f = R.graph.NewNode(R.common.IfFalse(), R.start);
-  Node* merge = R.graph.NewNode(R.common.Merge(2), t, f);
+  Node* t1 = R.graph.NewNode(R.common.IfTrue(), R.start);
+  Node* t2 = R.graph.NewNode(R.common.IfTrue(), R.start);
+  Node* merge = R.graph.NewNode(R.common.Merge(2), t1, t2);
   R.ReduceMerge(merge, merge);
 }
 
@@ -739,7 +862,7 @@ TEST(CMergeReduce_dead_rm1b) {
   ControlReducerTester R;
 
   Node* t = R.graph.NewNode(R.common.IfTrue(), R.start);
-  Node* f = R.graph.NewNode(R.common.IfFalse(), R.start);
+  Node* f = R.graph.NewNode(R.common.IfTrue(), R.start);
   for (int i = 0; i < 2; i++) {
     Node* merge = R.graph.NewNode(R.common.Merge(3), R.dead, R.dead, R.dead);
     for (int j = i + 1; j < 3; j++) {
@@ -874,8 +997,7 @@ TEST(CMergeReduce_exhaustive_4) {
       if (!selector.is_selected(i)) merge->ReplaceInput(i, R.dead);
     }
 
-    Node* result =
-        ControlReducer::ReduceMergeForTesting(&R.jsgraph, &R.common, merge);
+    Node* result = ControlReducer::ReduceMerge(&R.jsgraph, merge);
 
     int count = selector.count;
     if (count == 0) {
@@ -971,77 +1093,6 @@ TEST(CMergeReduce_dead_chain2) {
 }
 
 
-struct Branch {
-  Node* branch;
-  Node* if_true;
-  Node* if_false;
-
-  Branch(ControlReducerTester& R, Node* cond, Node* control = NULL) {
-    if (control == NULL) control = R.start;
-    branch = R.graph.NewNode(R.common.Branch(), cond, control);
-    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
-    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
-  }
-};
-
-
-// TODO(titzer): use the diamonds from src/compiler/diamond.h here.
-struct Diamond {
-  Node* branch;
-  Node* if_true;
-  Node* if_false;
-  Node* merge;
-  Node* phi;
-
-  Diamond(ControlReducerTester& R, Node* cond) {
-    branch = R.graph.NewNode(R.common.Branch(), cond, R.start);
-    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
-    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
-    merge = R.graph.NewNode(R.common.Merge(2), if_true, if_false);
-    phi = NULL;
-  }
-
-  Diamond(ControlReducerTester& R, Node* cond, Node* tv, Node* fv) {
-    branch = R.graph.NewNode(R.common.Branch(), cond, R.start);
-    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
-    if_false = R.graph.NewNode(R.common.IfFalse(), branch);
-    merge = R.graph.NewNode(R.common.Merge(2), if_true, if_false);
-    phi = R.graph.NewNode(R.common.Phi(kMachAnyTagged, 2), tv, fv, merge);
-  }
-
-  void chain(Diamond& that) { branch->ReplaceInput(1, that.merge); }
-
-  // Nest {this} into either the if_true or if_false branch of {that}.
-  void nest(Diamond& that, bool if_true) {
-    if (if_true) {
-      branch->ReplaceInput(1, that.if_true);
-      that.merge->ReplaceInput(0, merge);
-    } else {
-      branch->ReplaceInput(1, that.if_false);
-      that.merge->ReplaceInput(1, merge);
-    }
-  }
-};
-
-
-struct While {
-  Node* branch;
-  Node* if_true;
-  Node* exit;
-  Node* loop;
-
-  While(ControlReducerTester& R, Node* cond) {
-    loop = R.graph.NewNode(R.common.Loop(2), R.start, R.start);
-    branch = R.graph.NewNode(R.common.Branch(), cond, loop);
-    if_true = R.graph.NewNode(R.common.IfTrue(), branch);
-    exit = R.graph.NewNode(R.common.IfFalse(), branch);
-    loop->ReplaceInput(1, if_true);
-  }
-
-  void chain(Node* control) { loop->ReplaceInput(0, control); }
-};
-
-
 TEST(CBranchReduce_none1) {
   ControlReducerTester R;
   Diamond d(R, R.p0);
@@ -1114,7 +1165,7 @@ TEST(CChainedDiamondsReduce_x_false) {
   Diamond d2(R, R.zero);
   d2.chain(d1);
 
-  R.ReduceMergeIterative(d1.merge, d2.merge);
+  R.ReduceMergeIterative(R.start, d2.merge);
 }
 
 
@@ -1124,8 +1175,7 @@ TEST(CChainedDiamondsReduce_false_x) {
   Diamond d2(R, R.p0);
   d2.chain(d1);
 
-  R.ReduceMergeIterative(d2.merge, d2.merge);
-  CheckInputs(d2.branch, R.p0, R.start);
+  R.ReduceMergeIterative(R.start, d2.merge);
 }
 
 
@@ -1186,6 +1236,28 @@ TEST(CNestedDiamonds_xyz) {
 }
 
 
+TEST(CUnusedDiamond1) {
+  ControlReducerTester R;
+  // if (p0) { } else { }
+  Node* branch = R.graph.NewNode(R.common.Branch(), R.p0, R.start);
+  Node* if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+  Node* if_false = R.graph.NewNode(R.common.IfFalse(), branch);
+  Node* merge = R.graph.NewNode(R.common.Merge(2), if_true, if_false);
+  R.ReduceMergeIterative(R.start, merge);
+}
+
+
+TEST(CUnusedDiamond2) {
+  ControlReducerTester R;
+  // if (p0) { } else { }
+  Node* branch = R.graph.NewNode(R.common.Branch(), R.p0, R.start);
+  Node* if_true = R.graph.NewNode(R.common.IfTrue(), branch);
+  Node* if_false = R.graph.NewNode(R.common.IfFalse(), branch);
+  Node* merge = R.graph.NewNode(R.common.Merge(2), if_false, if_true);
+  R.ReduceMergeIterative(R.start, merge);
+}
+
+
 TEST(CDeadLoop1) {
   ControlReducerTester R;
 
@@ -1194,8 +1266,12 @@ TEST(CDeadLoop1) {
   loop->ReplaceInput(0, b.if_true);  // loop is not connected to start.
   Node* merge = R.graph.NewNode(R.common.Merge(2), R.start, b.if_false);
   R.ReduceMergeIterative(R.start, merge);
-  CHECK(b.if_true->IsDead());
-  CHECK(b.if_false->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(b.if_true);
+  dead.Check(b.if_false);
+  dead.Check(b.branch);
+  dead.Check(loop);
 }
 
 
@@ -1209,8 +1285,10 @@ TEST(CDeadLoop2) {
   d.merge->ReplaceInput(0, w.exit);
 
   R.ReduceMergeIterative(R.start, d.merge);
-  CHECK(d.if_true->IsDead());
-  CHECK(d.if_false->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d);
+  dead.Check(w.loop);
 }
 
 
@@ -1228,10 +1306,12 @@ TEST(Return2) {
   Diamond d(R, R.one);
   Node* ret = R.Return(R.half, R.start, d.merge);
   R.ReduceGraph();
-  CHECK(d.branch->IsDead());
-  CHECK(d.if_true->IsDead());
-  CHECK(d.if_false->IsDead());
-  CHECK(d.merge->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d.branch);
+  dead.Check(d.if_true);
+  dead.Check(d.if_false);
+  dead.Check(d.merge);
 
   CheckInputs(R.graph.end(), ret);
   CheckInputs(ret, R.half, R.start, R.start);
@@ -1243,11 +1323,13 @@ TEST(Return_true1) {
   Diamond d(R, R.one, R.half, R.zero);
   Node* ret = R.Return(d.phi, R.start, d.merge);
   R.ReduceGraph();
-  CHECK(d.branch->IsDead());
-  CHECK(d.if_true->IsDead());
-  CHECK(d.if_false->IsDead());
-  CHECK(d.merge->IsDead());
-  CHECK(d.phi->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d.branch);
+  dead.Check(d.if_true);
+  dead.Check(d.if_false);
+  dead.Check(d.merge);
+  dead.Check(d.phi);
 
   CheckInputs(R.graph.end(), ret);
   CheckInputs(ret, R.half, R.start, R.start);
@@ -1259,38 +1341,16 @@ TEST(Return_false1) {
   Diamond d(R, R.zero, R.one, R.half);
   Node* ret = R.Return(d.phi, R.start, d.merge);
   R.ReduceGraph();
-  CHECK(d.branch->IsDead());
-  CHECK(d.if_true->IsDead());
-  CHECK(d.if_false->IsDead());
-  CHECK(d.merge->IsDead());
-  CHECK(d.phi->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d.branch);
+  dead.Check(d.if_true);
+  dead.Check(d.if_false);
+  dead.Check(d.merge);
+  dead.Check(d.phi);
 
   CheckInputs(R.graph.end(), ret);
   CheckInputs(ret, R.half, R.start, R.start);
-}
-
-
-void CheckDeadDiamond(Diamond& d) {
-  CHECK(d.branch->IsDead());
-  CHECK(d.if_true->IsDead());
-  CHECK(d.if_false->IsDead());
-  CHECK(d.merge->IsDead());
-  if (d.phi != NULL) CHECK(d.phi->IsDead());
-}
-
-
-void CheckLiveDiamond(Diamond& d, bool live_phi = true) {
-  CheckInputs(d.merge, d.if_true, d.if_false);
-  CheckInputs(d.if_true, d.branch);
-  CheckInputs(d.if_false, d.branch);
-  if (d.phi != NULL) {
-    if (live_phi) {
-      CHECK_EQ(3, d.phi->InputCount());
-      CHECK_EQ(d.merge, d.phi->InputAt(2));
-    } else {
-      CHECK(d.phi->IsDead());
-    }
-  }
 }
 
 
@@ -1302,8 +1362,10 @@ TEST(Return_effect1) {
   Node* effect = R.graph.NewNode(R.common.EffectPhi(2), e1, e2, d.merge);
   Node* ret = R.Return(R.p0, effect, d.merge);
   R.ReduceGraph();
-  CheckDeadDiamond(d);
-  CHECK(effect->IsDead());
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d);
+  dead.Check(effect);
 
   CheckInputs(R.graph.end(), ret);
   CheckInputs(ret, R.p0, e1, R.start);
@@ -1312,9 +1374,9 @@ TEST(Return_effect1) {
 
 TEST(Return_nested_diamonds1) {
   ControlReducerTester R;
-  Diamond d1(R, R.p0, R.one, R.zero);
-  Diamond d2(R, R.p0);
-  Diamond d3(R, R.p0);
+  Diamond d2(R, R.p0, R.one, R.zero);
+  Diamond d3(R, R.p0, R.one, R.zero);
+  Diamond d1(R, R.p0, d2.phi, d3.phi);
 
   d2.nest(d1, true);
   d3.nest(d1, false);
@@ -1324,17 +1386,65 @@ TEST(Return_nested_diamonds1) {
   R.ReduceGraph();  // nothing should happen.
 
   CheckInputs(ret, d1.phi, R.start, d1.merge);
-  CheckInputs(d1.phi, R.one, R.zero, d1.merge);
+  CheckInputs(d1.phi, d2.phi, d3.phi, d1.merge);
   CheckInputs(d1.merge, d2.merge, d3.merge);
-  CheckLiveDiamond(d2);
-  CheckLiveDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.CheckLive(d2);
+  dead.CheckLive(d3);
+}
+
+
+TEST(Return_nested_diamonds1_dead1) {
+  ControlReducerTester R;
+  Diamond d2(R, R.p0);  // dead diamond
+  Diamond d3(R, R.p0, R.one, R.zero);
+  Diamond d1(R, R.p0, R.one, d3.phi);
+
+  d2.nest(d1, true);
+  d3.nest(d1, false);
+
+  Node* ret = R.Return(d1.phi, R.start, d1.merge);
+
+  R.ReduceGraph();
+
+  CheckInputs(ret, d1.phi, R.start, d1.merge);
+  CheckInputs(d1.phi, R.one, d3.phi, d1.merge);
+  CheckInputs(d1.merge, d1.if_true, d3.merge);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d2);  // d2 was a dead diamond.
+  dead.CheckLive(d3);
+}
+
+
+TEST(Return_nested_diamonds1_dead2) {
+  ControlReducerTester R;
+  Diamond d2(R, R.p0);  // dead diamond
+  Diamond d3(R, R.p0);  // dead diamond
+  Diamond d1(R, R.p0, R.one, R.zero);
+
+  d2.nest(d1, true);
+  d3.nest(d1, false);
+
+  Node* ret = R.Return(d1.phi, R.start, d1.merge);
+
+  R.ReduceGraph();
+
+  CheckInputs(ret, d1.phi, R.start, d1.merge);
+  CheckInputs(d1.phi, R.one, R.zero, d1.merge);
+  CheckInputs(d1.merge, d1.if_true, d1.if_false);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d2);
+  dead.Check(d3);
 }
 
 
 TEST(Return_nested_diamonds_true1) {
   ControlReducerTester R;
-  Diamond d1(R, R.one, R.one, R.zero);
-  Diamond d2(R, R.p0);
+  Diamond d2(R, R.p0, R.one, R.zero);
+  Diamond d1(R, R.one, d2.phi, R.zero);
   Diamond d3(R, R.p0);
 
   d2.nest(d1, true);
@@ -1344,19 +1454,21 @@ TEST(Return_nested_diamonds_true1) {
 
   R.ReduceGraph();  // d1 gets folded true.
 
-  CheckInputs(ret, R.one, R.start, d2.merge);
+  CheckInputs(ret, d2.phi, R.start, d2.merge);
   CheckInputs(d2.branch, R.p0, R.start);
-  CheckDeadDiamond(d1);
-  CheckLiveDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.CheckLive(d2);
+  dead.Check(d3);
 }
 
 
 TEST(Return_nested_diamonds_false1) {
   ControlReducerTester R;
-  Diamond d1(R, R.zero, R.one, R.zero);
+  Diamond d3(R, R.p0, R.one, R.zero);
+  Diamond d1(R, R.zero, R.one, d3.phi);
   Diamond d2(R, R.p0);
-  Diamond d3(R, R.p0);
 
   d2.nest(d1, true);
   d3.nest(d1, false);
@@ -1365,11 +1477,13 @@ TEST(Return_nested_diamonds_false1) {
 
   R.ReduceGraph();  // d1 gets folded false.
 
-  CheckInputs(ret, R.zero, R.start, d3.merge);
+  CheckInputs(ret, d3.phi, R.start, d3.merge);
   CheckInputs(d3.branch, R.p0, R.start);
-  CheckDeadDiamond(d1);
-  CheckDeadDiamond(d2);
-  CheckLiveDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.Check(d2);
+  dead.CheckLive(d3);
 }
 
 
@@ -1387,9 +1501,11 @@ TEST(Return_nested_diamonds_true_true1) {
   R.ReduceGraph();  // d1 and d2 both get folded true.
 
   CheckInputs(ret, R.one, R.start, R.start);
-  CheckDeadDiamond(d1);
-  CheckDeadDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.Check(d2);
+  dead.Check(d3);
 }
 
 
@@ -1407,9 +1523,11 @@ TEST(Return_nested_diamonds_true_false1) {
   R.ReduceGraph();  // d1 gets folded true and d2 gets folded false.
 
   CheckInputs(ret, R.one, R.start, R.start);
-  CheckDeadDiamond(d1);
-  CheckDeadDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.Check(d2);
+  dead.Check(d3);
 }
 
 
@@ -1434,8 +1552,10 @@ TEST(Return_nested_diamonds2) {
   CheckInputs(ret, d1.phi, R.start, d1.merge);
   CheckInputs(d1.phi, d2.phi, d3.phi, d1.merge);
   CheckInputs(d1.merge, d2.merge, d3.merge);
-  CheckLiveDiamond(d2);
-  CheckLiveDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.CheckLive(d2);
+  dead.CheckLive(d3);
 }
 
 
@@ -1459,9 +1579,11 @@ TEST(Return_nested_diamonds_true2) {
 
   CheckInputs(ret, d2.phi, R.start, d2.merge);
   CheckInputs(d2.branch, R.p0, R.start);
-  CheckDeadDiamond(d1);
-  CheckLiveDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.CheckLive(d2);
+  dead.Check(d3);
 }
 
 
@@ -1484,9 +1606,11 @@ TEST(Return_nested_diamonds_true_true2) {
   R.ReduceGraph();  // d1 gets folded true.
 
   CheckInputs(ret, x2, R.start, R.start);
-  CheckDeadDiamond(d1);
-  CheckDeadDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.Check(d2);
+  dead.Check(d3);
 }
 
 
@@ -1509,7 +1633,9 @@ TEST(Return_nested_diamonds_true_false2) {
   R.ReduceGraph();  // d1 gets folded true.
 
   CheckInputs(ret, y2, R.start, R.start);
-  CheckDeadDiamond(d1);
-  CheckDeadDiamond(d2);
-  CheckDeadDiamond(d3);
+
+  DeadChecker dead(&R.graph);
+  dead.Check(d1);
+  dead.Check(d2);
+  dead.Check(d3);
 }

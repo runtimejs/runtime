@@ -9,7 +9,7 @@
 namespace v8 {
 namespace internal {
 
-class HInstructionMap FINAL : public ZoneObject {
+class HInstructionMap final : public ZoneObject {
  public:
   HInstructionMap(Zone* zone, SideEffectsTracker* side_effects_tracker)
       : array_size_(0),
@@ -70,7 +70,7 @@ class HInstructionMap FINAL : public ZoneObject {
 };
 
 
-class HSideEffectMap FINAL BASE_EMBEDDED {
+class HSideEffectMap final BASE_EMBEDDED {
  public:
   HSideEffectMap();
   explicit HSideEffectMap(HSideEffectMap* other);
@@ -346,17 +346,20 @@ SideEffects SideEffectsTracker::ComputeChanges(HInstruction* instr) {
   int index;
   SideEffects result(instr->ChangesFlags());
   if (result.ContainsFlag(kGlobalVars)) {
-    if (instr->IsStoreGlobalCell() &&
-        ComputeGlobalVar(HStoreGlobalCell::cast(instr)->cell(), &index)) {
-      result.RemoveFlag(kGlobalVars);
-      result.AddSpecial(GlobalVar(index));
-    } else {
-      for (index = 0; index < kNumberOfGlobalVars; ++index) {
+    if (instr->IsStoreNamedField()) {
+      HStoreNamedField* store = HStoreNamedField::cast(instr);
+      HConstant* target = HConstant::cast(store->object());
+      if (ComputeGlobalVar(Unique<PropertyCell>::cast(target->GetUnique()),
+                           &index)) {
+        result.RemoveFlag(kGlobalVars);
         result.AddSpecial(GlobalVar(index));
+        return result;
       }
     }
-  }
-  if (result.ContainsFlag(kInobjectFields)) {
+    for (index = 0; index < kNumberOfGlobalVars; ++index) {
+      result.AddSpecial(GlobalVar(index));
+    }
+  } else if (result.ContainsFlag(kInobjectFields)) {
     if (instr->IsStoreNamedField() &&
         ComputeInobjectField(HStoreNamedField::cast(instr)->access(), &index)) {
       result.RemoveFlag(kInobjectFields);
@@ -375,17 +378,20 @@ SideEffects SideEffectsTracker::ComputeDependsOn(HInstruction* instr) {
   int index;
   SideEffects result(instr->DependsOnFlags());
   if (result.ContainsFlag(kGlobalVars)) {
-    if (instr->IsLoadGlobalCell() &&
-        ComputeGlobalVar(HLoadGlobalCell::cast(instr)->cell(), &index)) {
-      result.RemoveFlag(kGlobalVars);
-      result.AddSpecial(GlobalVar(index));
-    } else {
-      for (index = 0; index < kNumberOfGlobalVars; ++index) {
+    if (instr->IsLoadNamedField()) {
+      HLoadNamedField* load = HLoadNamedField::cast(instr);
+      HConstant* target = HConstant::cast(load->object());
+      if (ComputeGlobalVar(Unique<PropertyCell>::cast(target->GetUnique()),
+                           &index)) {
+        result.RemoveFlag(kGlobalVars);
         result.AddSpecial(GlobalVar(index));
+        return result;
       }
     }
-  }
-  if (result.ContainsFlag(kInobjectFields)) {
+    for (index = 0; index < kNumberOfGlobalVars; ++index) {
+      result.AddSpecial(GlobalVar(index));
+    }
+  } else if (result.ContainsFlag(kInobjectFields)) {
     if (instr->IsLoadNamedField() &&
         ComputeInobjectField(HLoadNamedField::cast(instr)->access(), &index)) {
       result.RemoveFlag(kInobjectFields);
@@ -439,7 +445,8 @@ GVN_UNTRACKED_FLAG_LIST(DECLARE_FLAG)
 }
 
 
-bool SideEffectsTracker::ComputeGlobalVar(Unique<Cell> cell, int* index) {
+bool SideEffectsTracker::ComputeGlobalVar(Unique<PropertyCell> cell,
+                                          int* index) {
   for (int i = 0; i < num_global_vars_; ++i) {
     if (cell == global_vars_[i]) {
       *index = i;

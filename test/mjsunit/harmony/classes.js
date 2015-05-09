@@ -71,6 +71,11 @@
     class C extends Math.abs {}
   }, TypeError);
   delete Math.abs.prototype;
+
+  assertThrows(function() {
+    function* g() {}
+    class C extends g {}
+  }, TypeError);
 })();
 
 
@@ -139,6 +144,7 @@
 
   class C extends B {
     constructor() {
+      super();
       calls++;
       assertEquals(42, super.x);
     }
@@ -613,8 +619,8 @@ function assertAccessorDescriptor(object, name) {
 (function TestDefaultConstructorNoCrash() {
   // Regression test for https://code.google.com/p/v8/issues/detail?id=3661
   class C {}
-  assertEquals(undefined, C());
-  assertEquals(undefined, C(1));
+  assertThrows(function () {C();}, TypeError);
+  assertThrows(function () {C(1);}, TypeError);
   assertTrue(new C() instanceof C);
   assertTrue(new C(1) instanceof C);
 })();
@@ -632,8 +638,8 @@ function assertAccessorDescriptor(object, name) {
   assertEquals(1, calls);
 
   calls = 0;
-  Derived();
-  assertEquals(1, calls);
+  assertThrows(function() { Derived(); }, TypeError);
+  assertEquals(0, calls);
 })();
 
 
@@ -656,9 +662,7 @@ function assertAccessorDescriptor(object, name) {
 
   var arr = new Array(100);
   var obj = {};
-  Derived.apply(obj, arr);
-  assertEquals(100, args.length);
-  assertEquals(obj, self);
+  assertThrows(function() {Derived.apply(obj, arr);}, TypeError);
 })();
 
 
@@ -783,72 +787,73 @@ function assertAccessorDescriptor(object, name) {
 })();
 
 
-(function TestSuperCallSyntacticRestriction() {
-  assertThrows(function() {
-    class C {
+(function TestThisAccessRestriction() {
+  class Base {}
+  (function() {
+    class C extends Base {
       constructor() {
         var y;
         super();
       }
     }; new C();
-  }, TypeError);
+  }());
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super(this.x);
       }
     }; new C();
-  }, TypeError);
+  }, ReferenceError);
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super(this);
       }
     }; new C();
-  }, TypeError);
+  }, ReferenceError);
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super.method();
         super(this);
       }
     }; new C();
-  }, TypeError);
+  }, ReferenceError);
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super(super.method());
       }
     }; new C();
-  }, TypeError);
+  }, ReferenceError);
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super(super());
       }
     }; new C();
-  }, TypeError);
+  }, ReferenceError);
   assertThrows(function() {
-    class C {
+    class C extends Base {
       constructor() {
         super(1, 2, Object.getPrototypeOf(this));
       }
     }; new C();
-  }, TypeError);
-  assertThrows(function() {
-    class C {
+  }, ReferenceError);
+  (function() {
+    class C extends Base {
       constructor() {
         { super(1, 2); }
       }
     }; new C();
-  }, TypeError);
-  assertThrows(function() {
-    class C {
+  }());
+  (function() {
+    class C extends Base {
       constructor() {
         if (1) super();
       }
     }; new C();
-  }, TypeError);
+  }());
 
   class C1 extends Object {
     constructor() {
@@ -874,10 +879,70 @@ function assertAccessorDescriptor(object, name) {
     }
   };
   new C3();
-
-  class C4 extends Object {
-    constructor() {
-      super(new super());
-    }
-  }; new C4();
 }());
+
+
+function testClassRestrictedProperties(C) {
+  assertEquals(false, C.hasOwnProperty("arguments"));
+  assertThrows(function() { return C.arguments; }, TypeError);
+  assertThrows(function() { C.arguments = {}; }, TypeError);
+
+  assertEquals(false, C.hasOwnProperty("caller"));
+  assertThrows(function() { return C.caller; }, TypeError);
+  assertThrows(function() { C.caller = {}; }, TypeError);
+
+  assertEquals(false, (new C).method.hasOwnProperty("arguments"));
+  assertThrows(function() { return new C().method.arguments; }, TypeError);
+  assertThrows(function() { new C().method.arguments = {}; }, TypeError);
+
+  assertEquals(false, (new C).method.hasOwnProperty("caller"));
+  assertThrows(function() { return new C().method.caller; }, TypeError);
+  assertThrows(function() { new C().method.caller = {}; }, TypeError);
+}
+
+
+(function testRestrictedPropertiesStrict() {
+  "use strict";
+  class ClassWithDefaultConstructor {
+    method() {}
+  }
+  class Class {
+    constructor() {}
+    method() {}
+  }
+  class DerivedClassWithDefaultConstructor extends Class {}
+  class DerivedClass extends Class { constructor() { super(); } }
+
+  testClassRestrictedProperties(ClassWithDefaultConstructor);
+  testClassRestrictedProperties(Class);
+  testClassRestrictedProperties(DerivedClassWithDefaultConstructor);
+  testClassRestrictedProperties(DerivedClass);
+  testClassRestrictedProperties(class { method() {} });
+  testClassRestrictedProperties(class { constructor() {} method() {} });
+  testClassRestrictedProperties(class extends Class { });
+  testClassRestrictedProperties(
+      class extends Class { constructor() { super(); } });
+})();
+
+
+(function testRestrictedPropertiesSloppy() {
+  class ClassWithDefaultConstructor {
+    method() {}
+  }
+  class Class {
+    constructor() {}
+    method() {}
+  }
+  class DerivedClassWithDefaultConstructor extends Class {}
+  class DerivedClass extends Class { constructor() { super(); } }
+
+  testClassRestrictedProperties(ClassWithDefaultConstructor);
+  testClassRestrictedProperties(Class);
+  testClassRestrictedProperties(DerivedClassWithDefaultConstructor);
+  testClassRestrictedProperties(DerivedClass);
+  testClassRestrictedProperties(class { method() {} });
+  testClassRestrictedProperties(class { constructor() {} method() {} });
+  testClassRestrictedProperties(class extends Class { });
+  testClassRestrictedProperties(
+      class extends Class { constructor() { super(); } });
+})();

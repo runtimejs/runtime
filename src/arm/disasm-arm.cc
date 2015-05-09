@@ -33,6 +33,7 @@
 #if V8_TARGET_ARCH_ARM
 
 #include "src/arm/constants-arm.h"
+#include "src/base/bits.h"
 #include "src/base/platform/platform.h"
 #include "src/disasm.h"
 #include "src/macro-assembler.h"
@@ -226,7 +227,7 @@ void Decoder::PrintShiftRm(Instruction* instr) {
 void Decoder::PrintShiftImm(Instruction* instr) {
   int rotate = instr->RotateValue() * 2;
   int immed8 = instr->Immed8Value();
-  int imm = (immed8 >> rotate) | (immed8 << (32 - rotate));
+  int imm = base::bits::RotateRight32(immed8, rotate);
   out_buffer_pos_ += SNPrintF(out_buffer_ + out_buffer_pos_, "#%d", imm);
 }
 
@@ -1323,17 +1324,27 @@ int Decoder::DecodeType7(Instruction* instr) {
 // vcvt: Sd = Dm
 // vcvt.f64.s32 Dd, Dd, #<fbits>
 // Dd = vabs(Dm)
+// Sd = vabs(Sm)
 // Dd = vneg(Dm)
+// Sd = vneg(Sm)
 // Dd = vadd(Dn, Dm)
+// Sd = vadd(Sn, Sm)
 // Dd = vsub(Dn, Dm)
+// Sd = vsub(Sn, Sm)
 // Dd = vmul(Dn, Dm)
+// Sd = vmul(Sn, Sm)
 // Dd = vmla(Dn, Dm)
+// Sd = vmla(Sn, Sm)
 // Dd = vmls(Dn, Dm)
+// Sd = vmls(Sn, Sm)
 // Dd = vdiv(Dn, Dm)
+// Sd = vdiv(Sn, Sm)
 // vcmp(Dd, Dm)
+// vcmp(Sd, Sm)
+// Dd = vsqrt(Dm)
+// Sd = vsqrt(Sm)
 // vmrs
 // vmsr
-// Dd = vsqrt(Dm)
 void Decoder::DecodeTypeVFP(Instruction* instr) {
   VERIFY((instr->TypeValue() == 7) && (instr->Bit(24) == 0x0) );
   VERIFY(instr->Bits(11, 9) == 0x5);
@@ -1350,10 +1361,18 @@ void Decoder::DecodeTypeVFP(Instruction* instr) {
         }
       } else if ((instr->Opc2Value() == 0x0) && (instr->Opc3Value() == 0x3)) {
         // vabs
-        Format(instr, "vabs'cond.f64 'Dd, 'Dm");
+        if (instr->SzValue() == 0x1) {
+          Format(instr, "vabs'cond.f64 'Dd, 'Dm");
+        } else {
+          Format(instr, "vabs'cond.f32 'Sd, 'Sm");
+        }
       } else if ((instr->Opc2Value() == 0x1) && (instr->Opc3Value() == 0x1)) {
         // vneg
-        Format(instr, "vneg'cond.f64 'Dd, 'Dm");
+        if (instr->SzValue() == 0x1) {
+          Format(instr, "vneg'cond.f64 'Dd, 'Dm");
+        } else {
+          Format(instr, "vneg'cond.f32 'Sd, 'Sm");
+        }
       } else if ((instr->Opc2Value() == 0x7) && (instr->Opc3Value() == 0x3)) {
         DecodeVCVTBetweenDoubleAndSingle(instr);
       } else if ((instr->Opc2Value() == 0x8) && (instr->Opc3Value() & 0x1)) {
@@ -1372,7 +1391,11 @@ void Decoder::DecodeTypeVFP(Instruction* instr) {
                  (instr->Opc3Value() & 0x1)) {
         DecodeVCMP(instr);
       } else if (((instr->Opc2Value() == 0x1)) && (instr->Opc3Value() == 0x3)) {
-        Format(instr, "vsqrt'cond.f64 'Dd, 'Dm");
+        if (instr->SzValue() == 0x1) {
+          Format(instr, "vsqrt'cond.f64 'Dd, 'Dm");
+        } else {
+          Format(instr, "vsqrt'cond.f32 'Sd, 'Sm");
+        }
       } else if (instr->Opc3Value() == 0x0) {
         if (instr->SzValue() == 0x1) {
           Format(instr, "vmov'cond.f64 'Dd, 'd");
@@ -1380,12 +1403,11 @@ void Decoder::DecodeTypeVFP(Instruction* instr) {
           Unknown(instr);  // Not used by V8.
         }
       } else if (((instr->Opc2Value() == 0x6)) && instr->Opc3Value() == 0x3) {
-        bool dp_operation = (instr->SzValue() == 1);
         // vrintz - round towards zero (truncate)
-        if (dp_operation) {
+        if (instr->SzValue() == 0x1) {
           Format(instr, "vrintz'cond.f64.f64 'Dd, 'Dm");
         } else {
-          Unknown(instr);  // Not used by V8.
+          Format(instr, "vrintz'cond.f32.f32 'Sd, 'Sm");
         }
       } else {
         Unknown(instr);  // Not used by V8.
@@ -1398,31 +1420,35 @@ void Decoder::DecodeTypeVFP(Instruction* instr) {
           Format(instr, "vadd'cond.f64 'Dd, 'Dn, 'Dm");
         }
       } else {
-        Unknown(instr);  // Not used by V8.
+        if (instr->Opc3Value() & 0x1) {
+          Format(instr, "vsub'cond.f32 'Sd, 'Sn, 'Sm");
+        } else {
+          Format(instr, "vadd'cond.f32 'Sd, 'Sn, 'Sm");
+        }
       }
     } else if ((instr->Opc1Value() == 0x2) && !(instr->Opc3Value() & 0x1)) {
       if (instr->SzValue() == 0x1) {
         Format(instr, "vmul'cond.f64 'Dd, 'Dn, 'Dm");
       } else {
-        Unknown(instr);  // Not used by V8.
+        Format(instr, "vmul'cond.f32 'Sd, 'Sn, 'Sm");
       }
     } else if ((instr->Opc1Value() == 0x0) && !(instr->Opc3Value() & 0x1)) {
       if (instr->SzValue() == 0x1) {
         Format(instr, "vmla'cond.f64 'Dd, 'Dn, 'Dm");
       } else {
-        Unknown(instr);  // Not used by V8.
+        Format(instr, "vmla'cond.f32 'Sd, 'Sn, 'Sm");
       }
     } else if ((instr->Opc1Value() == 0x0) && (instr->Opc3Value() & 0x1)) {
       if (instr->SzValue() == 0x1) {
         Format(instr, "vmls'cond.f64 'Dd, 'Dn, 'Dm");
       } else {
-        Unknown(instr);  // Not used by V8.
+        Format(instr, "vmls'cond.f32 'Sd, 'Sn, 'Sm");
       }
     } else if ((instr->Opc1Value() == 0x4) && !(instr->Opc3Value() & 0x1)) {
       if (instr->SzValue() == 0x1) {
         Format(instr, "vdiv'cond.f64 'Dd, 'Dn, 'Dm");
       } else {
-        Unknown(instr);  // Not used by V8.
+        Format(instr, "vdiv'cond.f32 'Sd, 'Sn, 'Sm");
       }
     } else {
       Unknown(instr);  // Not used by V8.
@@ -1497,6 +1523,14 @@ void Decoder::DecodeVCMP(Instruction* instr) {
       Format(instr, "vcmp'cond.f64 'Dd, 'Dm");
     } else if (instr->Opc2Value() == 0x5) {
       Format(instr, "vcmp'cond.f64 'Dd, #0.0");
+    } else {
+      Unknown(instr);  // invalid
+    }
+  } else if (!raise_exception_for_qnan) {
+    if (instr->Opc2Value() == 0x4) {
+      Format(instr, "vcmp'cond.f32 'Sd, 'Sm");
+    } else if (instr->Opc2Value() == 0x5) {
+      Format(instr, "vcmp'cond.f32 'Sd, #0.0");
     } else {
       Unknown(instr);  // invalid
     }
