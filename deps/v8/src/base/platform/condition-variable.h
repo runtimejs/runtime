@@ -81,6 +81,8 @@ class ConditionVariable final {
 
     DISALLOW_COPY_AND_ASSIGN(NativeHandle);
   };
+#elif V8_OS_RUNTIMEJS
+  typedef threadlib::condvar_t NativeHandle;
 #endif
 
   NativeHandle& native_handle() {

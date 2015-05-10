@@ -78,36 +78,33 @@ static V8_INLINE bool TryLockNativeHandle(pthread_mutex_t* mutex) {
 
 #elif V8_OS_RUNTIMEJS
 
-static V8_INLINE void InitializeNativeHandle(rt::Locker* cs) {
+static V8_INLINE void InitializeNativeHandle(threadlib::mutex_t* mutex) {}
 
+
+static V8_INLINE void InitializeRecursiveNativeHandle(threadlib::mutex_t* mutex) {
+    DCHECK_NOT_NULL(mutex);
+    mutex->set_recursive();
 }
 
 
-static V8_INLINE void InitializeRecursiveNativeHandle(rt::Locker* cs) {
+static V8_INLINE void DestroyNativeHandle(threadlib::mutex_t* mutex) {}
 
+
+static V8_INLINE void LockNativeHandle(threadlib::mutex_t* mutex) {
+    DCHECK_NOT_NULL(mutex);
+    mutex->lock();
 }
 
 
-static V8_INLINE void DestroyNativeHandle(rt::Locker* cs) {
-  
+static V8_INLINE void UnlockNativeHandle(threadlib::mutex_t* mutex) {
+    DCHECK_NOT_NULL(mutex);
+    mutex->unlock();
 }
 
 
-static V8_INLINE void LockNativeHandle(rt::Locker* cs) {
-    rt::Spinlock lock(cs);
-    lock.lock();
-}
-
-
-static V8_INLINE void UnlockNativeHandle(rt::Locker* cs) {
-    rt::Spinlock lock(cs);
-    lock.unlock();
-}
-
-
-static V8_INLINE bool TryLockNativeHandle(rt::Locker* cs) {
-    rt::Spinlock lock(cs);
-    return lock.tryLock();
+static V8_INLINE bool TryLockNativeHandle(threadlib::mutex_t* mutex) {
+    DCHECK_NOT_NULL(mutex);
+    return mutex->try_lock();
 }
 
 #elif V8_OS_WIN

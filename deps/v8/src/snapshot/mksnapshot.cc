@@ -17,6 +17,9 @@
 #include "src/snapshot/natives.h"
 #include "src/snapshot/serialize.h"
 
+#ifdef V8_OS_RUNTIMEJS
+#include <kernel/v8platform.h>
+#endif
 
 using namespace v8;
 
@@ -154,7 +157,11 @@ int main(int argc, char** argv) {
 
   i::CpuFeatures::Probe(true);
   V8::InitializeICU();
+#ifdef V8_OS_RUNTIMEJS
+  v8::Platform* platform = new rt::V8Platform();
+#else
   v8::Platform* platform = v8::platform::CreateDefaultPlatform();
+#endif
   v8::V8::InitializePlatform(platform);
   v8::V8::Initialize();
 

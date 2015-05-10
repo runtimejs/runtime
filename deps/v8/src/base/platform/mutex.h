@@ -16,7 +16,8 @@
 #endif
 
 #if V8_OS_RUNTIMEJS
-#include <kernel/spinlock.h>
+#include <kernel/threadlib/mutex.h>
+#include <kernel/threadlib/condvar.h>
 #endif
 
 namespace v8 {
@@ -62,7 +63,7 @@ class Mutex final {
 #elif V8_OS_WIN
   typedef CRITICAL_SECTION NativeHandle;
 #elif V8_OS_RUNTIMEJS
-  typedef rt::Locker NativeHandle;
+  typedef threadlib::mutex_t NativeHandle;
 #endif
 
   NativeHandle& native_handle() {
