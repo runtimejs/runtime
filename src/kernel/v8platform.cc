@@ -30,7 +30,7 @@ V8Platform::~V8Platform() {
 void V8Platform::CallOnBackgroundThread(v8::Task* task, v8::Platform::ExpectedRuntime expected_runtime) {
     RT_ASSERT(task);
 
-    RuntimeStateScope<RuntimeState::CALL_ON_BACKGROUND> cb_state(GLOBAL_engines()->cpu_engine()->thread_manager());
+//    RuntimeStateScope<RuntimeState::CALL_ON_BACKGROUND> cb_state(GLOBAL_engines()->cpu_engine()->thread_manager());
     printf("[V8 Platform] call on background\n");
 
     // TODO: do not run task immediately here

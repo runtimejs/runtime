@@ -18,6 +18,28 @@
 #include <acpi.h>
 #include <accommon.h>
 
+namespace threadlib {
+  void sched() {
+    RT_ASSERT(!"not implemented");
+  }
+
+  void wait_pause() {
+      rt::Cpu::WaitPause();
+  }
+
+  void libassert(int value) {
+      RT_ASSERT(value);
+  }
+
+  uint32_t get_thread_id() {
+      return rt::Cpu::id() + 1;
+  }
+
+  uint64_t get_time_microseconds() {
+      return GLOBAL_platform()->BootTimeMicroseconds();
+  }
+}
+
 namespace rt {
 
 _Unwind_Reason_Code TraceFn(_Unwind_Context *ctx, void *d) {
