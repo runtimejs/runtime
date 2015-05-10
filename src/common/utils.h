@@ -63,6 +63,11 @@ public:
         return value;
     }
 
+    inline static uint32_t ReadUint32BE(const void* ptr) {
+        auto p = static_cast<const uint8_t*>(ptr);
+        return p[3] | p[2] << 8 | p[1] << 16 | p[0] << 24;
+    }
+
     template<typename T>
     static void ToString(T value, char* sp, int radix) {
         if (radix < 2 || radix > 36) {

@@ -18,6 +18,7 @@
 #include <kernel/native-fn.h>
 #include <kernel/initrd.h>
 #include <kernel/engines.h>
+#include <kernel/initjs.h>
 
 namespace rt {
 
@@ -42,17 +43,9 @@ TemplateCache::TemplateCache(v8::Isolate* iv8)
 v8::Local<v8::UnboundScript> TemplateCache::GetInitScript() {
     RT_ASSERT(iv8_);
     v8::EscapableHandleScope scope(iv8_);
-    InitrdFile initfile =  GLOBAL_initrd()->Get("/system/init.js");
-    if (initfile.IsEmpty()) {
-        printf("Unable to load /system/init.js file.");
-        abort();
-    }
-    v8::Local<v8::String> inits = v8::String::NewFromUtf8(iv8_,
-        reinterpret_cast<const char*>(initfile.Data()),
-        v8::String::kNormalString, initfile.Size());
-
+    v8::Local<v8::String> inits = v8::String::NewFromUtf8(iv8_, INIT_JS,
+        v8::String::kNormalString, sizeof(INIT_JS) - 1);
     v8::ScriptCompiler::Source source(inits);
-
     v8::Local<v8::UnboundScript> script = v8::ScriptCompiler
             ::CompileUnbound(iv8_, &source,
               v8::ScriptCompiler::CompileOptions::kNoCompileOptions);

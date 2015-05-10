@@ -60,25 +60,25 @@ public:
         :	name_(nullptr),
             buf_(nullptr),
             len_(0),
-            crc64_(0) { }
+            crc_(0) { }
 
     PackageFile(const char* name, const uint8_t* buf,
-                size_t len, uint64_t crc64)
+                size_t len, uint32_t crc)
         :	name_(name),
             buf_(buf),
             len_(len),
-            crc64_(crc64) { }
+            crc_(crc) { }
 
     const char* name() const { return name_; }
     const uint8_t* buf() const { return buf_; }
-    size_t len() const { return len_; }
-    uint64_t crc64() const { return crc64_; }
+    uint32_t len() const { return len_; }
+    uint32_t crc() const { return crc_; }
     bool empty() const { return nullptr == buf_; }
 private:
     const char* name_;
     const uint8_t* buf_;
-    size_t len_;
-    uint64_t crc64_;
+    uint32_t len_;
+    uint32_t crc_;
 };
 
 class PackageReader {
@@ -88,7 +88,7 @@ public:
     PackageFile Finish();
 private:
     const uint8_t* next_;
-    size_t files_left_;
+    uint32_t files_left_;
 };
 
 } // namespace package

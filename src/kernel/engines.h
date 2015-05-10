@@ -90,10 +90,10 @@ public:
         RT_ASSERT(first_engine);
         ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
-        const char* filename = "/system/kernel.js";
+        const char* filename = "/bundle.js";
         InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
         if (startup_file.IsEmpty()) {
-            printf("Unable to load /system/kernel.js from initrd.\n");
+            printf("Unable to load /bundle.js from initrd.\n");
             abort();
         }
 

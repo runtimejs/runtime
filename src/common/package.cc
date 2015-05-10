@@ -72,10 +72,10 @@ PackageReader::PackageReader(const void* start, size_t len)
 
     // Search for archive header
     while (pos < end) {
-        const uint32_t* value = reinterpret_cast<const uint32_t*>(pos);
+        uint32_t value = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(pos));
         pos += sizeof(uint32_t);
 
-        if (PACKAGE_MAGIC != *value) {
+        if (PACKAGE_MAGIC != value) {
             continue;
         }
 
@@ -83,8 +83,8 @@ PackageReader::PackageReader(const void* start, size_t len)
             continue;
         }
 
-        files_left_ = common::Utils::ReadUnaligned<size_t>(reinterpret_cast<const void*>(pos + 4));
-        next_ = pos + 4 + sizeof(uint64_t);
+        files_left_ = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(pos + 4));
+        next_ = pos + 4 + sizeof(uint32_t);
         break;
     }
 }
@@ -95,8 +95,7 @@ PackageFile PackageReader::Next() {
     }
 
     // File type
-    uint32_t type = common::Utils
-            ::ReadUnaligned<uint32_t>(reinterpret_cast<const void*>(next_));
+    uint32_t type = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(next_));
     next_ += sizeof(uint32_t);
 
     // Check type
@@ -105,9 +104,8 @@ PackageFile PackageReader::Next() {
     }
 
     // Name length
-    size_t name_len = common::Utils
-            ::ReadUnaligned<size_t>(reinterpret_cast<const void*>(next_));
-    next_ += sizeof(uint64_t);
+    uint32_t name_len = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(next_));
+    next_ += sizeof(uint32_t);
 
     // Filename
     const char* name = reinterpret_cast<const char*>(next_);
@@ -119,22 +117,20 @@ PackageFile PackageReader::Next() {
     }
     ++next_;
 
-    // File CRC64
-    uint64_t crc64 = common::Utils
-            ::ReadUnaligned<size_t>(reinterpret_cast<const void*>(next_));
-    next_ += sizeof(uint64_t);
+    // File CRC
+    uint32_t crc = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(next_));
+    next_ += sizeof(uint32_t);
 
     // File length
-    size_t len = common::Utils
-            ::ReadUnaligned<size_t>(reinterpret_cast<const void*>(next_));
-    next_ += sizeof(uint64_t);
+    size_t len = common::Utils::ReadUint32BE(reinterpret_cast<const void*>(next_));
+    next_ += sizeof(uint32_t);
 
     // File buffer
     const uint8_t* buf = next_;
 
     --files_left_;
     next_ += len;
-    return PackageFile(name, buf, len, crc64);
+    return PackageFile(name, buf, len, crc);
 }
 
 PackageFile PackageReader::Finish() {
