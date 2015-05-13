@@ -100,7 +100,7 @@ public:
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS_NOPARENT,
                 ResourceHandle<EngineThread>(), std::move(data)));
-            st.get()->PushMessage(std::move(msg));
+            st.getUnsafe()->PushMessage(std::move(msg));
         }
 
         {	TransportData data;
@@ -108,7 +108,7 @@ public:
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
                 ResourceHandle<EngineThread>(), std::move(data)));
-            st.get()->PushMessage(std::move(msg));
+            st.getUnsafe()->PushMessage(std::move(msg));
         }
     }
 
@@ -247,8 +247,6 @@ private:
     v8::Platform* v8_platform_;
     std::atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
-
-    mutable Locker _platform_locker;
 };
 
 } // namespace rt

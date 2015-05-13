@@ -115,7 +115,7 @@ public:
     std::vector<ThreadMessage*> TakeMessages() {
         std::vector<ThreadMessage*> s;
         {	NoInterrupsScope no_interrups;
-            ScopedLock lock(c_locker_);
+            ScopedLock<threadlib::spinlock_t> lock(c_locker_);
             if (0 == messages_.size()) return s;
             messages_.swap(s);
             messages_.reserve(128);
@@ -128,7 +128,7 @@ public:
      */
     std::unique_ptr<ThreadMessage> TakePromiseResultMessage(uint32_t promise_id) {
         NoInterrupsScope no_interrups;
-        ScopedLock lock(c_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(c_locker_);
         if (0 == messages_.size()) return nullptr;
         for (size_t i = 0; i < messages_.size(); ++i) {
             ThreadMessage* message = messages_[i];
@@ -156,7 +156,7 @@ public:
      */
     void PushMessage(std::unique_ptr<ThreadMessage> message) {
         NoInterrupsScope no_interrups;
-        ScopedLock lock(c_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(c_locker_);
         RT_ASSERT(message);
         messages_.push_back(message.release());
     }
@@ -166,7 +166,7 @@ public:
      * for IRQ-context calls. It doesn't touch IRQ flag
      */
     void PushMessageIRQ(SystemContextIRQ irq_context, ThreadMessage* message) {
-        ScopedLock lock(c_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(c_locker_);
         RT_ASSERT(message);
 
         // We don't want to allocate memory in IRQ handler
@@ -182,7 +182,7 @@ private:
     Engine* engine_;
     Status status_;
     Thread* thread_;
-    Locker c_locker_;
+    threadlib::spinlock_t c_locker_;
     std::vector<ThreadMessage*> messages_;
     ThreadType type_;
     DELETE_COPY_AND_ASSIGN(EngineThread);
@@ -205,7 +205,7 @@ public:
         }
 
         ResourceHandle<EngineThread> Create(ThreadType type) {
-            ScopedLock lock(datalocker_);
+            ScopedLock<threadlib::spinlock_t> lock(datalocker_);
             RT_ASSERT(engine_);
             EngineThread* t = new EngineThread(engine_, type);
             threads_.push_back(t);
@@ -217,7 +217,7 @@ public:
         std::vector<ResourceHandle<EngineThread>> TakeNewThreads() {
             std::vector<ResourceHandle<EngineThread>> transport;
 
-            { 	ScopedLock lock(datalocker_);
+            { 	ScopedLock<threadlib::spinlock_t> lock(datalocker_);
                 if (0 == threads_.size()) return transport;
                 new_threads_.swap(transport);
             }
@@ -229,7 +229,7 @@ public:
         Engine* engine_;
         std::vector<EngineThread*> threads_;
         std::vector<ResourceHandle<EngineThread>> new_threads_;
-        Locker datalocker_;
+        threadlib::spinlock_t datalocker_;
     };
 
     Engine(EngineType type)

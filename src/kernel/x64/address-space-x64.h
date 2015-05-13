@@ -217,7 +217,6 @@ private:
     PageTableAllocator* table_allocator_;
     CR3Entry cr3_;
     PageTable<PML4Entry>* pml4_table_;
-    Locker map_page_locker_;
 };
 
 } // namespace rt

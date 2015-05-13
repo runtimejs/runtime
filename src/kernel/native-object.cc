@@ -421,7 +421,7 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
             ThreadMessage::Type::EVALUATE,
             th->handle(),
             std::move(data)));
-        th->handle().get()->PushMessage(std::move(msg));
+        th->handle().getUnsafe()->PushMessage(std::move(msg));
     }
 
     th->Ref();

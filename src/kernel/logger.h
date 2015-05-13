@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <memory>
 #include <array>
+#include <kernel/threadlib/spinlock.h>
 
 // No memory allocation allowed in this file. This is part of boot
 // services, runs before memory manager initialization.
@@ -45,10 +46,10 @@ enum class LoggerMode {
 class LogWriter {
 public:
     virtual void WriteChar(LogDataType type, char c) = 0;
-    void Lock() { Spinlock(lock_).lock(); }
-    void Unlock() { Spinlock(lock_).unlock(); }
+    void Lock() { lock_.lock(); }
+    void Unlock() { lock_.unlock(); }
 private:
-    Locker lock_;
+    threadlib::spinlock_t lock_;
 };
 
 class LogWriterSerial : public LogWriter {

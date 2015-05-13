@@ -47,11 +47,6 @@ public:
         return !(this == that);
     }
 
-    LockingPtr<R> get() const {
-        RT_ASSERT(resource_ && "Using empty handle.");
-        return LockingPtr<R>(resource_, &resource_->locker_);
-    }
-
     /**
      * Unsafe returns raw pointer instead of LockingPtr
      * This used in IRQ handler to get thread handle
@@ -88,7 +83,7 @@ public:
     Resource() { }
     virtual v8::Local<v8::Object> NewInstance(Thread* thread) = 0;
 private:
-    Locker locker_;
+    threadlib::spinlock_t locker_;
     DELETE_COPY_AND_ASSIGN(Resource);
 };
 

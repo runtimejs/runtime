@@ -24,7 +24,7 @@ namespace rt {
 
 Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
     :	thread_mgr_(thread_mgr),
-        type_(ethread.get()->type()),
+        type_(ethread.getUnsafe()->type() /* TODO: fix this unsafe get */),
         iv8_(nullptr),
         tpl_cache_(nullptr),
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
@@ -179,7 +179,7 @@ bool Thread::Run() {
 
     uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
 
-    std::vector<ThreadMessage*> messages = ethread_.get()->TakeMessages();
+    std::vector<ThreadMessage*> messages = ethread_.getUnsafe()->TakeMessages();
     if (0 == messages.size()) {
         return true;
     }

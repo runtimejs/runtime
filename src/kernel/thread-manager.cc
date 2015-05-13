@@ -68,7 +68,7 @@ void ThreadManager::ProcessNewThreads() {
     if (0 == threads.size()) return;
 
     for (auto thread : threads) {
-        thread.get()->thread_ = CreateThread(thread);
+        thread.getUnsafe()->thread_ = CreateThread(thread);
     }
 }
 
