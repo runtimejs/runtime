@@ -179,7 +179,7 @@ bool Thread::Run() {
 
     uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
 
-    EngineThread::ThreadMessagesVector messages = ethread_.get()->TakeMessages();
+    std::vector<ThreadMessage*> messages = ethread_.get()->TakeMessages();
     if (0 == messages.size()) {
         return true;
     }
@@ -352,45 +352,6 @@ bool Thread::Run() {
                 GetObject(message->recv_index())) };
             RT_ASSERT(fnv->IsFunction());
             v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            fn->Call(context->Global(), 0, nullptr);
-        }
-            break;
-        case ThreadMessage::Type::PIPE_PULL: {
-            v8::Local<v8::Value> unpacked;
-            if (!message->data().empty()) {
-                unpacked = message->data().Unpack(this);
-            } else if (message->recv_index2() > 0 && message->ptr()){
-                TransportData* dataarray = static_cast<TransportData*>(message->ptr());
-                size_t data_size = message->recv_index2();
-                RT_ASSERT(data_size > 0);
-                auto array = v8::Array::New(iv8_, data_size);
-                for (uint32_t i = 0; i < data_size; ++i) {
-                    array->Set(i, dataarray[i].Unpack(this));
-                }
-                unpacked = array;
-                delete[] dataarray;
-            }
-
-            if (unpacked.IsEmpty()) {
-                // Yield undefined in this case (pipe is closed)
-                unpacked = v8::Undefined(iv8_);
-            }
-
-            auto fnv = TakeObject(message->recv_index());
-            RT_ASSERT(fnv->IsFunction());
-            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-
-            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            v8::Local<v8::Value> argv[] { unpacked };
-            fn->Call(context->Global(), 1, argv);
-        }
-            break;
-        case ThreadMessage::Type::PIPE_WAIT: {
-            auto fnv = TakeObject(message->recv_index());
-            RT_ASSERT(fnv->IsFunction());
-            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             fn->Call(context->Global(), 0, nullptr);
         }

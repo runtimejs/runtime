@@ -195,11 +195,11 @@ public:
         return ticks_counter_;
     }
 
-    SharedSTLVector<ThreadInfo> List() {
+    std::vector<ThreadInfo> List() {
         // TODO (SMP port): lock threads_ here and everywhere else
         // Safe to use from the same CPU
 
-        SharedSTLVector<ThreadInfo> vec;
+        std::vector<ThreadInfo> vec;
         for (size_t i = 0; i < threads_.size(); ++i) {
             auto thread = threads_[i].thread();
             RT_ASSERT(thread);

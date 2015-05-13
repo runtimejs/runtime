@@ -14,7 +14,6 @@
 
 #pragma once
 #include <kernel/kernel.h>
-#include <kernel/allocator.h>
 #include <printf.h>
 #include <stdio.h>
 #include <array>

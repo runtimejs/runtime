@@ -16,8 +16,6 @@
 
 #include <kernel/kernel.h>
 #include <kernel/utils.h>
-#include <kernel/allocator.h>
-#include <kernel/vector.h>
 #include <kernel/spinlock.h>
 #include <v8.h>
 

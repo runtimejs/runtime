@@ -74,7 +74,7 @@ public:
     void Raise(SystemContextIRQ irq_context, uint8_t number);
 private:
     static const uint32_t kIrqCount = 225;
-    SharedSTLVector<IRQBinding> bindings_[kIrqCount];
+    std::vector<IRQBinding> bindings_[kIrqCount];
     Locker bindings_locker_;
     DELETE_COPY_AND_ASSIGN(IrqDispatcher);
 };

@@ -14,8 +14,8 @@
 
 #pragma once
 
+#include <vector>
 #include <kernel/kernel.h>
-#include <kernel/allocator.h>
 #include <kernel/thread-manager.h>
 #include <kernel/local-storage.h>
 #include <kernel/thread.h>
@@ -39,8 +39,6 @@ public:
         FUNCTION_CALL,
         FUNCTION_RETURN_RESOLVE,
         FUNCTION_RETURN_REJECT,
-        PIPE_PULL,
-        PIPE_WAIT
     };
 
     ThreadMessage(Type type, ResourceHandle<EngineThread> sender,
@@ -97,7 +95,6 @@ private:
 class EngineThread : public Resource {
     friend class ThreadManager;
 public:
-    typedef SharedSTLVector<ThreadMessage*> ThreadMessagesVector;
     enum class Status {
         EMPTY,
         NOT_STARTED,
@@ -115,8 +112,8 @@ public:
         RT_ASSERT(engine_);
     }
 
-    ThreadMessagesVector TakeMessages() {
-        ThreadMessagesVector s;
+    std::vector<ThreadMessage*> TakeMessages() {
+        std::vector<ThreadMessage*> s;
         {	NoInterrupsScope no_interrups;
             ScopedLock lock(c_locker_);
             if (0 == messages_.size()) return s;
@@ -186,7 +183,7 @@ private:
     Status status_;
     Thread* thread_;
     Locker c_locker_;
-    ThreadMessagesVector messages_;
+    std::vector<ThreadMessage*> messages_;
     ThreadType type_;
     DELETE_COPY_AND_ASSIGN(EngineThread);
 };
@@ -217,8 +214,8 @@ public:
             return th;
         }
 
-        SharedSTLVector<ResourceHandle<EngineThread>> TakeNewThreads() {
-            SharedSTLVector<ResourceHandle<EngineThread>> transport;
+        std::vector<ResourceHandle<EngineThread>> TakeNewThreads() {
+            std::vector<ResourceHandle<EngineThread>> transport;
 
             { 	ScopedLock lock(datalocker_);
                 if (0 == threads_.size()) return transport;
@@ -230,8 +227,8 @@ public:
 
     private:
         Engine* engine_;
-        SharedSTLVector<EngineThread*> threads_;
-        SharedSTLVector<ResourceHandle<EngineThread>> new_threads_;
+        std::vector<EngineThread*> threads_;
+        std::vector<ResourceHandle<EngineThread>> new_threads_;
         Locker datalocker_;
     };
 

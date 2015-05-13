@@ -27,9 +27,6 @@
 
 namespace rt {
 
-template<typename T>
-using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
-
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
     PROLOGUE_NOTHIS;
 #ifdef RUNTIME_PROFILER

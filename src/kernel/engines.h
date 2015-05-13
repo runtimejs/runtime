@@ -18,7 +18,6 @@
 #include <atomic>
 #include <kernel/kernel.h>
 #include <kernel/cpu.h>
-#include <kernel/allocator.h>
 #include <kernel/resource.h>
 #include <kernel/engine.h>
 #include <kernel/system-context.h>
@@ -240,8 +239,8 @@ public:
     DELETE_COPY_AND_ASSIGN(Engines);
 private:
     uint32_t cpu_count_;
-    SharedSTLVector<Engine*> engines_;
-    SharedSTLVector<Engine*> engines_execution_;
+    std::vector<Engine*> engines_;
+    std::vector<Engine*> engines_execution_;
     AcpiManager* _acpi_manager;
     volatile uint64_t _non_isolate_ticks;
 

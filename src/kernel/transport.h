@@ -14,11 +14,11 @@
 
 #pragma once
 
+#include <vector>
 #include <kernel/kernel.h>
 #include <v8.h>
 #include <memory>
 #include <kernel/constants.h>
-#include <kernel/vector.h>
 #include <kernel/resource.h>
 
 namespace rt {

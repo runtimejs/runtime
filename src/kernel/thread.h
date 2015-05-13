@@ -71,7 +71,7 @@ public:
 
 private:
     Thread* thread_;
-    SharedSTLVector<FunctionExportData> data_;
+    std::vector<FunctionExportData> data_;
     size_t export_id_;
 };
 

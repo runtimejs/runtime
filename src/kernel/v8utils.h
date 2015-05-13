@@ -14,8 +14,8 @@
 
 #pragma once
 
+#include <vector>
 #include <kernel/kernel.h>
-#include <kernel/vector.h>
 #include <kernel/utils.h>
 #include <v8.h>
 
@@ -202,7 +202,7 @@ public:
         data_.clear();
     }
 private:
-    SharedSTLVector<T> data_;
+    std::vector<T> data_;
 };
 
 /**
@@ -255,7 +255,7 @@ public:
         data_.clear();
     }
 private:
-    SharedSTLVector<v8::UniquePersistent<T>> data_;
+    std::vector<v8::UniquePersistent<T>> data_;
 };
 
 } // namespace rt
