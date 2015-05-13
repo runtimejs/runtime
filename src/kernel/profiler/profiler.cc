@@ -40,11 +40,11 @@ void Profiler::Enable() {
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
     GLOBAL_mem_manager()->malloc_allocator().SetTraceCallbacks(AllocatorEnter, AllocatorExit, this);
 #endif
-    enabled_.Set(true);
+    enabled_ = true;
 }
 
 void Profiler::Disable() {
-    enabled_.Set(false);
+    enabled_ = false;
     counters_.endTime = GLOBAL_platform()->BootTimeMicroseconds();
     counters_.Print();
 
@@ -64,7 +64,7 @@ void Profiler::Disable() {
 }
 
 void Profiler::MakeSample(SystemContextIRQ irq_context, const RegisterState& state) {
-    if (!enabled_.Get()) {
+    if (!enabled_) {
         return;
     }
 

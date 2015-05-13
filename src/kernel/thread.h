@@ -17,10 +17,10 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <atomic>
 #include <v8.h>
 #include <kernel/local-storage.h>
 #include <kernel/mem-manager.h>
-#include <kernel/atomic.h>
 #include <kernel/resource.h>
 #include <kernel/constants.h>
 #include <kernel/utils.h>
@@ -273,15 +273,15 @@ public:
     }
 
     uint32_t priority() const {
-        return priority_.Get();
+        return priority_;
     }
 
     void AddPriority(size_t count) {
-        priority_.AddFetch(count);
+        priority_ += count;
     }
 
     void ResetPriority() {
-        priority_.Set(1);
+        priority_ = 1;
     }
 
     /**
@@ -354,7 +354,7 @@ private:
     v8::UniquePersistent<v8::Function> call_wrapper_;
 
     VirtualStack stack_;
-    Atomic<uint32_t> priority_;
+    std::atomic<uint32_t> priority_;
 
     ResourceHandle<EngineThread> ethread_;
     FunctionExports exports_;

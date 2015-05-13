@@ -17,11 +17,10 @@
 #include <vector>
 #include <string>
 #include <memory>
-
+#include <atomic>
 #include "thread.h"
 #include <kernel/kernel.h>
 #include <kernel/template-cache.h>
-#include <kernel/atomic.h>
 #include <kernel/resource.h>
 #include <kernel/system-context.h>
 #include <kernel/runtime-state.h>
@@ -181,19 +180,19 @@ public:
     }
 
     bool IsPreemptEnabled() {
-        return (1 == is_preempt_enabled_.Get());
+        return is_preempt_enabled_;
     }
 
     void PreemptEnable() {
-        is_preempt_enabled_.Set(1);
+        is_preempt_enabled_ = true;
     }
 
     void PreemptDisable() {
-        is_preempt_enabled_.Set(0);
+        is_preempt_enabled_ = false;
     }
 
     uint64_t ticks_count() const {
-        return ticks_counter_.Get();
+        return ticks_counter_;
     }
 
     SharedSTLVector<ThreadInfo> List() {
@@ -245,8 +244,8 @@ private:
     uint64_t next_thread_id_;
     volatile uint64_t current_thread_index_;
     std::vector<ThreadData> threads_;
-    Atomic<uint32_t> is_preempt_enabled_;
-    Atomic<uint64_t> ticks_counter_;
+    std::atomic<bool> is_preempt_enabled_;
+    std::atomic<uint64_t> ticks_counter_;
     Timeouts<ThreadTimeout> timeouts_;
     uint64_t ev_done_total_;
     uint64_t ev_done_checkpoint_;

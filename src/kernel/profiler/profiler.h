@@ -13,8 +13,9 @@
 // limitations under the License.
 
 #pragma once
+
+#include <atomic>
 #include <kernel/kernel.h>
-#include <kernel/atomic.h>
 #include <kernel/system-context.h>
 #include <kernel/runtime-state.h>
 #include <stdio.h>
@@ -98,7 +99,7 @@ public:
     void MakeSample(SystemContextIRQ irq_context, const RegisterState& state);
     void OnJitCodeEvent(const v8::JitCodeEvent* event);
 private:
-    Atomic<bool> enabled_;
+    std::atomic<bool> enabled_;
     ProfilerCounters counters_;
 
     struct CodeEventEntry {

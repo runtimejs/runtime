@@ -14,7 +14,6 @@
 
 #pragma once
 #include <kernel/kernel.h>
-#include <kernel/atomic.h>
 #include <kernel/transport.h>
 #include <vector>
 #include <atomic>

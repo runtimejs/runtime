@@ -36,7 +36,7 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         runtime_(0),
         ev_count_(0),
         filename_() {
-    priority_.Set(1);
+    priority_ = 1;
 }
 
 Thread::~Thread() {

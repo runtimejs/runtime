@@ -50,7 +50,7 @@ ThreadManager::ThreadManager(Engine* engine)
 #endif
     RT_ASSERT(engine);
     threads_.reserve(128);
-    ticks_counter_.Set(1);
+    ticks_counter_ = 1;
 }
 
 extern "C" void preemptStart(void* current_state, void* new_state);
@@ -87,7 +87,7 @@ void ThreadManager::ProcessTimeouts() {
 }
 
 void ThreadManager::TimerInterruptNotify(SystemContextIRQ& irq_context) {
-    ticks_counter_.AddFetch(1);
+    ticks_counter_++;
 }
 
 void ThreadManager::SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms) {

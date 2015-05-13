@@ -15,6 +15,7 @@
 #pragma once
 
 #include <vector>
+#include <atomic>
 #include <kernel/kernel.h>
 #include <kernel/cpu.h>
 #include <kernel/allocator.h>
@@ -47,7 +48,7 @@ public:
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
 
-        global_ticks_counter_.Set(0);
+        global_ticks_counter_ = 1;
 
         engines_.reserve(cpu_count);
         engines_execution_.reserve(cpu_count);
@@ -165,7 +166,7 @@ public:
     }
 
     void Sleep(uint64_t microseconds) {
-        uint64_t before = global_ticks_counter_.Get();
+        uint64_t before = global_ticks_counter_;
         uint64_t wait_ticks = microseconds / 1000 / MsPerTick();
         if (wait_ticks < 1) wait_ticks = 1;
 
@@ -176,14 +177,14 @@ public:
 
         uint64_t after = before + wait_ticks;
 
-        while (global_ticks_counter_.Get() < after) {
+        while (global_ticks_counter_ < after) {
             Cpu::WaitPause();
         }
     }
 
     void TimerTick(SystemContextIRQ& irq_context) {
         const Engine* cpuengine = cpu_engine();
-        global_ticks_counter_.AddFetch(1);
+        global_ticks_counter_++;
         if (cpuengine->is_init()) {
             cpuengine->TimerTick(irq_context);
         } else {
@@ -248,7 +249,7 @@ private:
     volatile uint64_t _non_isolate_ticks;
 
     v8::Platform* v8_platform_;
-    Atomic<uint64_t> global_ticks_counter_;
+    std::atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
     PipeManager pipe_manager_;
 
