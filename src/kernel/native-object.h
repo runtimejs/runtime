@@ -18,12 +18,9 @@
 #include <kernel/v8utils.h>
 #include <kernel/template-cache.h>
 #include <acpi.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 #include <kernel/handle.h>
 #include <kernel/pipes.h>
-
-using common::Range;
-using common::MemoryBlock;
 
 namespace rt {
 

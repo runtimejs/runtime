@@ -15,11 +15,11 @@
 #pragma once
 
 #include <cc/test.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
+
+using namespace rt;
 
 namespace test {
-
-using namespace common;
 
 TEST(Utils) {
 

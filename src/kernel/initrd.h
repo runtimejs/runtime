@@ -21,6 +21,61 @@
 
 namespace rt {
 
+enum class PackageFileType {
+    EMPTY = 0x00,
+    DEFAULT = 0xAA
+};
+
+class PackageFileData {
+public:
+    PackageFileData(std::string name, std::vector<uint8_t> buf)
+        :	name_(name),
+            buf_(buf) {}
+    const char* name() const { return name_.c_str(); }
+    const uint8_t* buf() const { return &buf_[0]; }
+    size_t len() const { return buf_.size(); }
+private:
+    std::string name_;
+    std::vector<uint8_t> buf_;
+};
+
+class PackageFile {
+public:
+    PackageFile()
+        :	name_(nullptr),
+            buf_(nullptr),
+            len_(0),
+            crc_(0) { }
+
+    PackageFile(const char* name, const uint8_t* buf,
+                size_t len, uint32_t crc)
+        :	name_(name),
+            buf_(buf),
+            len_(len),
+            crc_(crc) { }
+
+    const char* name() const { return name_; }
+    const uint8_t* buf() const { return buf_; }
+    uint32_t len() const { return len_; }
+    uint32_t crc() const { return crc_; }
+    bool empty() const { return nullptr == buf_; }
+private:
+    const char* name_;
+    const uint8_t* buf_;
+    uint32_t len_;
+    uint32_t crc_;
+};
+
+class PackageReader {
+public:
+    PackageReader(const void* start, size_t len);
+    PackageFile Next();
+    PackageFile Finish();
+private:
+    const uint8_t* next_;
+    uint32_t files_left_;
+};
+
 /**
  * Represents initrd file
  */

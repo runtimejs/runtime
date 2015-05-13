@@ -48,9 +48,9 @@ MultibootMemoryMapEnumerator::MultibootMemoryMapEnumerator(const Multiboot* mult
     mmap_len_ = mmap_len;
 }
 
-common::MemoryZone MultibootMemoryMapEnumerator::NextAvailableMemory() {
+MemoryZone MultibootMemoryMapEnumerator::NextAvailableMemory() {
     if (mmap_current_ >= mmap_start_ + mmap_len_) {
-        return common::MemoryZone(nullptr, 0);
+        return MemoryZone(nullptr, 0);
     }
 
     MultibootMemoryMapEntry* entry =
@@ -78,7 +78,7 @@ common::MemoryZone MultibootMemoryMapEnumerator::NextAvailableMemory() {
         return NextAvailableMemory();
     }
 
-    return common::MemoryZone(reinterpret_cast<void*>(base_addr), length);
+    return MemoryZone(reinterpret_cast<void*>(base_addr), length);
 }
 
 } // namespace rt

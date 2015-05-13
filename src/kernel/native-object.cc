@@ -15,20 +15,17 @@
 #include "native-object.h"
 #include <kernel/x64/io-x64.h>
 #include <kernel/acpi-manager.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 #include <kernel/v8utils.h>
 #include <memory>
 #include <accommon.h>
 #include <acpi.h>
 #include <kernel/engines.h>
-#include <common/utils.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
 #include <kernel/arraybuffer.h>
 
 namespace rt {
-
-using ::common::Nullable;
 
 template<typename T>
 using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
@@ -1360,14 +1357,14 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
 NATIVE_FUNCTION(ResourceMemoryRangeObject, Begin) {
     PROLOGUE;
     auto begin = that->memory_range_.begin();
-    RT_ASSERT(common::Utils::IsSafeDouble(begin));
+    RT_ASSERT(Utils::IsSafeDouble(begin));
     args.GetReturnValue().Set(v8::Number::New(iv8, begin));
 }
 
 NATIVE_FUNCTION(ResourceMemoryRangeObject, End) {
     PROLOGUE;
     auto end = that->memory_range_.end();
-    RT_ASSERT(common::Utils::IsSafeDouble(end));
+    RT_ASSERT(Utils::IsSafeDouble(end));
     args.GetReturnValue().Set(v8::Number::New(iv8, end));
 }
 

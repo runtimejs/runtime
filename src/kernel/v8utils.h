@@ -16,10 +16,8 @@
 
 #include <kernel/kernel.h>
 #include <kernel/vector.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 #include <v8.h>
-
-using common::Nullable;
 
 #define NATIVE_FUNCTION(TypeName, FuncName) 									\
     void TypeName::FuncName(const v8::FunctionCallbackInfo<v8::Value>& args)

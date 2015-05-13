@@ -15,9 +15,8 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 #include <kernel/allocator.h>
-#include <common/utils.h>
 #include <kernel/vector.h>
 #include <kernel/spinlock.h>
 #include <v8.h>
@@ -27,8 +26,6 @@ namespace rt {
 class Isolate;
 class EngineThread;
 class Thread;
-
-using ::common::Nullable;
 
 template<typename R>
 class ResourceHandle {

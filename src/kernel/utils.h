@@ -14,10 +14,10 @@
 
 #pragma once
 
-#include <runtimejs.h>
+#include <kernel/kernel.h>
 #include <string>
 
-namespace common {
+namespace rt {
 
 class Utils {
 public:

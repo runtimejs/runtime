@@ -17,7 +17,7 @@
 #include <kernel/kernel.h>
 #include <kernel/logger.h>
 #include <kernel/fileio.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 
 namespace rt {
 

@@ -15,7 +15,7 @@
 #include "mem-manager.h"
 #include <stdio.h>
 #include <kernel/engines.h>
-#include <common/constants.h>
+#include <kernel/constants.h>
 
 namespace rt {
 
@@ -51,11 +51,11 @@ void MemManager::PageFault(void* fault_address, uint64_t error_code) {
     bool clean = false;
 
     uintptr_t fa = reinterpret_cast<uintptr_t>(fault_address);
-    if (fa < 4 * common::Constants::GiB) {
+    if (fa < 4 * Constants::GiB) {
         // Lazy-identity mapping for 4 GB virtual address space
         phys_mem = fault_address;
         writethrough = true;
-    } else if (fa < 512 * 256 * common::Constants::GiB) {
+    } else if (fa < 512 * 256 * Constants::GiB) {
         // Automatic mapping normal space
         phys_mem = pmm_.alloc();
 
@@ -93,7 +93,7 @@ void MallocAllocator::InitOnce() {
     size_t cap = GLOBAL_mem_manager()->virtual_allocator().GetSpaceSize();
 
     RT_ASSERT(s);
-    RT_ASSERT(cap > 1 * common::Constants::GiB);
+    RT_ASSERT(cap > 1 * Constants::GiB);
 
     RT_ASSERT(nullptr == default_mspace_);
     default_mspace_ = create_mspace_with_base(s, cap, 0);

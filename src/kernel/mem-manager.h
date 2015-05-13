@@ -106,8 +106,8 @@ private:
 class PhysicalAllocator {
 public:
     PhysicalAllocator() :
-        stack_32_(kStackStartAddress, 1 * common::Constants::MiB),
-        stack_64_(kStackStartAddress + common::Constants::MiB, 1 * common::Constants::MiB),
+        stack_32_(kStackStartAddress, 1 * Constants::MiB),
+        stack_64_(kStackStartAddress + Constants::MiB, 1 * Constants::MiB),
         pages_status_(reinterpret_cast<bool*>(kPagesStatusStartAddress)),
         available_phys_memory_(0) {
 
@@ -115,11 +115,11 @@ public:
         MultibootMemoryMapEnumerator mmap = GLOBAL_multiboot()->memory_map();
 
         do {
-            common::MemoryZone zone = mmap.NextAvailableMemory();
+            MemoryZone zone = mmap.NextAvailableMemory();
             if (zone.empty()) {
                 break;
             }
-            uintptr_t start = reinterpret_cast<uintptr_t>(common::Utils
+            uintptr_t start = reinterpret_cast<uintptr_t>(Utils
                 ::AlignPtr<void>(zone.ptr(), chunk_size()));
 
             uintptr_t end = reinterpret_cast<uintptr_t>(
@@ -137,7 +137,7 @@ public:
         }
         while (true);
 
-        if (available_phys_memory_ < 256 * common::Constants::MiB) {
+        if (available_phys_memory_ < 256 * Constants::MiB) {
             printf("System requires at least 256 MiB or memory.\n");
             abort();
         }
@@ -174,7 +174,7 @@ public:
         RT_ASSERT(kAllocStartAddress);
         RT_ASSERT(kPageDirectoryStart);
         RT_ASSERT(kAllocStartAddress - kPageDirectoryStart
-                  >= 1 * common::Constants::MiB);
+                  >= 1 * Constants::MiB);
 
         return PhysicalMemoryZone(reinterpret_cast<void*>(kPageDirectoryStart),
                                   kAllocStartAddress - kPageDirectoryStart);
@@ -223,12 +223,12 @@ public:
         return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(ptr) & ~0x1FFFFF);
     }
 private:
-    static const uint64_t kPageSizeBytes = 2 * common::Constants::MiB;
-    static const uint64_t kAllocStartAddress = 32 * common::Constants::MiB;
-    static const uint64_t kPageDirectoryStart = 26 * common::Constants::MiB;
-    static const uint64_t kStackStartAddress = 22 * common::Constants::MiB;
-    static const uint64_t kPagesStatusStartAddress = 24 * common::Constants::MiB;
-    static const uint64_t kPagesStatusSize = 2 * common::Constants::MiB;
+    static const uint64_t kPageSizeBytes = 2 * Constants::MiB;
+    static const uint64_t kAllocStartAddress = 32 * Constants::MiB;
+    static const uint64_t kPageDirectoryStart = 26 * Constants::MiB;
+    static const uint64_t kStackStartAddress = 22 * Constants::MiB;
+    static const uint64_t kPagesStatusStartAddress = 24 * Constants::MiB;
+    static const uint64_t kPagesStatusSize = 2 * Constants::MiB;
 
     PagesStack stack_32_;
     PagesStack stack_64_;
@@ -326,9 +326,9 @@ public:
         return kSpaceSize;
     }
 
-    static const uint64_t kSpacesBase = 256 * common::Constants::GiB;
-    static const uint64_t kSpaceSize = 256 * common::Constants::GiB;
-    static const uint64_t kStacks = 128 * common::Constants::GiB;
+    static const uint64_t kSpacesBase = 256 * Constants::GiB;
+    static const uint64_t kSpaceSize = 256 * Constants::GiB;
+    static const uint64_t kStacks = 128 * Constants::GiB;
 private:
     Locker stack_alloc_locker_;
     uint64_t stack_alloc_next_;
@@ -351,13 +351,13 @@ public:
         // TODO: support for allocation of more than 512 tables
 
         void* addr = reinterpret_cast<uint8_t*>(page_directory_zone_.ptr()) +
-                tables_taken_ * 4 * common::Constants::KiB;
+                tables_taken_ * 4 * Constants::KiB;
 
         RT_ASSERT(reinterpret_cast<uintptr_t>(addr) -
                   reinterpret_cast<uintptr_t>(
                       page_directory_zone_.ptr()) < page_directory_zone_.size());
 
-        memset(addr, 0, 4 * common::Constants::KiB);
+        memset(addr, 0, 4 * Constants::KiB);
         ++tables_taken_;
 
         return reinterpret_cast<PageTable<EntryType>*>(addr);

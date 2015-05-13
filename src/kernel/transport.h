@@ -17,7 +17,7 @@
 #include <kernel/kernel.h>
 #include <v8.h>
 #include <memory>
-#include <common/constants.h>
+#include <kernel/constants.h>
 #include <kernel/vector.h>
 #include <kernel/resource.h>
 

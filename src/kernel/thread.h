@@ -22,8 +22,8 @@
 #include <kernel/mem-manager.h>
 #include <kernel/atomic.h>
 #include <kernel/resource.h>
-#include <common/constants.h>
-#include <common/utils.h>
+#include <kernel/constants.h>
+#include <kernel/utils.h>
 #include <kernel/timeouts.h>
 #include <kernel/transport.h>
 #include <kernel/v8utils.h>
@@ -34,8 +34,6 @@ namespace rt {
 class ThreadManager;
 class Interface;
 class EngineThread;
-
-using common::Nullable;
 
 class FunctionExportData {
 public:
@@ -198,8 +196,8 @@ public:
     uintptr_t GetStackBottom() const {
         RT_ASSERT(stack_.top());
         RT_ASSERT(stack_.len());
-        RT_ASSERT(reinterpret_cast<uintptr_t>(stack_.top()) % 2 * common::Constants::MiB == 0);
-        RT_ASSERT(stack_.len() % 2 * common::Constants::MiB == 0);
+        RT_ASSERT(reinterpret_cast<uintptr_t>(stack_.top()) % 2 * Constants::MiB == 0);
+        RT_ASSERT(stack_.len() % 2 * Constants::MiB == 0);
         uintptr_t stack_pos = reinterpret_cast<uintptr_t>(stack_.top()) + stack_.len() - 256;
         RT_ASSERT(stack_pos);
         return stack_pos;

@@ -15,9 +15,7 @@
 #include <kernel/profiler/profiler.h>
 #include <kernel/engines.h>
 #include <kernel/platform.h>
-#include <common/constants.h>
-
-using common::Constants;
+#include <kernel/constants.h>
 
 namespace rt {
 

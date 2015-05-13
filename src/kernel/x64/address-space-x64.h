@@ -15,7 +15,7 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <common/constants.h>
+#include <kernel/constants.h>
 #include <kernel/spinlock.h>
 
 namespace rt {
