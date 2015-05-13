@@ -23,7 +23,6 @@
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <kernel/v8platform.h>
-#include <kernel/handle.h>
 #include <kernel/pipes.h>
 
 namespace rt {
@@ -237,7 +236,6 @@ public:
 
     AcpiManager* acpi_manager();
 
-    HandlePoolManager& handle_pools() { return handle_pools_; }
     PipeManager& pipe_manager() { return pipe_manager_; }
 
     ~Engines() = delete;
@@ -252,7 +250,6 @@ private:
     v8::Platform* v8_platform_;
     Atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
-    HandlePoolManager handle_pools_;
     PipeManager pipe_manager_;
 
     mutable Locker _platform_locker;

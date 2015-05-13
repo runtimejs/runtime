@@ -15,7 +15,6 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <kernel/handle.h>
 #include <vector>
 #include <array>
 #include <unordered_map>
@@ -24,9 +23,7 @@
 namespace rt {
 
 class ExternalFunction;
-class HandleObject;
 class Pipe;
-class HandlePool;
 
 /**
  * List of available v8-exposed objects
@@ -105,32 +102,6 @@ struct MoveablePersistent : public v8::UniquePersistent<T> {
 };
 
 /**
- * Per-isolate handle factory implemented as a WeakMap
- */
-class HandleObjectFactory {
-    typedef std::unordered_map<uint64_t, MoveablePersistent<v8::Object>> MapType;
-public:
-    HandleObjectFactory(v8::Isolate* iv8)
-        :   iv8_(iv8) {
-        RT_ASSERT(iv8_);
-    }
-
-    v8::Local<v8::Function> GetCtorFunction(HandlePool* pool);
-    v8::Local<v8::Object> Get(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe);
-    inline static void WeakCallback(const v8::WeakCallbackData<v8::Object, HandleObjectFactory> &data);
-private:
-    inline static uint64_t MakeKey(uint32_t pool_id, uint32_t handle_id) {
-        RT_ASSERT(pool_id < HandlePoolManager::kMaxHandlePools);
-        return (static_cast<uint64_t>(pool_id) << 32) | handle_id;
-    }
-
-    v8::Isolate* iv8_;
-    std::array<v8::Eternal<v8::ObjectTemplate>, HandlePoolManager::kMaxHandlePools> handle_pool_templates_;
-    std::array<v8::Eternal<v8::Function>, HandlePoolManager::kMaxHandlePools> ctor_functions_;
-    MapType map_;
-};
-
-/**
  * Per-isolate cache for v8 object and function templates
  */
 class TemplateCache {
@@ -147,11 +118,6 @@ public:
      * Creates v8 object which represents an object handle
      */
     v8::Local<v8::Value> GetHandleInstance(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe);
-
-    /**
-     * Get handle constructor function for handle pool
-     */
-    v8::Local<v8::Value> GetHandleCtor(HandlePool* pool);
 
     /**
      * Creates v8 object which represents native object instance
@@ -217,7 +183,6 @@ private:
     v8::Eternal<v8::FunctionTemplate> wrapper_callable_template_;
     v8::Eternal<v8::UnboundScript> init_script_;
     std::array<v8::Eternal<v8::Object>, (uint32_t)NativeTypeId::LAST> object_cache_;
-    HandleObjectFactory handle_object_factory_;
 };
 
 } // namespace rt

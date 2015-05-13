@@ -318,8 +318,6 @@ private:
         HASHMAP,
         FUNCTION,
         NATIVE_OBJECT,
-        NATIVE_OBJECT_HANDLE,
-        HANDLE_CTOR,
         ERROR_OBJ,
         RESOURCES_FN,
     };

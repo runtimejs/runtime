@@ -19,7 +19,6 @@
 #include <kernel/template-cache.h>
 #include <acpi.h>
 #include <kernel/utils.h>
-#include <kernel/handle.h>
 #include <kernel/pipes.h>
 
 namespace rt {
@@ -114,7 +113,6 @@ public:
     /**
      * Create new handle pool
      */
-    DECLARE_NATIVE(CreateHandlePool);
     DECLARE_NATIVE(HandlePoolCtorFunction);
 
     /**
@@ -134,7 +132,6 @@ public:
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
         obj.SetCallback("bufferAddress", BufferAddress);
-        obj.SetCallback("createHandlePool", CreateHandlePool);
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
         obj.SetCallback("handleIndex", HandleIndex);
@@ -444,32 +441,6 @@ private:
     uint32_t handle_id_;
     Pipe* wpipe_;
     Pipe* rpipe_;
-};
-
-class HandlePoolObject : public JsObjectWrapper<HandlePoolObject,
-    NativeTypeId::TYPEID_HANDLE_POOL> {
-public:
-    HandlePoolObject(HandlePool* pool) : JsObjectWrapper(), pool_(pool) {
-        RT_ASSERT(pool_);
-    }
-
-    DECLARE_NATIVE(CreateHandle);
-    DECLARE_NATIVE(Has);
-    DECLARE_NATIVE(Ctor);
-
-    void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("createHandle", CreateHandle);
-        obj.SetCallback("has", Has);
-        obj.SetCallback("ctor", Ctor);
-    }
-
-    JsObjectWrapperBase* Clone() const {
-        return nullptr; // Not clonable
-    }
-
-    HandlePool* pool() const { return pool_; }
-private:
-    HandlePool* pool_;
 };
 
 class PipeObject : public JsObjectWrapper<PipeObject,
