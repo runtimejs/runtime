@@ -503,19 +503,6 @@ NATIVE_FUNCTION(NativesObject, BufferSliceInplace) {
     args.GetReturnValue().Set(abNew->GetInstance());
 }
 
-NATIVE_FUNCTION(NativesObject, CreatePipe) {
-    PROLOGUE_NOTHIS;
-
-    RuntimeStateScope<RuntimeState::PIPE_CREATE> pipe_scope(th->thread_manager());
-    Pipe* pipe = GLOBAL_engines()->pipe_manager().CreatePipe();
-    RT_ASSERT(pipe);
-
-    RT_ASSERT(th->template_cache());
-    args.GetReturnValue().Set((new PipeObject(pipe))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-}
-
 NATIVE_FUNCTION(NativesObject, ToBuffer) {
     PROLOGUE_NOTHIS;
     USEARG(0);
@@ -566,7 +553,6 @@ NATIVE_FUNCTION(NativesObject, Resources) {
     LOCAL_V8STRING(s_memory_range, "memoryRange");
     LOCAL_V8STRING(s_io_range, "ioRange");
     LOCAL_V8STRING(s_irq_range, "irqRange");
-    LOCAL_V8STRING(s_isolates_manager, "isolatesManager");
     LOCAL_V8STRING(s_acpi, "acpi");
     LOCAL_V8STRING(s_allocator, "allocator");
     LOCAL_V8STRING(s_loader, "loader");
@@ -583,10 +569,6 @@ NATIVE_FUNCTION(NativesObject, Resources) {
         ->GetInstance());
 
     obj->Set(s_irq_range, (new ResourceIRQRangeObject(Range<uint8_t>(1, 255)))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-
-    obj->Set(s_isolates_manager, (new IsolatesManagerObject())
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
@@ -769,12 +751,6 @@ NATIVE_FUNCTION(NativesObject, Debug) {
         NativeObjectWrapper* ptr { th->template_cache()->GetWrapped(arg0) };
         if (nullptr != ptr) {
             switch (ptr->type_id()) {
-                case NativeTypeId::TYPEID_HANDLE: {
-                    HandleObject* baseptr { static_cast<HandleObject*>(ptr) };
-                    printf("[ HandleObject pool_id=%lu handle_id=%lu wpipe=%p rpipe=%p ]\n",
-                        baseptr->pool_id(), baseptr->handle_id(), baseptr->wpipe(), baseptr->rpipe());
-                    return;
-                }
                 default:
                     break;
             }
@@ -794,45 +770,6 @@ NATIVE_FUNCTION(NativesObject, PerformanceNow) {
 NATIVE_FUNCTION(NativesObject, StopVideoLog) {
     PROLOGUE_NOTHIS;
     GLOBAL_boot_services()->logger()->DisableVideo();
-}
-
-NATIVE_FUNCTION(NativesObject, HandleIndex) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    auto handle_object = HandleObject::FromInstance(arg0);
-    if (nullptr == handle_object) {
-        THROW_ERROR("argument 0 is not a handle object");
-    }
-
-    RT_ASSERT(handle_object);
-    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, handle_object->handle_id()));
-}
-
-NATIVE_FUNCTION(NativesObject, HandleGetPipe) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    auto handle_object = HandleObject::FromInstance(arg0);
-    if (nullptr == handle_object) {
-        THROW_ERROR("argument 0 is not a handle object");
-    }
-
-    uint32_t index = arg1->Uint32Value();
-    Pipe* pipe = nullptr;
-    if (0 == index) {
-        pipe = handle_object->wpipe();
-    } else {
-        pipe = handle_object->rpipe();
-    }
-
-    if (!pipe) {
-        THROW_ERROR("could not get handle pipe");
-    }
-
-    RT_ASSERT(pipe);
-    args.GetReturnValue().Set((new PipeObject(pipe))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
 }
 
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
@@ -1361,77 +1298,6 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
     args.GetReturnValue().Set(v8::Uint32::New(iv8, length));
 }
 
-NATIVE_FUNCTION(IsolatesManagerObject, Create) {
-    PROLOGUE;
-    USEARG(0);
-    USEARG(1);
-    RT_ASSERT(arg0->IsArray());
-    RT_ASSERT(2 == arg0.As<v8::Array>()->Length());
-    RT_ASSERT(arg1->IsObject());
-
-    RT_ASSERT(GLOBAL_engines()->execution_engines_count() > 0);
-    Engine* first_engine = GLOBAL_engines()->execution_engine(0);
-    RT_ASSERT(first_engine);
-
-    TransportData td_code;
-    {	TransportData::SerializeError err { td_code.MoveValue(th, arg0) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    TransportData td_args;
-    {	TransportData::SerializeError err { td_args.MoveValue(th, arg1) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    v8::Local<v8::Promise::Resolver> promise_resolver;
-    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
-        promise_resolver = v8::Promise::Resolver::New(iv8);
-    }
-
-    auto promise_index = th->AddPromise(
-        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
-
-    ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
-
-    {	LockingPtr<EngineThread> thread { st.get() };
-
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::SET_ARGUMENTS,
-                th->handle(),
-                std::move(td_args),
-                nullptr, promise_index));
-            thread->PushMessage(std::move(msg));
-        }
-
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::EVALUATE,
-                th->handle(),
-                std::move(td_code)));
-            thread->PushMessage(std::move(msg));
-        }
-    }
-
-    args.GetReturnValue().Set(promise_resolver);
-}
-
-NATIVE_FUNCTION(IsolatesManagerObject, List) {
-    PROLOGUE;
-    Engine* first_engine = GLOBAL_engines()->execution_engine(0);
-    auto list = first_engine->thread_manager()->List();
-
-    v8::Local<v8::Array> result { v8::Array::New(iv8, list.size()) };
-    for (size_t i = 0; i < list.size(); ++i) {
-        auto& item = list[i];
-        v8::Local<v8::Object> dat { v8::Object::New(iv8) };
-
-        // TODO: add data
-
-        result->Set(i, dat);
-    }
-
-    args.GetReturnValue().Set(result);
-}
-
 NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     PROLOGUE;
 
@@ -1458,144 +1324,6 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     ret->Set(s_buffer, ArrayBuffer::FromBuffer(iv8, ptr, size)->GetInstance());
 
     args.GetReturnValue().Set(ret);
-}
-
-void PipeObject::PushImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args) {
-    auto th = V8Utils::GetThread(args);
-    auto iv8 = args.GetIsolate();
-    RT_ASSERT(th);
-    RT_ASSERT(iv8);
-    RT_ASSERT(pipe);
-    USEARG(0);
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveValue(th, arg0) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    RuntimeStateScope<RuntimeState::PIPE_PUSH> pipe_scope(th->thread_manager());
-    bool result = pipe->Push(std::move(data));
-    args.GetReturnValue().Set(v8::Boolean::New(iv8, result));
-}
-
-void PipeObject::PullImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args) {
-    auto th = V8Utils::GetThread(args);
-    auto iv8 = args.GetIsolate();
-    RT_ASSERT(th);
-    RT_ASSERT(iv8);
-    RT_ASSERT(pipe);
-    USEARG(0);
-    ResourceHandle<EngineThread> thread { th->handle() };
-    RT_ASSERT(!thread.empty());
-
-    uint32_t index = 0;
-    uint32_t count = 0;
-    if (arg0->IsNumber()) {
-        USEARG(1);
-        VALIDATEARG(1, FUNCTION, "argument 1 is not a function");
-        count = arg0->Uint32Value();
-        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg1));
-    } else {
-        VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
-        count = 1;
-        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0));
-    }
-
-    RT_ASSERT(count > 0);
-    RuntimeStateScope<RuntimeState::PIPE_PULL> pipe_scope(th->thread_manager());
-    pipe->Pull(thread, index, count);
-}
-
-NATIVE_FUNCTION(HandleObject, PipePush) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    PipeObject::PushImpl(handle_object->wpipe_, args);
-}
-
-NATIVE_FUNCTION(HandleObject, PipePull) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    PipeObject::PullImpl(handle_object->rpipe_, args);
-}
-
-NATIVE_FUNCTION(HandleObject, PipeClose) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    if (handle_object->wpipe_) {
-        handle_object->wpipe_->Close();
-    }
-
-    if (handle_object->rpipe_) {
-        handle_object->rpipe_->Close();
-    }
-}
-
-
-NATIVE_FUNCTION(PipeObject, Push) {
-    PROLOGUE;
-    PushImpl(that->pipe_, args);
-}
-
-NATIVE_FUNCTION(PipeObject, Pull) {
-    PROLOGUE;
-    PullImpl(that->pipe_, args);
-}
-
-NATIVE_FUNCTION(PipeObject, Wait) {
-    PROLOGUE;
-    USEARG(0);
-    VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
-
-    RT_ASSERT(that->pipe_);
-    ResourceHandle<EngineThread> thread { th->handle() };
-    RT_ASSERT(!thread.empty());
-    uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
-    that->pipe_->Wait(thread, index);
-}
-
-NATIVE_FUNCTION(PipeObject, Close) {
-    PROLOGUE;
-    RT_ASSERT(that->pipe_);
-    that->pipe_->Close();
 }
 
 } // namespace rt

@@ -87,7 +87,6 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         isolate->Set(iv8_, "data", v8::Null(iv8_));
         isolate->Set(iv8_, "env", v8::Null(iv8_));
         isolate->Set(iv8_, "system", v8::Null(iv8_));
-        isolate->Set(iv8_, "createPipe", v8::FunctionTemplate::New(iv8_, NativesObject::CreatePipe));
         isolate->Set(iv8_, "sync", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "isolate", isolate);
 

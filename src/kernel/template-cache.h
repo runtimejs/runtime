@@ -23,7 +23,6 @@
 namespace rt {
 
 class ExternalFunction;
-class Pipe;
 
 /**
  * List of available v8-exposed objects
@@ -42,9 +41,6 @@ enum class NativeTypeId : uint32_t {
     TYPEID_RESOURCE_IO_RANGE,
     TYPEID_ISOLATES_MANAGER,
     TYPEID_ALLOCATOR,
-    TYPEID_HANDLE,
-    TYPEID_HANDLE_POOL,
-    TYPEID_PIPE,
     TYPEID_FUNCTION,
 
     LAST // Keep it as the last element
@@ -113,11 +109,6 @@ public:
      * function
      */
     v8::Local<v8::Value> NewWrappedFunction(ExternalFunction* data);
-
-    /**
-     * Creates v8 object which represents an object handle
-     */
-    v8::Local<v8::Value> GetHandleInstance(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe);
 
     /**
      * Creates v8 object which represents native object instance
