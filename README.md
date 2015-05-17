@@ -7,7 +7,7 @@ __runtime.js__ is a kernel built on V8 JavaScript engine. It uses event-driven a
 
 The goal of this project is to design and implement a kernel that is optimized to run JavaScript applications. By providing environment for JavaScript code only, it is possible to rethink and improve overall kernel design.
 
-It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
+It's currently under development, bleeding edge code branch is [libos](https://github.com/runtimejs/runtime/tree/libos). Contributions are welcome.
 
 You can use issues section to ask any questions or share your ideas https://github.com/runtimejs/runtime/issues
 
