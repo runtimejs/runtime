@@ -13,5 +13,5 @@
 // limitations under the License.
 
 exports.receive = function(intf, u8, headerOffset) {
-  console.log('recv TCP over IP4');
+  debug('recv TCP over IP4');
 };

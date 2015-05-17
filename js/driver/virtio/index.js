@@ -23,7 +23,7 @@ var driver = {
       return virtioNet(pciDevice);
     }
 
-    console.log('[virtio] unknown virtio device');
+    debug('[virtio] unknown virtio device');
   },
   reset: function(pciDevice) {}
 };

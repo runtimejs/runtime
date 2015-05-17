@@ -83,7 +83,7 @@ function initializeNetworkDevice(pciDevice) {
   };
 
   var deviceFeatures = dev.readDeviceFeatures(features);
-  isolate.log(JSON.stringify(deviceFeatures));
+  debug(JSON.stringify(deviceFeatures));
 
   if (deviceFeatures.VIRTIO_NET_F_GSO) {
     // deviceFeatures.VIRTIO_NET_F_CSUM = true;
@@ -91,7 +91,7 @@ function initializeNetworkDevice(pciDevice) {
   }
 
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
-    console.log('[virtio] driver is unable to start');
+    debug('[virtio] driver is unable to start');
     return;
   }
 
@@ -122,7 +122,7 @@ function initializeNetworkDevice(pciDevice) {
   var intf = new Interface(mac);
   intf.setBufferDataOffset(virtioHeader.length);
   intf.onTransmit.add(function(u8headers, u8data) {
-    console.log('virtio transmit called');
+    debug('virtio transmit called');
 
     if (u8data) {
       transmitQueue.placeBuffers([u8headers.buffer, u8data.buffer], false);

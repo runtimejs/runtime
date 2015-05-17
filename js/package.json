@@ -19,6 +19,9 @@
   "devDependencies": {
     "tape": "^4.0.0"
   },
+  "runtimejs": {
+    "debug": false
+  },
   "dependencies": {
     "assert-error": "^1.0.2",
     "bit-twiddle": "^1.0.2",

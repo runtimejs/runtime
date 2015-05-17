@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-require('module-singleton')(require('./package.json'));
+var package = require('./package.json');
+require('module-singleton')(package);
+
+var isDebug = package.runtimejs.debug;
+global.debug = isDebug ? isolate.log : function() {};
 
 // Load runtime.js core
 require('./core');
@@ -22,6 +26,7 @@ require('./service/dhcp-client');
 
 runtime.shell = require('./service/shell');
 runtime.dns = require('./service/dns-resolver');
+runtime.debug = isDebug;
 
 // Example shell command
 runtime.shell.setCommand('1', function(args, cb) {
@@ -36,3 +41,5 @@ runtime.shell.setCommand('1', function(args, cb) {
 // Start device drivers
 require('./driver/ps2');
 require('./driver/virtio');
+
+module.exports = runtime;

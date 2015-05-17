@@ -31,4 +31,4 @@ function Runtime() {
   this.debug = runtime.debug; // fixme
 }
 
-global.runtime = new Runtime();
+global.runtime = module.exports = new Runtime();

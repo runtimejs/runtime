@@ -84,7 +84,7 @@ Interface.prototype.receive = function(u8) {
   // case 0x86dd: // ipv6
   }
 
-  console.log('receive called', etherType.toString(16));
+  debug('receive called', etherType.toString(16));
 };
 
 Interface.prototype.sendIP4 = function(viaIP, u8headers, u8data) {

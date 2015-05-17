@@ -31,7 +31,7 @@ ARPResolver.prototype.receive = function(u8, headerOffset) {
   var targetIP = arpHeader.getTargetIP(u8, headerOffset);
   var selfIP = this.intf.ipAddr;
 
-  console.log('recv ARP', operation, srcMAC, srcIP, targetMAC, targetIP, selfIP);
+  debug('recv ARP', operation, srcMAC, srcIP, targetMAC, targetIP, selfIP);
 
   switch (operation) {
   case arpHeader.OPERATION_REQEUST:

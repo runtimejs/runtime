@@ -29,7 +29,7 @@ function Entry(ip, mask, gateway, intf) {
   this.gateway = gateway;
   this.intf = intf;
 
-  console.log('[ ADD ROUTE', ip.toString() + '/' + this.maskBits, 'via', gateway, intf.name, ']');
+  debug('[ ADD ROUTE', ip.toString() + '/' + this.maskBits, 'via', gateway, intf.name, ']');
 }
 
 exports.addSubnet = function(ip, mask, gateway, intf) {

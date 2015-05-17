@@ -41,7 +41,7 @@ function DNSClient(serverIP, serverPort) {
       return;
     }
 
-    console.log('DNS recv', ip, port, JSON.stringify(data));
+    debug('DNS recv', ip, port, JSON.stringify(data));
 
     var requests = self._requests;
     var domain = data.hostname;

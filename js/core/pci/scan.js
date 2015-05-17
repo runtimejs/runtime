@@ -814,7 +814,7 @@ pciManager.each(function(pciDevice) {
   var info = address.bus.toString(16) + ':' + address.slot.toString(16) + '.' + address.func + ' ' +
     pciDevice.vendorId().toString(16) + ':' + pciDevice.deviceId().toString(16) + ' ' +
     classData.className + ' IRQ: ' + vector + ' PIN: ' + pins[devicePin];
-  isolate.log(info);
+  debug(info);
 });
 
 function listPciDevices() {

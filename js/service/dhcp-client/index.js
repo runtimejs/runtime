@@ -119,7 +119,7 @@ function dhcpConfigure(intf, cb) {
     var messageType = messageTypeOption[0];
     var yourIP = dhcpPacket.getYourIP(u8);
 
-    // console.log('GOT response', messageType, JSON.stringify(options));
+    // debug('GOT response', messageType, JSON.stringify(options));
 
     if (clientState === STATE_DISCOVER_SENT &&
         messageType === dhcpPacket.packetType.OFFER) {
@@ -133,11 +133,11 @@ function dhcpConfigure(intf, cb) {
 
   function err(e) {
     clientState = STATE_ERROR;
-    console.log(e.stack);
+    debug(e.stack);
   }
 
   socket.onReceive.add(function(ip, port, u8) {
-    console.log('CLIENT OK', ip, port, u8);
+    debug('CLIENT OK', ip, port, u8);
     parseMessage(ip, u8);
   });
 
@@ -147,10 +147,10 @@ function dhcpConfigure(intf, cb) {
 }
 
 runtime.net.onInterfaceAdded.add(function(intf) {
-  console.log('intf add')
+  debug('intf add')
 
   dhcpConfigure(intf, function(config) {
-    console.log('configure dhcp ok', JSON.stringify(config));
+    debug('configure dhcp ok', JSON.stringify(config));
     intf.configure(config.ip, config.mask);
 
     var subnet = config.ip.and(config.mask);

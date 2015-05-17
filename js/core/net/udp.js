@@ -37,7 +37,7 @@ function receive(intf, srcIP, destIP, u8, headerOffset) {
   var destPort = udpHeader.getDestPort(u8, headerOffset);
   var dataLength = udpHeader.getDataLength(u8, headerOffset) - udpHeader.headerLength;
   var dataOffset = headerOffset + udpHeader.headerLength;
-  console.log('recv UDP over IP4', srcPort, destPort, dataLength);
+  debug('recv UDP over IP4', srcPort, destPort, dataLength);
 
   var socket = UDPSocket.lookupReceive(destPort);
   if (!socket) {
