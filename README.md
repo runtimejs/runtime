@@ -1,104 +1,48 @@
-runtime.js [![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=master)](https://travis-ci.org/runtimejs/runtime)
-====
+# runtime.js
 
-__runtime.js__ is a kernel built on V8 JavaScript engine. It uses event-driven and non-blocking I/O model inspired by Node.js.
+[![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=master)](https://travis-ci.org/runtimejs/runtime) [![npm version](https://badge.fury.io/js/runtimejs.svg)](http://badge.fury.io/js/runtimejs) [![Join the chat at https://gitter.im/runtimejs/runtime](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/runtimejs/runtime?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-The goal of this project is to design and implement a kernel that is optimized to run JavaScript applications. By providing environment for JavaScript code only, it is possible to rethink and improve overall kernel design.
+__runtime.js__ is a tiny open-source operating system that runs JavaScript, could be bundled up with an application and deployed as a standalone and lightweight VM image.
 
-It's currently under development and does not include many essential features. If you want to contribute, your help is very welcome.
+Example **index.js**:
 
-You can use issues section to ask any questions or share your ideas https://github.com/runtimejs/runtime/issues
-
-Join IRC chatroom #runtimejs on freenode
-
-![Console](https://raw.githubusercontent.com/runtimejs/runtimejs.github.io/master/img/runtimejs_3.png)
-
-
-Technical details
-----
-
-Kernel [architecture](https://github.com/runtimejs/runtime/wiki/Architecture)
-
-- supported x86_64, 64 bit only
-- software isolated applications ([isolates](https://github.com/runtimejs/runtime/wiki/Isolate))
-- single address space, no hardware context switches
-- does not use cpu protection rings
-- non-blocking asynchronous [inter-isolate communication](https://github.com/runtimejs/runtime/wiki/RPC) (IIC)
-- drivers and system services are implemented in JavaScript
-- low-level kernel services are written in C++11
-
-Status
-----
-
-####What's done
-
-- V8 isolates
-- multitasking (cooperative only)
-- Inter-isolate communication using [RPC](https://github.com/runtimejs/runtime/wiki/RPC)
-- embedded ACPICA for ACPI support
-- simple keyboard and VGA display drivers
-- shell and some basic applications
-- PCI bus driver device detection
-- virtio-net driver
-
-
-####Planned
-
-- network stack
-- virtual file system
-- virtio drivers for storage and network
-
-
-Build
-----
-####Prerequisites
-- gcc 4.8 or newer cross compiler (target x86\_64-elf)
-- fasm
-- scons
-
-*Warning: gcc 4.9.0 is not supported because of libc++ compile bug (use 4.9.1 or newer)*
-
-####Using Docker
-
-Easiest way to setup developer environment is to use Docker https://www.docker.io/
-
-    ./docker-prepare.sh
-
-To build
-
-    ./docker-build.sh
-
-####Without Docker
-
-You need to install fasm, scons and GCC cross compiler targeting x86\_64-elf. http://wiki.osdev.org/GCC_Cross-Compiler
-
-To build
-
-    scons
-    
-####Run using QEMU (recommended version >= 2.0.0)
-
-    ./qemu.sh
-    
-####Try prebuilt binaries in QEMU
-
-Download latest __runtime__ and __initrd__ files from releases page https://github.com/runtimejs/runtime/releases
-
-Run
-```bash
-qemu-system-x86_64                                \
-    -m 512                                        \
-    -smp 1                                        \
-    -kernel runtime                               \
-    -initrd initrd                                \
-    -serial stdio
+```js
+var runtime = require('runtimejs')
+console.log('Hello world!')
 ```
-    
-Documentation
-----
-[Wiki pages](https://github.com/runtimejs/runtime/wiki)
 
-[Developer CLI](https://www.npmjs.com/package/runtime-cli)
+Let's bundle up and run it!
+
+```bash
+# install dependencies
+npm install runtimejs
+npm install runtimeify -g
+npm install runtime-tools -g
+
+# bundle up ramdisk image
+runtimeify index.js -o initrd
+
+# make sure you have QEMU installed
+brew install qemu           # OSX
+sudo apt-get install qemu   # Ubuntu
+
+# run it in QEMU
+runtime-qemu ./initrd
+```
+
+The system is built on [V8 JavaScript engine](https://code.google.com/p/v8/) and uses event-driven and non-blocking I/O model inspired by [Node.js](https://nodejs.org/).
+
+WARNING: project is in development and not ready for production use. Contributions are welcome.
+
+## How does it work?
+
+There are two main components: operating system (OS) kernel and a <a href="https://www.npmjs.com/package/runtimejs"><nobr>core JavaScript library</nobr></a>.
+
+The kernel is the C++ program that manages low-level resources like CPU and memory, runs applications using embedded <a href="https://code.google.com/p/v8/"><nobr>V8 JavaScript engine</nobr></a>, and exposes raw hardware to JavaScript.
+
+Application, its dependencies and the core library are bundled up using <a href="http://browserify.org/">Browserify</a>, then packed into ramdisk image for kernel to use.
+
+
 
 License
 ----
