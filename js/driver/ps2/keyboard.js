@@ -119,6 +119,8 @@ function keyEvent(code, isPressed) {
     }
   }
 
+  var keyCode = character.charCodeAt(0);
+
   var event = {
     type: cmd,
     character: character,
@@ -126,7 +128,9 @@ function keyEvent(code, isPressed) {
     shiftKey: statuses.leftshift || statuses.rightshift,
     ctrlKey: statuses.leftctrl || statuses.rightctrl,
     // TODO: Figure out if this makes sense to support
-    metaKey: false
+    metaKey: false,
+    keyCode: keyCode,
+    which: keyCode
   };
 
   if (isPressed) {
