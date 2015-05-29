@@ -128,9 +128,9 @@ function keyEvent(code, isPressed) {
   };
 
   if (isPressed) {
-    runtime.keyboard.onKeydown.dispatch(keyinfo);
+    runtime.keyboard.onkeydown.dispatch(keyinfo);
   } else {
-    runtime.keyboard.onKeyup.dispatch(keyinfo);
+    runtime.keyboard.onkeyup.dispatch(keyinfo);
   }
 }
 

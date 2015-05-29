@@ -13,5 +13,5 @@
 // limitations under the License.
 
 var EventController = require('event-controller');
-exports.onKeydown = new EventController();
-exports.onKeyup = new EventController();
+exports.onkeydown = new EventController();
+exports.onkeyup = new EventController();
