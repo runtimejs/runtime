@@ -119,18 +119,20 @@ function keyEvent(code, isPressed) {
     }
   }
 
-  var keyinfo = {
+  var event = {
     type: cmd,
     character: character,
-    alt: (statuses.leftalt || statuses.rightalt),
-    shift: statuses.leftshift || statuses.rightshift,
-    ctrl: statuses.leftctrl || statuses.rightctrl
+    altKey: (statuses.leftalt || statuses.rightalt),
+    shiftKey: statuses.leftshift || statuses.rightshift,
+    ctrlKey: statuses.leftctrl || statuses.rightctrl,
+    // TODO: Figure out if this makes sense to support
+    metaKey: false
   };
 
   if (isPressed) {
-    runtime.keyboard.onkeydown.dispatch(keyinfo);
+    runtime.keyboard.onkeydown.dispatch(event);
   } else {
-    runtime.keyboard.onkeyup.dispatch(keyinfo);
+    runtime.keyboard.onkeyup.dispatch(event);
   }
 }
 
