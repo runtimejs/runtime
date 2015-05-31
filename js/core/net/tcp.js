@@ -12,6 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-exports.receive = function(intf, u8, headerOffset) {
-  debug('recv TCP over IP4');
+var tcpHeader = require('./tcp-header');
+var TCPSocket = require('./tcp-socket');
+
+exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
+  var srcPort = tcpHeader.getSrcPort(u8, headerOffset);
+  var destPort = tcpHeader.getDestPort(u8, headerOffset);
+  var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
+  var dataLength = u8.length - dataOffset;
+  debug('recv TCP over IP4', srcPort, destPort, 'data off = ', dataOffset, 'payload len = ', dataLength);
+
+  var socket = TCPSocket.lookupReceive(destPort);
+  if (!socket) {
+    debug('no socket for port ', destPort);
+    return;
+  }
+
+  if (!socket._intf) {
+    socket._intf = intf;
+  }
+  socket._receive(u8, srcIP, srcPort, headerOffset);
 };

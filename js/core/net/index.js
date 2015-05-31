@@ -22,6 +22,8 @@ var EventController = require('event-controller');
 var UDPSocket = require('./udp-socket');
 var IP4Address = require('./ip4-address');
 var loopback = require('./loopback');
+var TCPSocket = require('./tcp-socket');
+var TCPServerSocket = require('./tcp-server-socket');
 
 var onInterfaceAdded = new EventController();
 var onInterfaceRemoved = new EventController();
@@ -37,6 +39,8 @@ function interfaceAdd(intf) {
 interfaces.add(loopback);
 
 exports.interfaceAdd = interfaceAdd;
+exports.TCPSocket = TCPSocket;
+exports.TCPServerSocket = TCPServerSocket;
 exports.UDPSocket = UDPSocket;
 exports.IP4Address = IP4Address;
 exports.MACAddress = MACAddress;
