@@ -29,6 +29,12 @@ function Runtime() {
   this.net = net;
   this.bufferAddress = runtime.bufferAddress; // fixme
   this.debug = runtime.debug; // fixme
+  this.machine = {
+    reboot: resources.natives.reboot,
+    shutdown: function() {
+      resources.acpi.enterSleepState(5);
+    }
+  };
 }
 
 global.runtime = module.exports = new Runtime();

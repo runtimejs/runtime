@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var virtioNet = require('./net');
 var VIRTIO_SUBSYSTEM_NETWORK = 1;
 

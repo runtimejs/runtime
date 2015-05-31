@@ -1,7 +1,7 @@
 {
   "name": "runtimejs",
   "version": "0.1.2",
-  "description": "runtime.js library operating system",
+  "description": "Core runtime.js library",
   "main": "index.js",
   "scripts": {
     "test": "tape test.js"

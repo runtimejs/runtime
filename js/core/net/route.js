@@ -34,17 +34,22 @@ function Entry(ip, mask, gateway, intf) {
 
 exports.addSubnet = function(ip, mask, gateway, intf) {
   table.push(new Entry(ip, mask, gateway, intf));
-}
+};
 
 exports.addDefault = function(gateway, intf) {
   table.push(new Entry(IP4Address.ANY, IP4Address.ANY, gateway, intf));
-}
+};
 
-exports.lookup = function(destIP) {
+exports.lookup = function(destIP, intf) {
   var result = null;
   var maxMaskBits = 0;
   for (var i = 0, l = table.length; i < l; ++i) {
     var entry = table[i];
+
+    if (intf && entry.intf !== intf) {
+      continue;
+    }
+
     if (destIP.and(entry.mask).equals(entry.ip) && entry.maskBits >= maxMaskBits) {
       result = entry;
       maxMaskBits = entry.maskBits;
@@ -52,4 +57,4 @@ exports.lookup = function(destIP) {
   }
 
   return result;
-}
+};

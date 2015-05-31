@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
+var assert = require('assert');
+
 function DescriptorTable(buffer, byteOffset, ringSize) {
   this.view = new DataView(buffer, byteOffset, ringSize * DescriptorTable.SIZE);
   this.freeDescriptorHead = 0;
@@ -49,13 +53,17 @@ DescriptorTable.prototype.get = function(descriptorId) {
   };
 };
 
-DescriptorTable.prototype.setBuffer = function(descriptorId, buf, flags) {
+DescriptorTable.prototype.getDescriptorBuffer = function(descriptorId) {
+  return this.descriptorsBuffers[descriptorId];
+};
+
+DescriptorTable.prototype.setBuffer = function(descriptorId, buf, len, flags) {
   var self = this;
   var base = DescriptorTable.SIZE * descriptorId;
   var addr = runtime.bufferAddress(buf);
-  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 0, addr[0], true); // high
-  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 4, addr[1], true); // low
-  self.view.setUint32(base + DescriptorTable.OFFSET_LEN, buf.byteLength >>> 0, true);
+  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 0, addr[1], true); // high
+  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 4, addr[2], true); // low
+  self.view.setUint32(base + DescriptorTable.OFFSET_LEN, len >>> 0, true);
   self.view.setUint16(base + DescriptorTable.OFFSET_FLAGS, flags >>> 0, true);
 };
 
@@ -71,7 +79,14 @@ DescriptorTable.prototype.setNext = function(descriptorId, next) {
   self.view.setUint16(base + DescriptorTable.OFFSET_NEXT, next >>> 0, true);
 };
 
-DescriptorTable.prototype.placeBuffers = function(buffers, isWriteOnly) {
+/**
+ * Put buffers into free slots of descriptor table
+ *
+ * @param buffers {array} array of Uint8Array buffers
+ * @param lengths {array} array of corresponding buffer lengths (same size as buffers)
+ * @param isWriteOnly {bool} set writeOnly flag for each buffer
+ */
+DescriptorTable.prototype.placeBuffers = function(buffers, lengths, isWriteOnly) {
   var self = this;
   var count = buffers.length;
   if (self.descriptorsAvailable < count) {
@@ -90,7 +105,7 @@ DescriptorTable.prototype.placeBuffers = function(buffers, isWriteOnly) {
       flags |= DescriptorTable.VRING_DESC_F_WRITE;
     }
 
-    self.setBuffer(head, d, flags);
+    self.setBuffer(head, d, lengths[i], flags);
     self.descriptorsBuffers[head] = d;
     head = self.getNext(head);
   }
@@ -102,10 +117,9 @@ DescriptorTable.prototype.placeBuffers = function(buffers, isWriteOnly) {
 
 DescriptorTable.prototype.getBuffer = function(descriptorId) {
   var self = this;
-  var descFlags = 0;
-
   var nextDescriptorId = descriptorId;
   var buffer = self.descriptorsBuffers[descriptorId];
+  self.descriptorsBuffers[descriptorId] = null;
 
   var desc = self.get(descriptorId);
   while (desc.flags & DescriptorTable.VRING_DESC_F_NEXT) {
@@ -129,6 +143,7 @@ function AvailableRing(buffer, byteOffset, ringSize) {
   this.AVAILABLE_RING_INDEX_USED_EVENT = 2 + ringSize;
   this.VRING_AVAIL_F_NO_INTERRUPT = 1;
   this.added = 0;
+  this.availableRing[this.AVAILABLE_RING_INDEX_IDX] = 0;
 }
 
 AvailableRing.prototype.readIdx = function() {
@@ -159,6 +174,11 @@ AvailableRing.prototype.placeDescriptor = function(index) {
   ++self.added;
 };
 
+AvailableRing.prototype.readDescriptorAsDevice = function(idxIndex) {
+  var self = this;
+  return self.availableRing[self.AVAILABLE_RING_INDEX_RING + idxIndex];
+};
+
 AvailableRing.prototype.disableInterrupts = function() {
   this.availableRing[this.AVAILABLE_RING_INDEX_FLAGS] = this.VRING_AVAIL_F_NO_INTERRUPT;
 };
@@ -174,6 +194,7 @@ function UsedRing(buffer, byteOffset, ringSize) {
   this.ringData = new Uint16Array(buffer, byteOffset, 2);
   this.ringElements = new Uint32Array(buffer, byteOffset + this.OFFSET_BYTES_RING, ringSize * 2);
   this.lastUsedIndex = 0;
+  this.ringData[this.INDEX_IDX] = 0;
 }
 
 UsedRing.ELEMENT_SIZE = 8;
@@ -189,6 +210,14 @@ UsedRing.prototype.readElement = function(index) {
 UsedRing.prototype.readIdx = function() {
   var self = this;
   return self.ringData[self.INDEX_IDX];
+}
+
+UsedRing.prototype.placeDescriptorAsDevice = function(index, bufferLength) {
+  var self = this;
+  var used = (self.readIdx() & (self.ringSize - 1)) >>> 0;
+  self.ringElements[index * 2] = used;
+  self.ringElements[index * 2 + 1] = bufferLength;
+  ++self.ringData[self.INDEX_IDX];
 }
 
 UsedRing.prototype.hasUnprocessedBuffers = function() {
@@ -212,6 +241,7 @@ UsedRing.prototype.getUsedDescriptor = function() {
 var SIZEOF_UINT16 = 2;
 
 function VRing(mem, byteOffset, ringSize) {
+  assert(ringSize !== 0 && (ringSize & (ringSize - 1)) === 0, 'invalid ringSize = ' + ringSize);
   function align(value) {
     return ((value + 4095) & ~4095) >>> 0;
   }
@@ -238,10 +268,28 @@ function VRing(mem, byteOffset, ringSize) {
  */
 VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
   var self = this;
-  var VRING_DESC_F_NEXT = 1;
-  var VRING_DESC_F_WRITE = 2;
 
-  var first = self.descriptorTable.placeBuffers(buffers, isWriteOnly);
+  // Single Uint8Array could use multiple physical pages
+  // as its backing store
+  var pageSplitBuffers = [];
+  var lengths = [];
+  for (var i = 0, l = buffers.length; i < l; ++i) {
+    var u8 = buffers[i];
+    var addr = runtime.bufferAddress(u8);
+    if (addr[3] === 0) {
+      pageSplitBuffers.push(u8);
+      lengths.push(addr[0]);
+    } else {
+      // push entire u8 here but set shorter length
+      // this way we can receive the same buffer as a single item later
+      pageSplitBuffers.push(u8);
+      pageSplitBuffers.push(u8.subarray(addr[0]));
+      lengths.push(addr[0]);
+      lengths.push(addr[3]);
+    }
+  }
+
+  var first = self.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly);
   if (first < 0) {
     return false;
   }
@@ -252,8 +300,6 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
 
 VRing.prototype.getBuffer = function() {
   var self = this;
-  var VRING_DESC_F_NEXT = 1;
-
   var hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
   self.availableRing.enableInterrupts();
 
@@ -273,17 +319,13 @@ VRing.prototype.getBuffer = function() {
   var buffer = self.descriptorTable.getBuffer(descriptorId);
   var len = used.len;
 
-  if (!(buffer instanceof ArrayBuffer)) {
+  if (!(buffer instanceof Uint8Array)) {
     // TODO: global vring errors handler
-    isolate.log('VRING ERROR: buffer is not an ArrayBuffer');
+    isolate.log('VRING ERROR: buffer is not a Uint8Array');
     return null;
   }
 
-  //TODO: shrink buf
-  return {
-    buf: buffer,
-    len: len
-  };
+  return buffer.subarray(0, len);
 }
 
 module.exports = VRing;

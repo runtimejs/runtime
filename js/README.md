@@ -1,6 +1,6 @@
 ## SYNOPSIS
 
-runtime.js library operating system
+Core [runtime.js](https://github.com/runtimejs/runtime) library
 
 **WORK-IN-PROGRESS**
 
@@ -10,23 +10,10 @@ runtime.js library operating system
 npm install runtimejs --save
 ```
 
-Require runtime.js as a dependency:
-
 ```js
-require('runtimejs');
-
+var runtime = require('runtimejs');
 // TBD
 ```
-
-Bundle the system together:
-
-```
-browserify index.js > bundle.js
-```
-
-Load system:
-
-// TBD
 
 ##LICENSE
 

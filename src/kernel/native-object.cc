@@ -168,29 +168,43 @@ NATIVE_FUNCTION(NativesObject, TextDecoderDecode) {
     PROLOGUE_NOTHIS;
     USEARG(0);
 
-    v8::Local<v8::ArrayBuffer> abv8;
-    if (arg0->IsUint8Array()) {
-        auto abviewv8 = arg0.As<v8::ArrayBufferView>();
-        abv8 = abviewv8->Buffer();
-    } else if (arg0->IsArrayBuffer()) {
-        abv8 = arg0.As<v8::ArrayBuffer>();
-    }
+    size_t offset = 0;
+    size_t length = 0;
+    v8::Local<v8::ArrayBuffer> buf;
 
-    if (abv8.IsEmpty()) {
+    if (arg0->IsUint8Array()) {
+        v8::Local<v8::Uint8Array> u8 = arg0.As<v8::Uint8Array>();
+        buf = u8->Buffer();
+        offset = u8->ByteOffset();
+        length = u8->Length();
+    } else if (arg0->IsArrayBuffer()) {
+        buf = arg0.As<v8::ArrayBuffer>();
+        length = buf->ByteLength();
+    } else {
         THROW_ERROR("argument 0 is not an ArrayBuffer or Uint8Array");
     }
 
-    RT_ASSERT(!abv8.IsEmpty());
-    RT_ASSERT(abv8->IsArrayBuffer());
+    RT_ASSERT(!buf.IsEmpty());
 
-    if (0 == abv8->ByteLength()) {
+    if (0 == length) {
         args.GetReturnValue().SetEmptyString();
         return;
     }
 
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
-        reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
+    if (length > std::numeric_limits<int>::max()) {
+        THROW_ERROR("buffer is too big");
+    }
+
+    v8::ArrayBuffer::Contents contents = buf->GetContents();
+    uintptr_t dataPtr = reinterpret_cast<uintptr_t>(contents.Data()) + offset;
+
+    v8::MaybeLocal<v8::String> str = v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(dataPtr), v8::String::kNormalString, length);
+    if (str.IsEmpty()) {
+        THROW_ERROR("failed to construct string");
+    }
+
+    args.GetReturnValue().Set(str.ToLocalChecked());
 }
 
 NATIVE_FUNCTION(NativesObject, TextEncoder) {
@@ -453,22 +467,51 @@ NATIVE_FUNCTION(NativesObject, SystemInfo) {
 NATIVE_FUNCTION(NativesObject, BufferAddress) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    VALIDATEARG(0, ARRAYBUFFER, "bufferAddress: argument 0 is not an ArrayBuffer");
-    RT_ASSERT(arg0->IsArrayBuffer());
-    auto abv8 = arg0.As<v8::ArrayBuffer>();
-    if (0 == abv8->ByteLength()) {
-        THROW_ERROR("Empty ArrayBuffer doesn't own a memory");
+    VALIDATEARG(0, UINT8ARRAY, "bufferAddress: argument 0 is not a Uint8Array");
+    RT_ASSERT(arg0->IsUint8Array());
+    v8::Local<v8::Uint8Array> u8 = arg0.As<v8::Uint8Array>();
+    v8::Local<v8::ArrayBuffer> buf = u8->Buffer();
+    if (!u8->HasBuffer() || 0 == u8->ByteLength()) {
+        THROW_ERROR("Uint8Array is empty");
     }
 
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    void* ptr = GLOBAL_mem_manager()->VirtualToPhysicalAddress(ab->data());
-    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-    uint32_t high = static_cast<uint32_t>(addr >> 32);
-    uint32_t low = static_cast<uint32_t>(addr & 0xffffffffull);
+    v8::ArrayBuffer::Contents contents = buf->GetContents();
+    uintptr_t vaddr = reinterpret_cast<uintptr_t>(contents.Data()) + u8->ByteOffset();
+    void* ptr = GLOBAL_mem_manager()->VirtualToPhysicalAddress(reinterpret_cast<void*>(vaddr));
 
-    auto arr = v8::Array::New(iv8, 2);
-    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, low));
-    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, high));
+    size_t length = u8->ByteLength();
+    uintptr_t pstart = reinterpret_cast<uintptr_t>(ptr);
+    uintptr_t pend = pstart + length;
+    uintptr_t pboundary = pend & ~0x1FFFFF;
+
+    uint32_t high = static_cast<uint32_t>(pstart >> 32);
+    uint32_t low = static_cast<uint32_t>(pstart & 0xffffffffull);
+
+    auto arr = v8::Array::New(iv8, 6);
+    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, length));
+    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, low));
+    arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, high));
+    arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, 0));
+
+    // Test if this buffer requires more than one physical page
+    // Note: this does not handle buffers over 2MiB (greater
+    // than a single page)
+    if (pstart < pboundary) {
+        size_t len1 = pboundary - pstart;
+        size_t len2 = length - len1;
+        uintptr_t vaddr2 = vaddr + len1;
+        void* ptr2 = GLOBAL_mem_manager()->VirtualToPhysicalAddress(reinterpret_cast<void*>(vaddr2));
+        uintptr_t pstart2 = reinterpret_cast<uintptr_t>(ptr2);
+        uint32_t high2 = static_cast<uint32_t>(pstart2 >> 32);
+        uint32_t low2 = static_cast<uint32_t>(pstart2 & 0xffffffffull);
+        arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, len1));
+        arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, len2));
+        arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, low2));
+        arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, high2));
+    }
+
     args.GetReturnValue().Set(arr);
 }
 

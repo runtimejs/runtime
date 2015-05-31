@@ -424,7 +424,7 @@ bool VirtualMemory::HasLazyCommits() {
 class Thread::PlatformData {
  public:
   PlatformData() : thread_() {}
-  rt::NativeThreadHandle thread_;
+  rt::NativeThread* thread_;
 };
 
 

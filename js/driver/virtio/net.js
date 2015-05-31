@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var VirtioDevice = require('./device');
 var MACAddress = runtime.net.MACAddress;
 var Interface = runtime.net.Interface;
@@ -111,7 +112,7 @@ function initializeNetworkDevice(pciDevice) {
 
   function fillReceiveQueue() {
     while (recvQueue.descriptorTable.descriptorsAvailable) {
-      recvQueue.placeBuffers([new ArrayBuffer(1536)], true);
+      recvQueue.placeBuffers([new Uint8Array(1536)], true);
     }
 
     dev.queueNotify(QUEUE_ID_RECV);
@@ -122,12 +123,10 @@ function initializeNetworkDevice(pciDevice) {
   var intf = new Interface(mac);
   intf.setBufferDataOffset(virtioHeader.length);
   intf.onTransmit.add(function(u8headers, u8data) {
-    debug('virtio transmit called');
-
     if (u8data) {
-      transmitQueue.placeBuffers([u8headers.buffer, u8data.buffer], false);
+      transmitQueue.placeBuffers([u8headers, u8data], false);
     } else {
-      transmitQueue.placeBuffers([u8headers.buffer], false);
+      transmitQueue.placeBuffers([u8headers], false);
     }
 
     dev.queueNotify(QUEUE_ID_TRANSMIT);
@@ -138,22 +137,22 @@ function initializeNetworkDevice(pciDevice) {
       return;
     }
 
-    var dat = null;
+    var u8 = null;
     for (;;) {
-      dat = transmitQueue.getBuffer();
-      if (null === dat) {
+      u8 = transmitQueue.getBuffer();
+      if (null === u8) {
         break;
       }
     }
 
-    dat = null;
+    u8 = null;
     for (;;) {
-      dat = recvQueue.getBuffer();
-      if (null === dat) {
+      u8 = recvQueue.getBuffer();
+      if (null === u8) {
         break;
       }
 
-      intf.receive(new Uint8Array(dat.buf, 0, dat.len));
+      intf.receive(u8);
     }
 
     fillReceiveQueue();
