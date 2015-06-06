@@ -22,7 +22,6 @@ var tcpTransmit = require('./tcp-transmit');
 var route = require('./route');
 var tcpHeader = require('./tcp-header');
 var netError = require('./net-error');
-var TCPWindow = require('./tcp-window');
 var tcpTimer = require('./tcp-timer');
 var tcpSocketState = require('./tcp-socket-state');
 
@@ -74,15 +73,15 @@ class TCPSocket {
     // Transmit window for data transfer
     // Initial sequence number defined by sender (this machine) and window
     // size by receiver (other machine)
-    this._transmitWindow = new TCPWindow();
-    this._transmitWindow.slideTo(19999);
+    this._transmitWindowEdge = 19999;
+    this._transmitWindowSize = 0;
     this._transmitPosition = 19999;
 
     // Receive window for incoming data
     // Initial sequence number defined by sender (other machine) and window
     // size by receiver (this machine)
-    this._receiveWindow = new TCPWindow();
-    this._receiveWindow.resize(8192);
+    this._receiveWindowEdge = 0;
+    this._receiveWindowSize = 8192;
 
     this._queueTx = [];
     this._transmitQueue = [];
@@ -132,7 +131,7 @@ class TCPSocket {
 
     this._destPort = port;
     this._destIP = ip;
-    this._transmitWindow.slideOffset(1); // SYN counts as 1 byte
+    this._transmitWindowSlideInc(); // SYN counts as 1 byte
     this._state = STATE_SYN_SENT;
     this._sendSYN(false);
     tcpTimer.addConnectionSocket(this);
@@ -215,7 +214,7 @@ class TCPSocket {
   }
 
   _allocTransmitPosition(length) {
-    var end = SEQ_INC(this._transmitWindow.getSeqBegin(), this._transmitWindow.getSize());
+    var end = SEQ_INC(this._transmitWindowEdge, this._transmitWindowSize);
     var spaceLeft = SEQ_OFFSET(end, this._transmitPosition);
     var spaceReserved = Math.min(spaceLeft, length, 536); /* TODO: move MSS (max segment size, data size) somewhere */
     this._transmitPosition = SEQ_INC(this._transmitPosition, spaceReserved);
@@ -224,6 +223,31 @@ class TCPSocket {
 
   _getTransmitPosition() {
     return this._transmitPosition;
+  }
+
+  _receiveWindowSlideTo(seq) {
+    if (SEQ_GT(seq, this._receiveWindowEdge)) {
+      this._receiveWindowEdge = seq;
+    }
+  }
+
+  _receiveWindowSlideInc() {
+    this._receiveWindowEdge = SEQ_INC(this._receiveWindowEdge, 1);
+  }
+
+  _transmitWindowSlideTo(seq) {
+    if (SEQ_GT(seq, this._transmitWindowEdge)) {
+      this._transmitWindowEdge = seq;
+    }
+  }
+
+  _transmitWindowSlideInc() {
+    this._transmitWindowEdge = SEQ_INC(this._transmitWindowEdge, 1);
+  }
+
+  _receiveWindowIsWithin(seq) {
+    return SEQ_GTE(seq, this._receiveWindowEdge)
+      && SEQ_LT(seq, SEQ_INC(this._receiveWindowEdge, this._receiveWindowSize));
   }
 
   _fillTransmitQueue() {
@@ -305,15 +329,15 @@ class TCPSocket {
       var interval = retransmits * 2000; /* 2 seconds each time in ms */
 
       if (retransmits === 0 || now > timeAdded + interval) {
-        this._transmit(seq, this._receiveWindow.getSeqBegin(), flags, this._receiveWindow.getSize(), u8);
+        this._transmit(seq, this._receiveWindowEdge, flags, this._receiveWindowSize, u8);
         sent = true;
         ++item[0];
       }
     }
 
     if (!sent && ackRequired) {
-      this._transmit(this._getTransmitPosition(), this._receiveWindow.getSeqBegin(),
-                  tcpHeader.FLAG_ACK, this._receiveWindow.getSize(), null);
+      this._transmit(this._getTransmitPosition(), this._receiveWindowEdge,
+                  tcpHeader.FLAG_ACK, this._receiveWindowSize, null);
     }
   }
 
@@ -379,7 +403,7 @@ class TCPSocket {
     this._receiveQueue.push([seq, len, u8]);
     this._receiveQueue.sort(sortFunction);
 
-    var lastAck = this._receiveWindow.getSeqBegin();
+    var lastAck = this._receiveWindowEdge;
     var remove = 0;
     for (var i = 0, l = this._receiveQueue.length; i < l; ++i) {
       var item = this._receiveQueue[i];
@@ -418,7 +442,7 @@ class TCPSocket {
         }
       }
 
-      this._receiveWindow.slideTo(lastAck);
+      this._receiveWindowSlideTo(lastAck);
       this._sendTransmitQueue(true);
     }
   }
@@ -431,8 +455,8 @@ class TCPSocket {
     var ackNumber = tcpHeader.getAckNumber(u8, headerOffset);
     var windowSize = tcpHeader.getWindowSize(u8, headerOffset);
 
-    this._transmitWindow.resize(windowSize);
-    this._transmitWindow.slideTo(ackNumber);
+    this._transmitWindowSize = windowSize;
+    this._transmitWindowSlideTo(ackNumber);
 
     this._cleanupTransmitQueue(ackNumber);
     this._fillTransmitQueue();
@@ -450,9 +474,9 @@ class TCPSocket {
             socket = new TCPSocket();
             socket._intf = this._intf;
             socket._viaIP = this._viaIP;
-            socket._receiveWindow.slideTo(seqNumber);
-            socket._receiveWindow.slideOffset(1); // SYN counts as 1 byte
-            socket._transmitWindow.slideOffset(1); // SYN counts as 1 byte
+            socket._receiveWindowSlideTo(seqNumber);
+            socket._receiveWindowSlideInc(); // SYN counts as 1 byte
+            socket._transmitWindowSlideInc(); // SYN counts as 1 byte
             socket._state = STATE_SYN_RECEIVED;
             socket._destIP = srcIP;
             socket._destPort = srcPort;
@@ -466,10 +490,9 @@ class TCPSocket {
         break;
       case STATE_SYN_SENT:
         if (flags & (tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK)) {
-          this._receiveWindow.slideTo(seqNumber);
-          this._receiveWindow.slideOffset(1); // SYN counts as 1 byte
-          this._transmit(this._getTransmitPosition(), this._receiveWindow.getSeqBegin(),
-                      tcpHeader.FLAG_ACK, this._receiveWindow.getSize(), null);
+          this._receiveWindowSlideTo(seqNumber);
+          this._receiveWindowSlideInc(); // SYN counts as 1 byte
+          this._sendTransmitQueue(true);
           this._state = STATE_ESTABLISHED;
           if (this.onopen) {
             this.onopen();
@@ -500,7 +523,7 @@ class TCPSocket {
         /* fall through */
       case STATE_FIN_WAIT_2:
       case STATE_ESTABLISHED:
-        if (dataLength > 0 && this._receiveWindow.isInWindow(seqNumber)) {
+        if (dataLength > 0 && this._receiveWindowIsWithin(seqNumber)) {
           this._insertReceiveQueue(seqNumber, dataLength, u8.subarray(dataOffset));
         }
         break;
