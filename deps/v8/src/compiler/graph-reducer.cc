@@ -8,6 +8,7 @@
 #include "src/compiler/graph.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/node.h"
+#include "src/compiler/node-properties.h"
 
 namespace v8 {
 namespace internal {
@@ -24,8 +25,11 @@ enum class GraphReducer::State : uint8_t {
 };
 
 
-GraphReducer::GraphReducer(Graph* graph, Zone* zone)
+GraphReducer::GraphReducer(Zone* zone, Graph* graph, Node* dead_value,
+                           Node* dead_control)
     : graph_(graph),
+      dead_value_(dead_value),
+      dead_control_(dead_control),
       state_(graph, 4),
       reducers_(zone),
       revisit_(zone),
@@ -205,6 +209,42 @@ void GraphReducer::Replace(Node* node, Node* replacement, NodeId max_id) {
 
     // If there was a replacement, reduce it after popping {node}.
     Recurse(replacement);
+  }
+}
+
+
+void GraphReducer::ReplaceWithValue(Node* node, Node* value, Node* effect,
+                                    Node* control) {
+  if (effect == nullptr && node->op()->EffectInputCount() > 0) {
+    effect = NodeProperties::GetEffectInput(node);
+  }
+  if (control == nullptr && node->op()->ControlInputCount() > 0) {
+    control = NodeProperties::GetControlInput(node);
+  }
+
+  // Requires distinguishing between value, effect and control edges.
+  for (Edge edge : node->use_edges()) {
+    Node* user = edge.from();
+    if (NodeProperties::IsControlEdge(edge)) {
+      if (user->opcode() == IrOpcode::kIfSuccess) {
+        Replace(user, control);
+      } else if (user->opcode() == IrOpcode::kIfException) {
+        for (Edge e : user->use_edges()) {
+          if (NodeProperties::IsValueEdge(e)) e.UpdateTo(dead_value_);
+          if (NodeProperties::IsControlEdge(e)) e.UpdateTo(dead_control_);
+        }
+        user->Kill();
+      } else {
+        UNREACHABLE();
+      }
+    } else if (NodeProperties::IsEffectEdge(edge)) {
+      DCHECK_NOT_NULL(effect);
+      edge.UpdateTo(effect);
+      Revisit(user);
+    } else {
+      edge.UpdateTo(value);
+      Revisit(user);
+    }
   }
 }
 

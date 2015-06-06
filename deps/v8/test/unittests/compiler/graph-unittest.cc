@@ -13,7 +13,7 @@ namespace compiler {
 
 GraphTest::GraphTest(int num_parameters) : common_(zone()), graph_(zone()) {
   graph()->SetStart(graph()->NewNode(common()->Start(num_parameters)));
-  graph()->SetEnd(graph()->NewNode(common()->End(), graph()->start()));
+  graph()->SetEnd(graph()->NewNode(common()->End(1), graph()->start()));
 }
 
 
@@ -78,6 +78,16 @@ Node* GraphTest::TrueConstant() {
 Node* GraphTest::UndefinedConstant() {
   return HeapConstant(
       Unique<HeapObject>::CreateImmovable(factory()->undefined_value()));
+}
+
+
+Node* GraphTest::EmptyFrameState() {
+  Node* state_values = graph()->NewNode(common()->StateValues(0));
+  return graph()->NewNode(
+      common()->FrameState(JS_FRAME, BailoutId::None(),
+                           OutputFrameStateCombine::Ignore()),
+      state_values, state_values, state_values, NumberConstant(0),
+      UndefinedConstant(), graph()->start());
 }
 
 

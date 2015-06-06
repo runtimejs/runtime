@@ -487,6 +487,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kArchStackPointer:
       __ mov(i.OutputRegister(), sp);
       break;
+    case kArchFramePointer:
+      __ mov(i.OutputRegister(), fp);
+      break;
     case kArchTruncateDoubleToI:
       __ TruncateDoubleToI(i.OutputRegister(), i.InputDoubleRegister(0));
       break;
@@ -622,6 +625,14 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ sqrt_s(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
       break;
     }
+    case kMipsMaxS:
+      __ max_s(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
+               i.InputDoubleRegister(1));
+      break;
+    case kMipsMinS:
+      __ min_s(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
+               i.InputDoubleRegister(1));
+      break;
     case kMipsCmpD:
       // Psuedo-instruction used for FP cmp/branch. No opcode emitted here.
       break;
@@ -663,6 +674,14 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ sqrt_d(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
       break;
     }
+    case kMipsMaxD:
+      __ max_d(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
+               i.InputDoubleRegister(1));
+      break;
+    case kMipsMinD:
+      __ min_d(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
+               i.InputDoubleRegister(1));
+      break;
     case kMipsFloat64RoundDown: {
       ASSEMBLE_ROUND_DOUBLE_TO_DOUBLE(floor_l_d, Floor);
       break;
@@ -1059,7 +1078,7 @@ void CodeGenerator::AssemblePrologue() {
     __ Prologue(info->IsCodePreAgingActive());
     frame()->SetRegisterSaveAreaSize(
         StandardFrameConstants::kFixedFrameSizeFromFp);
-  } else if (stack_slots > 0) {
+  } else if (needs_frame_) {
     __ StubPrologue();
     frame()->SetRegisterSaveAreaSize(
         StandardFrameConstants::kFixedFrameSizeFromFp);
@@ -1105,7 +1124,7 @@ void CodeGenerator::AssembleReturn() {
     __ mov(sp, fp);
     __ Pop(ra, fp);
     __ Ret();
-  } else if (descriptor->IsJSFunctionCall() || stack_slots > 0) {
+  } else if (descriptor->IsJSFunctionCall() || needs_frame_) {
     __ mov(sp, fp);
     __ Pop(ra, fp);
     int pop_count = descriptor->IsJSFunctionCall()

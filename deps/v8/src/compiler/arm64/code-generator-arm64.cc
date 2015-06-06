@@ -337,7 +337,8 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
       __ asm_instr(i.OutputRegister##width(), i.InputRegister##width(0),       \
                    i.InputRegister##width(1));                                 \
     } else {                                                                   \
-      int64_t imm = i.InputOperand##width(1).immediate().value();              \
+      int imm =                                                                \
+          static_cast<int>(i.InputOperand##width(1).immediate().value());      \
       __ asm_instr(i.OutputRegister##width(), i.InputRegister##width(0), imm); \
     }                                                                          \
   } while (0)
@@ -441,6 +442,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     case kArchStackPointer:
       __ mov(i.OutputRegister(), masm()->StackPointer());
+      break;
+    case kArchFramePointer:
+      __ mov(i.OutputRegister(), fp);
       break;
     case kArchTruncateDoubleToI:
       __ TruncateDoubleToI(i.OutputRegister(), i.InputDoubleRegister(0));
@@ -557,12 +561,11 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
               i.InputRegister32(0));
       break;
     }
-    // TODO(dcarney): use mvn instr??
     case kArm64Not:
-      __ Orn(i.OutputRegister(), xzr, i.InputOperand(0));
+      __ Mvn(i.OutputRegister(), i.InputOperand(0));
       break;
     case kArm64Not32:
-      __ Orn(i.OutputRegister32(), wzr, i.InputOperand32(0));
+      __ Mvn(i.OutputRegister32(), i.InputOperand32(0));
       break;
     case kArm64Neg:
       __ Neg(i.OutputRegister(), i.InputOperand(0));
@@ -653,6 +656,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kArm64Ubfx32:
       __ Ubfx(i.OutputRegister32(), i.InputRegister32(0), i.InputInt5(1),
               i.InputInt5(2));
+      break;
+    case kArm64Ubfiz32:
+      __ Ubfiz(i.OutputRegister32(), i.InputRegister32(0), i.InputInt5(1),
+               i.InputInt5(2));
       break;
     case kArm64Bfi:
       __ Bfi(i.OutputRegister(), i.InputRegister(1), i.InputInt6(2),
@@ -1078,7 +1085,7 @@ void CodeGenerator::AssemblePrologue() {
     __ Prologue(info->IsCodePreAgingActive());
     frame()->SetRegisterSaveAreaSize(
         StandardFrameConstants::kFixedFrameSizeFromFp);
-  } else if (stack_slots > 0) {
+  } else if (needs_frame_) {
     __ SetStackPointer(jssp);
     __ StubPrologue();
     frame()->SetRegisterSaveAreaSize(
@@ -1127,7 +1134,7 @@ void CodeGenerator::AssembleReturn() {
     __ Mov(csp, fp);
     __ Pop(fp, lr);
     __ Ret();
-  } else if (descriptor->IsJSFunctionCall() || stack_slots > 0) {
+  } else if (descriptor->IsJSFunctionCall() || needs_frame_) {
     __ Mov(jssp, fp);
     __ Pop(fp, lr);
     int pop_count = descriptor->IsJSFunctionCall()

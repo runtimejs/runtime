@@ -182,10 +182,8 @@ void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
   // Register state for IC load call (from ic-x87.cc).
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register name = LoadDescriptor::NameRegister();
-  RegList regs = receiver.bit() | name.bit();
-  if (FLAG_vector_ics) {
-    regs |= VectorLoadICTrampolineDescriptor::SlotRegister().bit();
-  }
+  Register slot = LoadDescriptor::SlotRegister();
+  RegList regs = receiver.bit() | name.bit() | slot.bit();
   Generate_DebugBreakCallHelper(masm, regs, 0, false);
 }
 
@@ -325,6 +323,7 @@ const bool LiveEdit::kFrameDropperSupported = true;
 
 #undef __
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X87

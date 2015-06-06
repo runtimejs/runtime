@@ -16,17 +16,21 @@ const Register CallInterfaceDescriptor::ContextRegister() { return cp; }
 
 const Register LoadDescriptor::ReceiverRegister() { return r1; }
 const Register LoadDescriptor::NameRegister() { return r2; }
+const Register LoadDescriptor::SlotRegister() { return r0; }
 
 
-const Register VectorLoadICTrampolineDescriptor::SlotRegister() { return r0; }
-
-
-const Register VectorLoadICDescriptor::VectorRegister() { return r3; }
+const Register LoadWithVectorDescriptor::VectorRegister() { return r3; }
 
 
 const Register StoreDescriptor::ReceiverRegister() { return r1; }
 const Register StoreDescriptor::NameRegister() { return r2; }
 const Register StoreDescriptor::ValueRegister() { return r0; }
+
+
+const Register VectorStoreICTrampolineDescriptor::SlotRegister() { return r4; }
+
+
+const Register VectorStoreICDescriptor::VectorRegister() { return r3; }
 
 
 const Register StoreTransitionDescriptor::MapRegister() { return r3; }
@@ -56,7 +60,6 @@ const Register MathPowIntegerDescriptor::exponent() {
 
 const Register GrowArrayElementsDescriptor::ObjectRegister() { return r0; }
 const Register GrowArrayElementsDescriptor::KeyRegister() { return r3; }
-const Register GrowArrayElementsDescriptor::CapacityRegister() { return r2; }
 
 
 void FastNewClosureDescriptor::Initialize(CallInterfaceDescriptorData* data) {
@@ -393,7 +396,22 @@ void ApiAccessorDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   data->Initialize(arraysize(registers), registers, representations,
                    &default_descriptor);
 }
+
+
+void MathRoundVariantDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {
+      cp,  // context
+      r1,  // math rounding function
+      r3,  // vector slot id
+  };
+  Representation representations[] = {
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+  };
+  data->Initialize(arraysize(registers), registers, representations);
 }
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_ARM

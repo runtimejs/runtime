@@ -81,15 +81,8 @@ typedef void* ExternalReferenceRedirectorPointer();
 class Debug;
 class Debugger;
 class PromiseOnStack;
-
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
-    !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS64
 class Redirection;
 class Simulator;
-#endif
 
 
 // Static indirection table for handles to constants.  If a frame
@@ -321,11 +314,7 @@ class ThreadLocalTop BASE_EMBEDDED {
 };
 
 
-#if V8_TARGET_ARCH_ARM && !defined(__arm__) ||       \
-    V8_TARGET_ARCH_ARM64 && !defined(__aarch64__) || \
-    V8_TARGET_ARCH_PPC && !defined(__PPC__) ||       \
-    V8_TARGET_ARCH_MIPS && !defined(__mips__) ||     \
-    V8_TARGET_ARCH_MIPS64 && !defined(__mips__)
+#if USE_SIMULATOR
 
 #define ISOLATE_INIT_SIMULATOR_LIST(V)                                         \
   V(bool, simulator_initialized, false)                                        \
@@ -389,6 +378,7 @@ typedef List<HeapObject*> DebugObjectCache;
   V(uint32_t, per_isolate_assert_data, 0xFFFFFFFFu)                            \
   V(PromiseRejectCallback, promise_reject_callback, NULL)                      \
   V(const v8::StartupData*, snapshot_blob, NULL)                               \
+  V(bool, creating_default_snapshot, false)                                    \
   ISOLATE_INIT_SIMULATOR_LIST(V)
 
 #define THREAD_LOCAL_TOP_ACCESSOR(type, name)                        \
@@ -417,11 +407,7 @@ class Isolate {
           thread_id_(thread_id),
           stack_limit_(0),
           thread_state_(NULL),
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
-    !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS64
+#if USE_SIMULATOR
           simulator_(NULL),
 #endif
           next_(NULL),
@@ -433,11 +419,7 @@ class Isolate {
     FIELD_ACCESSOR(uintptr_t, stack_limit)
     FIELD_ACCESSOR(ThreadState*, thread_state)
 
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
-    !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS64
+#if USE_SIMULATOR
     FIELD_ACCESSOR(Simulator*, simulator)
 #endif
 
@@ -451,11 +433,7 @@ class Isolate {
     uintptr_t stack_limit_;
     ThreadState* thread_state_;
 
-#if !defined(__arm__) && V8_TARGET_ARCH_ARM ||       \
-    !defined(__aarch64__) && V8_TARGET_ARCH_ARM64 || \
-    !defined(__PPC__) && V8_TARGET_ARCH_PPC ||       \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS ||     \
-    !defined(__mips__) && V8_TARGET_ARCH_MIPS64
+#if USE_SIMULATOR
     Simulator* simulator_;
 #endif
 
@@ -718,10 +696,8 @@ class Isolate {
                   PrintStackMode mode = kPrintStackVerbose);
   void PrintStack(FILE* out, PrintStackMode mode = kPrintStackVerbose);
   Handle<String> StackTraceString();
-  NO_INLINE(void PushStackTraceAndDie(unsigned int magic,
-                                      Object* object,
-                                      Map* map,
-                                      unsigned int magic2));
+  NO_INLINE(void PushStackTraceAndDie(unsigned int magic, void* ptr1,
+                                      void* ptr2, unsigned int magic2));
   Handle<JSArray> CaptureCurrentStackTrace(
       int frame_limit,
       StackTrace::StackTraceOptions options);
@@ -1014,7 +990,8 @@ class Isolate {
     date_cache_ = date_cache;
   }
 
-  Map* get_initial_js_array_map(ElementsKind kind);
+  Map* get_initial_js_array_map(ElementsKind kind,
+                                ObjectStrength strength = WEAK);
 
   static const int kArrayProtectorValid = 1;
   static const int kArrayProtectorInvalid = 0;
@@ -1158,6 +1135,8 @@ class Isolate {
  private:
   friend struct GlobalState;
   friend struct InitializeGlobalState;
+  Handle<JSObject> SetUpSubregistry(Handle<JSObject> registry, Handle<Map> map,
+                                    const char* name);
 
   // These fields are accessed through the API, offsets must be kept in sync
   // with v8::internal::Internals (in include/v8.h) constants. This is also

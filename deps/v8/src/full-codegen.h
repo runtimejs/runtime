@@ -69,10 +69,12 @@ class FullCodeGenerator: public AstVisitor {
         scope_(info->scope()),
         nesting_stack_(NULL),
         loop_depth_(0),
+        try_catch_depth_(0),
         globals_(NULL),
         context_(NULL),
         bailout_entries_(info->HasDeoptimizationSupport()
-                         ? info->function()->ast_node_count() : 0,
+                             ? info->function()->ast_node_count()
+                             : 0,
                          info->zone()),
         back_edges_(2, info->zone()),
         ic_total_count_(0) {
@@ -527,6 +529,7 @@ class FullCodeGenerator: public AstVisitor {
   F(Arguments)                            \
   F(ValueOf)                              \
   F(SetValueOf)                           \
+  F(ThrowIfNotADate)                      \
   F(DateField)                            \
   F(StringCharFromCode)                   \
   F(StringCharAt)                         \
@@ -591,26 +594,6 @@ class FullCodeGenerator: public AstVisitor {
   void EmitLoadJSRuntimeFunction(CallRuntime* expr);
   void EmitCallJSRuntimeFunction(CallRuntime* expr);
 
-  // Platform-specific support for compiling assignments.
-
-  // Left-hand side can only be a property, a global or a (parameter or local)
-  // slot.
-  enum LhsKind {
-    VARIABLE,
-    NAMED_PROPERTY,
-    KEYED_PROPERTY,
-    NAMED_SUPER_PROPERTY,
-    KEYED_SUPER_PROPERTY
-  };
-
-  static LhsKind GetAssignType(Property* property) {
-    if (property == NULL) return VARIABLE;
-    bool super_access = property->IsSuperAccess();
-    return (property->key()->IsPropertyName())
-               ? (super_access ? NAMED_SUPER_PROPERTY : NAMED_PROPERTY)
-               : (super_access ? KEYED_SUPER_PROPERTY : KEYED_PROPERTY);
-  }
-
   // Load a value from a named property.
   // The receiver is left on the stack by the IC.
   void EmitNamedPropertyLoad(Property* expr);
@@ -647,13 +630,16 @@ class FullCodeGenerator: public AstVisitor {
                              Expression* right);
 
   // Assign to the given expression as if via '='. The right-hand-side value
-  // is expected in the accumulator.
-  void EmitAssignment(Expression* expr);
+  // is expected in the accumulator. slot is only used if FLAG_vector_stores
+  // is true.
+  void EmitAssignment(Expression* expr, FeedbackVectorICSlot slot =
+                                            FeedbackVectorICSlot::Invalid());
 
   // Complete a variable assignment.  The right-hand-side value is expected
   // in the accumulator.
-  void EmitVariableAssignment(Variable* var,
-                              Token::Value op);
+  void EmitVariableAssignment(
+      Variable* var, Token::Value op,
+      FeedbackVectorICSlot slot = FeedbackVectorICSlot::Invalid());
 
   // Helper functions to EmitVariableAssignment
   void EmitStoreToStackLocalOrContextSlot(Variable* var,
@@ -676,8 +662,6 @@ class FullCodeGenerator: public AstVisitor {
   // accumulator.
   void EmitKeyedPropertyAssignment(Assignment* expr);
 
-  void EmitLoadHomeObject(SuperReference* expr);
-
   static bool NeedsHomeObject(Expression* expr) {
     return FunctionLiteral::NeedsHomeObject(expr);
   }
@@ -685,10 +669,14 @@ class FullCodeGenerator: public AstVisitor {
   // Adds the [[HomeObject]] to |initializer| if it is a FunctionLiteral.
   // The value of the initializer is expected to be at the top of the stack.
   // |offset| is the offset in the stack where the home object can be found.
-  void EmitSetHomeObjectIfNeeded(Expression* initializer, int offset);
+  void EmitSetHomeObjectIfNeeded(
+      Expression* initializer, int offset,
+      FeedbackVectorICSlot slot = FeedbackVectorICSlot::Invalid());
 
-  void EmitLoadSuperConstructor();
-  void EmitInitializeThisAfterSuper(SuperReference* super_ref);
+  void EmitLoadSuperConstructor(SuperCallReference* super_call_ref);
+  void EmitInitializeThisAfterSuper(
+      SuperCallReference* super_call_ref,
+      FeedbackVectorICSlot slot = FeedbackVectorICSlot::Invalid());
 
   void CallIC(Handle<Code> code,
               TypeFeedbackId id = TypeFeedbackId::None());
@@ -709,6 +697,7 @@ class FullCodeGenerator: public AstVisitor {
   void ExitTryBlock(int handler_index);
   void EnterFinallyBlock();
   void ExitFinallyBlock();
+  void ClearPendingMessage();
 
   // Loop nesting counter.
   int loop_depth() { return loop_depth_; }
@@ -764,6 +753,8 @@ class FullCodeGenerator: public AstVisitor {
 
   bool MustCreateObjectLiteralWithRuntime(ObjectLiteral* expr) const;
   bool MustCreateArrayLiteralWithRuntime(ArrayLiteral* expr) const;
+
+  void EmitLoadStoreICSlot(FeedbackVectorICSlot slot);
 
   Handle<HandlerTable> handler_table() { return handler_table_; }
 
@@ -976,6 +967,7 @@ class FullCodeGenerator: public AstVisitor {
   Label return_label_;
   NestedStatement* nesting_stack_;
   int loop_depth_;
+  int try_catch_depth_;
   ZoneList<Handle<Object> >* globals_;
   Handle<FixedArray> modules_;
   int module_index_;

@@ -862,10 +862,12 @@ class Constant final {
 
 class FrameStateDescriptor : public ZoneObject {
  public:
-  FrameStateDescriptor(Zone* zone, const FrameStateCallInfo& state_info,
+  FrameStateDescriptor(Zone* zone, FrameStateType type, BailoutId bailout_id,
+                       OutputFrameStateCombine state_combine,
                        size_t parameters_count, size_t locals_count,
                        size_t stack_count,
-                       FrameStateDescriptor* outer_state = NULL);
+                       MaybeHandle<SharedFunctionInfo> shared_info,
+                       FrameStateDescriptor* outer_state = nullptr);
 
   FrameStateType type() const { return type_; }
   BailoutId bailout_id() const { return bailout_id_; }
@@ -873,8 +875,8 @@ class FrameStateDescriptor : public ZoneObject {
   size_t parameters_count() const { return parameters_count_; }
   size_t locals_count() const { return locals_count_; }
   size_t stack_count() const { return stack_count_; }
+  MaybeHandle<SharedFunctionInfo> shared_info() const { return shared_info_; }
   FrameStateDescriptor* outer_state() const { return outer_state_; }
-  MaybeHandle<JSFunction> jsfunction() const { return jsfunction_; }
   bool HasContext() const { return type_ == JS_FRAME; }
 
   size_t GetSize(OutputFrameStateCombine combine =
@@ -894,8 +896,8 @@ class FrameStateDescriptor : public ZoneObject {
   size_t locals_count_;
   size_t stack_count_;
   ZoneVector<MachineType> types_;
+  MaybeHandle<SharedFunctionInfo> const shared_info_;
   FrameStateDescriptor* outer_state_;
-  MaybeHandle<JSFunction> jsfunction_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Constant& constant);
@@ -1150,12 +1152,22 @@ class InstructionSequence final : public ZoneObject {
   StateId AddFrameStateDescriptor(FrameStateDescriptor* descriptor);
   FrameStateDescriptor* GetFrameStateDescriptor(StateId deoptimization_id);
   int GetFrameStateDescriptorCount();
+  DeoptimizationVector const& frame_state_descriptors() const {
+    return deoptimization_entries_;
+  }
 
   RpoNumber InputRpo(Instruction* instr, size_t index);
 
   bool GetSourcePosition(const Instruction* instr,
                          SourcePosition* result) const;
   void SetSourcePosition(const Instruction* instr, SourcePosition value);
+
+  bool ContainsCall() const {
+    for (Instruction* instr : instructions_) {
+      if (instr->IsCall()) return true;
+    }
+    return false;
+  }
 
  private:
   friend std::ostream& operator<<(std::ostream& os,

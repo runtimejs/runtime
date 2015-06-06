@@ -307,7 +307,7 @@ bool Shell::ExecuteString(Isolate* isolate, Handle<String> source,
   bool FLAG_debugger = false;
 #endif  // !V8_SHARED
   HandleScope handle_scope(isolate);
-  TryCatch try_catch;
+  TryCatch try_catch(isolate);
   options.script_executed = true;
   if (FLAG_debugger) {
     // When debugging make exceptions appear to be uncaught.
@@ -352,7 +352,7 @@ bool Shell::ExecuteString(Isolate* isolate, Handle<String> source,
       }
 #if !defined(V8_SHARED)
     } else {
-      v8::TryCatch try_catch;
+      v8::TryCatch try_catch(isolate);
       v8::Local<v8::Context> context =
           v8::Local<v8::Context>::New(isolate, utility_context_);
       v8::Context::Scope context_scope(context);
@@ -571,7 +571,7 @@ void Shell::Write(const v8::FunctionCallbackInfo<v8::Value>& args) {
     }
 
     // Explicitly catch potential exceptions in toString().
-    v8::TryCatch try_catch;
+    v8::TryCatch try_catch(args.GetIsolate());
     Handle<String> str_obj = args[i]->ToString(args.GetIsolate());
     if (try_catch.HasCaught()) {
       try_catch.ReThrow();
@@ -1018,6 +1018,10 @@ void Shell::InitializeDebugger(Isolate* isolate) {
   Handle<ObjectTemplate> global_template = CreateGlobalTemplate(isolate);
   utility_context_.Reset(isolate,
                          Context::New(isolate, NULL, global_template));
+  if (utility_context_.IsEmpty()) {
+    printf("Failed to initialize debugger\n");
+    Shell::Exit(1);
+  }
 #endif  // !V8_SHARED
 }
 
@@ -1339,19 +1343,7 @@ void SourceGroup::ExecuteInThread() {
           Execute(isolate);
         }
       }
-      if (Shell::options.send_idle_notification) {
-        const double kLongIdlePauseInSeconds = 1.0;
-        isolate->ContextDisposedNotification();
-        isolate->IdleNotificationDeadline(
-            g_platform->MonotonicallyIncreasingTime() +
-            kLongIdlePauseInSeconds);
-      }
-      if (Shell::options.invoke_weak_callbacks) {
-        // By sending a low memory notifications, we will try hard to collect
-        // all garbage and will therefore also invoke all weak callbacks of
-        // actually unreachable persistent handles.
-        isolate->LowMemoryNotification();
-      }
+      Shell::CollectGarbage(isolate);
     }
     done_semaphore_.Signal();
   } while (!Shell::options.last_run);
@@ -1412,6 +1404,10 @@ bool Shell::SetOptions(int argc, char* argv[]) {
       argv[i] = NULL;
     } else if (strcmp(argv[i], "--test") == 0) {
       options.test_shell = true;
+      argv[i] = NULL;
+    } else if (strcmp(argv[i], "--notest") == 0 ||
+               strcmp(argv[i], "--no-test") == 0) {
+      options.test_shell = false;
       argv[i] = NULL;
     } else if (strcmp(argv[i], "--send-idle-notification") == 0) {
       options.send_idle_notification = true;
@@ -1542,6 +1538,17 @@ int Shell::RunMain(Isolate* isolate, int argc, char* argv[]) {
       options.isolate_sources[0].Execute(isolate);
     }
   }
+  CollectGarbage(isolate);
+#ifndef V8_SHARED
+  for (int i = 1; i < options.num_isolates; ++i) {
+    options.isolate_sources[i].WaitForThread();
+  }
+#endif  // !V8_SHARED
+  return 0;
+}
+
+
+void Shell::CollectGarbage(Isolate* isolate) {
   if (options.send_idle_notification) {
     const double kLongIdlePauseInSeconds = 1.0;
     isolate->ContextDisposedNotification();
@@ -1554,13 +1561,6 @@ int Shell::RunMain(Isolate* isolate, int argc, char* argv[]) {
     // unreachable persistent handles.
     isolate->LowMemoryNotification();
   }
-
-#ifndef V8_SHARED
-  for (int i = 1; i < options.num_isolates; ++i) {
-    options.isolate_sources[i].WaitForThread();
-  }
-#endif  // !V8_SHARED
-  return 0;
 }
 
 
@@ -1729,6 +1729,13 @@ int Shell::Main(int argc, char* argv[]) {
 #endif  // !V8_SHARED
       RunShell(isolate);
     }
+
+    // Shut down contexts and collect garbage.
+    evaluation_context_.Reset();
+#ifndef V8_SHARED
+    utility_context_.Reset();
+#endif  // !V8_SHARED
+    CollectGarbage(isolate);
   }
   OnExit(isolate);
 #ifndef V8_SHARED

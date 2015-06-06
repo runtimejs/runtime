@@ -146,6 +146,8 @@ class RegisteredExtension {
   V(RegExp, JSRegExp)                        \
   V(Object, JSObject)                        \
   V(Array, JSArray)                          \
+  V(Map, JSMap)                              \
+  V(Set, JSSet)                              \
   V(ArrayBuffer, JSArrayBuffer)              \
   V(ArrayBufferView, JSArrayBufferView)      \
   V(TypedArray, JSTypedArray)                \
@@ -159,6 +161,7 @@ class RegisteredExtension {
   V(Float32Array, JSTypedArray)              \
   V(Float64Array, JSTypedArray)              \
   V(DataView, JSDataView)                    \
+  V(SharedArrayBuffer, JSArrayBuffer)        \
   V(Name, Name)                              \
   V(String, String)                          \
   V(Symbol, Symbol)                          \
@@ -202,6 +205,10 @@ class Utils {
       v8::internal::Handle<v8::internal::JSObject> obj);
   static inline Local<Array> ToLocal(
       v8::internal::Handle<v8::internal::JSArray> obj);
+  static inline Local<Map> ToLocal(
+      v8::internal::Handle<v8::internal::JSMap> obj);
+  static inline Local<Set> ToLocal(
+      v8::internal::Handle<v8::internal::JSSet> obj);
   static inline Local<ArrayBuffer> ToLocal(
       v8::internal::Handle<v8::internal::JSArrayBuffer> obj);
   static inline Local<ArrayBufferView> ToLocal(
@@ -229,6 +236,9 @@ class Utils {
       v8::internal::Handle<v8::internal::JSTypedArray> obj);
   static inline Local<Float64Array> ToLocalFloat64Array(
       v8::internal::Handle<v8::internal::JSTypedArray> obj);
+
+  static inline Local<SharedArrayBuffer> ToLocalShared(
+      v8::internal::Handle<v8::internal::JSArrayBuffer> obj);
 
   static inline Local<Message> MessageToLocal(
       v8::internal::Handle<v8::internal::Object> obj);
@@ -356,10 +366,13 @@ MAKE_TO_LOCAL(ToLocal, Symbol, Symbol)
 MAKE_TO_LOCAL(ToLocal, JSRegExp, RegExp)
 MAKE_TO_LOCAL(ToLocal, JSObject, Object)
 MAKE_TO_LOCAL(ToLocal, JSArray, Array)
+MAKE_TO_LOCAL(ToLocal, JSMap, Map)
+MAKE_TO_LOCAL(ToLocal, JSSet, Set)
 MAKE_TO_LOCAL(ToLocal, JSArrayBuffer, ArrayBuffer)
 MAKE_TO_LOCAL(ToLocal, JSArrayBufferView, ArrayBufferView)
 MAKE_TO_LOCAL(ToLocal, JSDataView, DataView)
 MAKE_TO_LOCAL(ToLocal, JSTypedArray, TypedArray)
+MAKE_TO_LOCAL(ToLocalShared, JSArrayBuffer, SharedArrayBuffer)
 
 TYPED_ARRAYS(MAKE_TO_LOCAL_TYPED_ARRAY)
 

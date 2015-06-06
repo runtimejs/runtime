@@ -112,4 +112,5 @@ void AlignedFree(void *ptr) {
 #endif
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

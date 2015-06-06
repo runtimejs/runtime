@@ -16,8 +16,12 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-JSIntrinsicLowering::JSIntrinsicLowering(JSGraph* jsgraph)
-    : jsgraph_(jsgraph), simplified_(jsgraph->zone()) {}
+JSIntrinsicLowering::JSIntrinsicLowering(Editor* editor, JSGraph* jsgraph,
+                                         DeoptimizationMode mode)
+    : AdvancedReducer(editor),
+      jsgraph_(jsgraph),
+      mode_(mode),
+      simplified_(jsgraph->zone()) {}
 
 
 Reduction JSIntrinsicLowering::Reduce(Node* node) {
@@ -74,6 +78,14 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceUnLikely(node, BranchHint::kFalse);
     case Runtime::kInlineValueOf:
       return ReduceValueOf(node);
+    case Runtime::kInlineIsMinusZero:
+      return ReduceIsMinusZero(node);
+    case Runtime::kInlineFixedArraySet:
+      return ReduceFixedArraySet(node);
+    case Runtime::kInlineGetTypeFeedbackVector:
+      return ReduceGetTypeFeedbackVector(node);
+    case Runtime::kInlineGetCallerJSFunction:
+      return ReduceGetCallerJSFunction(node);
     default:
       break;
   }
@@ -89,15 +101,13 @@ Reduction JSIntrinsicLowering::ReduceConstructDouble(Node* node) {
                        graph()->NewNode(machine()->Float64InsertLowWord32(),
                                         jsgraph()->Constant(0), low),
                        high);
-  NodeProperties::ReplaceWithValue(node, value);
+  ReplaceWithValue(node, value);
   return Replace(value);
 }
 
 
 Reduction JSIntrinsicLowering::ReduceDeoptimizeNow(Node* node) {
-  // TODO(jarin): This should not depend on the global flag.
-  if (!FLAG_turbo_deoptimization) return NoChange();
-
+  if (mode() != kDeoptimizationEnabled) return NoChange();
   Node* frame_state = NodeProperties::GetFrameStateInput(node, 0);
   DCHECK_EQ(frame_state->opcode(), IrOpcode::kFrameState);
 
@@ -112,8 +122,7 @@ Reduction JSIntrinsicLowering::ReduceDeoptimizeNow(Node* node) {
 
   // False branch - the original continuation.
   Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
-  NodeProperties::ReplaceWithValue(node, jsgraph()->UndefinedConstant(), effect,
-                                   if_false);
+  ReplaceWithValue(node, jsgraph()->UndefinedConstant(), effect, if_false);
 
   // True branch: deopt.
   Node* if_true = graph()->NewNode(common()->IfTrue(), branch);
@@ -203,7 +212,7 @@ Reduction JSIntrinsicLowering::ReduceIsInstanceType(
 
   // Replace all effect uses of {node} with the {ephi}.
   Node* ephi = graph()->NewNode(common()->EffectPhi(2), etrue, efalse, merge);
-  NodeProperties::ReplaceWithValue(node, node, ephi);
+  ReplaceWithValue(node, node, ephi);
 
   // Turn the {node} into a Phi.
   return Change(node, common()->Phi(type, 2), vtrue, vfalse, merge);
@@ -264,7 +273,7 @@ Reduction JSIntrinsicLowering::ReduceSeqStringGetChar(
   node->ReplaceInput(2, effect);
   node->ReplaceInput(3, control);
   node->TrimInputCount(4);
-  NodeProperties::ReplaceWithValue(node, node, node);
+  RelaxControls(node);
   return Changed(node);
 }
 
@@ -286,7 +295,7 @@ Reduction JSIntrinsicLowering::ReduceSeqStringSetChar(
   node->ReplaceInput(4, control);
   node->TrimInputCount(5);
   NodeProperties::RemoveBounds(node);
-  NodeProperties::ReplaceWithValue(node, string, node);
+  ReplaceWithValue(node, string, node);
   return Changed(node);
 }
 
@@ -319,7 +328,7 @@ Reduction JSIntrinsicLowering::ReduceUnLikely(Node* node, BranchHint hint) {
   }
   // Apart from adding hints to branchs nodes, this is the identity function.
   Node* value = NodeProperties::GetValueInput(node, 0);
-  NodeProperties::ReplaceWithValue(node, value);
+  ReplaceWithValue(node, value);
   return Changed(value);
 }
 
@@ -380,7 +389,7 @@ Reduction JSIntrinsicLowering::ReduceValueOf(Node* node) {
 
   // Replace all effect uses of {node} with the {ephi0}.
   Node* ephi0 = graph()->NewNode(ephi_op, etrue0, efalse0, merge0);
-  NodeProperties::ReplaceWithValue(node, node, ephi0);
+  ReplaceWithValue(node, node, ephi0);
 
   // Turn the {node} into a Phi.
   return Change(node, phi_op, vtrue0, vfalse0, merge0);
@@ -389,11 +398,97 @@ Reduction JSIntrinsicLowering::ReduceValueOf(Node* node) {
 
 Reduction JSIntrinsicLowering::Change(Node* node, const Operator* op) {
   // Replace all effect uses of {node} with the effect dependency.
-  NodeProperties::ReplaceWithValue(node, node);
+  RelaxEffectsAndControls(node);
   // Remove the inputs corresponding to context, effect and control.
   NodeProperties::RemoveNonValueInputs(node);
   // Finally update the operator to the new one.
   node->set_op(op);
+  return Changed(node);
+}
+
+
+Reduction JSIntrinsicLowering::ReduceIsMinusZero(Node* node) {
+  Node* value = NodeProperties::GetValueInput(node, 0);
+  Node* effect = NodeProperties::GetEffectInput(node);
+
+  Node* double_lo =
+      graph()->NewNode(machine()->Float64ExtractLowWord32(), value);
+  Node* check1 = graph()->NewNode(machine()->Word32Equal(), double_lo,
+                                  jsgraph()->ZeroConstant());
+
+  Node* double_hi =
+      graph()->NewNode(machine()->Float64ExtractHighWord32(), value);
+  Node* check2 = graph()->NewNode(
+      machine()->Word32Equal(), double_hi,
+      jsgraph()->Int32Constant(static_cast<int32_t>(0x80000000)));
+
+  ReplaceWithValue(node, node, effect);
+
+  Node* and_result = graph()->NewNode(machine()->Word32And(), check1, check2);
+
+  return Change(node, machine()->Word32Equal(), and_result,
+                jsgraph()->Int32Constant(1));
+}
+
+
+Reduction JSIntrinsicLowering::ReduceFixedArraySet(Node* node) {
+  Node* base = node->InputAt(0);
+  Node* index = node->InputAt(1);
+  Node* value = node->InputAt(2);
+  Node* effect = NodeProperties::GetEffectInput(node);
+  Node* control = NodeProperties::GetControlInput(node);
+  Node* store = (graph()->NewNode(
+      simplified()->StoreElement(AccessBuilder::ForFixedArrayElement()), base,
+      index, value, effect, control));
+  ReplaceWithValue(node, value, store);
+  return Changed(store);
+}
+
+
+Reduction JSIntrinsicLowering::ReduceGetTypeFeedbackVector(Node* node) {
+  Node* func = node->InputAt(0);
+  Node* effect = NodeProperties::GetEffectInput(node);
+  Node* control = NodeProperties::GetControlInput(node);
+  FieldAccess access = AccessBuilder::ForJSFunctionSharedFunctionInfo();
+  Node* load =
+      graph()->NewNode(simplified()->LoadField(access), func, effect, control);
+  access = AccessBuilder::ForSharedFunctionInfoTypeFeedbackVector();
+  return Change(node, simplified()->LoadField(access), load, load, control);
+}
+
+
+Reduction JSIntrinsicLowering::ReduceGetCallerJSFunction(Node* node) {
+  Node* effect = NodeProperties::GetEffectInput(node);
+  Node* control = NodeProperties::GetControlInput(node);
+
+  Node* const frame_state = NodeProperties::GetFrameStateInput(node, 0);
+  Node* outer_frame = frame_state->InputAt(kFrameStateOuterStateInput);
+  if (outer_frame->opcode() == IrOpcode::kFrameState) {
+    // Use the runtime implementation to throw the appropriate error if the
+    // containing function is inlined.
+    return NoChange();
+  }
+
+  // TODO(danno): This implementation forces intrinsic lowering to happen after
+  // inlining, which is fine for now, but eventually the frame-querying logic
+  // probably should go later, e.g. in instruction selection, so that there is
+  // no phase-ordering dependency.
+  FieldAccess access = AccessBuilder::ForFrameCallerFramePtr();
+  Node* fp = graph()->NewNode(machine()->LoadFramePointer());
+  Node* next_fp =
+      graph()->NewNode(simplified()->LoadField(access), fp, effect, control);
+  return Change(node, simplified()->LoadField(AccessBuilder::ForFrameMarker()),
+                next_fp, effect, control);
+}
+
+
+Reduction JSIntrinsicLowering::Change(Node* node, const Operator* op, Node* a,
+                                      Node* b) {
+  node->set_op(op);
+  node->ReplaceInput(0, a);
+  node->ReplaceInput(1, b);
+  node->TrimInputCount(2);
+  RelaxControls(node);
   return Changed(node);
 }
 
@@ -405,14 +500,13 @@ Reduction JSIntrinsicLowering::Change(Node* node, const Operator* op, Node* a,
   node->ReplaceInput(1, b);
   node->ReplaceInput(2, c);
   node->TrimInputCount(3);
-  NodeProperties::ReplaceWithValue(node, node, node);
+  RelaxControls(node);
   return Changed(node);
 }
 
 
 Reduction JSIntrinsicLowering::ChangeToUndefined(Node* node, Node* effect) {
-  NodeProperties::ReplaceWithValue(node, jsgraph()->UndefinedConstant(),
-                                   effect);
+  ReplaceWithValue(node, jsgraph()->UndefinedConstant(), effect);
   return Changed(node);
 }
 

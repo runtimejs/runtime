@@ -74,8 +74,13 @@ namespace internal {
 #endif
 #endif
 
-// Determine whether the architecture uses an out-of-line constant pool.
-#define V8_OOL_CONSTANT_POOL 0
+// Determine whether the architecture uses an embedded constant pool
+// (contiguous constant pool embedded in code object).
+#if V8_TARGET_ARCH_PPC
+#define V8_EMBEDDED_CONSTANT_POOL 1
+#else
+#define V8_EMBEDDED_CONSTANT_POOL 0
+#endif
 
 #ifdef V8_TARGET_ARCH_ARM
 // Set stack limit lower for ARM than for other architectures because
@@ -124,6 +129,7 @@ const int kShortSize     = sizeof(short);     // NOLINT
 const int kIntSize       = sizeof(int);       // NOLINT
 const int kInt32Size     = sizeof(int32_t);   // NOLINT
 const int kInt64Size     = sizeof(int64_t);   // NOLINT
+const int kFloatSize     = sizeof(float);     // NOLINT
 const int kDoubleSize    = sizeof(double);    // NOLINT
 const int kIntptrSize    = sizeof(intptr_t);  // NOLINT
 const int kPointerSize   = sizeof(void*);     // NOLINT
@@ -197,6 +203,8 @@ typedef int32_t uc32;
 const int kOneByteSize    = kCharSize;
 const int kUC16Size     = sizeof(uc16);      // NOLINT
 
+// 128 bit SIMD value size.
+const int kSimd128Size = 16;
 
 // Round up n to be a multiple of sz, where sz is a power of 2.
 #define ROUND_UP(n, sz) (((n) + ((sz) - 1)) & ~((sz) - 1))
@@ -225,6 +233,11 @@ template <typename T, class P = FreeStoreAllocationPolicy> class List;
 // -----------------------------------------------------------------------------
 // Declarations for use in both the preparser and the rest of V8.
 
+enum ObjectStrength {
+  WEAK,
+  FIRM  // strong object
+};
+
 // The Strict Mode (ECMA-262 5th edition, 4.2.2).
 
 enum LanguageMode {
@@ -240,7 +253,7 @@ enum LanguageMode {
 };
 
 
-inline std::ostream& operator<<(std::ostream& os, LanguageMode mode) {
+inline std::ostream& operator<<(std::ostream& os, const LanguageMode& mode) {
   switch (mode) {
     case SLOPPY:
       return os << "sloppy";
@@ -284,6 +297,11 @@ inline LanguageMode construct_language_mode(bool strict_bit, bool strong_bit) {
 }
 
 
+inline ObjectStrength strength(LanguageMode language_mode) {
+  return is_strong(language_mode) ? FIRM : WEAK;
+}
+
+
 // Mask for the sign bit in a smi.
 const intptr_t kSmiSignMask = kIntptrSignBit;
 
@@ -298,6 +316,10 @@ const intptr_t kPointerAlignmentMask = kPointerAlignment - 1;
 // Desired alignment for double values.
 const intptr_t kDoubleAlignment = 8;
 const intptr_t kDoubleAlignmentMask = kDoubleAlignment - 1;
+
+// Desired alignment for 128 bit SIMD values.
+const intptr_t kSimd128Alignment = 16;
+const intptr_t kSimd128AlignmentMask = kSimd128Alignment - 1;
 
 // Desired alignment for generated code is 32 bytes (to improve cache line
 // utilization).
@@ -377,6 +399,7 @@ class MemoryChunk;
 class SeededNumberDictionary;
 class UnseededNumberDictionary;
 class NameDictionary;
+class GlobalDictionary;
 template <typename T> class MaybeHandle;
 template <typename T> class Handle;
 class Heap;
@@ -438,12 +461,29 @@ enum AllocationSpace {
 const int kSpaceTagSize = 3;
 const int kSpaceTagMask = (1 << kSpaceTagSize) - 1;
 
+enum AllocationAlignment {
+  kWordAligned,
+  kDoubleAligned,
+  kDoubleUnaligned,
+  kSimd128Unaligned
+};
 
 // A flag that indicates whether objects should be pretenured when
 // allocated (allocated directly into the old generation) or not
 // (allocated in the young generation if the object size and type
 // allows).
 enum PretenureFlag { NOT_TENURED, TENURED };
+
+inline std::ostream& operator<<(std::ostream& os, const PretenureFlag& flag) {
+  switch (flag) {
+    case NOT_TENURED:
+      return os << "NotTenured";
+    case TENURED:
+      return os << "Tenured";
+  }
+  UNREACHABLE();
+  return os;
+}
 
 enum MinimumCapacity {
   USE_DEFAULT_MINIMUM_CAPACITY,
@@ -475,13 +515,15 @@ enum ParseRestriction {
 // A CodeDesc describes a buffer holding instructions and relocation
 // information. The instructions start at the beginning of the buffer
 // and grow forward, the relocation information starts at the end of
-// the buffer and grows backward.
+// the buffer and grows backward.  A constant pool may exist at the
+// end of the instructions.
 //
-//  |<--------------- buffer_size ---------------->|
-//  |<-- instr_size -->|        |<-- reloc_size -->|
-//  +==================+========+==================+
-//  |   instructions   |  free  |    reloc info    |
-//  +==================+========+==================+
+//  |<--------------- buffer_size ----------------------------------->|
+//  |<------------- instr_size ---------->|        |<-- reloc_size -->|
+//  |               |<- const_pool_size ->|                           |
+//  +=====================================+========+==================+
+//  |  instructions |        data         |  free  |    reloc info    |
+//  +=====================================+========+==================+
 //  ^
 //  |
 //  buffer
@@ -491,6 +533,7 @@ struct CodeDesc {
   int buffer_size;
   int instr_size;
   int reloc_size;
+  int constant_pool_size;
   Assembler* origin;
 };
 
@@ -643,26 +686,6 @@ struct AccessorDescriptor {
 // DOUBLE_POINTER_ALIGN returns the value algined for double pointers.
 #define DOUBLE_POINTER_ALIGN(value) \
   (((value) + kDoubleAlignmentMask) & ~kDoubleAlignmentMask)
-
-// Support for tracking C++ memory allocation.  Insert TRACK_MEMORY("Fisk")
-// inside a C++ class and new and delete will be overloaded so logging is
-// performed.
-// This file (globals.h) is included before log.h, so we use direct calls to
-// the Logger rather than the LOG macro.
-#ifdef DEBUG
-#define TRACK_MEMORY(name) \
-  void* operator new(size_t size) { \
-    void* result = ::operator new(size); \
-    Logger::NewEventStatic(name, result, size); \
-    return result; \
-  } \
-  void operator delete(void* object) { \
-    Logger::DeleteEventStatic(name, object); \
-    ::operator delete(object); \
-  }
-#else
-#define TRACK_MEMORY(name)
-#endif
 
 
 // CPU feature flags.

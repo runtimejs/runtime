@@ -202,8 +202,9 @@ action("js2c") {
 
   sources = [
     "src/macros.py",
-    "src/messages.h",  
+    "src/messages.h",
     "src/runtime.js",
+    "src/prologue.js",
     "src/v8natives.js",
     "src/symbol.js",
     "src/array.js",
@@ -215,6 +216,7 @@ action("js2c") {
     "src/regexp.js",
     "src/arraybuffer.js",
     "src/typedarray.js",
+    "src/iterator-prototype.js",
     "src/generator.js",
     "src/object-observe.js",
     "src/collection.js",
@@ -264,9 +266,10 @@ action("js2c_experimental") {
 
   sources = [
     "src/macros.py",
-    "src/messages.h",  
+    "src/messages.h",
     "src/proxy.js",
     "src/generator.js",
+    "src/harmony-atomics.js",
     "src/harmony-array.js",
     "src/harmony-array-includes.js",
     "src/harmony-typedarray.js",
@@ -274,7 +277,8 @@ action("js2c_experimental") {
     "src/harmony-regexp.js",
     "src/harmony-reflect.js",
     "src/harmony-spread.js",
-    "src/harmony-object.js"
+    "src/harmony-object.js",
+    "src/harmony-sharedarraybuffer.js"
   ]
 
   outputs = [
@@ -474,8 +478,12 @@ source_set("v8_snapshot") {
     ":js2c",
     ":js2c_experimental",
     ":js2c_extras",
-    ":run_mksnapshot",
     ":v8_base",
+  ]
+  public_deps = [
+    # This should be public so downstream targets can declare the snapshot
+    # output file as their inputs.
+    ":run_mksnapshot",
   ]
 
   sources = [
@@ -502,9 +510,11 @@ if (v8_use_external_startup_data) {
       ":js2c",
       ":js2c_experimental",
       ":js2c_extras",
-      ":run_mksnapshot",
       ":v8_base",
+    ]
+    public_deps = [
       ":natives_blob",
+      ":run_mksnapshot",
     ]
 
     sources = [
@@ -623,6 +633,8 @@ source_set("v8_base") {
     "src/compiler/frame.h",
     "src/compiler/frame-elider.cc",
     "src/compiler/frame-elider.h",
+    "src/compiler/frame-states.cc",
+    "src/compiler/frame-states.h",
     "src/compiler/gap-resolver.cc",
     "src/compiler/gap-resolver.h",
     "src/compiler/graph-builder.h",
@@ -718,8 +730,6 @@ source_set("v8_base") {
     "src/compiler/select-lowering.h",
     "src/compiler/simplified-lowering.cc",
     "src/compiler/simplified-lowering.h",
-    "src/compiler/simplified-operator-reducer.cc",
-    "src/compiler/simplified-operator-reducer.h",
     "src/compiler/simplified-operator.cc",
     "src/compiler/simplified-operator.h",
     "src/compiler/source-position.cc",
@@ -956,12 +966,11 @@ source_set("v8_base") {
     "src/optimizing-compile-dispatcher.h",
     "src/ostreams.cc",
     "src/ostreams.h",
+    "src/pattern-rewriter.cc",
     "src/parser.cc",
     "src/parser.h",
     "src/pending-compilation-error-handler.cc",
     "src/pending-compilation-error-handler.h",
-    "src/perf-jit.cc",
-    "src/perf-jit.h",
     "src/preparse-data-format.h",
     "src/preparse-data.cc",
     "src/preparse-data.h",
@@ -990,11 +999,13 @@ source_set("v8_base") {
     "src/runtime-profiler.cc",
     "src/runtime-profiler.h",
     "src/runtime/runtime-array.cc",
+    "src/runtime/runtime-atomics.cc",
     "src/runtime/runtime-classes.cc",
     "src/runtime/runtime-collections.cc",
     "src/runtime/runtime-compiler.cc",
     "src/runtime/runtime-date.cc",
     "src/runtime/runtime-debug.cc",
+    "src/runtime/runtime-forin.cc",
     "src/runtime/runtime-function.cc",
     "src/runtime/runtime-generator.cc",
     "src/runtime/runtime-i18n.cc",
@@ -1570,6 +1581,10 @@ if (component_mode == "shared_library") {
     } else if (v8_use_snapshot) {
       deps = [
         ":v8_base",
+      ]
+      # v8_snapshot should be public so downstream targets can declare the
+      # snapshot file as their input.
+      public_deps = [
         ":v8_snapshot",
       ]
     } else {
@@ -1605,6 +1620,8 @@ if (component_mode == "shared_library") {
     } else if (v8_use_snapshot) {
       deps = [
         ":v8_base",
+      ]
+      public_deps = [
         ":v8_snapshot",
       ]
     } else {

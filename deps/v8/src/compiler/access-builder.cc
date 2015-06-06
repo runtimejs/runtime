@@ -46,8 +46,13 @@ FieldAccess AccessBuilder::ForJSArrayBufferBackingStore() {
 
 // static
 FieldAccess AccessBuilder::ForFixedArrayLength() {
+  // TODO(turbofan): 2^30 is a valid upper limit for the FixedArray::length
+  // field, although it's not the best. If we had a Zone we could create an
+  // appropriate range type instead.
+  STATIC_ASSERT(FixedArray::kMaxLength <= 1 << 30);
   return {kTaggedBase, FixedArray::kLengthOffset, MaybeHandle<Name>(),
-          Type::TaggedSigned(), kMachAnyTagged};
+          Type::Intersect(Type::Unsigned30(), Type::TaggedSigned()),
+          kMachAnyTagged};
 }
 
 
@@ -55,6 +60,34 @@ FieldAccess AccessBuilder::ForFixedArrayLength() {
 FieldAccess AccessBuilder::ForExternalArrayPointer() {
   return {kTaggedBase, ExternalArray::kExternalPointerOffset,
           MaybeHandle<Name>(), Type::UntaggedPointer(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForDescriptorArrayEnumCache() {
+  return {kTaggedBase, DescriptorArray::kEnumCacheOffset, Handle<Name>(),
+          Type::TaggedPointer(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForDescriptorArrayEnumCacheBridgeCache() {
+  return {kTaggedBase, DescriptorArray::kEnumCacheBridgeCacheOffset,
+          Handle<Name>(), Type::TaggedPointer(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForMapBitField3() {
+  return {kTaggedBase, Map::kBitField3Offset, Handle<Name>(),
+          Type::UntaggedUnsigned32(), kMachUint32};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForMapDescriptors() {
+  return {kTaggedBase, Map::kDescriptorsOffset, Handle<Name>(),
+          Type::TaggedPointer(), kMachAnyTagged};
 }
 
 
@@ -148,6 +181,34 @@ ElementAccess AccessBuilder::ForSeqStringChar(String::Encoding encoding) {
   }
   UNREACHABLE();
   return {kUntaggedBase, 0, Type::None(), kMachNone};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForJSFunctionSharedFunctionInfo() {
+  return {kTaggedBase, JSFunction::kSharedFunctionInfoOffset, Handle<Name>(),
+          Type::Any(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForSharedFunctionInfoTypeFeedbackVector() {
+  return {kTaggedBase, SharedFunctionInfo::kFeedbackVectorOffset,
+          Handle<Name>(), Type::Any(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForFrameCallerFramePtr() {
+  return {kUntaggedBase, StandardFrameConstants::kCallerFPOffset,
+          MaybeHandle<Name>(), Type::Internal(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForFrameMarker() {
+  return {kUntaggedBase, StandardFrameConstants::kMarkerOffset,
+          MaybeHandle<Name>(), Type::Tagged(), kMachAnyTagged};
 }
 
 }  // namespace compiler

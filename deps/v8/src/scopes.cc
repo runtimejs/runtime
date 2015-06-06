@@ -154,18 +154,18 @@ void Scope::SetDefaults(ScopeType scope_type, Scope* outer_scope,
   function_kind_ = function_kind;
   block_scope_is_class_scope_ = false;
   scope_name_ = ast_value_factory_->empty_string();
-  dynamics_ = NULL;
-  receiver_ = NULL;
+  dynamics_ = nullptr;
+  receiver_ = nullptr;
   new_target_ = nullptr;
-  function_ = NULL;
-  arguments_ = NULL;
-  illegal_redecl_ = NULL;
+  function_ = nullptr;
+  arguments_ = nullptr;
+  this_function_ = nullptr;
+  illegal_redecl_ = nullptr;
   scope_inside_with_ = false;
   scope_contains_with_ = false;
   scope_calls_eval_ = false;
   scope_uses_arguments_ = false;
   scope_uses_super_property_ = false;
-  scope_uses_this_ = false;
   asm_module_ = false;
   asm_function_ = outer_scope != NULL && outer_scope->asm_module_;
   // Inherit the language mode from the parent scope.
@@ -173,8 +173,6 @@ void Scope::SetDefaults(ScopeType scope_type, Scope* outer_scope,
   outer_scope_calls_sloppy_eval_ = false;
   inner_scope_calls_eval_ = false;
   inner_scope_uses_arguments_ = false;
-  inner_scope_uses_this_ = false;
-  inner_scope_uses_super_property_ = false;
   force_eager_compilation_ = false;
   force_context_allocation_ = (outer_scope != NULL && !is_function_scope())
       ? outer_scope->has_forced_context_allocation() : false;
@@ -309,44 +307,36 @@ void Scope::Initialize() {
     scope_inside_with_ = is_with_scope();
   }
 
-  // Declare convenience variables.
-  // Declare and allocate receiver (even for the script scope, and even
-  // if naccesses_ == 0).
-  // NOTE: When loading parameters in the script scope, we must take
-  // care not to access them as properties of the global object, but
-  // instead load them directly from the stack. Currently, the only
-  // such parameter is 'this' which is passed on the stack when
-  // invoking scripts
-  if (is_declaration_scope()) {
-    DCHECK(!subclass_constructor || is_function_scope());
+  // Declare convenience variables and the receiver.
+  if (is_declaration_scope() && has_this_declaration()) {
     Variable* var = variables_.Declare(
         this, ast_value_factory_->this_string(),
         subclass_constructor ? CONST : VAR, Variable::THIS,
         subclass_constructor ? kNeedsInitialization : kCreatedInitialized);
-    var->AllocateTo(Variable::PARAMETER, -1);
     receiver_ = var;
-
-    if (subclass_constructor) {
-      new_target_ =
-          variables_.Declare(this, ast_value_factory_->new_target_string(),
-                             CONST, Variable::NEW_TARGET, kCreatedInitialized);
-      new_target_->AllocateTo(Variable::PARAMETER, -2);
-      new_target_->set_is_used();
-    }
-  } else {
-    DCHECK(outer_scope() != NULL);
-    receiver_ = outer_scope()->receiver();
   }
 
-  if (is_function_scope() && !is_arrow_scope()) {
-    // Declare 'arguments' variable which exists in all non arrow functions.
-    // Note that it might never be accessed, in which case it won't be
-    // allocated during variable allocation.
-    variables_.Declare(this,
-                       ast_value_factory_->arguments_string(),
-                       VAR,
-                       Variable::ARGUMENTS,
-                       kCreatedInitialized);
+  if (is_function_scope()) {
+    if (!is_arrow_scope()) {
+      // Declare 'arguments' variable which exists in all non arrow functions.
+      // Note that it might never be accessed, in which case it won't be
+      // allocated during variable allocation.
+      variables_.Declare(this, ast_value_factory_->arguments_string(), VAR,
+                         Variable::ARGUMENTS, kCreatedInitialized);
+    }
+
+    if (subclass_constructor) {
+      DCHECK(!is_arrow_scope());
+      variables_.Declare(this, ast_value_factory_->new_target_string(), CONST,
+                         Variable::NORMAL, kCreatedInitialized);
+    }
+
+    if (IsConciseMethod(function_kind_) || IsConstructor(function_kind_) ||
+        IsAccessorFunction(function_kind_)) {
+      DCHECK(!is_arrow_scope());
+      variables_.Declare(this, ast_value_factory_->this_function_string(),
+                         CONST, Variable::NORMAL, kCreatedInitialized);
+    }
   }
 }
 
@@ -380,7 +370,6 @@ Scope* Scope::FinalizeBlockScope() {
   // Propagate usage flags to outer scope.
   if (uses_arguments()) outer_scope_->RecordArgumentsUsage();
   if (uses_super_property()) outer_scope_->RecordSuperPropertyUsage();
-  if (uses_this()) outer_scope_->RecordThisUsage();
   if (scope_calls_eval_) outer_scope_->RecordEvalCall();
 
   return NULL;
@@ -421,9 +410,16 @@ Variable* Scope::LookupLocal(const AstRawString* name) {
     maybe_assigned_flag = kMaybeAssigned;
   }
 
-  // TODO(marja, rossberg): Declare variables of the right Kind.
-  Variable* var = variables_.Declare(this, name, mode, Variable::NORMAL,
-                                     init_flag, maybe_assigned_flag);
+  Variable::Kind kind = Variable::NORMAL;
+  if (location == Variable::CONTEXT &&
+      index == scope_info_->ReceiverContextSlotIndex()) {
+    kind = Variable::THIS;
+  }
+  // TODO(marja, rossberg): Correctly declare FUNCTION, CLASS, NEW_TARGET, and
+  // ARGUMENTS bindings as their corresponding Variable::Kind.
+
+  Variable* var = variables_.Declare(this, name, mode, kind, init_flag,
+                                     maybe_assigned_flag);
   var->AllocateTo(location, index);
   return var;
 }
@@ -795,7 +791,8 @@ void Scope::GetNestedScopeChain(Isolate* isolate,
 
 
 void Scope::ReportMessage(int start_position, int end_position,
-                          const char* message, const AstRawString* arg) {
+                          MessageTemplate::Template message,
+                          const AstRawString* arg) {
   // Propagate the error to the topmost scope targeted by this scope analysis
   // phase.
   Scope* top = this;
@@ -930,13 +927,9 @@ void Scope::Print(int n) {
   if (scope_uses_arguments_) Indent(n1, "// scope uses 'arguments'\n");
   if (scope_uses_super_property_)
     Indent(n1, "// scope uses 'super' property\n");
-  if (scope_uses_this_) Indent(n1, "// scope uses 'this'\n");
   if (inner_scope_uses_arguments_) {
     Indent(n1, "// inner scope uses 'arguments'\n");
   }
-  if (inner_scope_uses_super_property_)
-    Indent(n1, "// inner scope uses 'super' property\n");
-  if (inner_scope_uses_this_) Indent(n1, "// inner scope uses 'this'\n");
   if (outer_scope_calls_sloppy_eval_) {
     Indent(n1, "// outer scope calls 'eval' in sloppy context\n");
   }
@@ -1049,7 +1042,11 @@ Variable* Scope::LookupRecursive(VariableProxy* proxy,
     DCHECK(is_script_scope());
   }
 
-  if (is_with_scope()) {
+  // "this" can't be shadowed by "eval"-introduced bindings or by "with" scopes.
+  // TODO(wingo): There are other variables in this category; add them.
+  bool name_can_be_shadowed = var == nullptr || !var->is_this();
+
+  if (is_with_scope() && name_can_be_shadowed) {
     DCHECK(!already_resolved());
     // The current scope is a with scope, so the variable binding can not be
     // statically resolved. However, note that it was necessary to do a lookup
@@ -1060,7 +1057,7 @@ Variable* Scope::LookupRecursive(VariableProxy* proxy,
     if (var != NULL && proxy->is_assigned()) var->set_maybe_assigned();
     *binding_kind = DYNAMIC_LOOKUP;
     return NULL;
-  } else if (calls_sloppy_eval()) {
+  } else if (calls_sloppy_eval() && name_can_be_shadowed) {
     // A variable binding may have been found in an outer scope, but the current
     // scope makes a sloppy 'eval' call, so the found variable may not be
     // the correct one (the 'eval' may introduce a binding with the same name).
@@ -1219,7 +1216,8 @@ bool Scope::CheckStrongModeDeclaration(VariableProxy* proxy, Variable* var) {
       eval_for_use == eval_for_declaration) {
     DCHECK(proxy->end_position() != RelocInfo::kNoPosition);
     ReportMessage(proxy->position(), proxy->end_position(),
-                  "strong_use_before_declaration", proxy->raw_name());
+                  MessageTemplate::kStrongUseBeforeDeclaration,
+                  proxy->raw_name());
     return false;
   }
   return true;
@@ -1288,13 +1286,6 @@ void Scope::PropagateScopeInfo(bool outer_scope_calls_sloppy_eval ) {
       if (inner->scope_uses_arguments_ || inner->inner_scope_uses_arguments_) {
         inner_scope_uses_arguments_ = true;
       }
-      if (inner->scope_uses_super_property_ ||
-          inner->inner_scope_uses_super_property_) {
-        inner_scope_uses_super_property_ = true;
-      }
-      if (inner->scope_uses_this_ || inner->inner_scope_uses_this_) {
-        inner_scope_uses_this_ = true;
-      }
     }
     if (inner->force_eager_compilation_) {
       force_eager_compilation_ = true;
@@ -1310,7 +1301,7 @@ bool Scope::MustAllocate(Variable* var) {
   // Give var a read/write use if there is a chance it might be accessed
   // via an eval() call.  This is only possible if the variable has a
   // visible name.
-  if ((var->is_this() || var->is_new_target() || !var->raw_name()->IsEmpty()) &&
+  if ((var->is_this() || !var->raw_name()->IsEmpty()) &&
       (var->has_forced_context_allocation() || scope_calls_eval_ ||
        inner_scope_calls_eval_ || scope_contains_with_ || is_catch_scope() ||
        is_block_scope() || is_module_scope() || is_script_scope())) {
@@ -1415,21 +1406,37 @@ void Scope::AllocateParameterLocals(Isolate* isolate) {
       // Force context allocation of the parameter.
       var->ForceContextAllocation();
     }
+    AllocateParameter(var, i);
+  }
+}
 
-    if (MustAllocate(var)) {
-      if (MustAllocateInContext(var)) {
-        DCHECK(var->IsUnallocated() || var->IsContextSlot());
-        if (var->IsUnallocated()) {
-          AllocateHeapSlot(var);
-        }
-      } else {
-        DCHECK(var->IsUnallocated() || var->IsParameter());
-        if (var->IsUnallocated()) {
-          var->AllocateTo(Variable::PARAMETER, i);
-        }
+
+void Scope::AllocateParameter(Variable* var, int index) {
+  if (MustAllocate(var)) {
+    if (MustAllocateInContext(var)) {
+      DCHECK(var->IsUnallocated() || var->IsContextSlot());
+      if (var->IsUnallocated()) {
+        AllocateHeapSlot(var);
+      }
+    } else {
+      DCHECK(var->IsUnallocated() || var->IsParameter());
+      if (var->IsUnallocated()) {
+        var->AllocateTo(Variable::PARAMETER, index);
       }
     }
   }
+}
+
+
+void Scope::AllocateReceiver() {
+  DCHECK_NOT_NULL(receiver());
+  DCHECK_EQ(receiver()->scope(), this);
+
+  if (has_forced_context_allocation()) {
+    // Force context allocation of the receiver.
+    receiver()->ForceContextAllocation();
+  }
+  AllocateParameter(receiver(), -1);
 }
 
 
@@ -1474,12 +1481,24 @@ void Scope::AllocateNonParameterLocals(Isolate* isolate) {
   // allocated in the context, it must be the last slot in the context,
   // because of the current ScopeInfo implementation (see
   // ScopeInfo::ScopeInfo(FunctionScope* scope) constructor).
-  if (function_ != NULL) {
+  if (function_ != nullptr) {
     AllocateNonParameterLocal(isolate, function_->proxy()->var());
   }
 
-  if (rest_parameter_) {
+  if (rest_parameter_ != nullptr) {
     AllocateNonParameterLocal(isolate, rest_parameter_);
+  }
+
+  Variable* new_target_var =
+      LookupLocal(ast_value_factory_->new_target_string());
+  if (new_target_var != nullptr && MustAllocate(new_target_var)) {
+    new_target_ = new_target_var;
+  }
+
+  Variable* this_function_var =
+      LookupLocal(ast_value_factory_->this_function_string());
+  if (this_function_var != nullptr && MustAllocate(this_function_var)) {
+    this_function_ = this_function_var;
   }
 }
 
@@ -1502,6 +1521,7 @@ void Scope::AllocateVariablesRecursively(Isolate* isolate) {
   // Allocate variables for this scope.
   // Parameters must be allocated first, if any.
   if (is_function_scope()) AllocateParameterLocals(isolate);
+  if (has_this_declaration()) AllocateReceiver();
   AllocateNonParameterLocals(isolate);
 
   // Force allocation of a context for this scope if necessary. For a 'with'
@@ -1549,4 +1569,5 @@ int Scope::ContextLocalCount() const {
   return num_heap_slots() - Context::MIN_CONTEXT_SLOTS -
       (function_ != NULL && function_->proxy()->var()->IsContextSlot() ? 1 : 0);
 }
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

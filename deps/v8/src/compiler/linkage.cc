@@ -51,11 +51,11 @@ bool CallDescriptor::HasSameReturnLocationsAs(
 CallDescriptor* Linkage::ComputeIncoming(Zone* zone, CompilationInfo* info) {
   if (info->code_stub() != NULL) {
     // Use the code stub interface descriptor.
-    CallInterfaceDescriptor descriptor =
-        info->code_stub()->GetCallInterfaceDescriptor();
-    return GetStubCallDescriptor(info->isolate(), zone, descriptor, 0,
-                                 CallDescriptor::kNoFlags,
-                                 Operator::kNoProperties);
+    CodeStub* stub = info->code_stub();
+    CallInterfaceDescriptor descriptor = stub->GetCallInterfaceDescriptor();
+    return GetStubCallDescriptor(
+        info->isolate(), zone, descriptor, stub->GetStackParameterCount(),
+        CallDescriptor::kNoFlags, Operator::kNoProperties);
   }
   if (info->function() != NULL) {
     // If we already have the function literal, use the number of parameters
@@ -114,9 +114,8 @@ bool Linkage::NeedsFrameState(Runtime::FunctionId function) {
     case Runtime::kDefineClassMethod:              // TODO(jarin): Is it safe?
     case Runtime::kDefineGetterPropertyUnchecked:  // TODO(jarin): Is it safe?
     case Runtime::kDefineSetterPropertyUnchecked:  // TODO(jarin): Is it safe?
-    case Runtime::kForInCacheArrayLength:
-    case Runtime::kForInInit:
-    case Runtime::kForInNext:
+    case Runtime::kForInDone:
+    case Runtime::kForInStep:
     case Runtime::kNewArguments:
     case Runtime::kNewClosure:
     case Runtime::kNewFunctionContext:
@@ -133,10 +132,12 @@ bool Linkage::NeedsFrameState(Runtime::FunctionId function) {
       return false;
     case Runtime::kInlineArguments:
     case Runtime::kInlineCallFunction:
-    case Runtime::kInlineDateField:
+    case Runtime::kInlineDateField:  // TODO(bmeurer): Remove this.
     case Runtime::kInlineDeoptimizeNow:
+    case Runtime::kInlineGetCallerJSFunction:
     case Runtime::kInlineGetPrototype:
     case Runtime::kInlineRegExpExec:
+    case Runtime::kInlineThrowIfNotADate:
       return true;
     default:
       break;
@@ -203,6 +204,6 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(Zone* zone,
   return NULL;
 }
 #endif  // !V8_TURBOFAN_BACKEND
-}
-}
-}  // namespace v8::internal::compiler
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

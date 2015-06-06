@@ -520,11 +520,27 @@ bool Decoder::DecodeTypeRegisterRsType(Instruction* instr) {
     case RINT:
       Format(instr, "rint.'t    'fd, 'fs");
       break;
+    case SEL:
+      Format(instr, "sel.'t      'fd, 'fs, 'ft");
+      break;
     case SELEQZ_C:
       Format(instr, "seleqz.'t    'fd, 'fs, 'ft");
       break;
     case SELNEZ_C:
       Format(instr, "selnez.'t    'fd, 'fs, 'ft");
+      break;
+    case MOVZ_C:
+      Format(instr, "movz.'t    'fd, 'fs, 'rt");
+      break;
+    case MOVN_C:
+      Format(instr, "movn.'t    'fd, 'fs, 'rt");
+      break;
+    case MOVF:
+      if (instr->Bit(16)) {
+        Format(instr, "movt.'t    'fd, 'fs, 'Cc");
+      } else {
+        Format(instr, "movf.'t    'fd, 'fs, 'Cc");
+      }
       break;
     case MIN:
       Format(instr, "min.'t    'fd, 'fs, 'ft");
@@ -562,6 +578,12 @@ bool Decoder::DecodeTypeRegisterRsType(Instruction* instr) {
     case SQRT_D:
       Format(instr, "sqrt.'t  'fd, 'fs");
       break;
+    case RECIP_D:
+      Format(instr, "recip.'t  'fd, 'fs");
+      break;
+    case RSQRT_D:
+      Format(instr, "rsqrt.'t  'fd, 'fs");
+      break;
     case CVT_W_D:
       Format(instr, "cvt.w.'t 'fd, 'fs");
       break;
@@ -591,6 +613,9 @@ bool Decoder::DecodeTypeRegisterRsType(Instruction* instr) {
       break;
     case CEIL_L_D:
       Format(instr, "ceil.l.'t 'fd, 'fs");
+      break;
+    case CLASS_D:
+      Format(instr, "class.'t 'fd, 'fs");
       break;
     case CVT_S_D:
       Format(instr, "cvt.s.'t 'fd, 'fs");
@@ -654,6 +679,9 @@ void Decoder::DecodeTypeRegisterLRsType(Instruction* instr) {
       break;
     case CVT_S_L:
       Format(instr, "cvt.s.l 'fd, 'fs");
+      break;
+    case CMP_AF:
+      Format(instr, "cmp.af.d  'fd,  'fs, 'ft");
       break;
     case CMP_UN:
       Format(instr, "cmp.un.d  'fd,  'fs, 'ft");
@@ -1107,6 +1135,20 @@ void Decoder::DecodeTypeRegisterSPECIAL3(Instruction* instr) {
       Format(instr, "dext    'rt, 'rs, 'sa, 'ss1");
       break;
     }
+    case BITSWAP: {
+      Format(instr, "bitswap 'rd, 'rt");
+      break;
+    }
+    case DBITSWAP: {
+      switch (instr->SaFieldRaw()) {
+        case DBITSWAP_SA:
+          Format(instr, "dbitswap 'rd, 'rt");
+          break;
+        default:
+          UNREACHABLE();
+      }
+      break;
+    }
     default:
       UNREACHABLE();
   }
@@ -1465,8 +1507,8 @@ int Decoder::InstructionDecode(byte* instr_ptr) {
 }
 
 
-} }  // namespace v8::internal
-
+}  // namespace internal
+}  // namespace v8
 
 
 //------------------------------------------------------------------------------

@@ -340,7 +340,7 @@ inline uint32_t ComputeIntegerHash(uint32_t key, uint32_t seed) {
   hash = hash ^ (hash >> 4);
   hash = hash * 2057;  // hash = (hash + (hash << 3)) + (hash << 11);
   hash = hash ^ (hash >> 16);
-  return hash;
+  return hash & 0x3fffffff;
 }
 
 
@@ -1690,7 +1690,7 @@ bool StringToArrayIndex(Stream* stream, uint32_t* index) {
     d = stream->GetNext() - '0';
     if (d < 0 || d > 9) return false;
     // Check that the new result is below the 32 bit limit.
-    if (result > 429496729U - ((d > 5) ? 1 : 0)) return false;
+    if (result > 429496729U - ((d + 3) >> 3)) return false;
     result = (result * 10) + d;
   }
 

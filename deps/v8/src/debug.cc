@@ -69,7 +69,8 @@ BreakLocation::Iterator::Iterator(Handle<DebugInfo> debug_info,
           ~RelocInfo::ModeMask(RelocInfo::CODE_AGE_SEQUENCE)),
       break_index_(-1),
       position_(1),
-      statement_position_(1) {
+      statement_position_(1),
+      has_immediate_position_(false) {
   Next();
 }
 
@@ -99,6 +100,8 @@ void BreakLocation::Iterator::Next() {
                                    debug_info_->shared()->start_position());
       DCHECK(position_ >= 0);
       DCHECK(statement_position_ >= 0);
+      has_immediate_position_ = true;
+      continue;
     }
 
     // Check for break at return.
@@ -112,7 +115,7 @@ void BreakLocation::Iterator::Next() {
       }
       statement_position_ = position_;
       break_index_++;
-      return;
+      break;
     }
 
     if (RelocInfo::IsCodeTarget(rmode())) {
@@ -124,24 +127,26 @@ void BreakLocation::Iterator::Next() {
 
       if (RelocInfo::IsConstructCall(rmode()) || code->is_call_stub()) {
         break_index_++;
-        return;
+        break;
       }
 
       // Skip below if we only want locations for calls and returns.
       if (type_ == CALLS_AND_RETURNS) continue;
 
-      if ((code->is_inline_cache_stub() && !code->is_binary_op_stub() &&
+      // Only break at an inline cache if it has an immediate position attached.
+      if (has_immediate_position_ &&
+          (code->is_inline_cache_stub() && !code->is_binary_op_stub() &&
            !code->is_compare_ic_stub() && !code->is_to_boolean_ic_stub())) {
         break_index_++;
-        return;
+        break;
       }
       if (code->kind() == Code::STUB) {
         if (RelocInfo::IsDebuggerStatement(rmode())) {
           break_index_++;
-          return;
+          break;
         } else if (CodeStub::GetMajorKey(code) == CodeStub::CallFunction) {
           break_index_++;
-          return;
+          break;
         }
       }
     }
@@ -149,9 +154,10 @@ void BreakLocation::Iterator::Next() {
     if (RelocInfo::IsDebugBreakSlot(rmode()) && type_ != CALLS_AND_RETURNS) {
       // There is always a possible break point at a debug break slot.
       break_index_++;
-      return;
+      break;
     }
   }
+  has_immediate_position_ = false;
 }
 
 
@@ -493,8 +499,7 @@ int Debug::ArchiveSpacePerThread() {
 }
 
 
-ScriptCache::ScriptCache(Isolate* isolate) : HashMap(HashMap::PointersMatch),
-                                             isolate_(isolate) {
+ScriptCache::ScriptCache(Isolate* isolate) : isolate_(isolate) {
   Heap* heap = isolate_->heap();
   HandleScope scope(isolate_);
 
@@ -502,92 +507,53 @@ ScriptCache::ScriptCache(Isolate* isolate) : HashMap(HashMap::PointersMatch),
   heap->CollectAllGarbage(Heap::kMakeHeapIterableMask, "ScriptCache");
 
   // Scan heap for Script objects.
-  HeapIterator iterator(heap);
-  DisallowHeapAllocation no_allocation;
-
-  for (HeapObject* obj = iterator.next(); obj != NULL; obj = iterator.next()) {
-    if (obj->IsScript() && Script::cast(obj)->HasValidSource()) {
-      Add(Handle<Script>(Script::cast(obj)));
+  List<Handle<Script> > scripts;
+  {
+    HeapIterator iterator(heap, HeapIterator::kFilterUnreachable);
+    DisallowHeapAllocation no_allocation;
+    for (HeapObject* obj = iterator.next(); obj != NULL;
+         obj = iterator.next()) {
+      if (obj->IsScript() && Script::cast(obj)->HasValidSource()) {
+        scripts.Add(Handle<Script>(Script::cast(obj)));
+      }
     }
   }
+
+  GlobalHandles* global_handles = isolate_->global_handles();
+  table_ = Handle<WeakValueHashTable>::cast(global_handles->Create(
+      Object::cast(*WeakValueHashTable::New(isolate_, scripts.length()))));
+  for (int i = 0; i < scripts.length(); i++) Add(scripts[i]);
 }
 
 
 void ScriptCache::Add(Handle<Script> script) {
-  GlobalHandles* global_handles = isolate_->global_handles();
-  // Create an entry in the hash map for the script.
-  int id = script->id()->value();
-  HashMap::Entry* entry =
-      HashMap::LookupOrInsert(reinterpret_cast<void*>(id), Hash(id));
-  if (entry->value != NULL) {
+  HandleScope scope(isolate_);
+  Handle<Smi> id(script->id(), isolate_);
+
 #ifdef DEBUG
-    // The code deserializer may introduce duplicate Script objects.
-    // Assert that the Script objects with the same id have the same name.
-    Handle<Script> found(reinterpret_cast<Script**>(entry->value));
+  Handle<Object> lookup(table_->LookupWeak(id), isolate_);
+  if (!lookup->IsTheHole()) {
+    Handle<Script> found = Handle<Script>::cast(lookup);
     DCHECK(script->id() == found->id());
     DCHECK(!script->name()->IsString() ||
            String::cast(script->name())->Equals(String::cast(found->name())));
+  }
 #endif
-    return;
-  }
-  // Globalize the script object, make it weak and use the location of the
-  // global handle as the value in the hash map.
-  Handle<Script> script_ =
-      Handle<Script>::cast(global_handles->Create(*script));
-  GlobalHandles::MakeWeak(reinterpret_cast<Object**>(script_.location()),
-                          this,
-                          ScriptCache::HandleWeakScript);
-  entry->value = script_.location();
+
+  Handle<WeakValueHashTable> new_table =
+      WeakValueHashTable::PutWeak(table_, id, script);
+
+  if (new_table.is_identical_to(table_)) return;
+  GlobalHandles* global_handles = isolate_->global_handles();
+  global_handles->Destroy(Handle<Object>::cast(table_).location());
+  table_ = Handle<WeakValueHashTable>::cast(
+      global_handles->Create(Object::cast(*new_table)));
 }
 
 
-Handle<FixedArray> ScriptCache::GetScripts() {
-  Factory* factory = isolate_->factory();
-  Handle<FixedArray> instances = factory->NewFixedArray(occupancy());
-  int count = 0;
-  for (HashMap::Entry* entry = Start(); entry != NULL; entry = Next(entry)) {
-    DCHECK(entry->value != NULL);
-    if (entry->value != NULL) {
-      instances->set(count, *reinterpret_cast<Script**>(entry->value));
-      count++;
-    }
-  }
-  return instances;
-}
-
-
-void ScriptCache::Clear() {
-  // Iterate the script cache to get rid of all the weak handles.
-  for (HashMap::Entry* entry = Start(); entry != NULL; entry = Next(entry)) {
-    DCHECK(entry != NULL);
-    Object** location = reinterpret_cast<Object**>(entry->value);
-    DCHECK((*location)->IsScript());
-    GlobalHandles::ClearWeakness(location);
-    GlobalHandles::Destroy(location);
-  }
-  // Clear the content of the hash map.
-  HashMap::Clear();
-}
-
-
-void ScriptCache::HandleWeakScript(
-    const v8::WeakCallbackData<v8::Value, void>& data) {
-  // Retrieve the script identifier.
-  Handle<Object> object = Utils::OpenHandle(*data.GetValue());
-  int id = Handle<Script>::cast(object)->id()->value();
-  void* key = reinterpret_cast<void*>(id);
-  uint32_t hash = Hash(id);
-
-  // Remove the corresponding entry from the cache.
-  ScriptCache* script_cache =
-      reinterpret_cast<ScriptCache*>(data.GetParameter());
-  HashMap::Entry* entry = script_cache->Lookup(key, hash);
-  DCHECK_NOT_NULL(entry);
-  Object** location = reinterpret_cast<Object**>(entry->value);
-  script_cache->Remove(key, hash);
-
-  // Clear the weak handle.
-  GlobalHandles::Destroy(location);
+ScriptCache::~ScriptCache() {
+  isolate_->global_handles()->Destroy(Handle<Object>::cast(table_).location());
+  table_ = Handle<WeakValueHashTable>();
 }
 
 
@@ -645,15 +611,10 @@ bool Debug::CompileDebuggerScript(Isolate* isolate, int index) {
   // Compile the script.
   Handle<SharedFunctionInfo> function_info;
   function_info = Compiler::CompileScript(
-      source_code, script_name, 0, 0, false, false, Handle<Object>(), context,
-      NULL, NULL, ScriptCompiler::kNoCompileOptions, NATIVES_CODE, false);
-
-  // Silently ignore stack overflows during compilation.
-  if (function_info.is_null()) {
-    DCHECK(isolate->has_pending_exception());
-    isolate->clear_pending_exception();
-    return false;
-  }
+      source_code, script_name, 0, 0, ScriptOriginOptions(), Handle<Object>(),
+      context, NULL, NULL, ScriptCompiler::kNoCompileOptions, NATIVES_CODE,
+      false);
+  if (function_info.is_null()) return false;
 
   // Execute the shared function in the debugger context.
   Handle<JSFunction> function =
@@ -668,16 +629,16 @@ bool Debug::CompileDebuggerScript(Isolate* isolate, int index) {
     DCHECK(!isolate->has_pending_exception());
     MessageLocation computed_location;
     isolate->ComputeLocation(&computed_location);
-    Handle<Object> message = MessageHandler::MakeMessageObject(
-        isolate, "error_loading_debugger", &computed_location,
-        Vector<Handle<Object> >::empty(), Handle<JSArray>());
+    Handle<JSMessageObject> message = MessageHandler::MakeMessageObject(
+        isolate, MessageTemplate::kDebuggerLoading, &computed_location,
+        isolate->factory()->undefined_value(), Handle<JSArray>());
     DCHECK(!isolate->has_pending_exception());
     Handle<Object> exception;
     if (maybe_exception.ToHandle(&exception)) {
       isolate->set_pending_exception(*exception);
       MessageHandler::ReportMessage(isolate, NULL, message);
-      isolate->clear_pending_exception();
     }
+    DCHECK(!maybe_exception.is_null());
     return false;
   }
 
@@ -1189,7 +1150,7 @@ void Debug::FloodHandlerWithOneShot() {
   for (JavaScriptFrameIterator it(isolate_, id); !it.done(); it.Advance()) {
     JavaScriptFrame* frame = it.frame();
     int stack_slots = 0;  // The computed stack slot count is not used.
-    if (frame->LookupExceptionHandlerInTable(&stack_slots) > 0) {
+    if (frame->LookupExceptionHandlerInTable(&stack_slots, NULL) > 0) {
       // Flood the function with the catch/finally block with break points.
       FloodWithOneShot(Handle<JSFunction>(frame->function()));
       return;
@@ -1748,7 +1709,7 @@ static void RedirectActivationsToRecompiledCodeOnThread(
              reinterpret_cast<intptr_t>(new_pc));
     }
 
-    if (FLAG_enable_ool_constant_pool) {
+    if (FLAG_enable_embedded_constant_pool) {
       // Update constant pool pointer for new code.
       frame->set_constant_pool(new_code->constant_pool());
     }
@@ -1921,7 +1882,8 @@ void Debug::PrepareForBreakPoints() {
           if (kind == Code::OPTIMIZED_FUNCTION) {
             // Optimized code can only get here if DeoptimizeAll did not
             // deoptimize turbo fan code.
-            DCHECK(!FLAG_turbo_deoptimization);
+            DCHECK(!FLAG_turbo_asm_deoptimization);
+            DCHECK(function->shared()->asm_function());
             DCHECK(function->code()->is_turbofanned());
             function->ReplaceCode(fallback);
           }
@@ -2507,7 +2469,7 @@ void Debug::OnPromiseReject(Handle<JSObject> promise, Handle<Object> value) {
   HandleScope scope(isolate_);
   // Check whether the promise has been marked as having triggered a message.
   Handle<Symbol> key = isolate_->factory()->promise_debug_marker_symbol();
-  if (JSObject::GetDataProperty(promise, key)->IsUndefined()) {
+  if (JSReceiver::GetDataProperty(promise, key)->IsUndefined()) {
     OnException(value, promise);
   }
 }
@@ -2516,14 +2478,15 @@ void Debug::OnPromiseReject(Handle<JSObject> promise, Handle<Object> value) {
 MaybeHandle<Object> Debug::PromiseHasUserDefinedRejectHandler(
     Handle<JSObject> promise) {
   Handle<JSFunction> fun = Handle<JSFunction>::cast(
-      JSObject::GetDataProperty(isolate_->js_builtins_object(),
-                                isolate_->factory()->NewStringFromStaticChars(
-                                    "$promiseHasUserDefinedRejectHandler")));
+      JSReceiver::GetDataProperty(isolate_->js_builtins_object(),
+                                  isolate_->factory()->NewStringFromStaticChars(
+                                      "$promiseHasUserDefinedRejectHandler")));
   return Execution::Call(isolate_, fun, promise, 0, NULL);
 }
 
 
 void Debug::OnException(Handle<Object> exception, Handle<Object> promise) {
+  // In our prediction, try-finally is not considered to catch.
   Isolate::CatchType catch_type = isolate_->PredictExceptionCatcher();
   bool uncaught = (catch_type == Isolate::NOT_CAUGHT);
   if (promise->IsJSObject()) {
@@ -2803,6 +2766,7 @@ void Debug::ProcessCompileEventInDebugScope(v8::DebugEvent event,
 
 
 Handle<Context> Debug::GetDebugContext() {
+  if (!is_loaded()) return Handle<Context>();
   DebugScope debug_scope(this);
   if (debug_scope.failed()) return Handle<Context>();
   // The global handle may be destroyed soon after.  Return it reboxed.
@@ -3405,4 +3369,5 @@ void LockingCommandMessageQueue::Clear() {
   queue_.Clear();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

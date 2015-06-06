@@ -47,7 +47,7 @@ Node* BuildConstant(InstructionSelectorTest::StreamBuilder& m, MachineType type,
                     int64_t value) {
   switch (type) {
     case kMachInt32:
-      return m.Int32Constant(value);
+      return m.Int32Constant(static_cast<int32_t>(value));
       break;
 
     case kMachInt64:
@@ -2422,6 +2422,40 @@ TEST_F(InstructionSelectorTest, Word32ShrWithWord32Shl) {
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(kArm64Ubfx32, s[0]->arch_opcode());
     ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->Output()));
+  }
+}
+
+
+TEST_F(InstructionSelectorTest, Word32ShlWithWord32And) {
+  TRACED_FORRANGE(int32_t, shift, 1, 30) {
+    StreamBuilder m(this, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const r =
+        m.Word32Shl(m.Word32And(p0, m.Int32Constant((1 << (31 - shift)) - 1)),
+                    m.Int32Constant(shift));
+    m.Return(r);
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64Ubfiz32, s[0]->arch_opcode());
+    ASSERT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    ASSERT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->Output()));
+  }
+  TRACED_FORRANGE(int32_t, shift, 0, 30) {
+    StreamBuilder m(this, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const r =
+        m.Word32Shl(m.Word32And(p0, m.Int32Constant((1 << (31 - shift)) - 1)),
+                    m.Int32Constant(shift + 1));
+    m.Return(r);
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64Lsl32, s[0]->arch_opcode());
+    ASSERT_EQ(2U, s[0]->InputCount());
     EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
     ASSERT_EQ(1U, s[0]->OutputCount());
     EXPECT_EQ(s.ToVreg(r), s.ToVreg(s[0]->Output()));

@@ -2,13 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function() {
+(function(global, utils) {
 
 "use strict";
 
 %CheckIsBootstrapping();
 
+// -------------------------------------------------------------------
+// Imports
+
 var GlobalFunction = global.Function;
+
+var NewFunctionString;
+
+utils.Import(function(from) {
+  NewFunctionString = from.NewFunctionString;
+});
 
 // ----------------------------------------------------------------------------
 
@@ -66,14 +75,9 @@ function GeneratorObjectThrow(exn) {
 }
 
 
-function GeneratorObjectIterator() {
-  return this;
-}
-
-
 function GeneratorFunctionConstructor(arg1) {  // length == 1
-  var source = $newFunctionString(arguments, 'function*');
-  var global_proxy = %GlobalProxy(global);
+  var source = NewFunctionString(arguments, 'function*');
+  var global_proxy = %GlobalProxy(GeneratorFunctionConstructor);
   // Compile the string in the constructor and not a helper so that errors
   // appear to come from here.
   var f = %_CallFunction(global_proxy, %CompileString(source, true));
@@ -90,14 +94,11 @@ function GeneratorFunctionConstructor(arg1) {  // length == 1
 
 // Set up non-enumerable functions on the generator prototype object.
 var GeneratorObjectPrototype = GeneratorFunctionPrototype.prototype;
-$installFunctions(GeneratorObjectPrototype,
-                 DONT_ENUM,
-                 ["next", GeneratorObjectNext,
-                  "throw", GeneratorObjectThrow]);
+utils.InstallFunctions(GeneratorObjectPrototype,
+                       DONT_ENUM,
+                      ["next", GeneratorObjectNext,
+                       "throw", GeneratorObjectThrow]);
 
-$setFunctionName(GeneratorObjectIterator, symbolIterator);
-%AddNamedProperty(GeneratorObjectPrototype, symbolIterator,
-    GeneratorObjectIterator, DONT_ENUM | DONT_DELETE | READ_ONLY);
 %AddNamedProperty(GeneratorObjectPrototype, "constructor",
     GeneratorFunctionPrototype, DONT_ENUM | READ_ONLY);
 %AddNamedProperty(GeneratorObjectPrototype,
@@ -110,4 +111,4 @@ $setFunctionName(GeneratorObjectIterator, symbolIterator);
 %InternalSetPrototype(GeneratorFunction, GlobalFunction);
 %SetCode(GeneratorFunction, GeneratorFunctionConstructor);
 
-})();
+})

@@ -131,26 +131,96 @@ class VectorSlotPair {
 bool operator==(VectorSlotPair const& lhs, VectorSlotPair const& rhs);
 
 
-// For (Load|Store)Named operators, the mode of the IC that needs
-// to be called. This is needed because (Load|Store)Property nodes can be
-// reduced to named versions, but still need to call the correct original
-// IC mode because of the layout of feedback vectors.
-enum PropertyICMode { NAMED, KEYED };
+// Defines the name for a dynamic variable lookup. The {check_bitset} allows to
+// inline checks whether the lookup yields in a global variable. This is used as
+// a parameter by JSLoadDynamicGlobal and JSStoreDynamicGlobal operators.
+class DynamicGlobalAccess final {
+ public:
+  DynamicGlobalAccess(const Handle<String>& name, uint32_t check_bitset,
+                      const VectorSlotPair& feedback, ContextualMode mode);
+
+  const Handle<String>& name() const { return name_; }
+  uint32_t check_bitset() const { return check_bitset_; }
+  const VectorSlotPair& feedback() const { return feedback_; }
+  ContextualMode mode() const { return mode_; }
+
+  // Indicates that an inline check is disabled.
+  bool RequiresFullCheck() const {
+    return check_bitset() == kFullCheckRequired;
+  }
+
+  // Limit of context chain length to which inline check is possible.
+  static const int kMaxCheckDepth = 30;
+
+  // Sentinel for {check_bitset} disabling inline checks.
+  static const uint32_t kFullCheckRequired = -1;
+
+ private:
+  const Handle<String> name_;
+  const uint32_t check_bitset_;
+  const VectorSlotPair feedback_;
+  const ContextualMode mode_;
+};
+
+size_t hash_value(DynamicGlobalAccess const&);
+
+bool operator==(DynamicGlobalAccess const&, DynamicGlobalAccess const&);
+bool operator!=(DynamicGlobalAccess const&, DynamicGlobalAccess const&);
+
+std::ostream& operator<<(std::ostream&, DynamicGlobalAccess const&);
+
+DynamicGlobalAccess const& DynamicGlobalAccessOf(Operator const*);
+
+
+// Defines the name for a dynamic variable lookup. The {check_bitset} allows to
+// inline checks whether the lookup yields in a context variable. This is used
+// as a parameter by JSLoadDynamicContext and JSStoreDynamicContext operators.
+class DynamicContextAccess final {
+ public:
+  DynamicContextAccess(const Handle<String>& name, uint32_t check_bitset,
+                       const ContextAccess& context_access);
+
+  const Handle<String>& name() const { return name_; }
+  uint32_t check_bitset() const { return check_bitset_; }
+  const ContextAccess& context_access() const { return context_access_; }
+
+  // Indicates that an inline check is disabled.
+  bool RequiresFullCheck() const {
+    return check_bitset() == kFullCheckRequired;
+  }
+
+  // Limit of context chain length to which inline check is possible.
+  static const int kMaxCheckDepth = 30;
+
+  // Sentinel for {check_bitset} disabling inline checks.
+  static const uint32_t kFullCheckRequired = -1;
+
+ private:
+  const Handle<String> name_;
+  const uint32_t check_bitset_;
+  const ContextAccess context_access_;
+};
+
+size_t hash_value(DynamicContextAccess const&);
+
+bool operator==(DynamicContextAccess const&, DynamicContextAccess const&);
+bool operator!=(DynamicContextAccess const&, DynamicContextAccess const&);
+
+std::ostream& operator<<(std::ostream&, DynamicContextAccess const&);
+
+DynamicContextAccess const& DynamicContextAccessOf(Operator const*);
+
 
 // Defines the property being loaded from an object by a named load. This is
 // used as a parameter by JSLoadNamed operators.
 class LoadNamedParameters final {
  public:
   LoadNamedParameters(const Unique<Name>& name, const VectorSlotPair& feedback,
-                      ContextualMode contextual_mode, PropertyICMode load_ic)
-      : name_(name),
-        feedback_(feedback),
-        contextual_mode_(contextual_mode),
-        load_ic_(load_ic) {}
+                      ContextualMode contextual_mode)
+      : name_(name), feedback_(feedback), contextual_mode_(contextual_mode) {}
 
   const Unique<Name>& name() const { return name_; }
   ContextualMode contextual_mode() const { return contextual_mode_; }
-  PropertyICMode load_ic() const { return load_ic_; }
 
   const VectorSlotPair& feedback() const { return feedback_; }
 
@@ -158,7 +228,6 @@ class LoadNamedParameters final {
   const Unique<Name> name_;
   const VectorSlotPair feedback_;
   const ContextualMode contextual_mode_;
-  const PropertyICMode load_ic_;
 };
 
 bool operator==(LoadNamedParameters const&, LoadNamedParameters const&);
@@ -198,18 +267,15 @@ const LoadPropertyParameters& LoadPropertyParametersOf(const Operator* op);
 // used as a parameter by JSStoreNamed operators.
 class StoreNamedParameters final {
  public:
-  StoreNamedParameters(LanguageMode language_mode, const Unique<Name>& name,
-                       PropertyICMode store_ic)
-      : language_mode_(language_mode), name_(name), store_ic_(store_ic) {}
+  StoreNamedParameters(LanguageMode language_mode, const Unique<Name>& name)
+      : language_mode_(language_mode), name_(name) {}
 
   LanguageMode language_mode() const { return language_mode_; }
   const Unique<Name>& name() const { return name_; }
-  PropertyICMode store_ic() const { return store_ic_; }
 
  private:
   const LanguageMode language_mode_;
   const Unique<Name> name_;
-  const PropertyICMode store_ic_;
 };
 
 bool operator==(StoreNamedParameters const&, StoreNamedParameters const&);
@@ -298,13 +364,11 @@ class JSOperatorBuilder final : public ZoneObject {
   const Operator* LoadProperty(const VectorSlotPair& feedback);
   const Operator* LoadNamed(const Unique<Name>& name,
                             const VectorSlotPair& feedback,
-                            ContextualMode contextual_mode = NOT_CONTEXTUAL,
-                            PropertyICMode load_ic = NAMED);
+                            ContextualMode contextual_mode = NOT_CONTEXTUAL);
 
   const Operator* StoreProperty(LanguageMode language_mode);
   const Operator* StoreNamed(LanguageMode language_mode,
-                             const Unique<Name>& name,
-                             PropertyICMode store_ic = NAMED);
+                             const Unique<Name>& name);
 
   const Operator* DeleteProperty(LanguageMode language_mode);
 
@@ -313,8 +377,21 @@ class JSOperatorBuilder final : public ZoneObject {
   const Operator* LoadContext(size_t depth, size_t index, bool immutable);
   const Operator* StoreContext(size_t depth, size_t index);
 
+  const Operator* LoadDynamicGlobal(const Handle<String>& name,
+                                    uint32_t check_bitset,
+                                    const VectorSlotPair& feedback,
+                                    ContextualMode mode);
+  const Operator* LoadDynamicContext(const Handle<String>& name,
+                                     uint32_t check_bitset, size_t depth,
+                                     size_t index);
+
   const Operator* TypeOf();
   const Operator* InstanceOf();
+
+  const Operator* ForInDone();
+  const Operator* ForInNext();
+  const Operator* ForInPrepare();
+  const Operator* ForInStep();
 
   const Operator* StackCheck();
 

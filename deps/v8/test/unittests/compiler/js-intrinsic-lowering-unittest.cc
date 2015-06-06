@@ -33,7 +33,10 @@ class JSIntrinsicLoweringTest : public GraphTest {
                                    MachineOperatorBuilder::kNoFlags) {
     MachineOperatorBuilder machine(zone(), kMachPtr, flags);
     JSGraph jsgraph(isolate(), graph(), common(), javascript(), &machine);
-    JSIntrinsicLowering reducer(&jsgraph);
+    // TODO(titzer): mock the GraphReducer here for better unit testing.
+    GraphReducer graph_reducer(zone(), graph());
+    JSIntrinsicLowering reducer(&graph_reducer, &jsgraph,
+                                JSIntrinsicLowering::kDeoptimizationEnabled);
     return reducer.Reduce(node);
   }
 
@@ -264,7 +267,7 @@ TEST_F(JSIntrinsicLoweringTest, Likely) {
   Node* const to_boolean =
       graph()->NewNode(javascript()->ToBoolean(), likely, context);
   Diamond d(graph(), common(), to_boolean);
-  graph()->SetEnd(graph()->NewNode(common()->End(), d.merge));
+  graph()->SetEnd(graph()->NewNode(common()->End(1), d.merge));
 
   ASSERT_EQ(BranchHint::kNone, BranchHintOf(d.branch->op()));
   Reduction const r = Reduce(likely);
@@ -359,7 +362,7 @@ TEST_F(JSIntrinsicLoweringTest, Unlikely) {
   Node* const to_boolean =
       graph()->NewNode(javascript()->ToBoolean(), unlikely, context);
   Diamond d(graph(), common(), to_boolean);
-  graph()->SetEnd(graph()->NewNode(common()->End(), d.merge));
+  graph()->SetEnd(graph()->NewNode(common()->End(1), d.merge));
 
   ASSERT_EQ(BranchHint::kNone, BranchHintOf(d.branch->op()));
   Reduction const r = Reduce(unlikely);

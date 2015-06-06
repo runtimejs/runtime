@@ -267,14 +267,21 @@ void BreakableStatementChecker::VisitCompareOperation(CompareOperation* expr) {
 }
 
 
-void BreakableStatementChecker::VisitSpread(Spread* expr) { UNREACHABLE(); }
+void BreakableStatementChecker::VisitSpread(Spread* expr) {
+  Visit(expr->expression());
+}
 
 
 void BreakableStatementChecker::VisitThisFunction(ThisFunction* expr) {
 }
 
 
-void BreakableStatementChecker::VisitSuperReference(SuperReference* expr) {}
+void BreakableStatementChecker::VisitSuperPropertyReference(
+    SuperPropertyReference* expr) {}
+
+
+void BreakableStatementChecker::VisitSuperCallReference(
+    SuperCallReference* expr) {}
 
 
 #define __ ACCESS_MASM(masm())
@@ -310,9 +317,6 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
 
   Code::Flags flags = Code::ComputeFlags(Code::FUNCTION);
   Handle<Code> code = CodeGenerator::MakeCodeEpilogue(&masm, flags, info);
-  code->set_optimizable(info->IsOptimizable() &&
-                        !info->function()->dont_optimize() &&
-                        info->function()->scope()->AllowsLazyCompilation());
   cgen.PopulateDeoptimizationData(code);
   cgen.PopulateTypeFeedbackInfo(code);
   code->set_has_deoptimization_support(info->HasDeoptimizationSupport());
@@ -413,7 +417,8 @@ bool FullCodeGenerator::MustCreateObjectLiteralWithRuntime(
 
 bool FullCodeGenerator::MustCreateArrayLiteralWithRuntime(
     ArrayLiteral* expr) const {
-  return expr->depth() > 1 ||
+  // TODO(rossberg): Teach strong mode to FastCloneShallowArrayStub.
+  return expr->depth() > 1 || expr->is_strong() ||
          expr->values()->length() > JSObject::kInitialMaxFastElementArray;
 }
 
@@ -445,13 +450,7 @@ void FullCodeGenerator::CallLoadIC(ContextualMode contextual_mode,
 
 
 void FullCodeGenerator::CallGlobalLoadIC(Handle<String> name) {
-  if (masm()->serializer_enabled() || FLAG_vector_ics) {
-    // Vector-ICs don't work with LoadGlobalIC.
-    return CallLoadIC(CONTEXTUAL);
-  }
-  Handle<Code> ic = CodeFactory::LoadGlobalIC(
-                        isolate(), isolate()->global_object(), name).code();
-  CallIC(ic, TypeFeedbackId::None());
+  return CallLoadIC(CONTEXTUAL);
 }
 
 
@@ -675,7 +674,13 @@ void FullCodeGenerator::SetStatementPosition(Statement* stmt) {
 }
 
 
-void FullCodeGenerator::VisitSuperReference(SuperReference* super) {
+void FullCodeGenerator::VisitSuperPropertyReference(
+    SuperPropertyReference* super) {
+  __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
+}
+
+
+void FullCodeGenerator::VisitSuperCallReference(SuperCallReference* super) {
   __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
 }
 
@@ -985,6 +990,12 @@ void FullCodeGenerator::EmitPropertyKey(ObjectLiteralProperty* property,
 }
 
 
+void FullCodeGenerator::EmitLoadSuperConstructor(SuperCallReference* ref) {
+  VisitForStackValue(ref->this_function_var());
+  __ CallRuntime(Runtime::kGetPrototype, 1);
+}
+
+
 void FullCodeGenerator::VisitReturnStatement(ReturnStatement* stmt) {
   Comment cmnt(masm_, "[ ReturnStatement");
   SetStatementPosition(stmt);
@@ -1189,6 +1200,8 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
   Label try_entry, handler_entry, exit;
   __ jmp(&try_entry);
   __ bind(&handler_entry);
+
+  ClearPendingMessage();
   // Exception handler code, the exception is in the result register.
   // Extend the context before executing the catch block.
   { Comment cmnt(masm_, "[ Extend catch context");
@@ -1214,11 +1227,14 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
 
   // Try block code. Sets up the exception handler chain.
   __ bind(&try_entry);
+
+  try_catch_depth_++;
   EnterTryBlock(stmt->index(), &handler_entry);
   { TryCatch try_body(this);
     Visit(stmt->try_block());
   }
   ExitTryBlock(stmt->index());
+  try_catch_depth_--;
   __ bind(&exit);
 }
 
@@ -1394,15 +1410,19 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
     NativeFunctionLiteral* expr) {
   Comment cmnt(masm_, "[ NativeFunctionLiteral");
 
+  v8::Isolate* v8_isolate = reinterpret_cast<v8::Isolate*>(isolate());
+
   // Compute the function template for the native function.
   Handle<String> name = expr->name();
   v8::Handle<v8::FunctionTemplate> fun_template =
-      expr->extension()->GetNativeFunctionTemplate(
-          reinterpret_cast<v8::Isolate*>(isolate()), v8::Utils::ToLocal(name));
+      expr->extension()->GetNativeFunctionTemplate(v8_isolate,
+                                                   v8::Utils::ToLocal(name));
   DCHECK(!fun_template.IsEmpty());
 
   // Instantiate the function and create a shared function info from it.
-  Handle<JSFunction> fun = Utils::OpenHandle(*fun_template->GetFunction());
+  Handle<JSFunction> fun = Utils::OpenHandle(
+      *fun_template->GetFunction(v8_isolate->GetCurrentContext())
+           .ToLocalChecked());
   const int literals = fun->NumberOfLiterals();
   Handle<Code> code = Handle<Code>(fun->shared()->code());
   Handle<Code> construct_stub = Handle<Code>(fun->shared()->construct_stub());
@@ -1433,7 +1453,9 @@ void FullCodeGenerator::VisitThrow(Throw* expr) {
 
 void FullCodeGenerator::EnterTryBlock(int index, Label* handler) {
   handler_table()->SetRangeStart(index, masm()->pc_offset());
-  handler_table()->SetRangeHandler(index, handler->pos());
+  HandlerTable::CatchPrediction prediction =
+      try_catch_depth_ > 0 ? HandlerTable::CAUGHT : HandlerTable::UNCAUGHT;
+  handler_table()->SetRangeHandler(index, handler->pos(), prediction);
 
   // Determine expression stack depth of try statement.
   int stack_depth = info_->scope()->num_stack_slots();  // Include stack locals.
@@ -1648,4 +1670,5 @@ FullCodeGenerator::EnterBlockScopeIfNeeded::~EnterBlockScopeIfNeeded() {
 #undef __
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

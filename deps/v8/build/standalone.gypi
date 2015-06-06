@@ -38,11 +38,13 @@
     # Track where uninitialized memory originates from. From fastest to
     # slowest: 0 - no tracking, 1 - track only the initial allocation site, 2
     # - track the chain of stores leading from allocation site to use site.
-    'msan_track_origins%': 1,
+    'msan_track_origins%': 2,
     'visibility%': 'hidden',
     'v8_enable_backtrace%': 0,
     'v8_enable_i18n_support%': 1,
     'v8_deprecation_warnings': 1,
+    # TODO(jochen): Turn this on.
+    'v8_imminent_deprecation_warnings%': 0,
     'msvs_multi_core_compile%': '1',
     'mac_deployment_target%': '10.5',
     'release_extra_cflags%': '',
@@ -74,6 +76,14 @@
       'lsan%': 0,
       'msan%': 0,
       'tsan%': 0,
+      # Enable coverage gathering instrumentation in sanitizer tools. This flag
+      # also controls coverage granularity (1 for function-level, 2 for
+      # block-level, 3 for edge-level).
+      'sanitizer_coverage%': 0,
+      # Use libc++ (buildtools/third_party/libc++ and
+      # buildtools/third_party/libc++abi) instead of stdlibc++ as standard
+      # library. This is intended to be used for instrumented builds.
+      'use_custom_libcxx%': 0,
 
       # goma settings.
       # 1 to use goma.
@@ -99,6 +109,8 @@
     'lsan%': '<(lsan)',
     'msan%': '<(msan)',
     'tsan%': '<(tsan)',
+    'sanitizer_coverage%': '<(sanitizer_coverage)',
+    'use_custom_libcxx%': '<(use_custom_libcxx)',
 
     # Add a simple extra solely for the purpose of the cctests
     'v8_extra_library_files': ['../test/cctest/test-extra.js'],
@@ -176,6 +188,18 @@
       ['asan==1 or lsan==1 or msan==1 or tsan==1', {
         'clang%': 1,
         'use_allocator%': 'none',
+      }],
+      ['asan==1 and OS=="linux"', {
+        'use_custom_libcxx%': 1,
+      }],
+      ['tsan==1', {
+        'use_custom_libcxx%': 1,
+      }],
+      ['msan==1', {
+        # Use a just-built, MSan-instrumented libc++ instead of the system-wide
+        # libstdc++. This is required to avoid false positive reports whenever
+        # the C++ standard library is used.
+        'use_custom_libcxx%': 1,
       }],
     ],
     # Default ARM variable settings.
@@ -286,96 +310,148 @@
     ],
   },
   'conditions': [
-    ['asan==1 and OS!="mac"', {
+    ['os_posix==1 and OS!="mac"', {
       'target_defaults': {
-        'cflags_cc+': [
-          '-fno-omit-frame-pointer',
-          '-gline-tables-only',
-          '-fsanitize=address',
-          '-w',  # http://crbug.com/162783
-        ],
-        'cflags!': [
-          '-fomit-frame-pointer',
-        ],
-        'ldflags': [
-          '-fsanitize=address',
-        ],
-      },
-    }],
-    ['tsan==1 and OS!="mac"', {
-      'target_defaults': {
-        'cflags+': [
-          '-fno-omit-frame-pointer',
-          '-gline-tables-only',
-          '-fsanitize=thread',
-          '-fPIC',
-          '-Wno-c++11-extensions',
-        ],
-        'cflags!': [
-          '-fomit-frame-pointer',
-        ],
-        'ldflags': [
-          '-fsanitize=thread',
-          '-pie',
-        ],
-        'defines': [
-          'THREAD_SANITIZER',
-        ],
-      },
-    }],
-    ['msan==1 and OS!="mac"', {
-      'target_defaults': {
-        'cflags_cc+': [
-          '-fno-omit-frame-pointer',
-          '-gline-tables-only',
-          '-fsanitize=memory',
-          '-fsanitize-memory-track-origins=<(msan_track_origins)',
-          '-fPIC',
-        ],
-        'cflags+': [
-          '-fPIC',
-        ],
-        'cflags!': [
-          '-fno-exceptions',
-          '-fomit-frame-pointer',
-        ],
-        'ldflags': [
-          '-fsanitize=memory',
-        ],
-        'defines': [
-          'MEMORY_SANITIZER',
-        ],
-        'dependencies': [
-          # Use libc++ (third_party/libc++ and third_party/libc++abi) instead of
-          # stdlibc++ as standard library. This is intended to use for instrumented
-          # builds.
-          '<(DEPTH)/buildtools/third_party/libc++/libc++.gyp:libcxx_proxy',
-        ],
-      },
-    }],
-    ['asan==1 and OS=="mac"', {
-      'target_defaults': {
-        'xcode_settings': {
-          'OTHER_CFLAGS+': [
-            '-fno-omit-frame-pointer',
-            '-gline-tables-only',
-            '-fsanitize=address',
-            '-w',  # http://crbug.com/162783
-          ],
-          'OTHER_CFLAGS!': [
-            '-fomit-frame-pointer',
-          ],
-        },
-        'target_conditions': [
-          ['_type!="static_library"', {
-            'xcode_settings': {'OTHER_LDFLAGS': ['-fsanitize=address']},
+       'conditions': [
+          # Common options for AddressSanitizer, LeakSanitizer,
+          # ThreadSanitizer and MemorySanitizer.
+          ['asan==1 or lsan==1 or tsan==1 or msan==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fno-omit-frame-pointer',
+                  '-gline-tables-only',
+                ],
+                'cflags!': [
+                  '-fomit-frame-pointer',
+                ],
+              }],
+            ],
+          }],
+          ['asan==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize=address',
+                ],
+                'ldflags': [
+                  '-fsanitize=address',
+                ],
+                'defines': [
+                  'ADDRESS_SANITIZER',
+                ],
+              }],
+            ],
+          }],
+          ['lsan==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize=leak',
+                ],
+                'ldflags': [
+                  '-fsanitize=leak',
+                ],
+                'defines': [
+                  'LEAK_SANITIZER',
+                ],
+              }],
+            ],
+          }],
+          ['tsan==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize=thread',
+                ],
+                'ldflags': [
+                  '-fsanitize=thread',
+                ],
+                'defines': [
+                  'THREAD_SANITIZER',
+                ],
+              }],
+            ],
+          }],
+          ['msan==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize=memory',
+                  '-fsanitize-memory-track-origins=<(msan_track_origins)',
+                ],
+                'ldflags': [
+                  '-fsanitize=memory',
+                ],
+                'defines': [
+                  'MEMORY_SANITIZER',
+                ],
+              }],
+            ],
+          }],
+          ['use_custom_libcxx==1', {
+            'dependencies': [
+              '<(DEPTH)/buildtools/third_party/libc++/libc++.gyp:libcxx_proxy',
+            ],
+          }],
+          ['sanitizer_coverage!=0', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize-coverage=<(sanitizer_coverage)',
+                ],
+                'defines': [
+                  'SANITIZER_COVERAGE',
+                ],
+              }],
+            ],
           }],
         ],
-        'dependencies': [
-          '<(DEPTH)/build/mac/asan.gyp:asan_dynamic_runtime',
-        ],
       },
     }],
+    ['OS=="mac"', {
+      'target_defaults': {
+       'conditions': [
+          ['asan==1', {
+            'xcode_settings': {
+              # FIXME(machenbach): This is outdated compared to common.gypi.
+              'OTHER_CFLAGS+': [
+                '-fno-omit-frame-pointer',
+                '-gline-tables-only',
+                '-fsanitize=address',
+                '-w',  # http://crbug.com/162783
+              ],
+              'OTHER_CFLAGS!': [
+                '-fomit-frame-pointer',
+              ],
+              'defines': [
+                'ADDRESS_SANITIZER',
+              ],
+            },
+            'dependencies': [
+              '<(DEPTH)/build/mac/asan.gyp:asan_dynamic_runtime',
+            ],
+            'target_conditions': [
+              ['_type!="static_library"', {
+                'xcode_settings': {'OTHER_LDFLAGS': ['-fsanitize=address']},
+              }],
+            ],
+          }],
+          ['sanitizer_coverage!=0', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-fsanitize-coverage=<(sanitizer_coverage)',
+                ],
+                'defines': [
+                  'SANITIZER_COVERAGE',
+                ],
+              }],
+            ],
+          }],
+        ],
+      },  # target_defaults
+    }],  # OS=="mac"
     ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
        or OS=="netbsd" or OS=="aix"', {
       'target_defaults': {
@@ -385,17 +461,19 @@
           '-Wno-unused-parameter',
           '-Wno-long-long',
           '-pthread',
-          '-fno-exceptions',
           '-pedantic',
           # Don't warn about the "struct foo f = {0};" initialization pattern.
           '-Wno-missing-field-initializers',
         ],
-        'cflags_cc': [ '-Wnon-virtual-dtor', '-fno-rtti', '-std=gnu++0x' ],
+        'cflags_cc': [
+          '-Wnon-virtual-dtor',
+          '-fno-exceptions',
+          '-fno-rtti',
+          '-std=gnu++0x',
+        ],
         'ldflags': [ '-pthread', ],
         'conditions': [
-          # TODO(arm64): It'd be nice to enable this for arm64 as well,
-          # but the Assembler requires some serious fixing first.
-          [ 'clang==1 and v8_target_arch=="x64"', {
+          [ 'clang==1 and (v8_target_arch=="x64" or v8_target_arch=="arm64")', {
             'cflags': [ '-Wshorten-64-to-32' ],
           }],
           [ 'host_arch=="ppc64" and OS!="aix"', {
@@ -418,11 +496,15 @@
           '-Wall',
           '<(werror)',
           '-Wno-unused-parameter',
-          '-fno-exceptions',
           # Don't warn about the "struct foo f = {0};" initialization pattern.
           '-Wno-missing-field-initializers',
         ],
-        'cflags_cc': [ '-Wnon-virtual-dtor', '-fno-rtti', '-std=gnu++0x' ],
+        'cflags_cc': [
+          '-Wnon-virtual-dtor',
+          '-fno-exceptions',
+          '-fno-rtti',
+          '-std=gnu++0x',
+        ],
         'conditions': [
           [ 'visibility=="hidden"', {
             'cflags': [ '-fvisibility=hidden' ],

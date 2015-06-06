@@ -280,9 +280,7 @@ Handle<String> Isolate::StackTraceString() {
 }
 
 
-void Isolate::PushStackTraceAndDie(unsigned int magic,
-                                   Object* object,
-                                   Map* map,
+void Isolate::PushStackTraceAndDie(unsigned int magic, void* ptr1, void* ptr2,
                                    unsigned int magic2) {
   const int kMaxStackTraceSize = 32 * KB;
   Handle<String> trace = StackTraceString();
@@ -291,9 +289,8 @@ void Isolate::PushStackTraceAndDie(unsigned int magic,
   String::WriteToFlat(*trace, buffer, 0, length);
   buffer[length] = '\0';
   // TODO(dcarney): convert buffer to utf8?
-  base::OS::PrintError("Stacktrace (%x-%x) %p %p: %s\n", magic, magic2,
-                       static_cast<void*>(object), static_cast<void*>(map),
-                       reinterpret_cast<char*>(buffer));
+  base::OS::PrintError("Stacktrace (%x-%x) %p %p: %s\n", magic, magic2, ptr1,
+                       ptr2, reinterpret_cast<char*>(buffer));
   base::OS::Abort();
 }
 
@@ -341,9 +338,8 @@ Handle<Object> Isolate::CaptureSimpleStackTrace(Handle<JSObject> error_object,
   Handle<String> stackTraceLimit =
       factory()->InternalizeUtf8String("stackTraceLimit");
   DCHECK(!stackTraceLimit.is_null());
-  Handle<Object> stack_trace_limit =
-      JSObject::GetDataProperty(Handle<JSObject>::cast(error),
-                                stackTraceLimit);
+  Handle<Object> stack_trace_limit = JSReceiver::GetDataProperty(
+      Handle<JSObject>::cast(error), stackTraceLimit);
   if (!stack_trace_limit->IsNumber()) return factory()->undefined_value();
   int limit = FastD2IChecked(stack_trace_limit->Number());
   limit = Max(limit, 0);  // Ensure that limit is not negative.
@@ -446,7 +442,7 @@ MaybeHandle<JSObject> Isolate::CaptureAndSetSimpleStackTrace(
 Handle<JSArray> Isolate::GetDetailedStackTrace(Handle<JSObject> error_object) {
   Handle<Name> key_detailed = factory()->detailed_stack_trace_symbol();
   Handle<Object> stack_trace =
-      JSObject::GetDataProperty(error_object, key_detailed);
+      JSReceiver::GetDataProperty(error_object, key_detailed);
   if (stack_trace->IsJSArray()) return Handle<JSArray>::cast(stack_trace);
 
   if (!capture_stack_trace_for_uncaught_exceptions_) return Handle<JSArray>();
@@ -600,7 +596,7 @@ int PositionFromStackTrace(Handle<FixedArray> elements, int index) {
 Handle<JSArray> Isolate::GetDetailedFromSimpleStackTrace(
     Handle<JSObject> error_object) {
   Handle<Name> key = factory()->stack_trace_symbol();
-  Handle<Object> property = JSObject::GetDataProperty(error_object, key);
+  Handle<Object> property = JSReceiver::GetDataProperty(error_object, key);
   if (!property->IsJSArray()) return Handle<JSArray>();
   Handle<JSArray> simple_stack_trace = Handle<JSArray>::cast(property);
 
@@ -709,7 +705,7 @@ static void PrintFrames(Isolate* isolate,
 void Isolate::PrintStack(StringStream* accumulator, PrintStackMode mode) {
   // The MentionedObjectCache is not GC-proof at the moment.
   DisallowHeapAllocation no_gc;
-  DCHECK(StringStream::IsMentionedObjectCacheClear(this));
+  DCHECK(accumulator->IsMentionedObjectCacheClear(this));
 
   // Avoid printing anything if there are no frames.
   if (c_entry_fp(thread_local_top()) == 0) return;
@@ -748,16 +744,9 @@ static inline AccessCheckInfo* GetAccessCheckInfo(Isolate* isolate,
 }
 
 
-static void ThrowAccessCheckError(Isolate* isolate) {
-  Handle<String> message =
-      isolate->factory()->InternalizeUtf8String("no access");
-  isolate->ScheduleThrow(*isolate->factory()->NewTypeError(message));
-}
-
-
 void Isolate::ReportFailedAccessCheck(Handle<JSObject> receiver) {
   if (!thread_local_top()->failed_access_check_callback_) {
-    return ThrowAccessCheckError(this);
+    return ScheduleThrow(*factory()->NewTypeError(MessageTemplate::kNoAccess));
   }
 
   DCHECK(receiver->IsAccessCheckNeeded());
@@ -770,7 +759,8 @@ void Isolate::ReportFailedAccessCheck(Handle<JSObject> receiver) {
     AccessCheckInfo* access_check_info = GetAccessCheckInfo(this, receiver);
     if (!access_check_info) {
       AllowHeapAllocation doesnt_matter_anymore;
-      return ThrowAccessCheckError(this);
+      return ScheduleThrow(
+          *factory()->NewTypeError(MessageTemplate::kNoAccess));
     }
     data = handle(access_check_info->data(), this);
   }
@@ -783,11 +773,18 @@ void Isolate::ReportFailedAccessCheck(Handle<JSObject> receiver) {
 
 
 bool Isolate::IsInternallyUsedPropertyName(Handle<Object> name) {
+  if (name->IsSymbol()) {
+    return Handle<Symbol>::cast(name)->is_private() &&
+           Handle<Symbol>::cast(name)->is_own();
+  }
   return name.is_identical_to(factory()->hidden_string());
 }
 
 
 bool Isolate::IsInternallyUsedPropertyName(Object* name) {
+  if (name->IsSymbol()) {
+    return Symbol::cast(name)->is_private() && Symbol::cast(name)->is_own();
+  }
   return name == heap()->hidden_string();
 }
 
@@ -852,9 +849,13 @@ Object* Isolate::StackOverflow() {
   // constructor.  Instead, we copy the pre-constructed boilerplate and
   // attach the stack trace as a hidden property.
   Handle<String> key = factory()->stack_overflow_string();
-  Handle<JSObject> boilerplate = Handle<JSObject>::cast(
-      Object::GetProperty(js_builtins_object(), key).ToHandleChecked());
-  Handle<JSObject> exception = factory()->CopyJSObject(boilerplate);
+  Handle<Object> boilerplate =
+      Object::GetProperty(js_builtins_object(), key).ToHandleChecked();
+  if (boilerplate->IsUndefined()) {
+    return Throw(heap()->undefined_value(), nullptr);
+  }
+  Handle<JSObject> exception =
+      factory()->CopyJSObject(Handle<JSObject>::cast(boilerplate));
   Throw(*exception, nullptr);
 
   CaptureAndSetSimpleStackTrace(exception, factory()->undefined_value());
@@ -944,16 +945,22 @@ void ReportBootstrappingException(Handle<Object> exception,
   // builtins, print the actual source here so that line numbers match.
   if (location->script()->source()->IsString()) {
     Handle<String> src(String::cast(location->script()->source()));
-    PrintF("Failing script:\n");
+    PrintF("Failing script:");
     int len = src->length();
-    int line_number = 1;
-    PrintF("%5d: ", line_number);
-    for (int i = 0; i < len; i++) {
-      uint16_t character = src->Get(i);
-      PrintF("%c", character);
-      if (character == '\n' && i < len - 2) {
-        PrintF("%5d: ", ++line_number);
+    if (len == 0) {
+      PrintF(" <not available>\n");
+    } else {
+      PrintF("\n");
+      int line_number = 1;
+      PrintF("%5d: ", line_number);
+      for (int i = 0; i < len; i++) {
+        uint16_t character = src->Get(i);
+        PrintF("%c", character);
+        if (character == '\n' && i < len - 2) {
+          PrintF("%5d: ", ++line_number);
+        }
       }
+      PrintF("\n");
     }
   }
 #endif
@@ -1070,7 +1077,7 @@ Object* Isolate::UnwindAndFindHandler() {
     if (frame->is_optimized() && catchable_by_js) {
       OptimizedFrame* js_frame = static_cast<OptimizedFrame*>(frame);
       int stack_slots = 0;  // Will contain stack slot count of frame.
-      offset = js_frame->LookupExceptionHandlerInTable(&stack_slots);
+      offset = js_frame->LookupExceptionHandlerInTable(&stack_slots, NULL);
       if (offset >= 0) {
         // Compute the stack pointer from the frame pointer. This ensures that
         // argument slots on the stack are dropped as returning would.
@@ -1090,7 +1097,7 @@ Object* Isolate::UnwindAndFindHandler() {
     if (frame->is_java_script() && catchable_by_js) {
       JavaScriptFrame* js_frame = static_cast<JavaScriptFrame*>(frame);
       int stack_slots = 0;  // Will contain operand stack depth of handler.
-      offset = js_frame->LookupExceptionHandlerInTable(&stack_slots);
+      offset = js_frame->LookupExceptionHandlerInTable(&stack_slots, NULL);
       if (offset >= 0) {
         // Compute the stack pointer from the frame pointer. This ensures that
         // operand stack slots are dropped for nested statements. Also restore
@@ -1146,8 +1153,12 @@ Isolate::CatchType Isolate::PredictExceptionCatcher() {
     if (frame->is_java_script()) {
       JavaScriptFrame* js_frame = static_cast<JavaScriptFrame*>(frame);
       int stack_slots = 0;  // The computed stack slot count is not used.
-      if (js_frame->LookupExceptionHandlerInTable(&stack_slots) > 0) {
-        return CAUGHT_BY_JAVASCRIPT;
+      HandlerTable::CatchPrediction prediction;
+      if (js_frame->LookupExceptionHandlerInTable(&stack_slots, &prediction) >
+          0) {
+        // We are conservative with our prediction: try-finally is considered
+        // to always rethrow, to meet the expectation of the debugger.
+        if (prediction == HandlerTable::CAUGHT) return CAUGHT_BY_JAVASCRIPT;
       }
     }
 
@@ -1272,19 +1283,19 @@ bool Isolate::ComputeLocationFromException(MessageLocation* target,
   if (!exception->IsJSObject()) return false;
 
   Handle<Name> start_pos_symbol = factory()->error_start_pos_symbol();
-  Handle<Object> start_pos = JSObject::GetDataProperty(
+  Handle<Object> start_pos = JSReceiver::GetDataProperty(
       Handle<JSObject>::cast(exception), start_pos_symbol);
   if (!start_pos->IsSmi()) return false;
   int start_pos_value = Handle<Smi>::cast(start_pos)->value();
 
   Handle<Name> end_pos_symbol = factory()->error_end_pos_symbol();
-  Handle<Object> end_pos = JSObject::GetDataProperty(
+  Handle<Object> end_pos = JSReceiver::GetDataProperty(
       Handle<JSObject>::cast(exception), end_pos_symbol);
   if (!end_pos->IsSmi()) return false;
   int end_pos_value = Handle<Smi>::cast(end_pos)->value();
 
   Handle<Name> script_symbol = factory()->error_script_symbol();
-  Handle<Object> script = JSObject::GetDataProperty(
+  Handle<Object> script = JSReceiver::GetDataProperty(
       Handle<JSObject>::cast(exception), script_symbol);
   if (!script->IsScript()) return false;
 
@@ -1301,7 +1312,7 @@ bool Isolate::ComputeLocationFromStackTrace(MessageLocation* target,
   if (!exception->IsJSObject()) return false;
   Handle<Name> key = factory()->stack_trace_symbol();
   Handle<Object> property =
-      JSObject::GetDataProperty(Handle<JSObject>::cast(exception), key);
+      JSReceiver::GetDataProperty(Handle<JSObject>::cast(exception), key);
   if (!property->IsJSArray()) return false;
   Handle<JSArray> simple_stack_trace = Handle<JSArray>::cast(property);
 
@@ -1380,20 +1391,9 @@ Handle<JSMessageObject> Isolate::CreateMessage(Handle<Object> exception,
     location = &potential_computed_location;
   }
 
-  // If the exception argument is a custom object, turn it into a string
-  // before throwing as uncaught exception.  Note that the pending
-  // exception object to be set later must not be turned into a string.
-  if (exception->IsJSObject() && !IsErrorObject(exception)) {
-    MaybeHandle<Object> maybe_exception =
-        Execution::ToDetailString(this, exception);
-    if (!maybe_exception.ToHandle(&exception)) {
-      exception =
-          factory()->InternalizeOneByteString(STATIC_CHAR_VECTOR("exception"));
-    }
-  }
-  return MessageHandler::MakeMessageObject(this, "uncaught_exception", location,
-                                           HandleVector<Object>(&exception, 1),
-                                           stack_trace_object);
+  return MessageHandler::MakeMessageObject(
+      this, MessageTemplate::kUncaughtException, location, exception,
+      stack_trace_object);
 }
 
 
@@ -1587,7 +1587,7 @@ Handle<Object> Isolate::GetPromiseOnStackOnThrow() {
   for (JavaScriptFrameIterator it(this); !it.done(); it.Advance()) {
     JavaScriptFrame* frame = it.frame();
     int stack_slots = 0;  // The computed stack slot count is not used.
-    if (frame->LookupExceptionHandlerInTable(&stack_slots) > 0) {
+    if (frame->LookupExceptionHandlerInTable(&stack_slots, NULL) > 0) {
       // Throwing inside a Promise only leads to a reject if not caught by an
       // inner try-catch or try-finally.
       if (frame->function() == *promise_function) {
@@ -2004,6 +2004,12 @@ Isolate::~Isolate() {
 
   delete debug_;
   debug_ = NULL;
+
+#if USE_SIMULATOR
+  Simulator::TearDown(simulator_i_cache_, simulator_redirection_);
+  simulator_i_cache_ = nullptr;
+  simulator_redirection_ = nullptr;
+#endif
 }
 
 
@@ -2373,9 +2379,11 @@ CodeTracer* Isolate::GetCodeTracer() {
 }
 
 
-Map* Isolate::get_initial_js_array_map(ElementsKind kind) {
+Map* Isolate::get_initial_js_array_map(ElementsKind kind,
+                                       ObjectStrength strength) {
   Context* native_context = context()->native_context();
-  Object* maybe_map_array = native_context->js_array_maps();
+  Object* maybe_map_array = strength ? native_context->js_array_strong_maps()
+                                     : native_context->js_array_maps();
   if (!maybe_map_array->IsUndefined()) {
     Object* maybe_transitioned_map =
         FixedArray::cast(maybe_map_array)->get(kind);
@@ -2519,21 +2527,29 @@ ISOLATE_INIT_ARRAY_LIST(ISOLATE_FIELD_OFFSET)
 #endif
 
 
+Handle<JSObject> Isolate::SetUpSubregistry(Handle<JSObject> registry,
+                                           Handle<Map> map, const char* cname) {
+  Handle<String> name = factory()->InternalizeUtf8String(cname);
+  Handle<JSObject> obj = factory()->NewJSObjectFromMap(map);
+  JSObject::NormalizeProperties(obj, CLEAR_INOBJECT_PROPERTIES, 0,
+                                "SetupSymbolRegistry");
+  JSObject::AddProperty(registry, name, obj, NONE);
+  return obj;
+}
+
+
 Handle<JSObject> Isolate::GetSymbolRegistry() {
   if (heap()->symbol_registry()->IsSmi()) {
     Handle<Map> map = factory()->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize);
     Handle<JSObject> registry = factory()->NewJSObjectFromMap(map);
     heap()->set_symbol_registry(*registry);
 
-    static const char* nested[] = {"for", "for_api", "keyFor", "private_api",
-                                   "private_intern"};
-    for (unsigned i = 0; i < arraysize(nested); ++i) {
-      Handle<String> name = factory()->InternalizeUtf8String(nested[i]);
-      Handle<JSObject> obj = factory()->NewJSObjectFromMap(map);
-      JSObject::NormalizeProperties(obj, KEEP_INOBJECT_PROPERTIES, 8,
-                                    "SetupSymbolRegistry");
-      JSObject::SetProperty(registry, name, obj, STRICT).Assert();
-    }
+    SetUpSubregistry(registry, map, "for");
+    SetUpSubregistry(registry, map, "for_api");
+    SetUpSubregistry(registry, map, "keyFor");
+    SetUpSubregistry(registry, map, "private_api");
+    heap()->AddPrivateGlobalSymbols(
+        SetUpSubregistry(registry, map, "private_intern"));
   }
   return Handle<JSObject>::cast(factory()->symbol_registry());
 }
@@ -2669,8 +2685,15 @@ void Isolate::SetUseCounterCallback(v8::Isolate::UseCounterCallback callback) {
 
 
 void Isolate::CountUsage(v8::Isolate::UseCounterFeature feature) {
-  if (use_counter_callback_) {
-    use_counter_callback_(reinterpret_cast<v8::Isolate*>(this), feature);
+  // The counter callback may cause the embedder to call into V8, which is not
+  // generally possible during GC.
+  if (heap_.gc_state() == Heap::NOT_IN_GC) {
+    if (use_counter_callback_) {
+      HandleScope handle_scope(this);
+      use_counter_callback_(reinterpret_cast<v8::Isolate*>(this), feature);
+    }
+  } else {
+    heap_.IncrementDeferredCount(feature);
   }
 }
 
@@ -2781,4 +2804,5 @@ bool PostponeInterruptsScope::Intercept(StackGuard::InterruptFlag flag) {
   return false;
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -601,16 +601,28 @@ void InstructionSelector::VisitFloat64Mod(Node* node) {
 }
 
 
-void InstructionSelector::VisitFloat32Max(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat32Max(Node* node) {
+  DCHECK(kArchVariant == kMips64r6);
+  VisitRRR(this, kMips64MaxS, node);
+}
 
 
-void InstructionSelector::VisitFloat64Max(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat64Max(Node* node) {
+  DCHECK(kArchVariant == kMips64r6);
+  VisitRRR(this, kMips64MaxD, node);
+}
 
 
-void InstructionSelector::VisitFloat32Min(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat32Min(Node* node) {
+  DCHECK(kArchVariant == kMips64r6);
+  VisitRRR(this, kMips64MinS, node);
+}
 
 
-void InstructionSelector::VisitFloat64Min(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat64Min(Node* node) {
+  DCHECK(kArchVariant == kMips64r6);
+  VisitRRR(this, kMips64MinD, node);
+}
 
 
 void InstructionSelector::VisitFloat32Abs(Node* node) {
@@ -678,6 +690,11 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   // Pass label of exception handler block.
   CallDescriptor::Flags flags = descriptor->flags();
   if (handler) {
+    DCHECK_EQ(IrOpcode::kIfException, handler->front()->opcode());
+    IfExceptionHint hint = OpParameter<IfExceptionHint>(handler->front());
+    if (hint == IfExceptionHint::kLocallyCaught) {
+      flags |= CallDescriptor::kHasLocalCatchHandler;
+    }
     flags |= CallDescriptor::kHasExceptionHandler;
     buffer.instruction_args.push_back(g.Label(handler));
   }
@@ -1271,8 +1288,16 @@ void InstructionSelector::VisitFloat64InsertHighWord32(Node* node) {
 // static
 MachineOperatorBuilder::Flags
 InstructionSelector::SupportedMachineOperatorFlags() {
-  return MachineOperatorBuilder::kFloat64RoundDown |
-         MachineOperatorBuilder::kFloat64RoundTruncate;
+  MachineOperatorBuilder::Flags flags =
+      MachineOperatorBuilder::kFloat64RoundDown |
+      MachineOperatorBuilder::kFloat64RoundTruncate;
+  if (kArchVariant == kMips64r6) {
+    flags |= MachineOperatorBuilder::kFloat32Max |
+             MachineOperatorBuilder::kFloat32Min |
+             MachineOperatorBuilder::kFloat64Max |
+             MachineOperatorBuilder::kFloat64Min;
+  }
+  return flags;
 }
 
 }  // namespace compiler

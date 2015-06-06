@@ -439,7 +439,7 @@ void Typer::Run() {
   }
 
   Visitor visitor(this);
-  GraphReducer graph_reducer(graph(), zone());
+  GraphReducer graph_reducer(zone(), graph());
   graph_reducer.AddReducer(&visitor);
   graph_reducer.ReduceGraph();
 }
@@ -1506,6 +1506,16 @@ Bounds Typer::Visitor::TypeJSStoreContext(Node* node) {
 }
 
 
+Bounds Typer::Visitor::TypeJSLoadDynamicGlobal(Node* node) {
+  return Bounds::Unbounded(zone());
+}
+
+
+Bounds Typer::Visitor::TypeJSLoadDynamicContext(Node* node) {
+  return Bounds::Unbounded(zone());
+}
+
+
 Bounds Typer::Visitor::WrapContextBoundsForInput(Node* node) {
   Bounds outer = BoundsOrNone(NodeProperties::GetContextInput(node));
   if (outer.upper->Is(Type::None())) {
@@ -1576,6 +1586,7 @@ Bounds Typer::Visitor::TypeJSCallRuntime(Node* node) {
     case Runtime::kInlineIsSmi:
     case Runtime::kInlineIsNonNegativeSmi:
     case Runtime::kInlineIsArray:
+    case Runtime::kInlineIsMinusZero:
     case Runtime::kInlineIsFunction:
     case Runtime::kInlineIsRegExp:
       return Bounds(Type::None(zone()), Type::Boolean(zone()));
@@ -1598,6 +1609,30 @@ Bounds Typer::Visitor::TypeJSCallRuntime(Node* node) {
       break;
   }
   return Bounds::Unbounded(zone());
+}
+
+
+Bounds Typer::Visitor::TypeJSForInNext(Node* node) {
+  return Bounds(Type::None(zone()),
+                Type::Union(Type::Name(), Type::Undefined(), zone()));
+}
+
+
+Bounds Typer::Visitor::TypeJSForInPrepare(Node* node) {
+  // TODO(bmeurer): Return a tuple type here.
+  return Bounds::Unbounded(zone());
+}
+
+
+Bounds Typer::Visitor::TypeJSForInDone(Node* node) {
+  return Bounds(Type::None(zone()), Type::Boolean(zone()));
+}
+
+
+Bounds Typer::Visitor::TypeJSForInStep(Node* node) {
+  STATIC_ASSERT(Map::EnumLengthBits::kMax <= FixedArray::kMaxLength);
+  return Bounds(Type::None(zone()),
+                Type::Range(1, FixedArray::kMaxLength + 1, zone()));
 }
 
 
@@ -1691,11 +1726,6 @@ Bounds Typer::Visitor::TypeStringLessThan(Node* node) {
 
 Bounds Typer::Visitor::TypeStringLessThanOrEqual(Node* node) {
   return Bounds(Type::None(zone()), Type::Boolean(zone()));
-}
-
-
-Bounds Typer::Visitor::TypeStringAdd(Node* node) {
-  return Bounds(Type::None(zone()), Type::String(zone()));
 }
 
 
@@ -2278,6 +2308,11 @@ Bounds Typer::Visitor::TypeFloat64InsertHighWord32(Node* node) {
 
 
 Bounds Typer::Visitor::TypeLoadStackPointer(Node* node) {
+  return Bounds(Type::Internal());
+}
+
+
+Bounds Typer::Visitor::TypeLoadFramePointer(Node* node) {
   return Bounds(Type::Internal());
 }
 

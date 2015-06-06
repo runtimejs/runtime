@@ -213,14 +213,13 @@ MaybeHandle<Object> JsonParser<seq_one_byte>::ParseJson() {
     if (isolate_->has_pending_exception()) return Handle<Object>::null();
 
     // Parse failed. Current character is the unexpected token.
-    const char* message;
     Factory* factory = this->factory();
-    Handle<JSArray> array;
+    MessageTemplate::Template message;
+    Handle<String> argument;
 
     switch (c0_) {
       case kEndOfString:
-        message = "unexpected_eos";
-        array = factory->NewJSArray(0);
+        message = MessageTemplate::kUnexpectedEOS;
         break;
       case '-':
       case '0':
@@ -233,26 +232,21 @@ MaybeHandle<Object> JsonParser<seq_one_byte>::ParseJson() {
       case '7':
       case '8':
       case '9':
-        message = "unexpected_token_number";
-        array = factory->NewJSArray(0);
+        message = MessageTemplate::kUnexpectedTokenNumber;
         break;
       case '"':
-        message = "unexpected_token_string";
-        array = factory->NewJSArray(0);
+        message = MessageTemplate::kUnexpectedTokenString;
         break;
       default:
-        message = "unexpected_token";
-        Handle<Object> name = factory->LookupSingleCharacterStringFromCode(c0_);
-        Handle<FixedArray> element = factory->NewFixedArray(1);
-        element->set(0, *name);
-        array = factory->NewJSArrayWithElements(element);
+        message = MessageTemplate::kUnexpectedToken;
+        argument = factory->LookupSingleCharacterStringFromCode(c0_);
         break;
     }
 
     MessageLocation location(factory->NewScript(source_),
                              position_,
                              position_ + 1);
-    Handle<Object> error = factory->NewSyntaxError(message, array);
+    Handle<Object> error = factory->NewSyntaxError(message, argument);
     return isolate()->template Throw<Object>(error, &location);
   }
   return result;
@@ -317,7 +311,7 @@ ParseElementResult JsonParser<seq_one_byte>::ParseElement(
   } else {
     do {
       int d = c0_ - '0';
-      if (index > 429496729U - ((d > 5) ? 1 : 0)) break;
+      if (index > 429496729U - ((d + 3) >> 3)) break;
       index = (index * 10) + d;
       Advance();
     } while (IsDecimalDigit(c0_));
@@ -531,7 +525,7 @@ Handle<Object> JsonParser<seq_one_byte>::ParseJsonArray() {
     fast_elements->set(i, *elements[i]);
   }
   Handle<Object> json_array = factory()->NewJSArrayWithElements(
-      fast_elements, FAST_ELEMENTS, pretenure_);
+      fast_elements, FAST_ELEMENTS, WEAK, pretenure_);
   return scope.CloseAndEscape(json_array);
 }
 

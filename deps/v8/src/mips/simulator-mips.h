@@ -178,8 +178,17 @@ class Simulator {
   void set_fcsr_rounding_mode(FPURoundingMode mode);
   unsigned int get_fcsr_rounding_mode();
   bool set_fcsr_round_error(double original, double rounded);
+  bool set_fcsr_round_error(float original, float rounded);
+  bool set_fcsr_round64_error(double original, double rounded);
+  bool set_fcsr_round64_error(float original, float rounded);
   void round_according_to_fcsr(double toRound, double& rounded,
                                int32_t& rounded_int, double fs);
+  void round_according_to_fcsr(float toRound, float& rounded,
+                               int32_t& rounded_int, float fs);
+  void round64_according_to_fcsr(double toRound, double& rounded,
+                                 int64_t& rounded_int, double fs);
+  void round64_according_to_fcsr(float toRound, float& rounded,
+                                 int64_t& rounded_int, float fs);
   // Special case of set_register and get_register to access the raw PC value.
   void set_pc(int32_t value);
   int32_t get_pc() const;
@@ -196,6 +205,8 @@ class Simulator {
 
   // Call on program start.
   static void Initialize(Isolate* isolate);
+
+  static void TearDown(HashMap* i_cache, Redirection* first);
 
   // V8 generally calls into generated JS code with 5 parameters and into
   // generated RegExp code with 7 parameters. This is a convenience function,
@@ -273,7 +284,8 @@ class Simulator {
                                  const int32_t& fs_reg, const int32_t& ft_reg,
                                  const int32_t& fd_reg);
   void DecodeTypeRegisterWRsType(Instruction* instr, int32_t& alu_out,
-                                 const int32_t& fd_reg, const int32_t& fs_reg);
+                                 const int32_t& fd_reg, const int32_t& fs_reg,
+                                 const int32_t& ft_reg);
   void DecodeTypeRegisterSRsType(Instruction* instr, const int32_t& ft_reg,
                                  const int32_t& fs_reg, const int32_t& fd_reg);
   void DecodeTypeRegisterLRsType(Instruction* instr, const int32_t& ft_reg,
@@ -307,7 +319,7 @@ class Simulator {
                                   int32_t& alu_out);
 
   void DecodeTypeRegisterSPECIAL3(Instruction* instr, const int32_t& rt_reg,
-                                  int32_t& alu_out);
+                                  const int32_t& rd_reg, int32_t& alu_out);
 
   // Helper function for DecodeTypeRegister.
   void ConfigureTypeRegister(Instruction* instr,

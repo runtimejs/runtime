@@ -4,13 +4,27 @@
 
 var $jsonSerializeAdapter;
 
-(function() {
+(function(global, utils) {
 
 "use strict";
 
 %CheckIsBootstrapping();
 
+// -------------------------------------------------------------------
+// Imports
+
 var GlobalJSON = global.JSON;
+var InternalArray = utils.InternalArray;
+
+var MathMax;
+var MathMin;
+var ObjectHasOwnProperty;
+
+utils.Import(function(from) {
+  MathMax = from.MathMax;
+  MathMin = from.MathMin;
+  ObjectHasOwnProperty = from.ObjectHasOwnProperty;
+});
 
 // -------------------------------------------------------------------
 
@@ -25,7 +39,7 @@ function Revive(holder, name, reviver) {
       }
     } else {
       for (var p in val) {
-        if (%_CallFunction(val, p, $objectHasOwnProperty)) {
+        if (HAS_OWN_PROPERTY(val, p)) {
           var newElement = Revive(val, p, reviver);
           if (IS_UNDEFINED(newElement)) {
             delete val[p];
@@ -51,9 +65,7 @@ function JSONParse(text, reviver) {
 
 
 function SerializeArray(value, replacer, stack, indent, gap) {
-  if (!%PushIfAbsent(stack, value)) {
-    throw MakeTypeError('circular_structure', []);
-  }
+  if (!%PushIfAbsent(stack, value)) throw MakeTypeError(kCircularStructure);
   var stepback = indent;
   indent += gap;
   var partial = new InternalArray();
@@ -82,16 +94,14 @@ function SerializeArray(value, replacer, stack, indent, gap) {
 
 
 function SerializeObject(value, replacer, stack, indent, gap) {
-  if (!%PushIfAbsent(stack, value)) {
-    throw MakeTypeError('circular_structure', []);
-  }
+  if (!%PushIfAbsent(stack, value)) throw MakeTypeError(kCircularStructure);
   var stepback = indent;
   indent += gap;
   var partial = new InternalArray();
   if (IS_ARRAY(replacer)) {
     var length = replacer.length;
     for (var i = 0; i < length; i++) {
-      if (%_CallFunction(replacer, i, $objectHasOwnProperty)) {
+      if (HAS_OWN_PROPERTY(replacer, i)) {
         var p = replacer[i];
         var strP = JSONSerialize(p, value, replacer, stack, indent, gap);
         if (!IS_UNDEFINED(strP)) {
@@ -104,7 +114,7 @@ function SerializeObject(value, replacer, stack, indent, gap) {
     }
   } else {
     for (var p in value) {
-      if (%_CallFunction(value, p, $objectHasOwnProperty)) {
+      if (HAS_OWN_PROPERTY(value, p)) {
         var strP = JSONSerialize(p, value, replacer, stack, indent, gap);
         if (!IS_UNDEFINED(strP)) {
           var member = %QuoteJSONString(p) + ":";
@@ -183,7 +193,7 @@ function JSONStringify(value, replacer, space) {
   }
   var gap;
   if (IS_NUMBER(space)) {
-    space = $max(0, $min($toInteger(space), 10));
+    space = MathMax(0, MathMin($toInteger(space), 10));
     gap = %_SubString("          ", 0, space);
   } else if (IS_STRING(space)) {
     if (space.length > 10) {
@@ -224,7 +234,7 @@ function JSONStringify(value, replacer, space) {
 %AddNamedProperty(GlobalJSON, symbolToStringTag, "JSON", READ_ONLY | DONT_ENUM);
 
 // Set up non-enumerable properties of the JSON object.
-$installFunctions(GlobalJSON, DONT_ENUM, [
+utils.InstallFunctions(GlobalJSON, DONT_ENUM, [
   "parse", JSONParse,
   "stringify", JSONStringify
 ]);
@@ -239,4 +249,4 @@ $jsonSerializeAdapter = function(key, object) {
   return JSONSerialize(key, holder, UNDEFINED, new InternalArray(), "", "");
 }
 
-})();
+})

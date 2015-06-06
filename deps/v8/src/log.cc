@@ -19,7 +19,6 @@
 #include "src/log-inl.h"
 #include "src/log-utils.h"
 #include "src/macro-assembler.h"
-#include "src/perf-jit.h"
 #include "src/runtime-profiler.h"
 #include "src/string-stream.h"
 #include "src/vm-state-inl.h"
@@ -48,12 +47,14 @@ for (int i = 0; i < listeners_.length(); ++i) { \
     }                                                     \
   } while (false);
 
-// ComputeMarker must only be used when SharedFunctionInfo is known.
-static const char* ComputeMarker(Code* code) {
+static const char* ComputeMarker(SharedFunctionInfo* shared, Code* code) {
   switch (code->kind()) {
-    case Code::FUNCTION: return code->optimizable() ? "~" : "";
-    case Code::OPTIMIZED_FUNCTION: return "*";
-    default: return "";
+    case Code::FUNCTION:
+      return shared->optimization_disabled() ? "" : "~";
+    case Code::OPTIMIZED_FUNCTION:
+      return "*";
+    default:
+      return "";
   }
 }
 
@@ -183,7 +184,7 @@ void CodeEventLogger::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                       CompilationInfo* info,
                                       Name* name) {
   name_buffer_->Init(tag);
-  name_buffer_->AppendBytes(ComputeMarker(code));
+  name_buffer_->AppendBytes(ComputeMarker(shared, code));
   name_buffer_->AppendName(name);
   LogRecordedBuffer(code, shared, name_buffer_->get(), name_buffer_->size());
 }
@@ -195,7 +196,7 @@ void CodeEventLogger::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                       CompilationInfo* info,
                                       Name* source, int line, int column) {
   name_buffer_->Init(tag);
-  name_buffer_->AppendBytes(ComputeMarker(code));
+  name_buffer_->AppendBytes(ComputeMarker(shared, code));
   name_buffer_->AppendString(shared->DebugName());
   name_buffer_->AppendByte(' ');
   if (source->IsString()) {
@@ -776,7 +777,6 @@ Logger::Logger(Isolate* isolate)
     is_logging_(false),
     log_(new Log(this)),
     perf_basic_logger_(NULL),
-    perf_jit_logger_(NULL),
     ll_logger_(NULL),
     jit_logger_(NULL),
     listeners_(5),
@@ -1079,16 +1079,6 @@ void Logger::DeleteEvent(const char* name, void* object) {
 }
 
 
-void Logger::NewEventStatic(const char* name, void* object, size_t size) {
-  Isolate::Current()->logger()->NewEvent(name, object, size);
-}
-
-
-void Logger::DeleteEventStatic(const char* name, void* object) {
-  Isolate::Current()->logger()->DeleteEvent(name, object);
-}
-
-
 void Logger::CallbackEventInternal(const char* prefix, Name* name,
                                    Address entry_point) {
   if (!FLAG_log_code || !log_->IsEnabled()) return;
@@ -1209,7 +1199,7 @@ void Logger::CodeCreateEvent(LogEventsAndTags tag,
   }
   msg.Append(',');
   msg.AppendAddress(shared->address());
-  msg.Append(",%s", ComputeMarker(code));
+  msg.Append(",%s", ComputeMarker(shared, code));
   msg.WriteToLogFile();
 }
 
@@ -1243,7 +1233,7 @@ void Logger::CodeCreateEvent(LogEventsAndTags tag,
   }
   msg.Append(":%d:%d\",", line, column);
   msg.AppendAddress(shared->address());
-  msg.Append(",%s", ComputeMarker(code));
+  msg.Append(",%s", ComputeMarker(shared, code));
   msg.WriteToLogFile();
 }
 
@@ -1827,11 +1817,6 @@ bool Logger::SetUp(Isolate* isolate) {
     addCodeEventListener(perf_basic_logger_);
   }
 
-  if (FLAG_perf_jit_prof) {
-    perf_jit_logger_ = new PerfJitLogger();
-    addCodeEventListener(perf_jit_logger_);
-  }
-
   if (FLAG_ll_prof) {
     ll_logger_ = new LowLevelLogger(log_file_name.str().c_str());
     addCodeEventListener(ll_logger_);
@@ -1900,12 +1885,6 @@ FILE* Logger::TearDown() {
     perf_basic_logger_ = NULL;
   }
 
-  if (perf_jit_logger_) {
-    removeCodeEventListener(perf_jit_logger_);
-    delete perf_jit_logger_;
-    perf_jit_logger_ = NULL;
-  }
-
   if (ll_logger_) {
     removeCodeEventListener(ll_logger_);
     delete ll_logger_;
@@ -1921,4 +1900,5 @@ FILE* Logger::TearDown() {
   return log_->Close();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -5,9 +5,15 @@
 var $spreadArguments;
 var $spreadIterable;
 
-(function() {
+(function(global, utils) {
 
 'use strict';
+
+// -------------------------------------------------------------------
+// Imports
+var InternalArray = utils.InternalArray;
+
+// -------------------------------------------------------------------
 
 function SpreadArguments() {
   var count = %_ArgumentsLength();
@@ -40,4 +46,4 @@ function SpreadIterable(collection) {
 $spreadArguments = SpreadArguments;
 $spreadIterable = SpreadIterable;
 
-})();
+})
