@@ -17,31 +17,11 @@
 const char INIT_JS[] = R"JAVASCRIPT(
 // NOTE: This script is executed in every context automatically
 var console = (function(undef) {
-  var stdout = null;
-  var stderr = null;
   var times = {};
 
-  function getStdout() {
-    if (null === stdout) {
-      stdout = isolate.env.stdout;
-    }
-
-    return stdout;
-  }
-
   return {
-    log: function() {
-      var s = Array.prototype.join.call(arguments, ' ');
-      getStdout()(s + '\n');
-    },
-    error: function() {
-      if (null === stderr) {
-        stderr = isolate.env.stderr;
-      }
-
-      var s = Array.prototype.join.call(arguments, ' ');
-      stderr(s + '\n');
-    },
+    log: isolate.log,
+    error: isolate.log,
     time: function(label) {
       times['l' + label] = Date.now();
     },
@@ -52,7 +32,7 @@ var console = (function(undef) {
       }
 
       var d = Date.now() - time;
-      getStdout()(label + ': ' + d/1000 + 'ms' + '\n');
+      isolate.log(label + ': ' + d/1000 + 'ms' + '\n');
       times['l' + label] = undef;
     },
   };
