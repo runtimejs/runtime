@@ -19,7 +19,6 @@ exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
   var srcPort = tcpHeader.getSrcPort(u8, headerOffset);
   var destPort = tcpHeader.getDestPort(u8, headerOffset);
   var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
-  var dataLength = u8.length - dataOffset;
 
   var socket = TCPSocket.lookupReceive(destPort);
   if (!socket) {
@@ -29,5 +28,6 @@ exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
   if (!socket._intf) {
     socket._intf = intf;
   }
+
   socket._receive(u8, srcIP, srcPort, headerOffset);
 };

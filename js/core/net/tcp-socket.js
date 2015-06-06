@@ -343,6 +343,7 @@ class TCPSocket {
 
   _cleanupTransmitQueue(ackNumber) {
     var deleteCount = 0;
+
     for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
       var item = this._transmitQueue[i];
       var seq = item[2];
@@ -449,11 +450,11 @@ class TCPSocket {
 
   _receive(u8, srcIP, srcPort, headerOffset) {
     var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
-    var dataLength = u8.length - dataOffset;
     var flags = tcpHeader.getFlags(u8, headerOffset);
     var seqNumber = tcpHeader.getSeqNumber(u8, headerOffset);
     var ackNumber = tcpHeader.getAckNumber(u8, headerOffset);
     var windowSize = tcpHeader.getWindowSize(u8, headerOffset);
+    var dataLength = u8.length - dataOffset;
 
     this._transmitWindowSize = windowSize;
     this._transmitWindowSlideTo(ackNumber);
