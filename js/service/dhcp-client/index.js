@@ -136,10 +136,10 @@ function dhcpConfigure(intf, cb) {
     debug(e.stack);
   }
 
-  socket.onReceive.add(function(ip, port, u8) {
+  socket.onmessage = function(ip, port, u8) {
     debug('CLIENT OK', ip, port, u8);
     parseMessage(ip, u8);
-  });
+  };
 
   socket.bindToInterface(intf, 68);
   sendPacket(socket, macAddress, dhcpPacket.packetType.DISCOVER, null, null);

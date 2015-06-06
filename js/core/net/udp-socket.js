@@ -19,7 +19,6 @@ var portUtils = require('./port-utils');
 var PortPool = require('./port-pool');
 var udpTransmit = require('./udp-transmit');
 var netError = require('./net-error');
-var EventController = require('event-controller');
 var typeutils = require('typeutils');
 var route = require('./route');
 
@@ -30,7 +29,7 @@ class UDPSocket {
     this._protocol = protocol || 'ip4';
     this._intf = null;
     this._port = 0;
-    this.onReceive = new EventController();
+    this.onmessage = null;
   }
 
   send(ip, port, u8) {

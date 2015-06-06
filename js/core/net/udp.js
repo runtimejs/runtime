@@ -45,7 +45,9 @@ function receive(intf, srcIP, destIP, u8, headerOffset) {
   }
 
   var u8data = u8.subarray(dataOffset);
-  socket.onReceive.dispatch(srcIP, srcPort, u8data);
+  if (socket.onmessage) {
+    socket.onmessage(srcIP, srcPort, u8data);
+  }
 }
 
 exports.receive = receive;

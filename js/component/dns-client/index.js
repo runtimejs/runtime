@@ -35,7 +35,7 @@ function DNSClient(serverIP, serverPort) {
   self._requests = [];
   self._cache = {};
 
-  self._socket.onReceive.add(function(ip, port, u8) {
+  self._socket.onmessage = function(ip, port, u8) {
     var data = dnsPacket.parseResponse(u8);
     if (!data) {
       return;
@@ -57,7 +57,7 @@ function DNSClient(serverIP, serverPort) {
         requests[i] = null;
       }
     }
-  });
+  };
 
   setInterval(function() {
     var requests = self._requests;
