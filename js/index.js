@@ -14,14 +14,7 @@
 
 var package = require('./package.json');
 require('module-singleton')(package);
-
-var kernelVersion = kernel.version().runtime.join('.');
-var requiredVersion = '0.1.6';
-
-if (kernelVersion !== requiredVersion) {
-  throw new Error('loaded runtimejs core module requires runtime version '
-                  + requiredVersion + ' (current ' + kernelVersion + ')');
-}
+require('./version');
 
 var isDebug = package.runtimejs.debug;
 global.debug = isDebug ? isolate.log : function() {};
