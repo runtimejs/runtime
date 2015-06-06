@@ -203,13 +203,11 @@ void DoubleToIStub::Generate(MacroAssembler* masm) {
 
 
 // See call site for description.
-static void EmitIdenticalObjectComparison(MacroAssembler* masm,
-                                          Register left,
-                                          Register right,
-                                          Register scratch,
+static void EmitIdenticalObjectComparison(MacroAssembler* masm, Register left,
+                                          Register right, Register scratch,
                                           FPRegister double_scratch,
-                                          Label* slow,
-                                          Condition cond) {
+                                          Label* slow, Condition cond,
+                                          bool strong) {
   DCHECK(!AreAliased(left, right, scratch));
   Label not_identical, return_equal, heap_number;
   Register result = x0;
@@ -223,10 +221,20 @@ static void EmitIdenticalObjectComparison(MacroAssembler* masm,
   // Smis.  If it's not a heap number, then return equal.
   Register right_type = scratch;
   if ((cond == lt) || (cond == gt)) {
+    // Call runtime on identical JSObjects.  Otherwise return equal.
     __ JumpIfObjectType(right, right_type, right_type, FIRST_SPEC_OBJECT_TYPE,
                         slow, ge);
+    // Call runtime on identical symbols since we need to throw a TypeError.
     __ Cmp(right_type, SYMBOL_TYPE);
     __ B(eq, slow);
+    if (strong) {
+      // Call the runtime on anything that is converted in the semantics, since
+      // we need to throw a TypeError. Smis have already been ruled out.
+      __ Cmp(right_type, Operand(HEAP_NUMBER_TYPE));
+      __ B(eq, &return_equal);
+      __ Tst(right_type, Operand(kIsNotStringMask));
+      __ B(ne, slow);
+    }
   } else if (cond == eq) {
     __ JumpIfHeapNumber(right, &heap_number);
   } else {
@@ -235,8 +243,16 @@ static void EmitIdenticalObjectComparison(MacroAssembler* masm,
     // Comparing JS objects with <=, >= is complicated.
     __ Cmp(right_type, FIRST_SPEC_OBJECT_TYPE);
     __ B(ge, slow);
+    // Call runtime on identical symbols since we need to throw a TypeError.
     __ Cmp(right_type, SYMBOL_TYPE);
     __ B(eq, slow);
+    if (strong) {
+      // Call the runtime on anything that is converted in the semantics,
+      // since we need to throw a TypeError. Smis and heap numbers have
+      // already been ruled out.
+      __ Tst(right_type, Operand(kIsNotStringMask));
+      __ B(ne, slow);
+    }
     // Normally here we fall through to return_equal, but undefined is
     // special: (undefined == undefined) == true, but
     // (undefined <= undefined) == false!  See ECMAScript 11.8.5.
@@ -513,7 +529,7 @@ void CompareICStub::GenerateGeneric(MacroAssembler* masm) {
 
   // Handle the case where the objects are identical. Either returns the answer
   // or goes to slow. Only falls through if the objects were not identical.
-  EmitIdenticalObjectComparison(masm, lhs, rhs, x10, d0, &slow, cond);
+  EmitIdenticalObjectComparison(masm, lhs, rhs, x10, d0, &slow, cond, strong());
 
   // If either is a smi (we know that at least one is not a smi), then they can
   // only be strictly equal if the other is a HeapNumber.
@@ -632,7 +648,7 @@ void CompareICStub::GenerateGeneric(MacroAssembler* masm) {
   if (cond == eq) {
     native = strict() ? Builtins::STRICT_EQUALS : Builtins::EQUALS;
   } else {
-    native = Builtins::COMPARE;
+    native = strong() ? Builtins::COMPARE_STRONG : Builtins::COMPARE;
     int ncr;  // NaN compare result
     if ((cond == lt) || (cond == le)) {
       ncr = GREATER;
@@ -1433,9 +1449,8 @@ void FunctionPrototypeStub::Generate(MacroAssembler* masm) {
   Register receiver = LoadDescriptor::ReceiverRegister();
   // Ensure that the vector and slot registers won't be clobbered before
   // calling the miss handler.
-  DCHECK(!FLAG_vector_ics ||
-         !AreAliased(x10, x11, VectorLoadICDescriptor::VectorRegister(),
-                     VectorLoadICDescriptor::SlotRegister()));
+  DCHECK(!AreAliased(x10, x11, LoadWithVectorDescriptor::VectorRegister(),
+                     LoadWithVectorDescriptor::SlotRegister()));
 
   NamedLoadHandlerCompiler::GenerateLoadFunctionPrototype(masm, receiver, x10,
                                                           x11, &miss);
@@ -1455,9 +1470,8 @@ void LoadIndexedStringStub::Generate(MacroAssembler* masm) {
   Register result = x0;
   Register scratch = x10;
   DCHECK(!scratch.is(receiver) && !scratch.is(index));
-  DCHECK(!FLAG_vector_ics ||
-         (!scratch.is(VectorLoadICDescriptor::VectorRegister()) &&
-          result.is(VectorLoadICDescriptor::SlotRegister())));
+  DCHECK(!scratch.is(LoadWithVectorDescriptor::VectorRegister()) &&
+         result.is(LoadWithVectorDescriptor::SlotRegister()));
 
   // StringCharAtGenerator doesn't use the result register until it's passed
   // the different miss possibilities. If it did, we would have a conflict
@@ -2192,19 +2206,21 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
 
 void RestParamAccessStub::GenerateNew(MacroAssembler* masm) {
   // Stack layout on entry.
-  //  jssp[0]:  index of rest parameter (tagged)
-  //  jssp[8]:  number of parameters (tagged)
-  //  jssp[16]: address of receiver argument
+  //  jssp[0]:  language mode (tagged)
+  //  jssp[8]:  index of rest parameter (tagged)
+  //  jssp[16]: number of parameters (tagged)
+  //  jssp[24]: address of receiver argument
   //
   // Returns pointer to result object in x0.
 
   // Get the stub arguments from the frame, and make an untagged copy of the
   // parameter count.
-  Register rest_index_smi = x1;
-  Register param_count_smi = x2;
-  Register params = x3;
+  Register language_mode_smi = x1;
+  Register rest_index_smi = x2;
+  Register param_count_smi = x3;
+  Register params = x4;
   Register param_count = x13;
-  __ Pop(rest_index_smi, param_count_smi, params);
+  __ Pop(language_mode_smi, rest_index_smi, param_count_smi, params);
   __ SmiUntag(param_count, param_count_smi);
 
   // Test if arguments adaptor needed.
@@ -2217,11 +2233,12 @@ void RestParamAccessStub::GenerateNew(MacroAssembler* masm) {
   __ Cmp(caller_ctx, Smi::FromInt(StackFrame::ARGUMENTS_ADAPTOR));
   __ B(ne, &runtime);
 
-  //   x1   rest_index_smi    index of rest parameter
-  //   x2   param_count_smi   number of parameters passed to function (smi)
-  //   x3   params            pointer to parameters
-  //   x11  caller_fp         caller's frame pointer
-  //   x13  param_count       number of parameters passed to function
+  //   x1   language_mode_smi  language mode
+  //   x2   rest_index_smi     index of rest parameter
+  //   x3   param_count_smi    number of parameters passed to function (smi)
+  //   x4   params             pointer to parameters
+  //   x11  caller_fp          caller's frame pointer
+  //   x13  param_count        number of parameters passed to function
 
   // Patch the argument length and parameters pointer.
   __ Ldr(param_count_smi,
@@ -2232,8 +2249,8 @@ void RestParamAccessStub::GenerateNew(MacroAssembler* masm) {
   __ Add(params, x10, StandardFrameConstants::kCallerSPOffset);
 
   __ Bind(&runtime);
-  __ Push(params, param_count_smi, rest_index_smi);
-  __ TailCallRuntime(Runtime::kNewRestParam, 3, 1);
+  __ Push(params, param_count_smi, rest_index_smi, language_mode_smi);
+  __ TailCallRuntime(Runtime::kNewRestParam, 4, 1);
 }
 
 
@@ -3338,9 +3355,9 @@ void StringCharCodeAtGenerator::GenerateSlow(
   // If index is a heap number, try converting it to an integer.
   __ JumpIfNotHeapNumber(index_, index_not_number_);
   call_helper.BeforeCall(masm);
-  if (FLAG_vector_ics && embed_mode == PART_OF_IC_HANDLER) {
-    __ Push(VectorLoadICDescriptor::VectorRegister(),
-            VectorLoadICDescriptor::SlotRegister(), object_, index_);
+  if (embed_mode == PART_OF_IC_HANDLER) {
+    __ Push(LoadWithVectorDescriptor::VectorRegister(),
+            LoadWithVectorDescriptor::SlotRegister(), object_, index_);
   } else {
     // Save object_ on the stack and pass index_ as argument for runtime call.
     __ Push(object_, index_);
@@ -3355,9 +3372,9 @@ void StringCharCodeAtGenerator::GenerateSlow(
   // Save the conversion result before the pop instructions below
   // have a chance to overwrite it.
   __ Mov(index_, x0);
-  if (FLAG_vector_ics && embed_mode == PART_OF_IC_HANDLER) {
-    __ Pop(object_, VectorLoadICDescriptor::SlotRegister(),
-           VectorLoadICDescriptor::VectorRegister());
+  if (embed_mode == PART_OF_IC_HANDLER) {
+    __ Pop(object_, LoadWithVectorDescriptor::SlotRegister(),
+           LoadWithVectorDescriptor::VectorRegister());
   } else {
     __ Pop(object_);
   }
@@ -3485,7 +3502,7 @@ void CompareICStub::GenerateNumbers(MacroAssembler* masm) {
   __ Ret();
 
   __ Bind(&unordered);
-  CompareICStub stub(isolate(), op(), CompareICState::GENERIC,
+  CompareICStub stub(isolate(), op(), strong(), CompareICState::GENERIC,
                      CompareICState::GENERIC, CompareICState::GENERIC);
   __ Jump(stub.GetCode(), RelocInfo::CODE_TARGET);
 
@@ -4481,15 +4498,15 @@ void StubFailureTrampolineStub::Generate(MacroAssembler* masm) {
 
 
 void LoadICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, VectorLoadICDescriptor::VectorRegister());
-  VectorRawLoadStub stub(isolate(), state());
+  EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
+  LoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
 
 void KeyedLoadICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, VectorLoadICDescriptor::VectorRegister());
-  VectorRawKeyedLoadStub stub(isolate());
+  EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
+  KeyedLoadICStub stub(isolate());
   stub.GenerateForTrampoline(masm);
 }
 
@@ -4508,12 +4525,10 @@ void CallIC_ArrayTrampolineStub::Generate(MacroAssembler* masm) {
 }
 
 
-void VectorRawLoadStub::Generate(MacroAssembler* masm) {
-  GenerateImpl(masm, false);
-}
+void LoadICStub::Generate(MacroAssembler* masm) { GenerateImpl(masm, false); }
 
 
-void VectorRawLoadStub::GenerateForTrampoline(MacroAssembler* masm) {
+void LoadICStub::GenerateForTrampoline(MacroAssembler* masm) {
   GenerateImpl(masm, true);
 }
 
@@ -4610,11 +4625,11 @@ static void HandleMonomorphicCase(MacroAssembler* masm, Register receiver,
 }
 
 
-void VectorRawLoadStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
-  Register receiver = VectorLoadICDescriptor::ReceiverRegister();  // x1
-  Register name = VectorLoadICDescriptor::NameRegister();          // x2
-  Register vector = VectorLoadICDescriptor::VectorRegister();      // x3
-  Register slot = VectorLoadICDescriptor::SlotRegister();          // x0
+void LoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
+  Register receiver = LoadWithVectorDescriptor::ReceiverRegister();  // x1
+  Register name = LoadWithVectorDescriptor::NameRegister();          // x2
+  Register vector = LoadWithVectorDescriptor::VectorRegister();      // x3
+  Register slot = LoadWithVectorDescriptor::SlotRegister();          // x0
   Register feedback = x4;
   Register receiver_map = x5;
   Register scratch1 = x6;
@@ -4654,21 +4669,21 @@ void VectorRawLoadStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
 }
 
 
-void VectorRawKeyedLoadStub::Generate(MacroAssembler* masm) {
+void KeyedLoadICStub::Generate(MacroAssembler* masm) {
   GenerateImpl(masm, false);
 }
 
 
-void VectorRawKeyedLoadStub::GenerateForTrampoline(MacroAssembler* masm) {
+void KeyedLoadICStub::GenerateForTrampoline(MacroAssembler* masm) {
   GenerateImpl(masm, true);
 }
 
 
-void VectorRawKeyedLoadStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
-  Register receiver = VectorLoadICDescriptor::ReceiverRegister();  // x1
-  Register key = VectorLoadICDescriptor::NameRegister();           // x2
-  Register vector = VectorLoadICDescriptor::VectorRegister();      // x3
-  Register slot = VectorLoadICDescriptor::SlotRegister();          // x0
+void KeyedLoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
+  Register receiver = LoadWithVectorDescriptor::ReceiverRegister();  // x1
+  Register key = LoadWithVectorDescriptor::NameRegister();           // x2
+  Register vector = LoadWithVectorDescriptor::VectorRegister();      // x3
+  Register slot = LoadWithVectorDescriptor::SlotRegister();          // x0
   Register feedback = x4;
   Register receiver_map = x5;
   Register scratch1 = x6;
@@ -4721,6 +4736,58 @@ void VectorRawKeyedLoadStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
   __ Bind(&load_smi_map);
   __ LoadRoot(receiver_map, Heap::kHeapNumberMapRootIndex);
   __ jmp(&compare_map);
+}
+
+
+void VectorStoreICTrampolineStub::Generate(MacroAssembler* masm) {
+  EmitLoadTypeFeedbackVector(masm, VectorStoreICDescriptor::VectorRegister());
+  VectorStoreICStub stub(isolate(), state());
+  stub.GenerateForTrampoline(masm);
+}
+
+
+void VectorKeyedStoreICTrampolineStub::Generate(MacroAssembler* masm) {
+  EmitLoadTypeFeedbackVector(masm, VectorStoreICDescriptor::VectorRegister());
+  VectorKeyedStoreICStub stub(isolate(), state());
+  stub.GenerateForTrampoline(masm);
+}
+
+
+void VectorStoreICStub::Generate(MacroAssembler* masm) {
+  GenerateImpl(masm, false);
+}
+
+
+void VectorStoreICStub::GenerateForTrampoline(MacroAssembler* masm) {
+  GenerateImpl(masm, true);
+}
+
+
+void VectorStoreICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
+  Label miss;
+
+  // TODO(mvstanton): Implement.
+  __ Bind(&miss);
+  StoreIC::GenerateMiss(masm);
+}
+
+
+void VectorKeyedStoreICStub::Generate(MacroAssembler* masm) {
+  GenerateImpl(masm, false);
+}
+
+
+void VectorKeyedStoreICStub::GenerateForTrampoline(MacroAssembler* masm) {
+  GenerateImpl(masm, true);
+}
+
+
+void VectorKeyedStoreICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
+  Label miss;
+
+  // TODO(mvstanton): Implement.
+  __ Bind(&miss);
+  KeyedStoreIC::GenerateMiss(masm);
 }
 
 
@@ -5426,7 +5493,7 @@ static const int kCallApiFunctionSpillSpace = 4;
 
 
 static int AddressOffset(ExternalReference ref0, ExternalReference ref1) {
-  return ref0.address() - ref1.address();
+  return static_cast<int>(ref0.address() - ref1.address());
 }
 
 
@@ -5765,6 +5832,7 @@ void CallApiGetterStub::Generate(MacroAssembler* masm) {
 
 #undef __
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_ARM64

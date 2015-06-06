@@ -452,16 +452,28 @@ void InstructionSelector::VisitFloat64Mod(Node* node) {
 }
 
 
-void InstructionSelector::VisitFloat32Max(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat32Max(Node* node) {
+  DCHECK(kArchVariant == kMips32r6);
+  VisitRRR(this, kMipsMaxS, node);
+}
 
 
-void InstructionSelector::VisitFloat64Max(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat64Max(Node* node) {
+  DCHECK(kArchVariant == kMips32r6);
+  VisitRRR(this, kMipsMaxD, node);
+}
 
 
-void InstructionSelector::VisitFloat32Min(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat32Min(Node* node) {
+  DCHECK(kArchVariant == kMips32r6);
+  VisitRRR(this, kMipsMinS, node);
+}
 
 
-void InstructionSelector::VisitFloat64Min(Node* node) { UNREACHABLE(); }
+void InstructionSelector::VisitFloat64Min(Node* node) {
+  DCHECK(kArchVariant == kMips32r6);
+  VisitRRR(this, kMipsMinD, node);
+}
 
 
 void InstructionSelector::VisitFloat32Abs(Node* node) {
@@ -529,6 +541,11 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   // Pass label of exception handler block.
   CallDescriptor::Flags flags = descriptor->flags();
   if (handler) {
+    DCHECK_EQ(IrOpcode::kIfException, handler->front()->opcode());
+    IfExceptionHint hint = OpParameter<IfExceptionHint>(handler->front());
+    if (hint == IfExceptionHint::kLocallyCaught) {
+      flags |= CallDescriptor::kHasLocalCatchHandler;
+    }
     flags |= CallDescriptor::kHasExceptionHandler;
     buffer.instruction_args.push_back(g.Label(handler));
   }
@@ -1059,6 +1076,12 @@ void InstructionSelector::VisitFloat64InsertHighWord32(Node* node) {
 MachineOperatorBuilder::Flags
 InstructionSelector::SupportedMachineOperatorFlags() {
   MachineOperatorBuilder::Flags flags = MachineOperatorBuilder::kNoFlags;
+  if (IsMipsArchVariant(kMips32r6)) {
+    flags |= MachineOperatorBuilder::kFloat32Max |
+             MachineOperatorBuilder::kFloat32Min |
+             MachineOperatorBuilder::kFloat64Max |
+             MachineOperatorBuilder::kFloat64Min;
+  }
   if ((IsMipsArchVariant(kMips32r2) || IsMipsArchVariant(kMips32r6)) &&
       IsFp64Mode()) {
     flags |= MachineOperatorBuilder::kFloat64RoundDown |

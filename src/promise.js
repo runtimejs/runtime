@@ -12,11 +12,16 @@ var $promiseHasUserDefinedRejectHandler;
 var $promiseStatus;
 var $promiseValue;
 
-(function() {
+(function(global, utils) {
 
 "use strict";
 
 %CheckIsBootstrapping();
+
+// -------------------------------------------------------------------
+// Imports
+
+var InternalArray = utils.InternalArray;
 
 // -------------------------------------------------------------------
 
@@ -366,7 +371,7 @@ function PromiseHasUserDefinedRejectHandler() {
 %AddNamedProperty(GlobalPromise.prototype, symbolToStringTag, "Promise",
                   DONT_ENUM | READ_ONLY);
 
-$installFunctions(GlobalPromise, DONT_ENUM, [
+utils.InstallFunctions(GlobalPromise, DONT_ENUM, [
   "defer", PromiseDeferred,
   "accept", PromiseResolved,
   "reject", PromiseRejected,
@@ -375,7 +380,7 @@ $installFunctions(GlobalPromise, DONT_ENUM, [
   "resolve", PromiseCast
 ]);
 
-$installFunctions(GlobalPromise.prototype, DONT_ENUM, [
+utils.InstallFunctions(GlobalPromise.prototype, DONT_ENUM, [
   "chain", PromiseChain,
   "then", PromiseThen,
   "catch", PromiseCatch
@@ -391,4 +396,4 @@ $promiseHasUserDefinedRejectHandler = PromiseHasUserDefinedRejectHandler;
 $promiseStatus = promiseStatus;
 $promiseValue = promiseValue;
 
-})();
+})

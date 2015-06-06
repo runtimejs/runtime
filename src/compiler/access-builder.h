@@ -37,6 +37,18 @@ class AccessBuilder final : public AllStatic {
   // Provides access to ExternalArray::external_pointer() field.
   static FieldAccess ForExternalArrayPointer();
 
+  // Provides access to DescriptorArray::enum_cache() field.
+  static FieldAccess ForDescriptorArrayEnumCache();
+
+  // Provides access to DescriptorArray::enum_cache_bridge_cache() field.
+  static FieldAccess ForDescriptorArrayEnumCacheBridgeCache();
+
+  // Provides access to Map::bit_field3() field.
+  static FieldAccess ForMapBitField3();
+
+  // Provides access to Map::descriptors() field.
+  static FieldAccess ForMapDescriptors();
+
   // Provides access to Map::instance_type() field.
   static FieldAccess ForMapInstanceType();
 
@@ -64,6 +76,18 @@ class AccessBuilder final : public AllStatic {
 
   // Provides access to the charaters of sequential strings.
   static ElementAccess ForSeqStringChar(String::Encoding encoding);
+
+  // Provides access to the SharedFunctionInfo in a JSFunction.
+  static FieldAccess ForJSFunctionSharedFunctionInfo();
+
+  // Provides access to the TypeFeedbackVector in SharedFunctionInfo.
+  static FieldAccess ForSharedFunctionInfoTypeFeedbackVector();
+
+  // Provides access to the next frame pointer in a stack frame.
+  static FieldAccess ForFrameCallerFramePtr();
+
+  // Provides access to the marker in a stack frame.
+  static FieldAccess ForFrameMarker();
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(AccessBuilder);

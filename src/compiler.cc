@@ -114,8 +114,6 @@ CompilationInfo::CompilationInfo(ParseInfo* parse_info)
 
   if (isolate_->debug()->is_active()) MarkAsDebug();
   if (FLAG_context_specialization) MarkAsContextSpecializing();
-  if (FLAG_turbo_builtin_inlining) MarkAsBuiltinInliningEnabled();
-  if (FLAG_turbo_deoptimization) MarkAsDeoptimizationEnabled();
   if (FLAG_turbo_inlining) MarkAsInliningEnabled();
   if (FLAG_turbo_source_positions) MarkAsSourcePositionsEnabled();
   if (FLAG_turbo_splitting) MarkAsSplittingEnabled();
@@ -175,6 +173,14 @@ int CompilationInfo::num_parameters() const {
 }
 
 
+int CompilationInfo::num_parameters_including_this() const {
+  return num_parameters() + (is_this_defined() ? 1 : 0);
+}
+
+
+bool CompilationInfo::is_this_defined() const { return !IsStub(); }
+
+
 int CompilationInfo::num_heap_slots() const {
   return has_scope() ? scope()->num_heap_slots() : 0;
 }
@@ -215,8 +221,7 @@ bool CompilationInfo::is_simple_parameter_list() {
 
 
 bool CompilationInfo::MayUseThis() const {
-  return scope()->uses_this() || scope()->inner_uses_this() ||
-         scope()->calls_sloppy_eval();
+  return scope()->has_this_declaration() && scope()->receiver()->is_used();
 }
 
 
@@ -270,6 +275,14 @@ void CompilationInfo::LogDeoptCallPosition(int pc_offset, int inlining_id) {
   if (!track_positions_ || IsStub()) return;
   DCHECK_LT(static_cast<size_t>(inlining_id), inlined_function_infos_.size());
   inlined_function_infos_.at(inlining_id).deopt_pc_offsets.push_back(pc_offset);
+}
+
+
+Handle<Code> CompilationInfo::GenerateCodeStub() {
+  // Run a "mini pipeline", extracted from compiler.cc.
+  CHECK(Parser::ParseStatic(parse_info()));
+  CHECK(Compiler::Analyze(parse_info()));
+  return compiler::Pipeline(this).GenerateCode();
 }
 
 
@@ -361,7 +374,9 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
   DCHECK(info()->shared_info()->has_deoptimization_support());
 
   // Check the enabling conditions for TurboFan.
+  bool dont_crankshaft = info()->shared_info()->dont_crankshaft();
   if (((FLAG_turbo_asm && info()->shared_info()->asm_function()) ||
+       (dont_crankshaft && strcmp(FLAG_turbo_filter, "~~") == 0) ||
        info()->closure()->PassesFilter(FLAG_turbo_filter)) &&
       (FLAG_turbo_osr || !info()->is_osr())) {
     // Use TurboFan for the compilation.
@@ -379,6 +394,10 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
       info()->MarkAsTypeFeedbackEnabled();
       info()->EnsureFeedbackVector();
     }
+    if (!info()->shared_info()->asm_function() ||
+        FLAG_turbo_asm_deoptimization) {
+      info()->MarkAsDeoptimizationEnabled();
+    }
 
     Timer t(this, &time_taken_to_create_graph_);
     compiler::Pipeline pipeline(info());
@@ -388,7 +407,7 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
     }
   }
 
-  if (!isolate()->use_crankshaft()) {
+  if (!isolate()->use_crankshaft() || dont_crankshaft) {
     // Crankshaft is entirely disabled.
     return SetLastStatus(FAILED);
   }
@@ -488,7 +507,7 @@ OptimizedCompileJob::Status OptimizedCompileJob::GenerateCode() {
   // TODO(turbofan): Currently everything is done in the first phase.
   if (!info()->code().is_null()) {
     info()->dependencies()->Commit(info()->code());
-    if (FLAG_turbo_deoptimization) {
+    if (info()->is_deoptimization_enabled()) {
       info()->parse_info()->context()->native_context()->AddOptimizedCode(
           *info()->code());
     }
@@ -660,7 +679,6 @@ MUST_USE_RESULT static MaybeHandle<Code> GetUnoptimizedCodeCommon(
 
   // Update the code and feedback vector for the shared function info.
   shared->ReplaceCode(*info->code());
-  if (shared->optimization_disabled()) info->code()->set_optimizable(false);
   shared->set_feedback_vector(*info->feedback_vector());
 
   return info->code();
@@ -725,6 +743,7 @@ static bool Renumber(ParseInfo* parse_info) {
     FunctionLiteral* lit = parse_info->function();
     shared_info->set_ast_node_count(lit->ast_node_count());
     MaybeDisableOptimization(shared_info, lit->dont_optimize_reason());
+    shared_info->set_dont_crankshaft(lit->flags()->Contains(kDontCrankshaft));
     shared_info->set_dont_cache(lit->flags()->Contains(kDontCache));
   }
   return true;
@@ -835,7 +854,7 @@ MaybeHandle<Code> Compiler::GetLazyCode(Handle<JSFunction> function) {
   // If the debugger is active, do not compile with turbofan unless we can
   // deopt from turbofan code.
   if (FLAG_turbo_asm && function->shared()->asm_function() &&
-      (FLAG_turbo_deoptimization || !isolate->debug()->is_active()) &&
+      (FLAG_turbo_asm_deoptimization || !isolate->debug()->is_active()) &&
       !FLAG_turbo_osr) {
     CompilationInfoWithZone info(function);
 
@@ -1169,9 +1188,9 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
 
 Handle<SharedFunctionInfo> Compiler::CompileScript(
     Handle<String> source, Handle<Object> script_name, int line_offset,
-    int column_offset, bool is_embedder_debug_script,
-    bool is_shared_cross_origin, Handle<Object> source_map_url,
-    Handle<Context> context, v8::Extension* extension, ScriptData** cached_data,
+    int column_offset, ScriptOriginOptions resource_options,
+    Handle<Object> source_map_url, Handle<Context> context,
+    v8::Extension* extension, ScriptData** cached_data,
     ScriptCompiler::CompileOptions compile_options, NativesFlag natives,
     bool is_module) {
   Isolate* isolate = source->GetIsolate();
@@ -1206,9 +1225,8 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
   if (extension == NULL) {
     // First check per-isolate compilation cache.
     maybe_result = compilation_cache->LookupScript(
-        source, script_name, line_offset, column_offset,
-        is_embedder_debug_script, is_shared_cross_origin, context,
-        language_mode);
+        source, script_name, line_offset, column_offset, resource_options,
+        context, language_mode);
     if (maybe_result.is_null() && FLAG_serialize_toplevel &&
         compile_options == ScriptCompiler::kConsumeCodeCache &&
         !isolate->debug()->is_loaded()) {
@@ -1245,8 +1263,7 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
       script->set_line_offset(Smi::FromInt(line_offset));
       script->set_column_offset(Smi::FromInt(column_offset));
     }
-    script->set_is_shared_cross_origin(is_shared_cross_origin);
-    script->set_is_embedder_debug_script(is_embedder_debug_script);
+    script->set_origin_options(resource_options);
     if (!source_map_url.is_null()) {
       script->set_source_mapping_url(*source_map_url);
     }
@@ -1556,4 +1573,5 @@ void CompilationInfo::PrintAstForTesting() {
          PrettyPrinter(isolate(), zone()).PrintProgram(function()));
 }
 #endif
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

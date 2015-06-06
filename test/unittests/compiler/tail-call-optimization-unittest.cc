@@ -59,9 +59,10 @@ TEST_F(TailCallOptimizationTest, CallCodeObject1) {
   Node* call = graph()->NewNode(common()->Call(kCallDescriptor), p0, p1,
                                 graph()->start(), graph()->start());
   Node* if_success = graph()->NewNode(common()->IfSuccess(), call);
-  Node* if_exception = graph()->NewNode(common()->IfException(), call);
+  Node* if_exception = graph()->NewNode(
+      common()->IfException(IfExceptionHint::kLocallyUncaught), call);
   Node* ret = graph()->NewNode(common()->Return(), call, call, if_success);
-  Node* end = graph()->NewNode(common()->End(), if_exception);
+  Node* end = graph()->NewNode(common()->End(1), if_exception);
   graph()->SetEnd(end);
   Reduction r = Reduce(ret);
   ASSERT_FALSE(r.Changed());
@@ -124,9 +125,10 @@ TEST_F(TailCallOptimizationTest, CallJSFunction1) {
   Node* call = graph()->NewNode(common()->Call(kCallDescriptor), p0, p1,
                                 graph()->start(), graph()->start());
   Node* if_success = graph()->NewNode(common()->IfSuccess(), call);
-  Node* if_exception = graph()->NewNode(common()->IfException(), call);
+  Node* if_exception = graph()->NewNode(
+      common()->IfException(IfExceptionHint::kLocallyUncaught), call);
   Node* ret = graph()->NewNode(common()->Return(), call, call, if_success);
-  Node* end = graph()->NewNode(common()->End(), if_exception);
+  Node* end = graph()->NewNode(common()->End(1), if_exception);
   graph()->SetEnd(end);
   Reduction r = Reduce(ret);
   ASSERT_FALSE(r.Changed());

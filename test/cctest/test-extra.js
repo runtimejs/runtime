@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function () {
-    'use strict';
-
-    extrasExports.testExtraShouldReturnFive = function () {
-        return 5;
-    };
-})();
+(function (global, exports) {
+  'use strict';
+  exports.testExtraShouldReturnFive = function () {
+    return 5;
+  };
+})

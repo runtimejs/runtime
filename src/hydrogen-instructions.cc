@@ -837,7 +837,6 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kStoreNamedGeneric:
     case HValue::kStringCharCodeAt:
     case HValue::kStringCharFromCode:
-    case HValue::kTailCallThroughMegamorphicCache:
     case HValue::kThisFunction:
     case HValue::kTypeofIsAndBranch:
     case HValue::kUnknownOSRValue:
@@ -874,6 +873,7 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kLoadKeyed:
     case HValue::kLoadKeyedGeneric:
     case HValue::kMathFloorOfDiv:
+    case HValue::kMaybeGrowElements:
     case HValue::kMod:
     case HValue::kMul:
     case HValue::kOsrEntry:
@@ -1626,6 +1626,9 @@ void HCheckInstanceType::GetCheckInterval(InstanceType* first,
     case IS_JS_ARRAY:
       *first = *last = JS_ARRAY_TYPE;
       return;
+    case IS_JS_DATE:
+      *first = *last = JS_DATE_TYPE;
+      return;
     default:
       UNREACHABLE();
   }
@@ -1695,6 +1698,8 @@ const char* HCheckInstanceType::GetCheckName() const {
   switch (check_) {
     case IS_SPEC_OBJECT: return "object";
     case IS_JS_ARRAY: return "array";
+    case IS_JS_DATE:
+      return "date";
     case IS_STRING: return "string";
     case IS_INTERNALIZED_STRING: return "internalized_string";
   }
@@ -1713,22 +1718,6 @@ std::ostream& HCheckInstanceType::PrintDataTo(
 std::ostream& HCallStub::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << CodeStub::MajorName(major_key_, false) << " ";
   return HUnaryCall::PrintDataTo(os);
-}
-
-
-Code::Flags HTailCallThroughMegamorphicCache::flags() const {
-  Code::Flags code_flags = Code::RemoveTypeAndHolderFromFlags(
-      Code::ComputeHandlerFlags(Code::LOAD_IC));
-  return code_flags;
-}
-
-
-std::ostream& HTailCallThroughMegamorphicCache::PrintDataTo(
-    std::ostream& os) const {  // NOLINT
-  for (int i = 0; i < OperandCount(); i++) {
-    os << NameOf(OperandAt(i)) << " ";
-  }
-  return os << "flags: " << flags();
 }
 
 
@@ -2975,7 +2964,7 @@ std::ostream& HConstant::PrintDataTo(std::ostream& os) const {  // NOLINT
     os << reinterpret_cast<void*>(external_reference_value_.address()) << " ";
   } else {
     // The handle() method is silently and lazily mutating the object.
-    Handle<Object> h = const_cast<HConstant*>(this)->handle(Isolate::Current());
+    Handle<Object> h = const_cast<HConstant*>(this)->handle(isolate());
     os << Brief(*h) << " ";
     if (HasStableMapValue()) os << "[stable-map] ";
     if (HasObjectMap()) os << "[map " << *ObjectMap().handle() << "] ";
@@ -4730,4 +4719,5 @@ std::ostream& operator<<(std::ostream& os, const HObjectAccess& access) {
   return os << "@" << access.offset();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

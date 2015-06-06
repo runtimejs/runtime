@@ -7,13 +7,12 @@
 #include "test/cctest/cctest.h"
 #include "test/cctest/compiler/function-tester.h"
 
-using namespace v8;
 using namespace v8::internal;
 using namespace v8::internal::compiler;
 
 #if V8_TURBOFAN_TARGET
 
-static void IsOptimized(const FunctionCallbackInfo<v8::Value>& args) {
+static void IsOptimized(const v8::FunctionCallbackInfo<v8::Value>& args) {
   JavaScriptFrameIterator it(CcTest::i_isolate());
   JavaScriptFrame* frame = it.frame();
   return args.GetReturnValue().Set(frame->is_optimized());
@@ -21,15 +20,15 @@ static void IsOptimized(const FunctionCallbackInfo<v8::Value>& args) {
 
 
 static void InstallIsOptimizedHelper(v8::Isolate* isolate) {
-  Local<v8::Context> context = isolate->GetCurrentContext();
-  Local<v8::FunctionTemplate> t = FunctionTemplate::New(isolate, IsOptimized);
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+  v8::Local<v8::FunctionTemplate> t =
+      v8::FunctionTemplate::New(isolate, IsOptimized);
   context->Global()->Set(v8_str("IsOptimized"), t->GetFunction());
 }
 
 
 TEST(TurboSimpleDeopt) {
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   FunctionTester T(
       "(function f(a) {"
@@ -46,7 +45,6 @@ TEST(TurboSimpleDeopt) {
 
 TEST(TurboSimpleDeoptInExpr) {
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   FunctionTester T(
       "(function f(a) {"
@@ -65,7 +63,6 @@ TEST(TurboSimpleDeoptInExpr) {
 
 TEST(TurboTrivialDeopt) {
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   FunctionTester T(
       "(function foo() {"

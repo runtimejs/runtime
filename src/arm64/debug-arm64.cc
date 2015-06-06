@@ -207,10 +207,8 @@ void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
   // Calling convention for IC load (from ic-arm.cc).
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register name = LoadDescriptor::NameRegister();
-  RegList regs = receiver.Bit() | name.Bit();
-  if (FLAG_vector_ics) {
-    regs |= VectorLoadICTrampolineDescriptor::SlotRegister().Bit();
-  }
+  Register slot = LoadDescriptor::SlotRegister();
+  RegList regs = receiver.Bit() | name.Bit() | slot.Bit();
   Generate_DebugBreakCallHelper(masm, regs, 0, x10);
 }
 
@@ -346,6 +344,7 @@ void DebugCodegen::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
 
 const bool LiveEdit::kFrameDropperSupported = true;
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_ARM64

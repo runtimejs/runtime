@@ -5,14 +5,18 @@
 // This file contains support for URI manipulations written in
 // JavaScript.
 
-(function() {
+(function(global, utils) {
 
 "use strict";
 
 %CheckIsBootstrapping();
 
+//- ------------------------------------------------------------------
+// Imports
+
 var GlobalObject = global.Object;
 var GlobalArray = global.Array;
+var InternalArray = utils.InternalArray;
 
 // -------------------------------------------------------------------
 // Define internal helper functions.
@@ -40,7 +44,7 @@ function isAlphaNumeric(cc) {
   return false;
 }
 
-//Lazily initialized.
+// Lazily initialized.
 var hexCharCodeArray = 0;
 
 function URIAddEncodedOctetToBuffer(octet, result, index) {
@@ -356,7 +360,7 @@ function URIEncodeComponent(component) {
 
 // Set up non-enumerable URI functions on the global object and set
 // their names.
-$installFunctions(global, DONT_ENUM, [
+utils.InstallFunctions(global, DONT_ENUM, [
   "escape", URIEscapeJS,
   "unescape", URIUnescapeJS,
   "decodeURI", URIDecode,
@@ -365,4 +369,4 @@ $installFunctions(global, DONT_ENUM, [
   "encodeURIComponent", URIEncodeComponent
 ]);
 
-})();
+})

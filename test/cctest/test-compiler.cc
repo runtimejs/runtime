@@ -60,8 +60,8 @@ static Handle<JSFunction> Compile(const char* source) {
   Handle<String> source_code = isolate->factory()->NewStringFromUtf8(
       CStrVector(source)).ToHandleChecked();
   Handle<SharedFunctionInfo> shared_function = Compiler::CompileScript(
-      source_code, Handle<String>(), 0, 0, false, false, Handle<Object>(),
-      Handle<Context>(isolate->native_context()), NULL, NULL,
+      source_code, Handle<String>(), 0, 0, v8::ScriptOriginOptions(),
+      Handle<Object>(), Handle<Context>(isolate->native_context()), NULL, NULL,
       v8::ScriptCompiler::kNoCompileOptions, NOT_NATIVES_CODE, false);
   return isolate->factory()->NewFunctionFromSharedFunctionInfo(
       shared_function, isolate->native_context());
@@ -362,7 +362,7 @@ TEST(FeedbackVectorUnaffectedByScopeChanges) {
   // Now a feedback vector is allocated.
   CHECK(f->shared()->is_compiled());
   int expected_slots = 0;
-  int expected_ic_slots = FLAG_vector_ics ? 2 : 1;
+  int expected_ic_slots = 2;
   CHECK_EQ(expected_slots, f->shared()->feedback_vector()->Slots());
   CHECK_EQ(expected_ic_slots, f->shared()->feedback_vector()->ICSlots());
 }
@@ -395,10 +395,8 @@ TEST(OptimizedCodeSharing) {
         *v8::Local<v8::Function>::Cast(env->Global()->Get(v8_str("closure1"))));
     Handle<JSFunction> fun2 = v8::Utils::OpenHandle(
         *v8::Local<v8::Function>::Cast(env->Global()->Get(v8_str("closure2"))));
-    CHECK(fun1->IsOptimized()
-          || !CcTest::i_isolate()->use_crankshaft() || !fun1->IsOptimizable());
-    CHECK(fun2->IsOptimized()
-          || !CcTest::i_isolate()->use_crankshaft() || !fun2->IsOptimizable());
+    CHECK(fun1->IsOptimized() || !CcTest::i_isolate()->use_crankshaft());
+    CHECK(fun2->IsOptimized() || !CcTest::i_isolate()->use_crankshaft());
     CHECK_EQ(fun1->code(), fun2->code());
   }
 }
@@ -533,6 +531,9 @@ static void CheckCodeForUnsafeLiteral(Handle<JSFunction> f) {
     int decode_size =
         Min(f->code()->instruction_size(),
             static_cast<int>(f->code()->back_edge_table_offset()));
+    if (FLAG_enable_embedded_constant_pool) {
+      decode_size = Min(decode_size, f->code()->constant_pool_offset());
+    }
     Address end = pc + decode_size;
 
     v8::internal::EmbeddedVector<char, 128> decode_buffer;

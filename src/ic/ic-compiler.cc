@@ -87,26 +87,6 @@ Handle<Code> PropertyICCompiler::ComputeMonomorphic(
 }
 
 
-Handle<Code> PropertyICCompiler::ComputeKeyedLoadMonomorphic(
-    Handle<Map> receiver_map) {
-  Isolate* isolate = receiver_map->GetIsolate();
-  DCHECK(KeyedLoadIC::GetKeyType(kNoExtraICState) == ELEMENT);
-  Code::Flags flags = Code::ComputeMonomorphicFlags(Code::KEYED_LOAD_IC);
-  Handle<Name> name = isolate->factory()->KeyedLoadMonomorphic_string();
-
-  Handle<Object> probe(receiver_map->FindInCodeCache(*name, flags), isolate);
-  if (probe->IsCode()) return Handle<Code>::cast(probe);
-
-  Handle<Code> stub = ComputeKeyedLoadMonomorphicHandler(receiver_map);
-  PropertyICCompiler compiler(isolate, Code::KEYED_LOAD_IC);
-  Handle<Code> code = compiler.CompileMonomorphic(
-      receiver_map, stub, isolate->factory()->empty_string(), ELEMENT);
-
-  Map::UpdateCodeCache(receiver_map, name, code);
-  return code;
-}
-
-
 Handle<Code> PropertyICCompiler::ComputeKeyedLoadMonomorphicHandler(
     Handle<Map> receiver_map) {
   Isolate* isolate = receiver_map->GetIsolate();
@@ -186,31 +166,6 @@ static void FillCache(Isolate* isolate, Handle<Code> code) {
   Handle<UnseededNumberDictionary> dictionary = UnseededNumberDictionary::Set(
       isolate->factory()->non_monomorphic_cache(), code->flags(), code);
   isolate->heap()->public_set_non_monomorphic_cache(*dictionary);
-}
-
-
-Handle<Code> PropertyICCompiler::ComputeLoad(Isolate* isolate,
-                                             InlineCacheState ic_state,
-                                             ExtraICState extra_state) {
-  Code::Flags flags = Code::ComputeFlags(Code::LOAD_IC, ic_state, extra_state);
-  Handle<UnseededNumberDictionary> cache =
-      isolate->factory()->non_monomorphic_cache();
-  int entry = cache->FindEntry(isolate, flags);
-  if (entry != -1) return Handle<Code>(Code::cast(cache->ValueAt(entry)));
-
-  PropertyICCompiler compiler(isolate, Code::LOAD_IC);
-  Handle<Code> code;
-  if (ic_state == UNINITIALIZED) {
-    code = compiler.CompileLoadInitialize(flags);
-  } else if (ic_state == PREMONOMORPHIC) {
-    code = compiler.CompileLoadPreMonomorphic(flags);
-  } else if (ic_state == MEGAMORPHIC) {
-    code = compiler.CompileLoadMegamorphic(flags);
-  } else {
-    UNREACHABLE();
-  }
-  FillCache(isolate, code);
-  return code;
 }
 
 
@@ -334,23 +289,6 @@ Handle<Code> PropertyICCompiler::CompileLoadInitialize(Code::Flags flags) {
 }
 
 
-Handle<Code> PropertyICCompiler::CompileLoadPreMonomorphic(Code::Flags flags) {
-  LoadIC::GeneratePreMonomorphic(masm());
-  Handle<Code> code = GetCodeWithFlags(flags, "CompileLoadPreMonomorphic");
-  PROFILE(isolate(),
-          CodeCreateEvent(Logger::LOAD_PREMONOMORPHIC_TAG, *code, 0));
-  return code;
-}
-
-
-Handle<Code> PropertyICCompiler::CompileLoadMegamorphic(Code::Flags flags) {
-  MegamorphicLoadStub stub(isolate(), LoadICState(extra_ic_state_));
-  auto code = stub.GetCode();
-  PROFILE(isolate(), CodeCreateEvent(Logger::LOAD_MEGAMORPHIC_TAG, *code, 0));
-  return code;
-}
-
-
 Handle<Code> PropertyICCompiler::CompileStoreInitialize(Code::Flags flags) {
   StoreIC::GenerateInitialize(masm());
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStoreInitialize");
@@ -370,7 +308,7 @@ Handle<Code> PropertyICCompiler::CompileStorePreMonomorphic(Code::Flags flags) {
 
 Handle<Code> PropertyICCompiler::CompileStoreGeneric(Code::Flags flags) {
   ExtraICState extra_state = Code::ExtractExtraICStateFromFlags(flags);
-  LanguageMode language_mode = StoreIC::GetLanguageMode(extra_state);
+  LanguageMode language_mode = StoreICState::GetLanguageMode(extra_state);
   GenerateRuntimeSetProperty(masm(), language_mode);
   Handle<Code> code = GetCodeWithFlags(flags, "CompileStoreGeneric");
   PROFILE(isolate(), CodeCreateEvent(Logger::STORE_GENERIC_TAG, *code, 0));
@@ -426,9 +364,11 @@ Handle<Code> PropertyICCompiler::CompileKeyedStorePolymorphic(
     } else if (receiver_map->instance_type() < FIRST_JS_RECEIVER_TYPE) {
       cached_stub = isolate()->builtins()->KeyedStoreIC_Slow();
     } else {
-      if (receiver_map->has_fast_elements() ||
-          receiver_map->has_external_array_elements() ||
-          receiver_map->has_fixed_typed_array_elements()) {
+      if (IsSloppyArgumentsElements(elements_kind)) {
+        cached_stub = KeyedStoreSloppyArgumentsStub(isolate()).GetCode();
+      } else if (receiver_map->has_fast_elements() ||
+                 receiver_map->has_external_array_elements() ||
+                 receiver_map->has_fixed_typed_array_elements()) {
         cached_stub = StoreFastElementStub(isolate(), is_js_array,
                                            elements_kind, store_mode).GetCode();
       } else {
@@ -456,9 +396,11 @@ Handle<Code> PropertyICCompiler::CompileKeyedStoreMonomorphic(
   ElementsKind elements_kind = receiver_map->elements_kind();
   bool is_jsarray = receiver_map->instance_type() == JS_ARRAY_TYPE;
   Handle<Code> stub;
-  if (receiver_map->has_fast_elements() ||
-      receiver_map->has_external_array_elements() ||
-      receiver_map->has_fixed_typed_array_elements()) {
+  if (receiver_map->has_sloppy_arguments_elements()) {
+    stub = KeyedStoreSloppyArgumentsStub(isolate()).GetCode();
+  } else if (receiver_map->has_fast_elements() ||
+             receiver_map->has_external_array_elements() ||
+             receiver_map->has_fixed_typed_array_elements()) {
     stub = StoreFastElementStub(isolate(), is_jsarray, elements_kind,
                                 store_mode).GetCode();
   } else {
@@ -477,5 +419,5 @@ Handle<Code> PropertyICCompiler::CompileKeyedStoreMonomorphic(
 
 
 #undef __
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

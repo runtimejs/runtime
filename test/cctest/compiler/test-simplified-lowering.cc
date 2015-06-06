@@ -33,11 +33,8 @@ template <typename ReturnType>
 class SimplifiedLoweringTester : public GraphBuilderTester<ReturnType> {
  public:
   SimplifiedLoweringTester(MachineType p0 = kMachNone,
-                           MachineType p1 = kMachNone,
-                           MachineType p2 = kMachNone,
-                           MachineType p3 = kMachNone,
-                           MachineType p4 = kMachNone)
-      : GraphBuilderTester<ReturnType>(p0, p1, p2, p3, p4),
+                           MachineType p1 = kMachNone)
+      : GraphBuilderTester<ReturnType>(p0, p1),
         typer(this->isolate(), this->graph(), MaybeHandle<Context>()),
         javascript(this->zone()),
         jsgraph(this->isolate(), this->graph(), this->common(), &javascript,
@@ -63,7 +60,7 @@ class SimplifiedLoweringTester : public GraphBuilderTester<ReturnType> {
     lowering.LowerAllNodes();
 
     ChangeLowering lowering(&jsgraph);
-    GraphReducer reducer(this->graph(), this->zone());
+    GraphReducer reducer(this->zone(), this->graph());
     reducer.AddReducer(&lowering);
     reducer.ReduceGraph();
     Verifier::Run(this->graph());
@@ -710,7 +707,7 @@ class TestingGraph : public HandleAndZoneScope, public GraphAndBuilders {
     graph()->SetStart(start);
     ret =
         graph()->NewNode(common()->Return(), jsgraph.Constant(0), start, start);
-    end = graph()->NewNode(common()->End(), ret);
+    end = graph()->NewNode(common()->End(1), ret);
     graph()->SetEnd(end);
     p0 = graph()->NewNode(common()->Parameter(0), start);
     p1 = graph()->NewNode(common()->Parameter(1), start);
@@ -1269,7 +1266,6 @@ TEST(LowerStringOps_to_call_and_compare) {
     t.CheckLoweringBinop(compare_eq, t.simplified()->StringEqual());
     t.CheckLoweringBinop(compare_lt, t.simplified()->StringLessThan());
     t.CheckLoweringBinop(compare_le, t.simplified()->StringLessThanOrEqual());
-    t.CheckLoweringBinop(IrOpcode::kCall, t.simplified()->StringAdd());
   }
 }
 
@@ -1443,8 +1439,8 @@ TEST(LowerLoadField_to_load) {
     FieldAccess access = {kTaggedBase, FixedArrayBase::kHeaderSize,
                           Handle<Name>::null(), Type::Any(), kMachineReps[i]};
 
-    Node* load =
-        t.graph()->NewNode(t.simplified()->LoadField(access), t.p0, t.start);
+    Node* load = t.graph()->NewNode(t.simplified()->LoadField(access), t.p0,
+                                    t.start, t.start);
     Node* use = t.Use(load, kMachineReps[i]);
     t.Return(use);
     t.Lower();
@@ -1624,8 +1620,8 @@ TEST(InsertChangeForLoadField) {
   FieldAccess access = {kTaggedBase, FixedArrayBase::kHeaderSize,
                         Handle<Name>::null(), Type::Any(), kMachFloat64};
 
-  Node* load =
-      t.graph()->NewNode(t.simplified()->LoadField(access), t.p0, t.start);
+  Node* load = t.graph()->NewNode(t.simplified()->LoadField(access), t.p0,
+                                  t.start, t.start);
   t.Return(load);
   t.Lower();
   CHECK_EQ(IrOpcode::kLoad, load->opcode());
@@ -1679,10 +1675,10 @@ TEST(UpdatePhi) {
     FieldAccess access = {kTaggedBase, FixedArrayBase::kHeaderSize,
                           Handle<Name>::null(), kTypes[i], kMachineTypes[i]};
 
-    Node* load0 =
-        t.graph()->NewNode(t.simplified()->LoadField(access), t.p0, t.start);
-    Node* load1 =
-        t.graph()->NewNode(t.simplified()->LoadField(access), t.p1, t.start);
+    Node* load0 = t.graph()->NewNode(t.simplified()->LoadField(access), t.p0,
+                                     t.start, t.start);
+    Node* load1 = t.graph()->NewNode(t.simplified()->LoadField(access), t.p1,
+                                     t.start, t.start);
     Node* phi = t.graph()->NewNode(t.common()->Phi(kMachAnyTagged, 2), load0,
                                    load1, t.start);
     t.Return(t.Use(phi, kMachineTypes[i]));

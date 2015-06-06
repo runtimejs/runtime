@@ -80,14 +80,10 @@ class JSTypedLoweringTest : public TypedGraphTest {
   Reduction Reduce(Node* node) {
     MachineOperatorBuilder machine(zone());
     JSGraph jsgraph(isolate(), graph(), common(), javascript(), &machine);
-    JSTypedLowering reducer(&jsgraph, zone());
+    // TODO(titzer): mock the GraphReducer here for better unit testing.
+    GraphReducer graph_reducer(zone(), graph());
+    JSTypedLowering reducer(&graph_reducer, &jsgraph, zone());
     return reducer.Reduce(node);
-  }
-
-  Node* EmptyFrameState() {
-    MachineOperatorBuilder machine(zone());
-    JSGraph jsgraph(isolate(), graph(), common(), javascript(), &machine);
-    return jsgraph.EmptyFrameState();
   }
 
   Handle<JSArrayBuffer> NewArrayBuffer(void* bytes, size_t byte_length) {
@@ -434,15 +430,24 @@ TEST_F(JSTypedLoweringTest, JSToNumberWithPlainPrimitive) {
 TEST_F(JSTypedLoweringTest, JSStrictEqualWithTheHole) {
   Node* const the_hole = HeapConstant(factory()->the_hole_value());
   Node* const context = UndefinedConstant();
-  Node* const effect = graph()->start();
-  Node* const control = graph()->start();
   TRACED_FOREACH(Type*, type, kJSTypes) {
     Node* const lhs = Parameter(type);
-    Reduction r = Reduce(graph()->NewNode(javascript()->StrictEqual(), lhs,
-                                          the_hole, context, effect, control));
+    Reduction r = Reduce(
+        graph()->NewNode(javascript()->StrictEqual(), lhs, the_hole, context));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(), IsFalseConstant());
   }
+}
+
+
+TEST_F(JSTypedLoweringTest, JSStrictEqualWithUnique) {
+  Node* const lhs = Parameter(Type::Unique(), 0);
+  Node* const rhs = Parameter(Type::Unique(), 1);
+  Node* const context = Parameter(Type::Any(), 2);
+  Reduction r =
+      Reduce(graph()->NewNode(javascript()->StrictEqual(), lhs, rhs, context));
+  ASSERT_TRUE(r.Changed());
+  EXPECT_THAT(r.replacement(), IsReferenceEqual(Type::Unique(), lhs, rhs));
 }
 
 
@@ -457,10 +462,9 @@ TEST_F(JSTypedLoweringTest, JSShiftLeftWithSigned32AndConstant) {
   Node* const control = graph()->start();
   TRACED_FORRANGE(double, rhs, 0, 31) {
     TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-      Reduction r =
-          Reduce(graph()->NewNode(javascript()->ShiftLeft(language_mode), lhs,
-                                  NumberConstant(rhs), context, effect,
-                                  control));
+      Reduction r = Reduce(graph()->NewNode(
+          javascript()->ShiftLeft(language_mode), lhs, NumberConstant(rhs),
+          context, EmptyFrameState(), EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
                   IsWord32Shl(lhs, IsNumberConstant(BitEq(rhs))));
@@ -476,9 +480,9 @@ TEST_F(JSTypedLoweringTest, JSShiftLeftWithSigned32AndUnsigned32) {
   Node* const effect = graph()->start();
   Node* const control = graph()->start();
   TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-    Reduction r =
-        Reduce(graph()->NewNode(javascript()->ShiftLeft(language_mode), lhs,
-                                rhs, context, effect, control));
+    Reduction r = Reduce(graph()->NewNode(
+        javascript()->ShiftLeft(language_mode), lhs, rhs, context,
+        EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
                 IsWord32Shl(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
@@ -497,10 +501,9 @@ TEST_F(JSTypedLoweringTest, JSShiftRightWithSigned32AndConstant) {
   Node* const control = graph()->start();
   TRACED_FORRANGE(double, rhs, 0, 31) {
     TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-      Reduction r =
-          Reduce(graph()->NewNode(javascript()-> ShiftRight(language_mode), lhs,
-                                  NumberConstant(rhs), context, effect,
-                                  control));
+      Reduction r = Reduce(graph()->NewNode(
+          javascript()->ShiftRight(language_mode), lhs, NumberConstant(rhs),
+          context, EmptyFrameState(), EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
                   IsWord32Sar(lhs, IsNumberConstant(BitEq(rhs))));
@@ -516,9 +519,9 @@ TEST_F(JSTypedLoweringTest, JSShiftRightWithSigned32AndUnsigned32) {
   Node* const effect = graph()->start();
   Node* const control = graph()->start();
   TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-    Reduction r = Reduce(graph()->NewNode(javascript()->
-                                          ShiftRight(language_mode), lhs, rhs,
-                                          context, effect, control));
+    Reduction r = Reduce(graph()->NewNode(
+        javascript()->ShiftRight(language_mode), lhs, rhs, context,
+        EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
                 IsWord32Sar(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
@@ -538,11 +541,10 @@ TEST_F(JSTypedLoweringTest,
   Node* const control = graph()->start();
   TRACED_FORRANGE(double, rhs, 0, 31) {
     TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-      Reduction r =
-          Reduce(graph()->NewNode(javascript()->
-                                  ShiftRightLogical(language_mode), lhs,
-                                  NumberConstant(rhs), context, effect,
-                                  control));
+      Reduction r = Reduce(
+          graph()->NewNode(javascript()->ShiftRightLogical(language_mode), lhs,
+                           NumberConstant(rhs), context, EmptyFrameState(),
+                           EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
                   IsWord32Shr(lhs, IsNumberConstant(BitEq(rhs))));
@@ -559,9 +561,9 @@ TEST_F(JSTypedLoweringTest,
   Node* const effect = graph()->start();
   Node* const control = graph()->start();
   TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
-    Reduction r = Reduce(graph()->NewNode(javascript()->
-                                          ShiftRightLogical(language_mode), lhs,
-                                          rhs, context, effect, control));
+    Reduction r = Reduce(graph()->NewNode(
+        javascript()->ShiftRightLogical(language_mode), lhs, rhs, context,
+        EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(),
                 IsWord32Shr(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
@@ -659,9 +661,9 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArray) {
     Node* context = UndefinedConstant();
     Node* effect = graph()->start();
     Node* control = graph()->start();
-    Reduction r =
-        Reduce(graph()->NewNode(javascript()->LoadProperty(feedback), base, key,
-                                context, EmptyFrameState(), effect, control));
+    Reduction r = Reduce(graph()->NewNode(javascript()->LoadProperty(feedback),
+                                          base, key, context, EmptyFrameState(),
+                                          EmptyFrameState(), effect, control));
 
     Matcher<Node*> offset_matcher =
         element_size == 1
@@ -700,9 +702,9 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArrayWithSafeKey) {
     Node* context = UndefinedConstant();
     Node* effect = graph()->start();
     Node* control = graph()->start();
-    Reduction r =
-        Reduce(graph()->NewNode(javascript()->LoadProperty(feedback), base, key,
-                                context, EmptyFrameState(), effect, control));
+    Reduction r = Reduce(graph()->NewNode(javascript()->LoadProperty(feedback),
+                                          base, key, context, EmptyFrameState(),
+                                          EmptyFrameState(), effect, control));
 
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(
@@ -885,9 +887,9 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
 
   for (size_t i = 0; i < arraysize(names); i++) {
     Unique<Name> name = Unique<Name>::CreateImmovable(names[i]);
-    Reduction r =
-        Reduce(graph()->NewNode(javascript()->LoadNamed(name, feedback), global,
-                                context, EmptyFrameState(), effect, control));
+    Reduction r = Reduce(graph()->NewNode(
+        javascript()->LoadNamed(name, feedback), global, context,
+        EmptyFrameState(), EmptyFrameState(), effect, control));
 
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(), matches[i]);
@@ -896,9 +898,72 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
 
 
 // -----------------------------------------------------------------------------
-// JSCreateClosure
+// JSLoadDynamicGlobal
+
+
+TEST_F(JSTypedLoweringTest, JSLoadDynamicGlobal) {
+  Node* const context = Parameter(Type::Any());
+  Node* const frame_state = EmptyFrameState();
+  Node* const effect = graph()->start();
+  Node* const control = graph()->start();
+  Handle<String> name = factory()->object_string();
+  VectorSlotPair feedback(Handle<TypeFeedbackVector>::null(),
+                          FeedbackVectorICSlot::Invalid());
+  for (int i = 0; i < DynamicGlobalAccess::kMaxCheckDepth; ++i) {
+    uint32_t bitset = 1 << i;  // Only single check.
+    Reduction r = Reduce(graph()->NewNode(
+        javascript()->LoadDynamicGlobal(name, bitset, feedback, NOT_CONTEXTUAL),
+        context, context, frame_state, frame_state, effect, control));
+    ASSERT_TRUE(r.Changed());
+    EXPECT_THAT(
+        r.replacement(),
+        IsPhi(kMachAnyTagged, _, _,
+              IsMerge(
+                  IsIfTrue(IsBranch(
+                      IsReferenceEqual(
+                          Type::Tagged(),
+                          IsLoadContext(
+                              ContextAccess(i, Context::EXTENSION_INDEX, false),
+                              context),
+                          IsNumberConstant(BitEq(0.0))),
+                      control)),
+                  _)));
+  }
+}
 
 #if V8_TURBOFAN_TARGET
+
+// -----------------------------------------------------------------------------
+// JSAdd
+
+
+TEST_F(JSTypedLoweringTest, JSAddWithString) {
+  TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
+    Node* lhs = Parameter(Type::String(), 0);
+    Node* rhs = Parameter(Type::String(), 1);
+    Node* context = Parameter(Type::Any(), 2);
+    Node* frame_state0 = EmptyFrameState();
+    Node* frame_state1 = EmptyFrameState();
+    Node* effect = graph()->start();
+    Node* control = graph()->start();
+    Reduction r = Reduce(graph()->NewNode(javascript()->Add(language_mode), lhs,
+                                          rhs, context, frame_state0,
+                                          frame_state1, effect, control));
+    ASSERT_TRUE(r.Changed());
+    EXPECT_THAT(
+        r.replacement(),
+        IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
+                      CodeFactory::StringAdd(isolate(), STRING_ADD_CHECK_NONE,
+                                             NOT_TENURED).code())),
+               lhs, rhs, context, frame_state0, effect, control));
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// JSCreateClosure
+
+
 TEST_F(JSTypedLoweringTest, JSCreateClosure) {
   Node* const context = UndefinedConstant();
   Node* const effect = graph()->start();
@@ -965,7 +1030,8 @@ TEST_F(JSTypedLoweringTest, JSCreateLiteralObject) {
                     CodeFactory::FastCloneShallowObject(isolate(), 6).code())),
              input0, input1, input2, _, context, frame_state, effect, control));
 }
-#endif
+
+#endif  // V8_TURBOFAN_TARGET
 
 
 // -----------------------------------------------------------------------------

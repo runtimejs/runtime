@@ -272,6 +272,7 @@ Instruction::Type Instruction::InstructionType() const {
       switch (FunctionFieldRaw()) {
         case INS:
         case EXT:
+        case BITSWAP:
           return kRegisterType;
         default:
           return kUnsupported;
@@ -338,6 +339,7 @@ Instruction::Type Instruction::InstructionType() const {
 }
 
 
-} }   // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_MIPS

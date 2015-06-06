@@ -12,7 +12,7 @@ namespace internal {
 
 // static
 void ICUtility::Clear(Isolate* isolate, Address address,
-                      ConstantPoolArray* constant_pool) {
+                      Address constant_pool) {
   IC::Clear(isolate, address, constant_pool);
 }
 
@@ -511,5 +511,5 @@ CompareICState::State CompareICState::TargetState(
   UNREACHABLE();
   return GENERIC;  // Make the compiler happy.
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

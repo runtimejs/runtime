@@ -333,19 +333,16 @@ void KeyedLoadIC::GenerateMegamorphic(MacroAssembler* masm) {
   __ j(equal, &probe_dictionary);
 
   Register megamorphic_scratch = rdi;
-  if (FLAG_vector_ics) {
-    // When vector ics are in use, the handlers in the stub cache expect a
-    // vector and slot. Since we won't change the IC from any downstream
-    // misses, a dummy vector can be used.
-    Register vector = VectorLoadICDescriptor::VectorRegister();
-    Register slot = VectorLoadICDescriptor::SlotRegister();
-    DCHECK(!AreAliased(megamorphic_scratch, vector, slot));
-    Handle<TypeFeedbackVector> dummy_vector = Handle<TypeFeedbackVector>::cast(
-        masm->isolate()->factory()->keyed_load_dummy_vector());
-    int int_slot = dummy_vector->GetIndex(FeedbackVectorICSlot(0));
-    __ Move(vector, dummy_vector);
-    __ Move(slot, Smi::FromInt(int_slot));
-  }
+  // The handlers in the stub cache expect a vector and slot. Since we won't
+  // change the IC from any downstream misses, a dummy vector can be used.
+  Register vector = LoadWithVectorDescriptor::VectorRegister();
+  Register slot = LoadDescriptor::SlotRegister();
+  DCHECK(!AreAliased(megamorphic_scratch, vector, slot));
+  Handle<TypeFeedbackVector> dummy_vector = Handle<TypeFeedbackVector>::cast(
+      masm->isolate()->factory()->keyed_load_dummy_vector());
+  int int_slot = dummy_vector->GetIndex(FeedbackVectorICSlot(0));
+  __ Move(vector, dummy_vector);
+  __ Move(slot, Smi::FromInt(int_slot));
 
   Code::Flags flags = Code::RemoveTypeAndHolderFromFlags(
       Code::ComputeHandlerFlags(Code::LOAD_IC));
@@ -611,110 +608,6 @@ void KeyedStoreIC::GenerateMegamorphic(MacroAssembler* masm,
 }
 
 
-static Operand GenerateMappedArgumentsLookup(
-    MacroAssembler* masm, Register object, Register key, Register scratch1,
-    Register scratch2, Register scratch3, Label* unmapped_case,
-    Label* slow_case) {
-  Heap* heap = masm->isolate()->heap();
-
-  // Check that the receiver is a JSObject. Because of the elements
-  // map check later, we do not need to check for interceptors or
-  // whether it requires access checks.
-  __ JumpIfSmi(object, slow_case);
-  // Check that the object is some kind of JSObject.
-  __ CmpObjectType(object, FIRST_JS_RECEIVER_TYPE, scratch1);
-  __ j(below, slow_case);
-
-  // Check that the key is a positive smi.
-  Condition check = masm->CheckNonNegativeSmi(key);
-  __ j(NegateCondition(check), slow_case);
-
-  // Load the elements into scratch1 and check its map. If not, jump
-  // to the unmapped lookup with the parameter map in scratch1.
-  Handle<Map> arguments_map(heap->sloppy_arguments_elements_map());
-  __ movp(scratch1, FieldOperand(object, JSObject::kElementsOffset));
-  __ CheckMap(scratch1, arguments_map, slow_case, DONT_DO_SMI_CHECK);
-
-  // Check if element is in the range of mapped arguments.
-  __ movp(scratch2, FieldOperand(scratch1, FixedArray::kLengthOffset));
-  __ SmiSubConstant(scratch2, scratch2, Smi::FromInt(2));
-  __ cmpp(key, scratch2);
-  __ j(greater_equal, unmapped_case);
-
-  // Load element index and check whether it is the hole.
-  const int kHeaderSize = FixedArray::kHeaderSize + 2 * kPointerSize;
-  __ SmiToInteger64(scratch3, key);
-  __ movp(scratch2,
-          FieldOperand(scratch1, scratch3, times_pointer_size, kHeaderSize));
-  __ CompareRoot(scratch2, Heap::kTheHoleValueRootIndex);
-  __ j(equal, unmapped_case);
-
-  // Load value from context and return it. We can reuse scratch1 because
-  // we do not jump to the unmapped lookup (which requires the parameter
-  // map in scratch1).
-  __ movp(scratch1, FieldOperand(scratch1, FixedArray::kHeaderSize));
-  __ SmiToInteger64(scratch3, scratch2);
-  return FieldOperand(scratch1, scratch3, times_pointer_size,
-                      Context::kHeaderSize);
-}
-
-
-static Operand GenerateUnmappedArgumentsLookup(MacroAssembler* masm,
-                                               Register key,
-                                               Register parameter_map,
-                                               Register scratch,
-                                               Label* slow_case) {
-  // Element is in arguments backing store, which is referenced by the
-  // second element of the parameter_map. The parameter_map register
-  // must be loaded with the parameter map of the arguments object and is
-  // overwritten.
-  const int kBackingStoreOffset = FixedArray::kHeaderSize + kPointerSize;
-  Register backing_store = parameter_map;
-  __ movp(backing_store, FieldOperand(parameter_map, kBackingStoreOffset));
-  Handle<Map> fixed_array_map(masm->isolate()->heap()->fixed_array_map());
-  __ CheckMap(backing_store, fixed_array_map, slow_case, DONT_DO_SMI_CHECK);
-  __ movp(scratch, FieldOperand(backing_store, FixedArray::kLengthOffset));
-  __ cmpp(key, scratch);
-  __ j(greater_equal, slow_case);
-  __ SmiToInteger64(scratch, key);
-  return FieldOperand(backing_store, scratch, times_pointer_size,
-                      FixedArray::kHeaderSize);
-}
-
-
-void KeyedStoreIC::GenerateSloppyArguments(MacroAssembler* masm) {
-  // The return address is on the stack.
-  Label slow, notin;
-  Register receiver = StoreDescriptor::ReceiverRegister();
-  Register name = StoreDescriptor::NameRegister();
-  Register value = StoreDescriptor::ValueRegister();
-  DCHECK(receiver.is(rdx));
-  DCHECK(name.is(rcx));
-  DCHECK(value.is(rax));
-
-  Operand mapped_location = GenerateMappedArgumentsLookup(
-      masm, receiver, name, rbx, rdi, r8, &notin, &slow);
-  __ movp(mapped_location, value);
-  __ leap(r9, mapped_location);
-  __ movp(r8, value);
-  __ RecordWrite(rbx, r9, r8, kDontSaveFPRegs, EMIT_REMEMBERED_SET,
-                 INLINE_SMI_CHECK);
-  __ Ret();
-  __ bind(&notin);
-  // The unmapped lookup expects that the parameter map is in rbx.
-  Operand unmapped_location =
-      GenerateUnmappedArgumentsLookup(masm, name, rbx, rdi, &slow);
-  __ movp(unmapped_location, value);
-  __ leap(r9, unmapped_location);
-  __ movp(r8, value);
-  __ RecordWrite(rbx, r9, r8, kDontSaveFPRegs, EMIT_REMEMBERED_SET,
-                 INLINE_SMI_CHECK);
-  __ Ret();
-  __ bind(&slow);
-  GenerateMiss(masm);
-}
-
-
 void LoadIC::GenerateNormal(MacroAssembler* masm) {
   Register dictionary = rax;
   DCHECK(!dictionary.is(LoadDescriptor::ReceiverRegister()));
@@ -737,26 +630,17 @@ void LoadIC::GenerateNormal(MacroAssembler* masm) {
 static void LoadIC_PushArgs(MacroAssembler* masm) {
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register name = LoadDescriptor::NameRegister();
-  if (FLAG_vector_ics) {
-    Register slot = VectorLoadICDescriptor::SlotRegister();
-    Register vector = VectorLoadICDescriptor::VectorRegister();
-    DCHECK(!rdi.is(receiver) && !rdi.is(name) && !rdi.is(slot) &&
-           !rdi.is(vector));
+  Register slot = LoadDescriptor::SlotRegister();
+  Register vector = LoadWithVectorDescriptor::VectorRegister();
+  DCHECK(!rdi.is(receiver) && !rdi.is(name) && !rdi.is(slot) &&
+         !rdi.is(vector));
 
-    __ PopReturnAddressTo(rdi);
-    __ Push(receiver);
-    __ Push(name);
-    __ Push(slot);
-    __ Push(vector);
-    __ PushReturnAddressFrom(rdi);
-  } else {
-    DCHECK(!rbx.is(receiver) && !rbx.is(name));
-
-    __ PopReturnAddressTo(rbx);
-    __ Push(receiver);
-    __ Push(name);
-    __ PushReturnAddressFrom(rbx);
-  }
+  __ PopReturnAddressTo(rdi);
+  __ Push(receiver);
+  __ Push(name);
+  __ Push(slot);
+  __ Push(vector);
+  __ PushReturnAddressFrom(rdi);
 }
 
 
@@ -771,7 +655,7 @@ void LoadIC::GenerateMiss(MacroAssembler* masm) {
   // Perform tail call to the entry.
   ExternalReference ref =
       ExternalReference(IC_Utility(kLoadIC_Miss), masm->isolate());
-  int arg_count = FLAG_vector_ics ? 4 : 2;
+  int arg_count = 4;
   __ TailCallExternalReference(ref, arg_count, 1);
 }
 
@@ -802,7 +686,7 @@ void KeyedLoadIC::GenerateMiss(MacroAssembler* masm) {
   // Perform tail call to the entry.
   ExternalReference ref =
       ExternalReference(IC_Utility(kKeyedLoadIC_Miss), masm->isolate());
-  int arg_count = FLAG_vector_ics ? 4 : 2;
+  int arg_count = 4;
   __ TailCallExternalReference(ref, arg_count, 1);
 }
 
@@ -965,7 +849,7 @@ void PatchInlinedSmiCode(Address address, InlinedSmiCheck check) {
           : (*jmp_address == Assembler::kJnzShortOpcode ? not_carry : carry);
   *jmp_address = static_cast<byte>(Assembler::kJccShortPrefix | cc);
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X64

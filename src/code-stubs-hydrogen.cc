@@ -74,7 +74,9 @@ class CodeStubGraphBuilderBase : public HGraphBuilder {
     MULTIPLE
   };
 
-  HValue* UnmappedCase(HValue* elements, HValue* key);
+  HValue* UnmappedCase(HValue* elements, HValue* key, HValue* value);
+  HValue* EmitKeyedSloppyArguments(HValue* receiver, HValue* key,
+                                   HValue* value);
 
   HValue* BuildArrayConstructor(ElementsKind kind,
                                 AllocationSiteOverrideMode override_mode,
@@ -696,10 +698,11 @@ HValue* CodeStubGraphBuilder<GrowArrayElementsStub>::BuildCodeStub() {
 
   HValue* object = GetParameter(GrowArrayElementsDescriptor::kObjectIndex);
   HValue* key = GetParameter(GrowArrayElementsDescriptor::kKeyIndex);
-  HValue* current_capacity =
-      GetParameter(GrowArrayElementsDescriptor::kCapacityIndex);
 
   HValue* elements = AddLoadElements(object);
+  HValue* current_capacity = Add<HLoadNamedField>(
+      elements, nullptr, HObjectAccess::ForFixedArrayLength());
+
   HValue* length =
       casted_stub()->is_js_array()
           ? Add<HLoadNamedField>(object, static_cast<HValue*>(NULL),
@@ -795,8 +798,9 @@ HValue* CodeStubGraphBuilder<LoadConstantStub>::BuildCodeStub() {
 Handle<Code> LoadConstantStub::GenerateCode() { return DoGenerateCode(this); }
 
 
-HValue* CodeStubGraphBuilderBase::UnmappedCase(HValue* elements, HValue* key) {
-  HValue* result;
+HValue* CodeStubGraphBuilderBase::UnmappedCase(HValue* elements, HValue* key,
+                                               HValue* value) {
+  HValue* result = NULL;
   HInstruction* backing_store =
       Add<HLoadKeyed>(elements, graph()->GetConstant1(), nullptr, FAST_ELEMENTS,
                       ALLOW_RETURN_HOLE);
@@ -808,8 +812,12 @@ HValue* CodeStubGraphBuilderBase::UnmappedCase(HValue* elements, HValue* key) {
                                                  Token::LT);
   in_unmapped_range.Then();
   {
-    result = Add<HLoadKeyed>(backing_store, key, nullptr, FAST_HOLEY_ELEMENTS,
-                             NEVER_RETURN_HOLE);
+    if (value == NULL) {
+      result = Add<HLoadKeyed>(backing_store, key, nullptr, FAST_HOLEY_ELEMENTS,
+                               NEVER_RETURN_HOLE);
+    } else {
+      Add<HStoreKeyed>(backing_store, key, value, FAST_HOLEY_ELEMENTS);
+    }
   }
   in_unmapped_range.ElseDeopt(Deoptimizer::kOutsideOfRange);
   in_unmapped_range.End();
@@ -817,11 +825,9 @@ HValue* CodeStubGraphBuilderBase::UnmappedCase(HValue* elements, HValue* key) {
 }
 
 
-template <>
-HValue* CodeStubGraphBuilder<KeyedLoadSloppyArgumentsStub>::BuildCodeStub() {
-  HValue* receiver = GetParameter(LoadDescriptor::kReceiverIndex);
-  HValue* key = GetParameter(LoadDescriptor::kNameIndex);
-
+HValue* CodeStubGraphBuilderBase::EmitKeyedSloppyArguments(HValue* receiver,
+                                                           HValue* key,
+                                                           HValue* value) {
   // Mapped arguments are actual arguments. Unmapped arguments are values added
   // to the arguments object after it was created for the call. Mapped arguments
   // are stored in the context at indexes given by elements[key + 2]. Unmapped
@@ -847,6 +853,8 @@ HValue* CodeStubGraphBuilder<KeyedLoadSloppyArgumentsStub>::BuildCodeStub() {
   // in the unmapped arguments array, as described above. Otherwise, t is a Smi
   // index into the context array given at elements[0]. Return the value at
   // context[t].
+
+  bool is_load = value == NULL;
 
   key = AddUncasted<HForceRepresentation>(key, Representation::Smi());
   IfBuilder positive_smi(this);
@@ -879,21 +887,27 @@ HValue* CodeStubGraphBuilder<KeyedLoadSloppyArgumentsStub>::BuildCodeStub() {
       HValue* the_context = Add<HLoadKeyed>(elements, graph()->GetConstant0(),
                                             nullptr, FAST_ELEMENTS);
       STATIC_ASSERT(Context::kHeaderSize == FixedArray::kHeaderSize);
-      HValue* result = Add<HLoadKeyed>(the_context, mapped_index, nullptr,
-                                       FAST_ELEMENTS, ALLOW_RETURN_HOLE);
-      environment()->Push(result);
+      if (is_load) {
+        HValue* result = Add<HLoadKeyed>(the_context, mapped_index, nullptr,
+                                         FAST_ELEMENTS, ALLOW_RETURN_HOLE);
+        environment()->Push(result);
+      } else {
+        DCHECK(value != NULL);
+        Add<HStoreKeyed>(the_context, mapped_index, value, FAST_ELEMENTS);
+        environment()->Push(value);
+      }
     }
     is_valid.Else();
     {
-      HValue* result = UnmappedCase(elements, key);
-      environment()->Push(result);
+      HValue* result = UnmappedCase(elements, key, value);
+      environment()->Push(is_load ? result : value);
     }
     is_valid.End();
   }
   in_range.Else();
   {
-    HValue* result = UnmappedCase(elements, key);
-    environment()->Push(result);
+    HValue* result = UnmappedCase(elements, key, value);
+    environment()->Push(is_load ? result : value);
   }
   in_range.End();
 
@@ -901,7 +915,31 @@ HValue* CodeStubGraphBuilder<KeyedLoadSloppyArgumentsStub>::BuildCodeStub() {
 }
 
 
+template <>
+HValue* CodeStubGraphBuilder<KeyedLoadSloppyArgumentsStub>::BuildCodeStub() {
+  HValue* receiver = GetParameter(LoadDescriptor::kReceiverIndex);
+  HValue* key = GetParameter(LoadDescriptor::kNameIndex);
+
+  return EmitKeyedSloppyArguments(receiver, key, NULL);
+}
+
+
 Handle<Code> KeyedLoadSloppyArgumentsStub::GenerateCode() {
+  return DoGenerateCode(this);
+}
+
+
+template <>
+HValue* CodeStubGraphBuilder<KeyedStoreSloppyArgumentsStub>::BuildCodeStub() {
+  HValue* receiver = GetParameter(StoreDescriptor::kReceiverIndex);
+  HValue* key = GetParameter(StoreDescriptor::kNameIndex);
+  HValue* value = GetParameter(StoreDescriptor::kValueIndex);
+
+  return EmitKeyedSloppyArguments(receiver, key, value);
+}
+
+
+Handle<Code> KeyedStoreSloppyArgumentsStub::GenerateCode() {
   return DoGenerateCode(this);
 }
 
@@ -2204,29 +2242,5 @@ Handle<Code> KeyedLoadGenericStub::GenerateCode() {
   return DoGenerateCode(this);
 }
 
-
-Handle<Code> MegamorphicLoadStub::GenerateCode() {
-  return DoGenerateCode(this);
-}
-
-
-template <>
-HValue* CodeStubGraphBuilder<MegamorphicLoadStub>::BuildCodeStub() {
-  HValue* receiver = GetParameter(LoadDescriptor::kReceiverIndex);
-  HValue* name = GetParameter(LoadDescriptor::kNameIndex);
-
-  // We shouldn't generate this when FLAG_vector_ics is true because the
-  // megamorphic case is handled as part of the default stub.
-  DCHECK(!FLAG_vector_ics);
-
-  // This stub tail calls, and an erected frame presents complications we don't
-  // need.
-  info()->MarkMustNotHaveEagerFrame();
-
-  // Probe the stub cache.
-  Add<HTailCallThroughMegamorphicCache>(receiver, name);
-
-  // We never continue.
-  return graph()->GetConstant0();
-}
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

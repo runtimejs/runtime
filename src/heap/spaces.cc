@@ -1055,14 +1055,6 @@ int PagedSpace::CountTotalPages() {
 }
 
 
-void PagedSpace::ObtainFreeListStatistics(Page* page, SizeStats* sizes) {
-  sizes->huge_size_ = page->available_in_huge_free_list();
-  sizes->small_size_ = page->available_in_small_free_list();
-  sizes->medium_size_ = page->available_in_medium_free_list();
-  sizes->large_size_ = page->available_in_large_free_list();
-}
-
-
 void PagedSpace::ResetFreeListStatistics() {
   PageIterator page_iterator(this);
   while (page_iterator.has_next()) {
@@ -1459,31 +1451,32 @@ bool NewSpace::AddFreshPage() {
 
 
 AllocationResult NewSpace::SlowAllocateRaw(int size_in_bytes,
-                                           bool double_aligned) {
+                                           AllocationAlignment alignment) {
   Address old_top = allocation_info_.top();
   Address high = to_space_.page_high();
   if (allocation_info_.limit() < high) {
+    int alignment_size = Heap::GetFillToAlign(old_top, alignment);
+    int aligned_size_in_bytes = size_in_bytes + alignment_size;
+
     // Either the limit has been lowered because linear allocation was disabled
     // or because incremental marking wants to get a chance to do a step. Set
     // the new limit accordingly.
-    int aligned_size = size_in_bytes;
-    aligned_size += (double_aligned ? kPointerSize : 0);
-    Address new_top = old_top + aligned_size;
+    Address new_top = old_top + aligned_size_in_bytes;
     int bytes_allocated = static_cast<int>(new_top - top_on_previous_step_);
     heap()->incremental_marking()->Step(bytes_allocated,
                                         IncrementalMarking::GC_VIA_STACK_GUARD);
-    UpdateInlineAllocationLimit(aligned_size);
+    UpdateInlineAllocationLimit(aligned_size_in_bytes);
     top_on_previous_step_ = new_top;
-    if (double_aligned) return AllocateRawDoubleAligned(size_in_bytes);
-    return AllocateRaw(size_in_bytes);
+    if (alignment == kWordAligned) return AllocateRawUnaligned(size_in_bytes);
+    return AllocateRawAligned(size_in_bytes, alignment);
   } else if (AddFreshPage()) {
     // Switched to new page. Try allocating again.
     int bytes_allocated = static_cast<int>(old_top - top_on_previous_step_);
     heap()->incremental_marking()->Step(bytes_allocated,
                                         IncrementalMarking::GC_VIA_STACK_GUARD);
     top_on_previous_step_ = to_space_.page_low();
-    if (double_aligned) return AllocateRawDoubleAligned(size_in_bytes);
-    return AllocateRaw(size_in_bytes);
+    if (alignment == kWordAligned) return AllocateRawUnaligned(size_in_bytes);
+    return AllocateRawAligned(size_in_bytes, alignment);
   } else {
     return AllocationResult::Retry();
   }
@@ -1570,7 +1563,7 @@ void SemiSpace::SetUp(Address start, int initial_capacity, int target_capacity,
   address_mask_ = ~(maximum_capacity - 1);
   object_mask_ = address_mask_ | kHeapObjectTagMask;
   object_expected_ = reinterpret_cast<uintptr_t>(start) | kHeapObjectTag;
-  age_mark_ = start_;
+  age_mark_ = start_ + NewSpacePage::kObjectStartOffset;
 }
 
 
@@ -3044,8 +3037,7 @@ void LargeObjectSpace::Verify() {
     // large object space.
     CHECK(object->IsCode() || object->IsSeqString() ||
           object->IsExternalString() || object->IsFixedArray() ||
-          object->IsFixedDoubleArray() || object->IsByteArray() ||
-          object->IsConstantPoolArray());
+          object->IsFixedDoubleArray() || object->IsByteArray());
 
     // The object itself should look OK.
     object->ObjectVerify();
@@ -3132,5 +3124,5 @@ void Page::Print() {
 }
 
 #endif  // DEBUG
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

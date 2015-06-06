@@ -6,15 +6,23 @@
 
 var $getTemplateCallSite;
 
-(function() {
+(function(global, utils) {
 
 "use strict";
 
 %CheckIsBootstrapping();
 
-var callSiteCache = new global.Map;
-var mapGetFn = global.Map.prototype.get;
-var mapSetFn = global.Map.prototype.set;
+// -------------------------------------------------------------------
+// Imports
+
+var GlobalMap = global.Map;
+var InternalArray = utils.InternalArray;
+
+// -------------------------------------------------------------------
+
+var callSiteCache = new GlobalMap;
+var mapGetFn = GlobalMap.prototype.get;
+var mapSetFn = GlobalMap.prototype.set;
 
 
 function SameCallSiteElements(rawStrings, other) {
@@ -70,4 +78,4 @@ $getTemplateCallSite = function(siteObj, rawStrings, hash) {
   return SetCachedCallSite(%ObjectFreeze(siteObj), hash);
 }
 
-})();
+})

@@ -210,8 +210,7 @@ class MarkingDeque {
   // heap.
   INLINE(void PushBlack(HeapObject* object)) {
     DCHECK(object->IsHeapObject());
-    // TODO(jochen): Remove again before we branch for 4.2.
-    CHECK(object->IsHeapObject() && object->map()->IsMap());
+    DCHECK(object->map()->IsMap());
     if (IsFull()) {
       Marking::BlackToGrey(object);
       MemoryChunk::IncrementLiveBytesFromGC(object->address(), -object->Size());
@@ -224,8 +223,7 @@ class MarkingDeque {
 
   INLINE(void PushGrey(HeapObject* object)) {
     DCHECK(object->IsHeapObject());
-    // TODO(jochen): Remove again before we branch for 4.2.
-    CHECK(object->IsHeapObject() && object->map()->IsMap());
+    DCHECK(object->map()->IsMap());
     if (IsFull()) {
       SetOverflowed();
     } else {
@@ -244,7 +242,21 @@ class MarkingDeque {
 
   INLINE(void UnshiftGrey(HeapObject* object)) {
     DCHECK(object->IsHeapObject());
+    DCHECK(Marking::IsGrey(Marking::MarkBitFrom(object)));
     if (IsFull()) {
+      SetOverflowed();
+    } else {
+      bottom_ = ((bottom_ - 1) & mask_);
+      array_[bottom_] = object;
+    }
+  }
+
+  INLINE(void UnshiftBlack(HeapObject* object)) {
+    DCHECK(object->IsHeapObject());
+    DCHECK(Marking::IsBlack(Marking::MarkBitFrom(object)));
+    if (IsFull()) {
+      Marking::BlackToGrey(object);
+      MemoryChunk::IncrementLiveBytesFromGC(object->address(), -object->Size());
       SetOverflowed();
     } else {
       bottom_ = ((bottom_ - 1) & mask_);
@@ -318,6 +330,7 @@ class SlotsBuffer {
 
   enum SlotType {
     EMBEDDED_OBJECT_SLOT,
+    OBJECT_SLOT,
     RELOCATED_CODE_OBJECT,
     CELL_TARGET_SLOT,
     CODE_TARGET_SLOT,
@@ -331,6 +344,8 @@ class SlotsBuffer {
     switch (type) {
       case EMBEDDED_OBJECT_SLOT:
         return "EMBEDDED_OBJECT_SLOT";
+      case OBJECT_SLOT:
+        return "OBJECT_SLOT";
       case RELOCATED_CODE_OBJECT:
         return "RELOCATED_CODE_OBJECT";
       case CELL_TARGET_SLOT:
@@ -504,7 +519,8 @@ class CodeFlusher {
 
   static void SetNextCandidate(JSFunction* candidate,
                                JSFunction* next_candidate) {
-    candidate->set_next_function_link(next_candidate);
+    candidate->set_next_function_link(next_candidate,
+                                      UPDATE_WEAK_WRITE_BARRIER);
   }
 
   static void ClearNextCandidate(JSFunction* candidate, Object* undefined) {

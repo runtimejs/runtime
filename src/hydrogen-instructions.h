@@ -127,6 +127,7 @@ class LChunkBuilder;
   V(MapEnumLength)                            \
   V(MathFloorOfDiv)                           \
   V(MathMinMax)                               \
+  V(MaybeGrowElements)                        \
   V(Mod)                                      \
   V(Mul)                                      \
   V(OsrEntry)                                 \
@@ -155,7 +156,6 @@ class LChunkBuilder;
   V(StringCharFromCode)                       \
   V(StringCompareAndBranch)                   \
   V(Sub)                                      \
-  V(TailCallThroughMegamorphicCache)          \
   V(ThisFunction)                             \
   V(ToFastProperties)                         \
   V(TransitionElementsKind)                   \
@@ -963,6 +963,12 @@ std::ostream& operator<<(std::ostream& os, const ChangesOf& v);
   static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2, \
                 P3 p3, P4 p4, P5 p5) {                                       \
     return new (zone) I(context, p1, p2, p3, p4, p5);                        \
+  }
+
+#define DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P6(I, P1, P2, P3, P4, P5, P6) \
+  static I* New(Isolate* isolate, Zone* zone, HValue* context, P1 p1, P2 p2,   \
+                P3 p3, P4 p4, P5 p5, P6 p6) {                                  \
+    return new (zone) I(context, p1, p2, p3, p4, p5, p6);                      \
   }
 
 
@@ -1952,6 +1958,7 @@ class HEnterInlined final : public HTemplateInstruction<0> {
 
   std::ostream& PrintDataTo(std::ostream& os) const override;  // NOLINT
 
+  Handle<SharedFunctionInfo> shared() const { return shared_; }
   Handle<JSFunction> closure() const { return closure_; }
   HConstant* closure_context() const { return closure_context_; }
   int arguments_count() const { return arguments_count_; }
@@ -1979,6 +1986,7 @@ class HEnterInlined final : public HTemplateInstruction<0> {
                 Variable* arguments_var, HArgumentsObject* arguments_object,
                 Zone* zone)
       : return_id_(return_id),
+        shared_(handle(closure->shared())),
         closure_(closure),
         closure_context_(closure_context),
         arguments_count_(arguments_count),
@@ -1991,6 +1999,7 @@ class HEnterInlined final : public HTemplateInstruction<0> {
         return_targets_(2, zone) {}
 
   BailoutId return_id_;
+  Handle<SharedFunctionInfo> shared_;
   Handle<JSFunction> closure_;
   HConstant* closure_context_;
   int arguments_count_;
@@ -2866,9 +2875,10 @@ class HCheckInstanceType final : public HUnaryOperation {
   enum Check {
     IS_SPEC_OBJECT,
     IS_JS_ARRAY,
+    IS_JS_DATE,
     IS_STRING,
     IS_INTERNALIZED_STRING,
-    LAST_INTERVAL_CHECK = IS_JS_ARRAY
+    LAST_INTERVAL_CHECK = IS_JS_DATE
   };
 
   DECLARE_INSTRUCTION_FACTORY_P2(HCheckInstanceType, HValue*, Check);
@@ -2883,6 +2893,8 @@ class HCheckInstanceType final : public HUnaryOperation {
     switch (check_) {
       case IS_SPEC_OBJECT: return HType::JSObject();
       case IS_JS_ARRAY: return HType::JSArray();
+      case IS_JS_DATE:
+        return HType::JSObject();
       case IS_STRING: return HType::String();
       case IS_INTERNALIZED_STRING: return HType::String();
     }
@@ -5346,44 +5358,6 @@ class HCallStub final : public HUnaryCall {
 };
 
 
-class HTailCallThroughMegamorphicCache final : public HInstruction {
- public:
-  DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P2(HTailCallThroughMegamorphicCache,
-                                              HValue*, HValue*);
-
-  Representation RequiredInputRepresentation(int index) override {
-    return Representation::Tagged();
-  }
-
-  virtual int OperandCount() const final override { return 3; }
-  virtual HValue* OperandAt(int i) const final override { return inputs_[i]; }
-
-  HValue* context() const { return OperandAt(0); }
-  HValue* receiver() const { return OperandAt(1); }
-  HValue* name() const { return OperandAt(2); }
-  Code::Flags flags() const;
-
-  std::ostream& PrintDataTo(std::ostream& os) const override;  // NOLINT
-
-  DECLARE_CONCRETE_INSTRUCTION(TailCallThroughMegamorphicCache)
-
- protected:
-  virtual void InternalSetOperandAt(int i, HValue* value) final override {
-    inputs_[i] = value;
-  }
-
- private:
-  HTailCallThroughMegamorphicCache(HValue* context, HValue* receiver,
-                                   HValue* name) {
-    SetOperandAt(0, context);
-    SetOperandAt(1, receiver);
-    SetOperandAt(2, name);
-  }
-
-  EmbeddedContainer<HValue*, 3> inputs_;
-};
-
-
 class HUnknownOSRValue final : public HTemplateInstruction<0> {
  public:
   DECLARE_INSTRUCTION_FACTORY_P2(HUnknownOSRValue, HEnvironment*, int);
@@ -5433,10 +5407,9 @@ class HLoadGlobalGeneric final : public HTemplateInstruction<2> {
   Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
-  bool HasVectorAndSlot() const { return FLAG_vector_ics; }
+  bool HasVectorAndSlot() const { return true; }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
-    DCHECK(FLAG_vector_ics);
     feedback_vector_ = vector;
     slot_ = slot;
   }
@@ -6441,10 +6414,9 @@ class HLoadNamedGeneric final : public HTemplateInstruction<2> {
   Handle<TypeFeedbackVector> feedback_vector() const {
     return feedback_vector_;
   }
-  bool HasVectorAndSlot() const { return FLAG_vector_ics; }
+  bool HasVectorAndSlot() const { return true; }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
-    DCHECK(FLAG_vector_ics);
     feedback_vector_ = vector;
     slot_ = slot;
   }
@@ -6724,13 +6696,11 @@ class HLoadKeyedGeneric final : public HTemplateInstruction<3> {
     return feedback_vector_;
   }
   bool HasVectorAndSlot() const {
-    DCHECK(!FLAG_vector_ics || initialization_state_ == MEGAMORPHIC ||
-           !feedback_vector_.is_null());
+    DCHECK(initialization_state_ == MEGAMORPHIC || !feedback_vector_.is_null());
     return !feedback_vector_.is_null();
   }
   void SetVectorAndSlot(Handle<TypeFeedbackVector> vector,
                         FeedbackVectorICSlot slot) {
-    DCHECK(FLAG_vector_ics);
     feedback_vector_ = vector;
     slot_ = slot;
   }
@@ -6836,7 +6806,7 @@ class HStoreNamedField final : public HTemplateInstruction<3> {
   Handle<Map> transition_map() const {
     if (has_transition()) {
       return Handle<Map>::cast(
-          HConstant::cast(transition())->handle(Isolate::Current()));
+          HConstant::cast(transition())->handle(isolate()));
     } else {
       return Handle<Map>();
     }
@@ -7555,6 +7525,58 @@ class HTrapAllocationMemento final : public HTemplateInstruction<1> {
   explicit HTrapAllocationMemento(HValue* obj) {
     SetOperandAt(0, obj);
   }
+};
+
+
+class HMaybeGrowElements final : public HTemplateInstruction<5> {
+ public:
+  DECLARE_INSTRUCTION_WITH_CONTEXT_FACTORY_P6(HMaybeGrowElements, HValue*,
+                                              HValue*, HValue*, HValue*, bool,
+                                              ElementsKind);
+
+  Representation RequiredInputRepresentation(int index) override {
+    if (index < 3) {
+      return Representation::Tagged();
+    }
+    DCHECK(index == 3 || index == 4);
+    return Representation::Integer32();
+  }
+
+  HValue* context() const { return OperandAt(0); }
+  HValue* object() const { return OperandAt(1); }
+  HValue* elements() const { return OperandAt(2); }
+  HValue* key() const { return OperandAt(3); }
+  HValue* current_capacity() const { return OperandAt(4); }
+
+  bool is_js_array() const { return is_js_array_; }
+  ElementsKind kind() const { return kind_; }
+
+  DECLARE_CONCRETE_INSTRUCTION(MaybeGrowElements)
+
+ protected:
+  bool DataEquals(HValue* other) override { return true; }
+
+ private:
+  explicit HMaybeGrowElements(HValue* context, HValue* object, HValue* elements,
+                              HValue* key, HValue* current_capacity,
+                              bool is_js_array, ElementsKind kind) {
+    is_js_array_ = is_js_array;
+    kind_ = kind;
+
+    SetOperandAt(0, context);
+    SetOperandAt(1, object);
+    SetOperandAt(2, elements);
+    SetOperandAt(3, key);
+    SetOperandAt(4, current_capacity);
+
+    SetFlag(kUseGVN);
+    SetChangesFlag(kElementsPointer);
+    SetChangesFlag(kNewSpacePromotion);
+    set_representation(Representation::Tagged());
+  }
+
+  bool is_js_array_;
+  ElementsKind kind_;
 };
 
 

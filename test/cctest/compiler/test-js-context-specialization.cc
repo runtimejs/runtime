@@ -222,7 +222,7 @@ TEST(SpecializeToContext) {
 
     Node* ret =
         t.graph()->NewNode(t.common()->Return(), add, effect_use, start);
-    Node* end = t.graph()->NewNode(t.common()->End(), ret);
+    Node* end = t.graph()->NewNode(t.common()->End(1), ret);
     USE(end);
     t.graph()->SetEnd(end);
 
@@ -231,7 +231,7 @@ TEST(SpecializeToContext) {
     CheckEffectInput(load, effect_use);
 
     // Perform the reduction on the entire graph.
-    GraphReducer graph_reducer(t.graph(), t.main_zone());
+    GraphReducer graph_reducer(t.main_zone(), t.graph());
     graph_reducer.AddReducer(&spec);
     graph_reducer.ReduceGraph();
 

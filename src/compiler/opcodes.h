@@ -5,6 +5,8 @@
 #ifndef V8_COMPILER_OPCODES_H_
 #define V8_COMPILER_OPCODES_H_
 
+#include <iosfwd>
+
 // Opcodes for control operators.
 #define CONTROL_OP_LIST(V) \
   V(Start)                 \
@@ -121,6 +123,8 @@
 #define JS_CONTEXT_OP_LIST(V) \
   V(JSLoadContext)            \
   V(JSStoreContext)           \
+  V(JSLoadDynamicGlobal)      \
+  V(JSLoadDynamicContext)     \
   V(JSCreateFunctionContext)  \
   V(JSCreateCatchContext)     \
   V(JSCreateWithContext)      \
@@ -132,6 +136,10 @@
   V(JSCallConstruct)        \
   V(JSCallFunction)         \
   V(JSCallRuntime)          \
+  V(JSForInDone)            \
+  V(JSForInNext)            \
+  V(JSForInPrepare)         \
+  V(JSForInStep)            \
   V(JSYield)                \
   V(JSStackCheck)
 
@@ -164,7 +172,6 @@
   V(NumberToInt32)                 \
   V(NumberToUint32)                \
   V(PlainPrimitiveToNumber)        \
-  V(StringAdd)                     \
   V(ChangeTaggedToInt32)           \
   V(ChangeTaggedToUint32)          \
   V(ChangeTaggedToFloat64)         \
@@ -273,6 +280,7 @@
   V(Float64InsertLowWord32)     \
   V(Float64InsertHighWord32)    \
   V(LoadStackPointer)           \
+  V(LoadFramePointer)           \
   V(CheckedLoad)                \
   V(CheckedStore)
 
@@ -347,6 +355,8 @@ class IrOpcode {
            (kWord32Equal <= value && value <= kFloat64LessThanOrEqual);
   }
 };
+
+std::ostream& operator<<(std::ostream&, IrOpcode::Value);
 
 }  // namespace compiler
 }  // namespace internal

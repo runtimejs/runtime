@@ -169,6 +169,8 @@ class AstValue : public ZoneObject {
 
   bool BooleanValue() const;
 
+  bool IsTheHole() const { return type_ == THE_HOLE; }
+
   void Internalize(Isolate* isolate);
 
   // Can be called after Internalize has been called.
@@ -232,6 +234,7 @@ class AstValue : public ZoneObject {
 #define STRING_CONSTANTS(F)                                                \
   F(anonymous_function, "(anonymous function)")                            \
   F(arguments, "arguments")                                                \
+  F(concat_iterable_to_array, "$concatIterableToArray")                    \
   F(constructor, "constructor")                                            \
   F(default, "default")                                                    \
   F(done, "done")                                                          \
@@ -250,9 +253,9 @@ class AstValue : public ZoneObject {
   F(is_construct_call, "_IsConstructCall")                                 \
   F(is_spec_object, "_IsSpecObject")                                       \
   F(let, "let")                                                            \
-  F(make_reference_error, "MakeReferenceErrorEmbedded")                    \
-  F(make_syntax_error, "MakeSyntaxErrorEmbedded")                          \
-  F(make_type_error, "MakeTypeErrorEmbedded")                              \
+  F(make_reference_error, "MakeReferenceError")                            \
+  F(make_syntax_error, "MakeSyntaxError")                                  \
+  F(make_type_error, "MakeTypeError")                                      \
   F(native, "native")                                                      \
   F(new_target, "new.target")                                              \
   F(next, "next")                                                          \
@@ -263,6 +266,7 @@ class AstValue : public ZoneObject {
   F(spread_arguments, "$spreadArguments")                                  \
   F(spread_iterable, "$spreadIterable")                                    \
   F(this, "this")                                                          \
+  F(this_function, ".this_function")                                       \
   F(throw_iterator_result_not_an_object, "ThrowIteratorResultNotAnObject") \
   F(to_string, "$toString")                                                \
   F(undefined, "undefined")                                                \

@@ -16,17 +16,21 @@ const Register CallInterfaceDescriptor::ContextRegister() { return rsi; }
 
 const Register LoadDescriptor::ReceiverRegister() { return rdx; }
 const Register LoadDescriptor::NameRegister() { return rcx; }
+const Register LoadDescriptor::SlotRegister() { return rax; }
 
 
-const Register VectorLoadICTrampolineDescriptor::SlotRegister() { return rax; }
-
-
-const Register VectorLoadICDescriptor::VectorRegister() { return rbx; }
+const Register LoadWithVectorDescriptor::VectorRegister() { return rbx; }
 
 
 const Register StoreDescriptor::ReceiverRegister() { return rdx; }
 const Register StoreDescriptor::NameRegister() { return rcx; }
 const Register StoreDescriptor::ValueRegister() { return rax; }
+
+
+const Register VectorStoreICTrampolineDescriptor::SlotRegister() { return rdi; }
+
+
+const Register VectorStoreICDescriptor::VectorRegister() { return rbx; }
 
 
 const Register StoreTransitionDescriptor::MapRegister() { return rbx; }
@@ -58,7 +62,6 @@ const Register MathPowIntegerDescriptor::exponent() {
 
 const Register GrowArrayElementsDescriptor::ObjectRegister() { return rax; }
 const Register GrowArrayElementsDescriptor::KeyRegister() { return rbx; }
-const Register GrowArrayElementsDescriptor::CapacityRegister() { return rcx; }
 
 
 void FastNewClosureDescriptor::Initialize(CallInterfaceDescriptorData* data) {
@@ -371,7 +374,22 @@ void ApiAccessorDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   };
   data->Initialize(arraysize(registers), registers, representations);
 }
+
+
+void MathRoundVariantDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {
+      rsi,  // context
+      rdi,  // math rounding function
+      rdx,  // vector slot id
+  };
+  Representation representations[] = {
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+  };
+  data->Initialize(arraysize(registers), registers, representations);
 }
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X64

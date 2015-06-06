@@ -2021,9 +2021,9 @@ THREADED_TEST(Enumerators) {
       "k.a = 0;"
       "k[5] = 0;"
       "k.b = 0;"
-      "k[4294967295] = 0;"
+      "k[4294967294] = 0;"
       "k.c = 0;"
-      "k[4294967296] = 0;"
+      "k[4294967295] = 0;"
       "k.d = 0;"
       "k[140000] = 0;"
       "k.e = 0;"
@@ -2046,7 +2046,7 @@ THREADED_TEST(Enumerators) {
   CHECK(v8_str("10")->Equals(result->Get(v8::Integer::New(isolate, 1))));
   CHECK(v8_str("140000")->Equals(result->Get(v8::Integer::New(isolate, 2))));
   CHECK(
-      v8_str("4294967295")->Equals(result->Get(v8::Integer::New(isolate, 3))));
+      v8_str("4294967294")->Equals(result->Get(v8::Integer::New(isolate, 3))));
   // Indexed interceptor properties in the order they are returned
   // from the enumerator interceptor.
   CHECK(v8_str("0")->Equals(result->Get(v8::Integer::New(isolate, 4))));
@@ -2056,7 +2056,7 @@ THREADED_TEST(Enumerators) {
   CHECK(v8_str("b")->Equals(result->Get(v8::Integer::New(isolate, 7))));
   CHECK(v8_str("c")->Equals(result->Get(v8::Integer::New(isolate, 8))));
   CHECK(
-      v8_str("4294967296")->Equals(result->Get(v8::Integer::New(isolate, 9))));
+      v8_str("4294967295")->Equals(result->Get(v8::Integer::New(isolate, 9))));
   CHECK(v8_str("d")->Equals(result->Get(v8::Integer::New(isolate, 10))));
   CHECK(v8_str("e")->Equals(result->Get(v8::Integer::New(isolate, 11))));
   CHECK(v8_str("30000000000")
@@ -3103,21 +3103,25 @@ THREADED_TEST(IndexedAllCanReadInterceptor) {
   ExpectInt32("checked[15]", 17);
   CHECK(!CompileRun("Object.getOwnPropertyDescriptor(checked, '15')")
              ->IsUndefined());
-  CHECK_EQ(3, access_check_data.count);
+  CHECK_EQ(2, access_check_data.count);
 
   access_check_data.result = false;
   ExpectInt32("checked[15]", intercept_data_0.value);
-  // Note: this should throw but without a LookupIterator it's complicated.
-  CHECK(!CompileRun("Object.getOwnPropertyDescriptor(checked, '15')")
-             ->IsUndefined());
-  CHECK_EQ(6, access_check_data.count);
+  {
+    v8::TryCatch try_catch(isolate);
+    CompileRun("Object.getOwnPropertyDescriptor(checked, '15')");
+    CHECK(try_catch.HasCaught());
+  }
+  CHECK_EQ(4, access_check_data.count);
 
   intercept_data_1.should_intercept = true;
   ExpectInt32("checked[15]", intercept_data_1.value);
-  // Note: this should throw but without a LookupIterator it's complicated.
-  CHECK(!CompileRun("Object.getOwnPropertyDescriptor(checked, '15')")
-             ->IsUndefined());
-  CHECK_EQ(9, access_check_data.count);
+  {
+    v8::TryCatch try_catch(isolate);
+    CompileRun("Object.getOwnPropertyDescriptor(checked, '15')");
+    CHECK(try_catch.HasCaught());
+  }
+  CHECK_EQ(6, access_check_data.count);
 }
 
 

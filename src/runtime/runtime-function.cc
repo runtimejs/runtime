@@ -10,6 +10,7 @@
 #include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/frames.h"
+#include "src/messages.h"
 #include "src/runtime/runtime-utils.h"
 
 namespace v8 {
@@ -310,14 +311,14 @@ RUNTIME_FUNCTION(Runtime_IsConstructor) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_SetInlineBuiltinFlag) {
+RUNTIME_FUNCTION(Runtime_SetForceInlineFlag) {
   SealHandleScope shs(isolate);
   RUNTIME_ASSERT(args.length() == 1);
   CONVERT_ARG_HANDLE_CHECKED(Object, object, 0);
 
   if (object->IsJSFunction()) {
     JSFunction* func = JSFunction::cast(*object);
-    func->shared()->set_inline_builtin(true);
+    func->shared()->set_force_inline(true);
   }
   return isolate->heap()->undefined_value();
 }
@@ -605,5 +606,13 @@ RUNTIME_FUNCTION(Runtime_IsFunction) {
   CONVERT_ARG_CHECKED(Object, obj, 0);
   return isolate->heap()->ToBoolean(obj->IsJSFunction());
 }
+
+
+RUNTIME_FUNCTION(Runtime_ThrowStrongModeTooFewArguments) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 0);
+  THROW_NEW_ERROR_RETURN_FAILURE(isolate,
+                                 NewTypeError(MessageTemplate::kStrongArity));
 }
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

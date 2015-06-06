@@ -26,7 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --expose-debug-as debug --expose-gc --send-idle-notification
-// Flags: --allow-natives-syntax
+// Flags: --allow-natives-syntax --expose-natives-as natives
 // Flags: --noharmony-shipping
 // Note: this test checks that that the number of scripts reported as native
 // by Debug.scripts() is the same as a number of core native scripts.
@@ -66,7 +66,7 @@ for (i = 0; i < scripts.length; i++) {
 }
 
 // This has to be updated if the number of native scripts change.
-assertEquals(%NativeScriptsCount() + %NativeExtrasCount(), named_native_count);
+assertEquals(%NativeScriptsCount(), named_native_count);
 // Only the 'gc' extension is loaded.
 assertEquals(1, extension_count);
 // This script and mjsunit.js has been loaded.  If using d8, d8 loads

@@ -74,6 +74,11 @@ class AdvancedReducer : public Reducer {
     virtual void Replace(Node* node, Node* replacement) = 0;
     // Revisit the {node} again later.
     virtual void Revisit(Node* node) = 0;
+    // Replace value uses of {node} with {value} and effect uses of {node} with
+    // {effect}. If {effect == NULL}, then use the effect input to {node}. All
+    // control uses will be relaxed assuming {node} cannot throw.
+    virtual void ReplaceWithValue(Node* node, Node* value, Node* effect,
+                                  Node* control) = 0;
   };
 
   explicit AdvancedReducer(Editor* editor) : editor_(editor) {}
@@ -91,6 +96,24 @@ class AdvancedReducer : public Reducer {
     DCHECK_NOT_NULL(editor_);
     editor_->Revisit(node);
   }
+  void ReplaceWithValue(Node* node, Node* value, Node* effect = nullptr,
+                        Node* control = nullptr) {
+    DCHECK_NOT_NULL(editor_);
+    editor_->ReplaceWithValue(node, value, effect, control);
+  }
+
+  // Relax the effects of {node} by immediately replacing effect and control
+  // uses of {node} with the effect and control input to {node}.
+  // TODO(turbofan): replace the effect input to {node} with {graph->start()}.
+  void RelaxEffectsAndControls(Node* node) {
+    ReplaceWithValue(node, node, nullptr, nullptr);
+  }
+
+  // Relax the control uses of {node} by immediately replacing them with the
+  // control input to {node}.
+  void RelaxControls(Node* node) {
+    ReplaceWithValue(node, node, node, nullptr);
+  }
 
  private:
   Editor* const editor_;
@@ -98,10 +121,11 @@ class AdvancedReducer : public Reducer {
 
 
 // Performs an iterative reduction of a node graph.
-class GraphReducer final : public AdvancedReducer::Editor {
+class GraphReducer : public AdvancedReducer::Editor {
  public:
-  GraphReducer(Graph* graph, Zone* zone);
-  ~GraphReducer() final;
+  GraphReducer(Zone* zone, Graph* graph, Node* dead_value = nullptr,
+               Node* dead_control = nullptr);
+  ~GraphReducer();
 
   Graph* graph() const { return graph_; }
 
@@ -126,6 +150,13 @@ class GraphReducer final : public AdvancedReducer::Editor {
 
   // Replace {node} with {replacement}.
   void Replace(Node* node, Node* replacement) final;
+
+  // Replace value uses of {node} with {value} and effect uses of {node} with
+  // {effect}. If {effect == NULL}, then use the effect input to {node}. All
+  // control uses will be relaxed assuming {node} cannot throw.
+  void ReplaceWithValue(Node* node, Node* value, Node* effect,
+                        Node* control) final;
+
   // Replace all uses of {node} with {replacement} if the id of {replacement} is
   // less than or equal to {max_id}. Otherwise, replace all uses of {node} whose
   // id is less than or equal to {max_id} with the {replacement}.
@@ -140,6 +171,8 @@ class GraphReducer final : public AdvancedReducer::Editor {
   void Revisit(Node* node) final;
 
   Graph* const graph_;
+  Node* dead_value_;
+  Node* dead_control_;
   NodeMarker<State> state_;
   ZoneVector<Reducer*> reducers_;
   ZoneStack<Node*> revisit_;
