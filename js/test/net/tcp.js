@@ -1,6 +1,7 @@
 var test = require('tape');
 var assert = require('assert');
 var TCPSocket = require('runtimejs/core/net/tcp-socket');
+var TCPServerSocket = require('runtimejs/core/net/tcp-server-socket');
 var IP4Address = require('runtimejs/core/net/ip4-address');
 var tcpHeader = require('runtimejs/core/net/tcp-header');
 var tcpSocketState = require('runtimejs/core/net/tcp-socket-state');
@@ -94,7 +95,7 @@ test('tcp transmit queue', function(t) {
   t.equal(transmitQueueItemLength(socket._transmitQueue[1]), 19);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[0]).length, 1);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[1]).length, 19);
-  socket._transmitWindow.slideTo(socket._transmitWindow.getPosition());
+  socket._transmitWindow.slideTo(socket._getTransmitPosition());
   socket._transmitQueue = [];
   socket._fillTransmitQueue(false);
   t.equal(socket._transmitQueue.length, 1);
@@ -220,5 +221,99 @@ test('tcp receive partial duplicates', function(t) {
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
     t.equal(lastAck, 8);
+  });
+});
+
+test('tcp send FIN', function(t) {
+  t.plan(6);
+  getEstablished(function(socket, txSeq, rxSeq, done) {
+    t.on('end', done);
+
+    function recvACKFIN(seq, ack, flags, window, u8) {
+      socket._transmit = recvACK;
+      t.ok(flags & tcpHeader.FLAG_FIN);
+      t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_1);
+      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
+      socket._receive(packet, IP4Address.ANY, 45001, 0);
+      t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_2);
+      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_FIN);
+      socket._receive(packet, IP4Address.ANY, 45001, 0);
+      t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
+    }
+
+    function recvACK(seq, ack, flags, window, u8) {
+      t.ok(flags & tcpHeader.FLAG_ACK);
+    }
+
+    socket._transmit = recvACKFIN;
+    socket.close();
+    t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
+  });
+});
+
+test('tcp receive FIN', function(t) {
+  t.plan(5);
+  getEstablished(function(socket, txSeq, rxSeq, done) {
+    t.on('end', done);
+
+    function onRecvFIN(seq, ack, flags, window, u8) {
+      socket._transmit = function() {};
+      t.ok(flags & tcpHeader.FLAG_ACK);
+    }
+
+    function onSentFIN(seq, ack, flags, window, u8) {
+      socket._transmit = function() {};
+      t.ok(flags & tcpHeader.FLAG_FIN);
+      t.equal(socket._state, tcpSocketState.STATE_LAST_ACK);
+      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
+      socket._receive(packet, IP4Address.ANY, 45001, 0);
+    }
+
+    socket._transmit = onRecvFIN;
+    var packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK);
+    socket._receive(packet, IP4Address.ANY, 45001, 0);
+    t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
+    socket._transmit = onSentFIN;
+    socket.close();
+    t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+  });
+});
+
+test('tcp receive FIN, then send more data', function(t) {
+  t.plan(4);
+  getEstablished(function(socket, txSeq, rxSeq, done) {
+    t.on('end', done);
+
+    function handleLastAck(seq, ack, flags, window, u8) {
+      socket._transmit = function() {};
+      t.ok(flags & tcpHeader.FLAG_FIN);
+      t.equal(socket._state, tcpSocketState.STATE_LAST_ACK);
+      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
+      socket._receive(packet, IP4Address.ANY, 45001, 0);
+    }
+
+    socket._transmit = function() {};
+    socket.send(new Uint8Array([1, 2, 3]));
+    var packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK);
+    socket._receive(packet, IP4Address.ANY, 45001, 0);
+    t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
+    socket.send(new Uint8Array([4, 5, 6]));
+    socket.send(new Uint8Array([7, 8, 9]));
+    socket._transmit = handleLastAck;
+    socket.close();
+    t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+  });
+});
+
+test('cannot send more data after close', function(t) {
+  getEstablished(function(socket, txSeq, rxSeq, done) {
+    t.on('end', done);
+    socket._transmit = function() {};
+    socket.send(new Uint8Array([1, 2, 3]));
+    socket.close();
+    t.throws(function() {
+      socket.send(new Uint8Array([4, 5, 6]));
+    });
+    t.end();
   });
 });

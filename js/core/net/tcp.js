@@ -20,11 +20,9 @@ exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
   var destPort = tcpHeader.getDestPort(u8, headerOffset);
   var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
   var dataLength = u8.length - dataOffset;
-  debug('recv TCP over IP4', srcPort, destPort, 'data off = ', dataOffset, 'payload len = ', dataLength);
 
   var socket = TCPSocket.lookupReceive(destPort);
   if (!socket) {
-    debug('no socket for port ', destPort);
     return;
   }
 

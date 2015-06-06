@@ -26,18 +26,12 @@ class TCPWindow {
     this._begin = 0;
     this._end = 0;
     this._size = 0;
-
-    this._pos = 0;
   }
 
   slideTo(seq) {
     if (SEQ_GT(seq, this._begin)) {
       this._begin = seq;
       this._end = SEQ_INC(this._begin, this._size);
-    }
-
-    if (SEQ_GT(seq, this._pos)) {
-      this._pos = seq;
     }
   }
 
@@ -59,32 +53,8 @@ class TCPWindow {
     this._end = SEQ_INC(this._begin, this._size);
   }
 
-  getPosition() {
-    return this._pos;
-  }
-
   isInWindow(seq) {
     return SEQ_GTE(seq, this._begin) && SEQ_LT(seq, this._end);
-  }
-
-  reserveSpace(size) {
-    var spaceLeft = SEQ_OFFSET(this._end, this._pos);
-    var spaceReserved = Math.min(spaceLeft, size, 536); /* TODO: move MSS (max segment size, data size) somewhere */
-    this._pos = SEQ_INC(this._pos, spaceReserved);
-    return spaceReserved;
-  }
-
-  incPosition() {
-    this._pos = SEQ_INC(this._pos, 1);
-  }
-
-  getEmptySpace(seq) {
-    if (SEQ_GTE(seq, this._begin) && SEQ_LT(seq, this._end)) {
-      var offset = SEQ_OFFSET(this._end, seq);
-      return offset;
-    }
-
-    return 0;
   }
 }
 
