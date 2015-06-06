@@ -24,7 +24,7 @@ var typeutils = require('typeutils');
 function Interface(macAddr) {
   assert(macAddr instanceof MACAddress);
   this.macAddr = macAddr;
-  this.onTransmit = new EventController();
+  this.ontransmit = null;
   this.onNetworkUp = new EventController();
   this.onNetworkDown = new EventController();
   this.ipAddr = IP4Address.ANY;
@@ -33,6 +33,10 @@ function Interface(macAddr) {
   this.bufferDataOffset = 0;
   this.arp = new ARPResolver(this);
   this.isNetworkEnabled = false;
+}
+
+Interface.prototype.disableArp = function() {
+  this.arp = null;
 }
 
 Interface.prototype.setNetworkEnabled = function(value) {
@@ -79,7 +83,7 @@ Interface.prototype.receive = function(u8) {
 
   switch (etherType) {
   case 0x0800: return ip4.receive(this, u8, nextOffset);
-  case 0x0806: return this.arp.receive(u8, nextOffset);
+  case 0x0806: return this.arp ? this.arp.receive(u8, nextOffset) : void 0;
   // case 0x8100: // 802.1Q
   // case 0x86dd: // ipv6
   }
@@ -91,17 +95,21 @@ Interface.prototype.sendIP4 = function(viaIP, u8headers, u8data) {
   var targetMAC;
   if (viaIP.isBroadcast()) {
     targetMAC = MACAddress.BROADCAST;
-  } else {
+  } else if (this.arp) {
     targetMAC = this.arp.get(viaIP);
     if (!targetMAC) {
       this.arp.request(viaIP);
       return;
     }
+  } else {
+    targetMAC = MACAddress.ZERO;
   }
 
   ethernet.write(u8headers, this.bufferDataOffset, targetMAC,
     this.macAddr, 0x0800);
-  this.onTransmit.dispatch(u8headers, u8data);
+  if (this.ontransmit) {
+    this.ontransmit(u8headers, u8data);
+  }
 };
 
 module.exports = Interface;

@@ -122,7 +122,7 @@ function initializeNetworkDevice(pciDevice) {
                            hwAddr[3], hwAddr[4], hwAddr[5]);
   var intf = new Interface(mac);
   intf.setBufferDataOffset(virtioHeader.length);
-  intf.onTransmit.add(function(u8headers, u8data) {
+  intf.ontransmit = function(u8headers, u8data) {
     if (u8data) {
       transmitQueue.placeBuffers([u8headers, u8data], false);
     } else {
@@ -130,7 +130,7 @@ function initializeNetworkDevice(pciDevice) {
     }
 
     dev.queueNotify(QUEUE_ID_TRANSMIT);
-  });
+  };
 
   irq.on(function() {
     if (!dev.hasPendingIRQ()) {

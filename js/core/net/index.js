@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var assert = require('assert');
 var Interface = require('./interface');
 var interfaces = require('./interfaces');
@@ -20,17 +21,22 @@ var MACAddress = require('./mac-address');
 var EventController = require('event-controller');
 var UDPSocket = require('./udp-socket');
 var IP4Address = require('./ip4-address');
+var loopback = require('./loopback');
 
 var onInterfaceAdded = new EventController();
 var onInterfaceRemoved = new EventController();
 
-exports.interfaceAdd = function(intf) {
+function interfaceAdd(intf) {
   assert(intf instanceof Interface);
   interfaces.add(intf);
   onInterfaceAdded.dispatch(intf);
   return intf;
-};
+}
 
+// Add loopback interface
+interfaces.add(loopback);
+
+exports.interfaceAdd = interfaceAdd;
 exports.UDPSocket = UDPSocket;
 exports.IP4Address = IP4Address;
 exports.MACAddress = MACAddress;

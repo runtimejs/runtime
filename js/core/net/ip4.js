@@ -19,7 +19,6 @@ var tcp = require('./tcp');
 var icmp = require('./icmp');
 
 exports.receive = function(intf, u8, headerOffset) {
-  debug('recv IP4');
   var headerLength = ip4header.getHeaderLength(u8, headerOffset);
   var protocolId = ip4header.getProtocolId(u8, headerOffset);
   var srcIP = ip4header.getSrcIP(u8, headerOffset);
