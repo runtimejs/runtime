@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 exports.STATE_CLOSED = 0;
 exports.STATE_LISTEN = 1;
 exports.STATE_SYN_SENT = 2;

@@ -1,3 +1,5 @@
+'use strict';
+
 var test = require('tape');
 var assert = require('assert');
 var TCPSocket = require('runtimejs/core/net/tcp-socket');
@@ -319,7 +321,7 @@ test('cannot send more data after close', function(t) {
 });
 
 test('server socket listening', function(t) {
-  t.plan(5);
+  t.plan(6);
   var socket = new TCPServerSocket();
 
   socket.onlisten = function(port) {
@@ -333,7 +335,9 @@ test('server socket listening', function(t) {
 
   socket.listen(100);
   t.equal(socket.localPort, 100);
-  socket.localPort = 200;
+  t.throws(function() {
+    socket.localPort = 200;
+  });
   t.equal(socket.localPort, 100);
   socket.close();
 });
