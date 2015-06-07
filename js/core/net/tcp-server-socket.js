@@ -19,7 +19,9 @@ class TCPServerSocket {
   constructor() {
     this.listeningSocket = new TCPSocket();
     this.onconnect = null;
+    this.onlisten = null;
     this.onerror = null;
+    this._port = 0;
 
     var that = this;
     this.listeningSocket._onconnect = function(socket) {
@@ -34,11 +36,24 @@ class TCPServerSocket {
         that.onerror(err);
       }
     };
+
+    this.listeningSocket.onclose = function() {
+      if (that.onclose) {
+        that.onclose();
+      }
+    };
+  }
+
+  get localPort() {
+    return this._port;
   }
 
   listen(port) {
-    var that = this;
     this.listeningSocket._listen(port);
+    this._port = this.listeningSocket._port;
+    if (this.onlisten) {
+      this.onlisten(this._port);
+    }
   }
 
   close() {

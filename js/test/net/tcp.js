@@ -87,7 +87,7 @@ test('tcp transmit queue', function(t) {
   var socket = new TCPSocket();
   socket._transmit = function() {};
   socket._state = tcpSocketState.STATE_ESTABLISHED;
-  socket._transmitWindow.resize(20);
+  socket._transmitWindowSize = 20;
   socket.send(new Uint8Array(1));
   socket.send(new Uint8Array(30));
   t.equal(socket._transmitQueue.length, 2);
@@ -95,7 +95,7 @@ test('tcp transmit queue', function(t) {
   t.equal(transmitQueueItemLength(socket._transmitQueue[1]), 19);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[0]).length, 1);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[1]).length, 19);
-  socket._transmitWindow.slideTo(socket._getTransmitPosition());
+  socket._transmitWindowSlideTo(socket._getTransmitPosition());
   socket._transmitQueue = [];
   socket._fillTransmitQueue(false);
   t.equal(socket._transmitQueue.length, 1);
@@ -316,4 +316,77 @@ test('cannot send more data after close', function(t) {
     });
     t.end();
   });
+});
+
+test('server socket listening', function(t) {
+  t.plan(5);
+  var socket = new TCPServerSocket();
+
+  socket.onlisten = function(port) {
+    t.equal(port, 100);
+    t.ok(true);
+  };
+
+  socket.onclose = function() {
+    t.ok(true);
+  };
+
+  socket.listen(100);
+  t.equal(socket.localPort, 100);
+  socket.localPort = 200;
+  t.equal(socket.localPort, 100);
+  socket.close();
+});
+
+test('server socket can reuse port', function(t) {
+  var socket = new TCPServerSocket();
+  socket.listen(200);
+  socket.close();
+  socket.listen(200);
+  socket.close();
+  var socket2 = new TCPServerSocket();
+  socket.listen(200);
+  socket.close();
+  t.end();
+});
+
+test('server socket can listen to random port', function(t) {
+  t.plan(2);
+  var socket = new TCPServerSocket();
+  socket.onlisten = function(port) {
+    t.ok(port > 0);
+  };
+  socket.listen(0);
+  t.ok(socket.localPort > 0);
+  socket.close();
+});
+
+test('localhost echo server', function(t) {
+  t.plan(7);
+  var server = new TCPServerSocket();
+  server.listen(71);
+  server.onconnect = function(socket) {
+    socket.ondata = function(u8) {
+      socket.send(u8);
+    };
+  };
+
+  var client = new TCPSocket();
+  var recvIndex = 0;
+  client.onopen = function() {
+    client.send(new Uint8Array([1, 2, 3]));
+    client.send(new Uint8Array([4, 5, 6]));
+  };
+  client.ondata = function(u8) {
+    for (var i = 0; i < u8.length; ++i) {
+      t.equal(u8[i], ++recvIndex);
+    }
+
+    if (6 === recvIndex) {
+      client.close();
+      server.close();
+      t.ok(true);
+    }
+  };
+  client.open('127.0.0.1', 71);
 });

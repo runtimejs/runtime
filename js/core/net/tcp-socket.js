@@ -144,10 +144,15 @@ class TCPSocket {
   }
 
   _listen(port) {
-    assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
-    if (!ports.alloc(port, this)) {
-      throw netError.E_ADDRESS_IN_USE;
+    if (!port) {
+      port = ports.getEphemeral(this);
+    } else {
+      assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
+      if (!ports.alloc(port, this)) {
+        throw netError.E_ADDRESS_IN_USE;
+      }
     }
+
     this._port = port;
     this._state = STATE_LISTEN;
     this._connections = new Map();
@@ -374,26 +379,50 @@ class TCPSocket {
     return this._bufferedAmount < bufferedLimitHint;
   }
 
+  /**
+   * Close socket for writes but keep receiving new data
+   */
   halfclose() {
-    if (this._state === STATE_ESTABLISHED) {
-      this._state = STATE_FIN_WAIT_1;
-    } else if (this._state === STATE_CLOSE_WAIT) {
-      this._state = STATE_LAST_ACK;
-    } else {
-      throw new Error('socket cannot be closed');
+    switch (this._state) {
+      case STATE_ESTABLISHED:
+        this._state = STATE_FIN_WAIT_1;
+        break;
+      case STATE_CLOSE_WAIT:
+        this._state = STATE_LAST_ACK;
+        break;
+      default:
+        throw netError.E_CANNOT_CLOSE;
     }
 
     this._queueTx.push(null);
     this._fillTransmitQueue();
   }
 
+  /**
+   * Close socket for writes and reads (TODO)
+   * Close listening socket and all connections
+   */
   close() {
-    if (this._state === STATE_ESTABLISHED) {
-      this._state = STATE_FIN_WAIT_1;
-    } else if (this._state === STATE_CLOSE_WAIT) {
-      this._state = STATE_LAST_ACK;
-    } else {
-      throw new Error('socket cannot be closed');
+    if (this._state === STATE_LISTEN) {
+      this._state = STATE_CLOSED;
+      ports.free(this._port);
+      this._destroy();
+      // TODO: close all connections
+      if (this.onclose) {
+        this.onclose();
+      }
+      return;
+    }
+
+    switch (this._state) {
+      case STATE_ESTABLISHED:
+        this._state = STATE_FIN_WAIT_1;
+        break;
+      case STATE_CLOSE_WAIT:
+        this._state = STATE_LAST_ACK;
+        break;
+      default:
+        throw netError.E_CANNOT_CLOSE;
     }
 
     this._queueTx.push(null);
