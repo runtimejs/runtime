@@ -99,7 +99,10 @@ class TCPSocket {
   }
 
   get bufferedAmount() { return this._bufferedAmount; }
-  get port() { return this._port; }
+  get remoteAddress() { return this._destIP ? this._destIP.toString() : '0.0.0.0'; }
+  get remotePort() { return this._destPort; }
+  get localAddress() { return '0.0.0.0'; }
+  get localPort() { return this._port; }
 
   get readyState() {
     switch (this._state) {
