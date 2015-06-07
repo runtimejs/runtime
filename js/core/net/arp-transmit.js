@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var ethernet = require('./ethernet');
 var arpHeader = require('./arp-header');
 var MACAddress = require('./mac-address');

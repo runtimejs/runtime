@@ -1,3 +1,4 @@
+'use strict';
 var test = require('tape');
 var resources = require('runtimejs/core/resources');
 

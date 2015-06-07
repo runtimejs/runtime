@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var IP4Address = require('./ip4-address');
 var ip4header = require('./ip4-header');
 var udp = require('./udp');

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
 // V8 specific code
 var NATIVE_GetOptimizationStatus = new Function('f', 'return %GetOptimizationStatus(f)');
 var NATIVE_OptimizeFunctionOnNextCall = new Function('f', '%OptimizeFunctionOnNextCall(f)');

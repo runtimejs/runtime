@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 console.log = isolate.log;
 var resources = require('./resources');
 var tty = require('./tty');

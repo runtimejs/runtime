@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
 function MACAddress(a, b, c, d, e, f) {
   this.a = (a & 0xff) >>> 0;
   this.b = (b & 0xff) >>> 0;

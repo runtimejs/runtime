@@ -1,3 +1,4 @@
+'use strict';
 var test = require('tape');
 var stream = test.createStream();
 var shutdown = require('runtimejs').machine.shutdown;

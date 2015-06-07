@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-var package = require('./package.json');
-require('module-singleton')(package);
+'use strict';
+var packagejson = require('./package.json');
+require('module-singleton')(packagejson);
 require('./version');
 
-var isDebug = package.runtimejs.debug;
+var isDebug = packagejson.runtimejs.debug;
 global.debug = isDebug ? isolate.log : function() {};
 
 // Load runtime.js core

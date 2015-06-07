@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
 function checksum(u8, offset, len, extraSum) {
   var count = len >>> 1;
   var acc = (extraSum >>> 0);

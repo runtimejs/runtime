@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 exports.OPTION_SUBNET_MASK = 1;
 exports.OPTION_ROUTER = 3;
 exports.OPTION_DOMAIN = 6;

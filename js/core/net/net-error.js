@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
 exports.E_NO_INTERFACE = new Error('E_NO_INTERFACE');
 exports.E_INVALID_PORT = new Error('E_INVALID_PORT');
 exports.E_NO_FREE_PORT = new Error('E_NO_FREE_PORT');

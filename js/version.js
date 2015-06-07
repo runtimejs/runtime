@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var kernelVersion = kernel.version().runtime; // Format [major, minor, rev]
 var requiredVersionMin = [0, 1, 6];
 var requiredVersionMax = [0, 1, 7];

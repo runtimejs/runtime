@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
+
 var controlKeys = [
 /* 0x00 */  0, 'escape', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'backspace', 'tab',
 /* 0x10 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'leftctrl', 0, 0,

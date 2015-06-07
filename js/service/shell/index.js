@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var typeutils = require('typeutils');
 var assert = require('assert');
 var inputBox = require('./input-box');

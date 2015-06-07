@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+'use strict';
 var driverUtils = require('../driver-utils');
 var assert = require('assert');
 var typeutils = require('typeutils');
