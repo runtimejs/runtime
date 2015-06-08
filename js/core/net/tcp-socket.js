@@ -327,19 +327,22 @@ class TCPSocket {
   _sendTransmitQueue(ackRequired) {
     var now = Date.now();
     var sent = false;
-    for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
-      var item = this._transmitQueue[i];
-      var retransmits = item[0];
-      var timeAdded = item[1];
-      var seq = item[2];
-      var u8 = item[4];
-      var flags = item[5];
-      var interval = retransmits * 2000; /* 2 seconds each time in ms */
 
-      if (retransmits === 0 || now > timeAdded + interval) {
-        this._transmit(seq, this._receiveWindowEdge, flags, this._receiveWindowSize, u8);
-        sent = true;
-        ++item[0];
+    if (this._transmitQueue.length > 0) {
+      for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
+        var item = this._transmitQueue[i];
+        var retransmits = item[0];
+        var timeAdded = item[1];
+        var seq = item[2];
+        var u8 = item[4];
+        var flags = item[5];
+        var interval = retransmits * 2000; /* 2 seconds each time in ms */
+
+        if (retransmits === 0 || now > timeAdded + interval) {
+          this._transmit(seq, this._receiveWindowEdge, flags, this._receiveWindowSize, u8);
+          sent = true;
+          ++item[0];
+        }
       }
     }
 
@@ -351,6 +354,10 @@ class TCPSocket {
 
   _cleanupTransmitQueue(ackNumber) {
     var deleteCount = 0;
+
+    if (this._transmitQueue.length === 0) {
+      return;
+    }
 
     for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
       var item = this._transmitQueue[i];
