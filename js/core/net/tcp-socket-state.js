@@ -13,22 +13,14 @@
 // limitations under the License.
 
 'use strict';
-var tcpHeader = require('./tcp-header');
-var TCPSocket = require('./tcp-socket');
-
-exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
-  var srcPort = tcpHeader.getSrcPort(u8, headerOffset);
-  var destPort = tcpHeader.getDestPort(u8, headerOffset);
-  var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
-
-  var socket = TCPSocket.lookupReceive(destPort);
-  if (!socket) {
-    return;
-  }
-
-  if (!socket._intf) {
-    socket._intf = intf;
-  }
-
-  socket._receive(u8, srcIP, srcPort, headerOffset);
-};
+exports.STATE_CLOSED = 0;
+exports.STATE_LISTEN = 1;
+exports.STATE_SYN_SENT = 2;
+exports.STATE_SYN_RECEIVED = 3;
+exports.STATE_ESTABLISHED = 4;
+exports.STATE_FIN_WAIT_1 = 5;
+exports.STATE_FIN_WAIT_2 = 6;
+exports.STATE_CLOSE_WAIT = 7;
+exports.STATE_CLOSING = 8;
+exports.STATE_LAST_ACK = 9;
+exports.STATE_TIME_WAIT = 10;

@@ -36,7 +36,7 @@ PortPool.prototype.alloc = function(port, socket) {
   return true;
 };
 
-PortPool.prototype.free = function() {
+PortPool.prototype.free = function(port) {
   assert(portUtils.isPort(port));
   this.allocated.delete(port);
 };

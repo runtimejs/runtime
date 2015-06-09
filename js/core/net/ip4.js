@@ -28,7 +28,7 @@ exports.receive = function(intf, u8, headerOffset) {
 
   switch (protocolId) {
   case 0x01: return icmp.receive(intf, u8, nextOffset);
-  case 0x06: return tcp.receive(intf, u8, nextOffset);
+  case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
   case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
   }
 };
