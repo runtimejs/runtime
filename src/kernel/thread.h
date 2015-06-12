@@ -248,7 +248,6 @@ public:
             return false;
         }
 
-        Unref();
         data.SetCleared();
         return true;
     }
