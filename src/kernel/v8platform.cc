@@ -31,7 +31,9 @@ void V8Platform::CallOnBackgroundThread(v8::Task* task, v8::Platform::ExpectedRu
     RT_ASSERT(task);
 
 //    RuntimeStateScope<RuntimeState::CALL_ON_BACKGROUND> cb_state(GLOBAL_engines()->cpu_engine()->thread_manager());
+#ifdef RUNTIME_DEBUG
     printf("[V8 Platform] call on background\n");
+#endif
 
     // TODO: do not run task immediately here
     // TODO: ensure locking works correctly (implement samaphores)
@@ -42,7 +44,9 @@ void V8Platform::CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) {
     RT_ASSERT(isolate);
     RT_ASSERT(task);
 
+#ifdef RUNTIME_DEBUG
     printf("[V8 Platform] call on foreground\n");
+#endif
 
     // TODO: do not run task immediately here
     // TODO: ensure locking works correctly (implement samaphores)

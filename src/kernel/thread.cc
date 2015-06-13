@@ -86,7 +86,9 @@ void Thread::SetUp() {
     params.code_event_handler = OnJitCodeEvent;
     iv8_ = v8::Isolate::New(params);
     iv8_->SetData(0, this);
+#ifdef RUNTIME_DEBUG
     printf("[V8] new isolate\n");
+#endif
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
     tpl_cache_ = new TemplateCache(iv8_);

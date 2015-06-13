@@ -1318,7 +1318,9 @@ NATIVE_FUNCTION(ResourceIRQObject, On) {
     uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
     GLOBAL_platform()->irq_dispatcher().Bind(irq_number, thread, index);
 
+#ifdef RUNTIME_DEBUG
     printf("[IRQ MANAGER] Bind %d (recv %d)\n", irq_number, index);
+#endif
     args.GetReturnValue().SetUndefined();
 }
 
@@ -1354,7 +1356,9 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     size_t size { GLOBAL_mem_manager()->page_size() };
     RT_ASSERT(size > 0);
 
+#ifdef RUNTIME_DEBUG
     printf("DMA allocated = %p, size %d\n", ptr, size);
+#endif
     // Clean DMA buffer
     memset(ptr, 0, size);
 
