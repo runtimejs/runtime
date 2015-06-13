@@ -142,7 +142,6 @@ function AvailableRing(buffer, byteOffset, ringSize) {
   this.AVAILABLE_RING_INDEX_RING = 2;
   this.AVAILABLE_RING_INDEX_USED_EVENT = 2 + ringSize;
   this.VRING_AVAIL_F_NO_INTERRUPT = 1;
-  this.added = 0;
   this.availableRing[this.AVAILABLE_RING_INDEX_IDX] = 0;
 }
 
@@ -171,7 +170,6 @@ AvailableRing.prototype.placeDescriptor = function(index) {
   var available = (self.readIdx() & (self.ringSize - 1)) >>> 0;
   self.setRing(available, index);
   self.incrementIdx();
-  ++self.added;
 };
 
 AvailableRing.prototype.readDescriptorAsDevice = function(idxIndex) {
@@ -234,7 +232,7 @@ UsedRing.prototype.getUsedDescriptor = function() {
 
   var last = (self.lastUsedIndex & (self.ringSize - 1)) >>> 0;
   var descriptorData = self.readElement(last);
-  ++self.lastUsedIndex;
+  self.lastUsedIndex = (self.lastUsedIndex + 1) & 0xffff;
   return descriptorData;
 }
 
@@ -300,6 +298,7 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
 
 VRing.prototype.getBuffer = function() {
   var self = this;
+  self.availableRing.disableInterrupts();
   var hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
   self.availableRing.enableInterrupts();
 
@@ -321,7 +320,10 @@ VRing.prototype.getBuffer = function() {
 
   if (!(buffer instanceof Uint8Array)) {
     // TODO: global vring errors handler
-    isolate.log('VRING ERROR: buffer is not a Uint8Array');
+    console.log('VRING ERROR: buffer is not a Uint8Array');
+    console.log('used.descriptor id ', descriptorId);
+    console.log('used.len ', len);
+    console.log('last used index ', self.usedRing.lastUsedIndex);
     return null;
   }
 
