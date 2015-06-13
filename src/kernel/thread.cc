@@ -104,20 +104,24 @@ void Thread::TearDown() {
         auto promise_id = parent_promise_id();
         auto thread = parent_thread();
 
-        TransportData data;
-        if (!exit_value_.IsEmpty()) {
-            TransportData::SerializeError err { data.MoveValue(this,
-                v8::Local<v8::Value>::New(iv8_, exit_value_)) };
-        } else {
-            data.SetUndefined();
-        }
+        if (!thread.empty()) {
+            TransportData data;
+            if (!exit_value_.IsEmpty()) {
+                TransportData::SerializeError err { data.MoveValue(this,
+                    v8::Local<v8::Value>::New(iv8_, exit_value_)) };
+            } else {
+                data.SetUndefined();
+            }
 
-        RT_ASSERT(!data.empty());
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
-                handle(),
-                std::move(data), nullptr, promise_id));
-            thread.getUnsafe()->PushMessage(std::move(msg));
+            RT_ASSERT(!data.empty());
+            {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                    ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
+                    handle(),
+                    std::move(data), nullptr, promise_id));
+                thread.getUnsafe()->PushMessage(std::move(msg));
+            }
+        } else {
+            RT_ASSERT(!"main isolate exited");
         }
     }
 
