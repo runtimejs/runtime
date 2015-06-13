@@ -14,15 +14,13 @@
 
 'use strict';
 var kernelVersion = kernel.version().runtime; // Format [major, minor, rev]
-var requiredVersionMin = [0, 1, 6];
-var requiredVersionMax = [0, 1, 7];
+var requiredVersionMin = [0, 1]; // 0.1.x
+var requiredVersionMax = [0, 1]; // 0.1.x
 
 if (kernelVersion[0] < requiredVersionMin[0] ||
     kernelVersion[1] < requiredVersionMin[1] ||
-    kernelVersion[2] < requiredVersionMin[2] ||
     kernelVersion[0] > requiredVersionMax[0] ||
-    kernelVersion[1] > requiredVersionMax[1] ||
-    kernelVersion[2] > requiredVersionMax[2]) {
+    kernelVersion[1] > requiredVersionMax[1]) {
   console.log('='.repeat(60))
   console.log('Loaded runtimejs core module requires runtime version');
   console.log('      >= ', requiredVersionMin.join('.'));
