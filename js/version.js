@@ -31,3 +31,5 @@ if (kernelVersion[0] < requiredVersionMin[0] ||
   console.log('='.repeat(60))
   throw new Error('invalid runtime version');
 }
+
+console.log(`v${kernelVersion.join('.')} kernel`);
