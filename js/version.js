@@ -23,9 +23,9 @@ if (kernelVersion[0] < requiredVersionMin[0] ||
     kernelVersion[1] > requiredVersionMax[1]) {
   console.log('='.repeat(60))
   console.log('Loaded runtimejs core module requires runtime version');
-  console.log('      >= ', requiredVersionMin.join('.'));
-  console.log('      <= ', requiredVersionMax.join('.'));
-  console.log(' current ', kernelVersion.join('.'));
+  console.log(`      >= ${requiredVersionMin.join('.')}.x`);
+  console.log(`      <= ${requiredVersionMax.join('.')}.x`);
+  console.log(` current ${kernelVersion.join('.')}`);
   console.log('');
   console.log('Update with "npm install runtime-tools@latest"');
   console.log('='.repeat(60))
