@@ -2,7 +2,9 @@
 
 [![Build Status](https://travis-ci.org/runtimejs/runtime.svg?branch=master)](https://travis-ci.org/runtimejs/runtime) [![npm](https://img.shields.io/npm/v/runtimejs.svg)](https://www.npmjs.com/package/runtimejs) [![Gem](https://img.shields.io/badge/freenode-%23runtimejs-blue.svg)](https://freenode.net/) [![Travis](https://img.shields.io/badge/GITTER-JOIN_CHAT_%E2%86%92-1dce73.svg)](https://gitter.im/runtimejs/runtime)
 
-__runtime.js__ is a tiny open-source operating system that runs JavaScript, could be bundled up with an application and deployed as a standalone and lightweight VM image.
+__runtime.js__ is an open-source library operating system for the cloud that runs JavaScript, could be bundled up with an application and deployed as a lightweight and immutable VM image.
+
+It's built on [V8 JavaScript engine](https://code.google.com/p/v8/) and uses event-driven and non-blocking I/O model inspired by [Node.js](https://nodejs.org/). At the moment [KVM](http://www.linux-kvm.org/page/Main_Page) is the only supported hypervisor.
 
 Example **index.js**:
 
@@ -30,8 +32,6 @@ sudo apt-get install qemu   # Ubuntu
 runtime-qemu ./initrd
 ```
 
-The system is built on [V8 JavaScript engine](https://code.google.com/p/v8/) and uses event-driven and non-blocking I/O model inspired by [Node.js](https://nodejs.org/).
-
 WARNING: project is in development and not ready for production use. Contributions are welcome.
 
 ## How does it work?
@@ -42,7 +42,7 @@ The kernel is the C++ program that manages low-level resources like CPU and memo
 
 Application, its dependencies and the core library are bundled up using <a href="http://browserify.org/">Browserify</a>, then packed into ramdisk image for kernel to use.
 
-
+runtime.js is a library operating system, because application uses it as its own dependency (library). Internal architecture is similar to [exokernels](https://en.wikipedia.org/wiki/Exokernel), where system exposes the hardware to application code and forces as few abstractions as possible.
 
 License
 ----
