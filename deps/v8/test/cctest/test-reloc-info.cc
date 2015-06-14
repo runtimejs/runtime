@@ -55,19 +55,26 @@ TEST(Positions) {
   for (int i = 0, pos = 0; i < 100; i++, pc += i, pos += i) {
     RelocInfo::Mode mode = (i % 2 == 0) ?
         RelocInfo::STATEMENT_POSITION : RelocInfo::POSITION;
+    if (mode == RelocInfo::STATEMENT_POSITION) {
+      printf("TEST WRITING STATEMENT %p %d\n", pc, pos);
+    } else {
+      printf("TEST WRITING POSITION %p %d\n", pc, pos);
+    }
     WriteRinfo(&writer, pc, mode, pos);
     CHECK(writer.pos() - RelocInfoWriter::kMaxSize >= relocation_info_end);
   }
 
+  writer.Finish();
   relocation_info_size = static_cast<int>(buffer_end - writer.pos());
-  CodeDesc desc = { buffer.get(), buffer_size, code_size,
-                    relocation_info_size, NULL };
+  CodeDesc desc = {buffer.get(), buffer_size, code_size, relocation_info_size,
+                   0, NULL};
 
   // Read only (non-statement) positions.
   {
     RelocIterator it(desc, RelocInfo::ModeMask(RelocInfo::POSITION));
     pc = buffer.get();
     for (int i = 0, pos = 0; i < 100; i++, pc += i, pos += i) {
+      printf("TESTING 1: %d\n", i);
       RelocInfo::Mode mode = (i % 2 == 0) ?
           RelocInfo::STATEMENT_POSITION : RelocInfo::POSITION;
       if (mode == RelocInfo::POSITION) {
@@ -113,4 +120,5 @@ TEST(Positions) {
   }
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

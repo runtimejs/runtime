@@ -125,6 +125,11 @@ bool OS::Remove(const char* path) {
 }
 
 
+bool OS::isDirectorySeparator(const char ch) {
+  return ch == '/';
+}
+
+
 FILE* OS::OpenTemporaryFile() {
   RT_ASSERT(!"tmptile()");
   return nullptr;
@@ -208,11 +213,6 @@ void OS::StrNCpy(char* dest, int length, const char* src, size_t n) {
 }
 
 
-void Thread::YieldCPU() {
-  sched_yield();
-}
-
-
 std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
   return std::vector<OS::SharedLibraryAddress>();
 }
@@ -270,7 +270,7 @@ void OS::Free(void* address, const size_t size) {
 }
 
 
-void OS::Sleep(int milliseconds) {
+void OS::Sleep(v8::base::TimeDelta time_delta) {
   RT_ASSERT(!"Sleep() is not supported");
 }
 
@@ -321,7 +321,7 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
 }
 
 
-OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name, int size,
+OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name, size_t size,
     void* initial) {
   RT_ASSERT(!"MemoryMappedFile is not supported");
   return nullptr;
@@ -424,7 +424,7 @@ bool VirtualMemory::HasLazyCommits() {
 class Thread::PlatformData {
  public:
   PlatformData() : thread_() {}
-  rt::NativeThreadHandle thread_;
+  rt::NativeThread* thread_;
 };
 
 
@@ -455,6 +455,7 @@ void Thread::set_name(const char* name) {
 
 
 void Thread::Start() {
+  RT_ASSERT(!"Thread::Start");
   // TODO: implement native threads
   return;
   RT_ASSERT(!"Thread::Start");

@@ -37,7 +37,7 @@ void SimplifiedGraphBuilder::Return(Node* value) {
 
 
 void SimplifiedGraphBuilder::End() {
-  Node* end = graph()->NewNode(common()->End(), return_);
+  Node* end = graph()->NewNode(common()->End(1), return_);
   graph()->SetEnd(end);
 }
 
@@ -48,7 +48,7 @@ Node* SimplifiedGraphBuilder::MakeNode(const Operator* op,
   DCHECK(op->ValueInputCount() == value_input_count);
 
   DCHECK(!OperatorProperties::HasContextInput(op));
-  DCHECK(!OperatorProperties::HasFrameStateInput(op));
+  DCHECK_EQ(0, OperatorProperties::GetFrameStateInputCount(op));
   bool has_control = op->ControlInputCount() == 1;
   bool has_effect = op->EffectInputCount() == 1;
 

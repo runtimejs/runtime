@@ -58,7 +58,7 @@ RUNTIME_FUNCTION(Runtime_DeliverObservationChangeRecords) {
   DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, callback, 0);
   CONVERT_ARG_HANDLE_CHECKED(Object, argument, 1);
-  v8::TryCatch catcher;
+  v8::TryCatch catcher(reinterpret_cast<v8::Isolate*>(isolate));
   // We should send a message on uncaught exception thrown during
   // Object.observe delivery while not interrupting further delivery, thus
   // we make a call inside a verbose TryCatch.
@@ -88,8 +88,9 @@ RUNTIME_FUNCTION(Runtime_DeliverObservationChangeRecords) {
 
 
 RUNTIME_FUNCTION(Runtime_GetObservationState) {
-  SealHandleScope shs(isolate);
+  HandleScope scope(isolate);
   DCHECK(args.length() == 0);
+  isolate->CountUsage(v8::Isolate::kObjectObserve);
   return isolate->heap()->observation_state();
 }
 
@@ -156,5 +157,5 @@ RUNTIME_FUNCTION(Runtime_GetObjectContextNotifierPerformChange) {
   Handle<Context> context(object_info->GetCreationContext(), isolate);
   return context->native_object_notifier_perform_change();
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

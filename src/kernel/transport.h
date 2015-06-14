@@ -14,11 +14,11 @@
 
 #pragma once
 
+#include <vector>
 #include <kernel/kernel.h>
 #include <v8.h>
 #include <memory>
-#include <common/constants.h>
-#include <kernel/vector.h>
+#include <kernel/constants.h>
 #include <kernel/resource.h>
 
 namespace rt {
@@ -318,8 +318,6 @@ private:
         HASHMAP,
         FUNCTION,
         NATIVE_OBJECT,
-        NATIVE_OBJECT_HANDLE,
-        HANDLE_CTOR,
         ERROR_OBJ,
         RESOURCES_FN,
     };

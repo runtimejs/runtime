@@ -194,6 +194,8 @@ class Simulator {
   // Call on program start.
   static void Initialize(Isolate* isolate);
 
+  static void TearDown(HashMap* i_cache, Redirection* first);
+
   // V8 generally calls into generated JS code with 5 parameters and into
   // generated RegExp code with 7 parameters. This is a convenience function,
   // which sets up the simulator state and grabs the result on return.
@@ -265,8 +267,10 @@ class Simulator {
   }
 
   // Support for VFP.
+  void Compute_FPSCR_Flags(float val1, float val2);
   void Compute_FPSCR_Flags(double val1, double val2);
   void Copy_FPSCR_to_APSR();
+  inline float canonicalizeNaN(float value);
   inline double canonicalizeNaN(double value);
 
   // Helper functions to decode common "addressing" modes

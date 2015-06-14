@@ -43,9 +43,11 @@
         'compiler/common-operator-unittest.cc',
         'compiler/compiler-test-utils.h',
         'compiler/control-equivalence-unittest.cc',
+        'compiler/control-flow-optimizer-unittest.cc',
         'compiler/control-reducer-unittest.cc',
         'compiler/diamond-unittest.cc',
         'compiler/graph-reducer-unittest.cc',
+        'compiler/graph-reducer-unittest.h',
         'compiler/graph-unittest.cc',
         'compiler/graph-unittest.h',
         'compiler/instruction-selector-unittest.cc',
@@ -56,11 +58,14 @@
         'compiler/js-intrinsic-lowering-unittest.cc',
         'compiler/js-operator-unittest.cc',
         'compiler/js-typed-lowering-unittest.cc',
+        'compiler/js-type-feedback-unittest.cc',
+        'compiler/liveness-analyzer-unittest.cc',
         'compiler/load-elimination-unittest.cc',
         'compiler/loop-peeling-unittest.cc',
         'compiler/machine-operator-reducer-unittest.cc',
         'compiler/machine-operator-unittest.cc',
         'compiler/move-optimizer-unittest.cc',
+        'compiler/node-cache-unittest.cc',
         'compiler/node-matchers-unittest.cc',
         'compiler/node-properties-unittest.cc',
         'compiler/node-test-utils.cc',
@@ -71,10 +76,13 @@
         'compiler/schedule-unittest.cc',
         'compiler/select-lowering-unittest.cc',
         'compiler/scheduler-unittest.cc',
-        'compiler/simplified-operator-reducer-unittest.cc',
         'compiler/simplified-operator-unittest.cc',
+        'compiler/state-values-utils-unittest.cc',
+        'compiler/tail-call-optimization-unittest.cc',
+        'compiler/typer-unittest.cc',
         'compiler/value-numbering-reducer-unittest.cc',
         'compiler/zone-pool-unittest.cc',
+        'counters-unittest.cc',
         'libplatform/default-platform-unittest.cc',
         'libplatform/task-queue-unittest.cc',
         'libplatform/worker-thread-unittest.cc',
@@ -82,6 +90,8 @@
         'run-all-unittests.cc',
         'test-utils.h',
         'test-utils.cc',
+        '../../src/startup-data-util.h',
+        '../../src/startup-data-util.cc'
       ],
       'conditions': [
         ['v8_target_arch=="arm"', {
@@ -119,20 +129,13 @@
             'compiler/ppc/instruction-selector-ppc-unittest.cc',
           ],
         }],
+        ['OS=="aix"', {
+          'ldflags': [ '-Wl,-bbigtoc' ],
+        }],
         ['component=="shared_library"', {
           # compiler-unittests can't be built against a shared library, so we
           # need to depend on the underlying static target in that case.
-          'conditions': [
-            ['v8_use_snapshot=="true" and v8_use_external_startup_data==0', {
-              'dependencies': ['../../tools/gyp/v8.gyp:v8_snapshot'],
-            }],
-            ['v8_use_snapshot=="true" and v8_use_external_startup_data==1', {
-              'dependencies': ['../../tools/gyp/v8.gyp:v8_external_snapshot'],
-            }],
-            ['v8_use_snapshot!="true"', {
-              'dependencies': ['../../tools/gyp/v8.gyp:v8_nosnapshot'],
-            }],
-          ],
+          'dependencies': ['../../tools/gyp/v8.gyp:v8_maybe_snapshot'],
         }, {
           'dependencies': ['../../tools/gyp/v8.gyp:v8'],
         }],

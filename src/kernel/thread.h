@@ -17,13 +17,13 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <atomic>
 #include <v8.h>
 #include <kernel/local-storage.h>
 #include <kernel/mem-manager.h>
-#include <kernel/atomic.h>
 #include <kernel/resource.h>
-#include <common/constants.h>
-#include <common/utils.h>
+#include <kernel/constants.h>
+#include <kernel/utils.h>
 #include <kernel/timeouts.h>
 #include <kernel/transport.h>
 #include <kernel/v8utils.h>
@@ -34,8 +34,6 @@ namespace rt {
 class ThreadManager;
 class Interface;
 class EngineThread;
-
-using common::Nullable;
 
 class FunctionExportData {
 public:
@@ -73,7 +71,7 @@ public:
 
 private:
     Thread* thread_;
-    SharedSTLVector<FunctionExportData> data_;
+    std::vector<FunctionExportData> data_;
     size_t export_id_;
 };
 
@@ -198,8 +196,8 @@ public:
     uintptr_t GetStackBottom() const {
         RT_ASSERT(stack_.top());
         RT_ASSERT(stack_.len());
-        RT_ASSERT(reinterpret_cast<uintptr_t>(stack_.top()) % 2 * common::Constants::MiB == 0);
-        RT_ASSERT(stack_.len() % 2 * common::Constants::MiB == 0);
+        RT_ASSERT(reinterpret_cast<uintptr_t>(stack_.top()) % 2 * Constants::MiB == 0);
+        RT_ASSERT(stack_.len() % 2 * Constants::MiB == 0);
         uintptr_t stack_pos = reinterpret_cast<uintptr_t>(stack_.top()) + stack_.len() - 256;
         RT_ASSERT(stack_pos);
         return stack_pos;
@@ -250,7 +248,6 @@ public:
             return false;
         }
 
-        Unref();
         data.SetCleared();
         return true;
     }
@@ -275,15 +272,15 @@ public:
     }
 
     uint32_t priority() const {
-        return priority_.Get();
+        return priority_;
     }
 
     void AddPriority(size_t count) {
-        priority_.AddFetch(count);
+        priority_ += count;
     }
 
     void ResetPriority() {
-        priority_.Set(1);
+        priority_ = 1;
     }
 
     /**
@@ -356,7 +353,7 @@ private:
     v8::UniquePersistent<v8::Function> call_wrapper_;
 
     VirtualStack stack_;
-    Atomic<uint32_t> priority_;
+    std::atomic<uint32_t> priority_;
 
     ResourceHandle<EngineThread> ethread_;
     FunctionExports exports_;

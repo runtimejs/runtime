@@ -84,11 +84,11 @@ class EntryFrameConstants : public AllStatic {
 
 class ExitFrameConstants : public AllStatic {
  public:
-  static const int kFrameSize          = FLAG_enable_ool_constant_pool ?
-                                         3 * kPointerSize : 2 * kPointerSize;
+  static const int kFrameSize =
+      FLAG_enable_embedded_constant_pool ? 3 * kPointerSize : 2 * kPointerSize;
 
-  static const int kConstantPoolOffset = FLAG_enable_ool_constant_pool ?
-                                         -3 * kPointerSize : 0;
+  static const int kConstantPoolOffset =
+      FLAG_enable_embedded_constant_pool ? -3 * kPointerSize : 0;
   static const int kCodeOffset         = -2 * kPointerSize;
   static const int kSPOffset           = -1 * kPointerSize;
 
@@ -149,11 +149,6 @@ class InternalFrameConstants : public AllStatic {
 inline Object* JavaScriptFrame::function_slot_object() const {
   const int offset = JavaScriptFrameConstants::kFunctionOffset;
   return Memory::Object_at(fp() + offset);
-}
-
-
-inline void StackHandler::SetFp(Address slot, Address fp) {
-  Memory::Address_at(slot) = fp;
 }
 
 

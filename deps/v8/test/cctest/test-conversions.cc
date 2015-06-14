@@ -362,3 +362,47 @@ TEST(BitField64) {
   CHECK(x == MiddleBits::encode(3));
   CHECK_EQ(3, MiddleBits::decode(x));
 }
+
+
+static void CheckNonArrayIndex(bool expected, const char* chars) {
+  auto isolate = CcTest::i_isolate();
+  auto string = isolate->factory()->NewStringFromAsciiChecked(chars);
+  CHECK_EQ(expected, IsSpecialIndex(isolate->unicode_cache(), *string));
+}
+
+
+TEST(SpecialIndexParsing) {
+  auto isolate = CcTest::i_isolate();
+  HandleScope scope(isolate);
+  CheckNonArrayIndex(false, "");
+  CheckNonArrayIndex(false, "-");
+  CheckNonArrayIndex(true, "0");
+  CheckNonArrayIndex(true, "-0");
+  CheckNonArrayIndex(false, "01");
+  CheckNonArrayIndex(false, "-01");
+  CheckNonArrayIndex(true, "0.5");
+  CheckNonArrayIndex(true, "-0.5");
+  CheckNonArrayIndex(true, "1");
+  CheckNonArrayIndex(true, "-1");
+  CheckNonArrayIndex(true, "10");
+  CheckNonArrayIndex(true, "-10");
+  CheckNonArrayIndex(true, "NaN");
+  CheckNonArrayIndex(true, "Infinity");
+  CheckNonArrayIndex(true, "-Infinity");
+  CheckNonArrayIndex(true, "4294967295");
+  CheckNonArrayIndex(true, "429496.7295");
+  CheckNonArrayIndex(true, "1.3333333333333333");
+  CheckNonArrayIndex(false, "1.3333333333333339");
+  CheckNonArrayIndex(true, "1.333333333333331e+222");
+  CheckNonArrayIndex(true, "-1.3333333333333211e+222");
+  CheckNonArrayIndex(false, "-1.3333333333333311e+222");
+  CheckNonArrayIndex(true, "429496.7295");
+  CheckNonArrayIndex(false, "43s3");
+  CheckNonArrayIndex(true, "4294967296");
+  CheckNonArrayIndex(true, "-4294967296");
+  CheckNonArrayIndex(true, "999999999999999");
+  CheckNonArrayIndex(false, "9999999999999999");
+  CheckNonArrayIndex(true, "-999999999999999");
+  CheckNonArrayIndex(false, "-9999999999999999");
+  CheckNonArrayIndex(false, "42949672964294967296429496729694966");
+}

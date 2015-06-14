@@ -6,17 +6,8 @@ SetOption('num_jobs', 4)
 
 build = "debug"
 
-# Use host machine compiler to build special tools
-# like mkinitrd
-build_host = True
-
-# Travis CI does not support host c++11 compiler
-if "CI" in os.environ:
-    build_host = False
-
 config = {
     "project_name": "runtimejs",
-    "build_host": build_host,
     "binary_output_file": "disk/boot/runtime",
     "toolchain_bin_path": "",
     "fasm_pathname": "fasm",
@@ -181,10 +172,10 @@ def EnvironmentCreate(build):
         CFLAGS = " ".join(flags_gcc),
         LINK = ld,
         LINKFLAGS = '-T ' + config["link_script"] + ' ' + ' '.join(config["flags_link"]) + ' -o ' + proj_name,
-        CXXCOMSTR = '[cross] Build $TARGET',
-        LINKCOMSTR = '[cross] Link $TARGET',
-        RANLIBCOMSTR = '[cross] Index $TARGET',
-        ARCOMSTR = '[cross] Archive $TARGET',
+        CXXCOMSTR = 'Build $TARGET',
+        LINKCOMSTR = 'Link $TARGET',
+        RANLIBCOMSTR = 'Index $TARGET',
+        ARCOMSTR = 'Archive $TARGET',
         ENV = {'PATH': os.environ['PATH']},
     )
 
@@ -197,27 +188,7 @@ def EnvironmentCreate(build):
 
     return env
 
-def EnvironmentCreateHost():
-    hostenv = Environment(
-        CXXFLAGS = '-std=c++11 -O3',
-        CPPPATH = ['src', 'deps/printf'],
-        OBJSUFFIX = '.host',
-        CXXCOMSTR = '[host] Build $TARGET',
-        LINKCOMSTR = '[host] Link $TARGET',
-        RANLIBCOMSTR = '[host] Index $TARGET',
-        ARCOMSTR = '[host] Archive $TARGET',
-        ENV = {'PATH': os.environ['PATH']},
-    )
-    return hostenv
-
-def BuildMkinitrd(hostenv):
-    return hostenv.Program('mkinitrd', ['src/mkinitrd/mkinitrd.cc', 'src/common/package.cc', 'src/common/crc64.cc'])
-
-def BuildTestsHost(hostenv):
-    hostenv.Program('test-host', ['test/hostcc/test-host.cc', 'deps/printf/printf.cc'])
-    return
-
-def BuildProject(env_base, mkinitrd):
+def BuildProject(env_base):
     env = env_base.Clone();
     sources = {}
     for ext, dirs in config["locations"].items():
@@ -247,27 +218,9 @@ def BuildProject(env_base, mkinitrd):
         objcopy + ' -O binary --strip-all --set-section-flags \'.bss\'=alloc,load,contents,data ' +
         proj_name + ' ' + binary_output)
     env.Depends(output_bin, output_elf);
-
-    if mkinitrd is not None:
-        initrd = env.Command('disk/boot/initrd', '', './makeinitrd.sh')
-        env.Depends(initrd, Glob('initrd/*.*'))
-        env.Depends(initrd, Glob('initrd/*/*.*'))
-        env.Depends(initrd, Glob('initrd/*/*/*.*'))
-        env.Depends(initrd, Glob('initrd/*/*/*/*.*'))
-        env.Depends(initrd, mkinitrd)
-        env.Depends(output_bin, initrd);
     return
-
-mkinitrd = None
-
-# Build mkinitrd tool
-if config["build_host"]:
-    env_host = EnvironmentCreateHost()
-    mkinitrd = BuildMkinitrd(env_host)
-    BuildTestsHost(env_host)
 
 # Build kernel
 env_base = EnvironmentCreate(build)
 SConscript('deps/SConscript', exports = 'env_base')
-BuildProject(env_base, mkinitrd)
-
+BuildProject(env_base)

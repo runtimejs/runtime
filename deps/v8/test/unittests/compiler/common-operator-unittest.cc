@@ -48,13 +48,13 @@ const SharedOperator kSharedOperators[] = {
         value_input_count, effect_input_count, control_input_count,          \
         value_output_count, effect_output_count, control_output_count        \
   }
-    SHARED(Always, Operator::kPure, 0, 0, 0, 1, 0, 0),
     SHARED(Dead, Operator::kFoldable, 0, 0, 0, 0, 0, 1),
-    SHARED(End, Operator::kFoldable, 0, 0, 1, 0, 0, 0),
-    SHARED(IfTrue, Operator::kFoldable, 0, 0, 1, 0, 0, 1),
-    SHARED(IfFalse, Operator::kFoldable, 0, 0, 1, 0, 0, 1),
-    SHARED(Throw, Operator::kFoldable, 1, 1, 1, 0, 0, 1),
-    SHARED(Return, Operator::kNoProperties, 1, 1, 1, 0, 0, 1)
+    SHARED(IfTrue, Operator::kKontrol, 0, 0, 1, 0, 0, 1),
+    SHARED(IfFalse, Operator::kKontrol, 0, 0, 1, 0, 0, 1),
+    SHARED(IfSuccess, Operator::kKontrol, 0, 0, 1, 0, 0, 1),
+    SHARED(Throw, Operator::kKontrol, 1, 1, 1, 0, 0, 1),
+    SHARED(Return, Operator::kNoThrow, 1, 1, 1, 0, 0, 1),
+    SHARED(Terminate, Operator::kKontrol, 0, 1, 1, 0, 0, 1)
 #undef SHARED
 };
 
@@ -121,7 +121,7 @@ namespace {
 class CommonOperatorTest : public TestWithZone {
  public:
   CommonOperatorTest() : common_(zone()) {}
-  ~CommonOperatorTest() OVERRIDE {}
+  ~CommonOperatorTest() override {}
 
   CommonOperatorBuilder* common() { return &common_; }
 
@@ -133,7 +133,7 @@ class CommonOperatorTest : public TestWithZone {
 const int kArguments[] = {1, 5, 6, 42, 100, 10000, 65000};
 
 
-const size_t kCases[] = {2, 3, 4, 100, 255};
+const size_t kCases[] = {3, 4, 100, 255, 1024, 65000};
 
 
 const float kFloatValues[] = {-std::numeric_limits<float>::infinity(),
@@ -160,17 +160,51 @@ const double kDoubleValues[] = {-std::numeric_limits<double>::infinity(),
                                 std::numeric_limits<double>::signaling_NaN()};
 
 
-const BranchHint kHints[] = {BranchHint::kNone, BranchHint::kTrue,
-                             BranchHint::kFalse};
+const size_t kInputCounts[] = {3, 4, 100, 255, 1024, 65000};
+
+
+const int32_t kInt32Values[] = {
+    std::numeric_limits<int32_t>::min(), -1914954528, -1698749618, -1578693386,
+    -1577976073, -1573998034, -1529085059, -1499540537, -1299205097,
+    -1090814845, -938186388, -806828902, -750927650, -520676892, -513661538,
+    -453036354, -433622833, -282638793, -28375, -27788, -22770, -18806, -14173,
+    -11956, -11200, -10212, -8160, -3751, -2758, -1522, -121, -120, -118, -117,
+    -106, -84, -80, -74, -59, -52, -48, -39, -35, -17, -11, -10, -9, -7, -5, 0,
+    9, 12, 17, 23, 29, 31, 33, 35, 40, 47, 55, 56, 62, 64, 67, 68, 69, 74, 79,
+    84, 89, 90, 97, 104, 118, 124, 126, 127, 7278, 17787, 24136, 24202, 25570,
+    26680, 30242, 32399, 420886487, 642166225, 821912648, 822577803, 851385718,
+    1212241078, 1411419304, 1589626102, 1596437184, 1876245816, 1954730266,
+    2008792749, 2045320228, std::numeric_limits<int32_t>::max()};
+
+
+const BranchHint kBranchHints[] = {BranchHint::kNone, BranchHint::kTrue,
+                                   BranchHint::kFalse};
 
 }  // namespace
 
 
+TEST_F(CommonOperatorTest, End) {
+  TRACED_FOREACH(size_t, input_count, kInputCounts) {
+    const Operator* const op = common()->End(input_count);
+    EXPECT_EQ(IrOpcode::kEnd, op->opcode());
+    EXPECT_EQ(Operator::kKontrol, op->properties());
+    EXPECT_EQ(0, op->ValueInputCount());
+    EXPECT_EQ(0, op->EffectInputCount());
+    EXPECT_EQ(input_count, static_cast<uint32_t>(op->ControlInputCount()));
+    EXPECT_EQ(input_count, static_cast<uint32_t>(
+                               OperatorProperties::GetTotalInputCount(op)));
+    EXPECT_EQ(0, op->ValueOutputCount());
+    EXPECT_EQ(0, op->EffectOutputCount());
+    EXPECT_EQ(0, op->ControlOutputCount());
+  }
+}
+
+
 TEST_F(CommonOperatorTest, Branch) {
-  TRACED_FOREACH(BranchHint, hint, kHints) {
+  TRACED_FOREACH(BranchHint, hint, kBranchHints) {
     const Operator* const op = common()->Branch(hint);
     EXPECT_EQ(IrOpcode::kBranch, op->opcode());
-    EXPECT_EQ(Operator::kFoldable, op->properties());
+    EXPECT_EQ(Operator::kKontrol, op->properties());
     EXPECT_EQ(hint, BranchHintOf(op));
     EXPECT_EQ(1, op->ValueInputCount());
     EXPECT_EQ(0, op->EffectInputCount());
@@ -183,11 +217,29 @@ TEST_F(CommonOperatorTest, Branch) {
 }
 
 
+TEST_F(CommonOperatorTest, IfException) {
+  static const IfExceptionHint kIfExceptionHints[] = {
+      IfExceptionHint::kLocallyCaught, IfExceptionHint::kLocallyUncaught};
+  TRACED_FOREACH(IfExceptionHint, hint, kIfExceptionHints) {
+    const Operator* const op = common()->IfException(hint);
+    EXPECT_EQ(IrOpcode::kIfException, op->opcode());
+    EXPECT_EQ(Operator::kKontrol, op->properties());
+    EXPECT_EQ(0, op->ValueInputCount());
+    EXPECT_EQ(0, op->EffectInputCount());
+    EXPECT_EQ(1, op->ControlInputCount());
+    EXPECT_EQ(1, OperatorProperties::GetTotalInputCount(op));
+    EXPECT_EQ(1, op->ValueOutputCount());
+    EXPECT_EQ(0, op->EffectOutputCount());
+    EXPECT_EQ(1, op->ControlOutputCount());
+  }
+}
+
+
 TEST_F(CommonOperatorTest, Switch) {
   TRACED_FOREACH(size_t, cases, kCases) {
     const Operator* const op = common()->Switch(cases);
     EXPECT_EQ(IrOpcode::kSwitch, op->opcode());
-    EXPECT_EQ(Operator::kFoldable, op->properties());
+    EXPECT_EQ(Operator::kKontrol, op->properties());
     EXPECT_EQ(1, op->ValueInputCount());
     EXPECT_EQ(0, op->EffectInputCount());
     EXPECT_EQ(1, op->ControlInputCount());
@@ -199,12 +251,12 @@ TEST_F(CommonOperatorTest, Switch) {
 }
 
 
-TEST_F(CommonOperatorTest, Case) {
-  TRACED_FORRANGE(size_t, index, 0, 1024) {
-    const Operator* const op = common()->Case(index);
-    EXPECT_EQ(IrOpcode::kCase, op->opcode());
-    EXPECT_EQ(Operator::kFoldable, op->properties());
-    EXPECT_EQ(index, CaseIndexOf(op));
+TEST_F(CommonOperatorTest, IfValue) {
+  TRACED_FOREACH(int32_t, value, kInt32Values) {
+    const Operator* const op = common()->IfValue(value);
+    EXPECT_EQ(IrOpcode::kIfValue, op->opcode());
+    EXPECT_EQ(Operator::kKontrol, op->properties());
+    EXPECT_EQ(value, OpParameter<int32_t>(op));
     EXPECT_EQ(0, op->ValueInputCount());
     EXPECT_EQ(0, op->EffectInputCount());
     EXPECT_EQ(1, op->ControlInputCount());
@@ -222,7 +274,7 @@ TEST_F(CommonOperatorTest, Select) {
       kMachInt32,   kMachUint32,  kMachInt64,    kMachUint64,
       kMachFloat32, kMachFloat64, kMachAnyTagged};
   TRACED_FOREACH(MachineType, type, kTypes) {
-    TRACED_FOREACH(BranchHint, hint, kHints) {
+    TRACED_FOREACH(BranchHint, hint, kBranchHints) {
       const Operator* const op = common()->Select(type, hint);
       EXPECT_EQ(IrOpcode::kSelect, op->opcode());
       EXPECT_EQ(Operator::kPure, op->properties());

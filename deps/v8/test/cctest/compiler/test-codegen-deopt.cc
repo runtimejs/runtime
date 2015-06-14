@@ -44,11 +44,14 @@ class DeoptCodegenTester {
   explicit DeoptCodegenTester(HandleAndZoneScope* scope, const char* src)
       : scope_(scope),
         function(NewFunction(src)),
-        info(function, scope->main_zone()),
-        bailout_id(-1) {
-    CHECK(Parser::Parse(&info));
+        parse_info(scope->main_zone(), function),
+        info(&parse_info),
+        bailout_id(-1),
+        tagged_type(1, kMachAnyTagged, zone()),
+        empty_types(zone()) {
+    CHECK(Parser::ParseStatic(&parse_info));
     info.SetOptimizing(BailoutId::None(), Handle<Code>(function->code()));
-    CHECK(Compiler::Analyze(&info));
+    CHECK(Compiler::Analyze(&parse_info));
     CHECK(Compiler::EnsureDeoptimizationSupport(&info));
 
     DCHECK(info.shared_info()->has_deoptimization_support());
@@ -76,11 +79,14 @@ class DeoptCodegenTester {
 
   HandleAndZoneScope* scope_;
   Handle<JSFunction> function;
+  ParseInfo parse_info;
   CompilationInfo info;
   BailoutId bailout_id;
   Handle<Code> result_code;
   TestInstrSeq* code;
   Graph* graph;
+  ZoneVector<MachineType> tagged_type;
+  ZoneVector<MachineType> empty_types;
 };
 
 
@@ -118,14 +124,16 @@ class TrivialDeoptCodegenTester : public DeoptCodegenTester {
         m.NewNode(common.HeapConstant(caller_context_constant));
 
     bailout_id = GetCallBailoutId();
-    Node* parameters = m.NewNode(common.StateValues(1), m.UndefinedConstant());
-    Node* locals = m.NewNode(common.StateValues(0));
-    Node* stack = m.NewNode(common.StateValues(0));
+    Node* parameters =
+        m.NewNode(common.TypedStateValues(&tagged_type), m.UndefinedConstant());
+    Node* locals = m.NewNode(common.TypedStateValues(&empty_types));
+    Node* stack = m.NewNode(common.TypedStateValues(&empty_types));
 
-    Node* state_node = m.NewNode(
-        common.FrameState(JS_FRAME, bailout_id,
-                          OutputFrameStateCombine::Ignore()),
-        parameters, locals, stack, caller_context_node, m.UndefinedConstant());
+    Node* state_node =
+        m.NewNode(common.FrameState(JS_FRAME, bailout_id,
+                                    OutputFrameStateCombine::Ignore()),
+                  parameters, locals, stack, caller_context_node,
+                  deopt_fun_node, m.UndefinedConstant());
 
     Handle<Context> context(deopt_function->context(), CcTest::i_isolate());
     Unique<Context> context_constant =
@@ -161,7 +169,6 @@ TEST(TurboTrivialDeoptCodegen) {
   InitializedHandleScope handles;
 
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   TrivialDeoptCodegenTester t(&scope);
   t.GenerateCode();
@@ -182,7 +189,6 @@ TEST(TurboTrivialDeoptCodegenAndRun) {
   InitializedHandleScope handles;
 
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   TrivialDeoptCodegenTester t(&scope);
   t.GenerateCode();
@@ -233,14 +239,16 @@ class TrivialRuntimeDeoptCodegenTester : public DeoptCodegenTester {
     Node* context_node = m.NewNode(common.HeapConstant(context_constant));
 
     bailout_id = GetCallBailoutId();
-    Node* parameters = m.NewNode(common.StateValues(1), m.UndefinedConstant());
-    Node* locals = m.NewNode(common.StateValues(0));
-    Node* stack = m.NewNode(common.StateValues(0));
+    Node* parameters =
+        m.NewNode(common.TypedStateValues(&tagged_type), m.UndefinedConstant());
+    Node* locals = m.NewNode(common.TypedStateValues(&empty_types));
+    Node* stack = m.NewNode(common.TypedStateValues(&empty_types));
 
-    Node* state_node = m.NewNode(
-        common.FrameState(JS_FRAME, bailout_id,
-                          OutputFrameStateCombine::Ignore()),
-        parameters, locals, stack, context_node, m.UndefinedConstant());
+    Node* state_node =
+        m.NewNode(common.FrameState(JS_FRAME, bailout_id,
+                                    OutputFrameStateCombine::Ignore()),
+                  parameters, locals, stack, context_node, this_fun_node,
+                  m.UndefinedConstant());
 
     m.CallRuntime1(Runtime::kDeoptimizeFunction, this_fun_node, context_node,
                    state_node);
@@ -272,7 +280,6 @@ TEST(TurboTrivialRuntimeDeoptCodegenAndRun) {
   InitializedHandleScope handles;
 
   FLAG_allow_natives_syntax = true;
-  FLAG_turbo_deoptimization = true;
 
   TrivialRuntimeDeoptCodegenTester t(&scope);
   t.GenerateCode();

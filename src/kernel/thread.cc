@@ -24,7 +24,7 @@ namespace rt {
 
 Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
     :	thread_mgr_(thread_mgr),
-        type_(ethread.get()->type()),
+        type_(ethread.getUnsafe()->type() /* TODO: fix this unsafe get */),
         iv8_(nullptr),
         tpl_cache_(nullptr),
         stack_(GLOBAL_mem_manager()->virtual_allocator().AllocStack()),
@@ -36,7 +36,7 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         runtime_(0),
         ev_count_(0),
         filename_() {
-    priority_.Set(1);
+    priority_ = 1;
 }
 
 Thread::~Thread() {
@@ -86,7 +86,9 @@ void Thread::SetUp() {
     params.code_event_handler = OnJitCodeEvent;
     iv8_ = v8::Isolate::New(params);
     iv8_->SetData(0, this);
+#ifdef RUNTIME_DEBUG
     printf("[V8] new isolate\n");
+#endif
     v8::Isolate::Scope ivscope(iv8_);
     v8::HandleScope local_handle_scope(iv8_);
     tpl_cache_ = new TemplateCache(iv8_);
@@ -104,20 +106,24 @@ void Thread::TearDown() {
         auto promise_id = parent_promise_id();
         auto thread = parent_thread();
 
-        TransportData data;
-        if (!exit_value_.IsEmpty()) {
-            TransportData::SerializeError err { data.MoveValue(this,
-                v8::Local<v8::Value>::New(iv8_, exit_value_)) };
-        } else {
-            data.SetUndefined();
-        }
+        if (!thread.empty()) {
+            TransportData data;
+            if (!exit_value_.IsEmpty()) {
+                TransportData::SerializeError err { data.MoveValue(this,
+                    v8::Local<v8::Value>::New(iv8_, exit_value_)) };
+            } else {
+                data.SetUndefined();
+            }
 
-        RT_ASSERT(!data.empty());
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
-                handle(),
-                std::move(data), nullptr, promise_id));
-            thread.getUnsafe()->PushMessage(std::move(msg));
+            RT_ASSERT(!data.empty());
+            {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                    ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
+                    handle(),
+                    std::move(data), nullptr, promise_id));
+                thread.getUnsafe()->PushMessage(std::move(msg));
+            }
+        } else {
+            RT_ASSERT(!"main isolate exited");
         }
     }
 
@@ -179,7 +185,7 @@ bool Thread::Run() {
 
     uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
 
-    EngineThread::ThreadMessagesVector messages = ethread_.get()->TakeMessages();
+    std::vector<ThreadMessage*> messages = ethread_.getUnsafe()->TakeMessages();
     if (0 == messages.size()) {
         return true;
     }
@@ -299,71 +305,6 @@ bool Thread::Run() {
             }
         }
             break;
-        case ThreadMessage::Type::HANDLE_METHOD_CALL_NO_RETURN: {
-            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-            RT_ASSERT(!unpacked.IsEmpty());
-
-            uint64_t pack = message->recv_index2();
-            uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
-            uint32_t method_index = static_cast<uint32_t>(pack);
-
-            HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(pool_index);
-            RT_ASSERT(pool);
-            RT_ASSERT(pool->thread());
-            RT_ASSERT(pool->thread() == this);
-            v8::Local<v8::Value> fnval = pool->GetImpl(iv8_, method_index);
-            RT_ASSERT(!fnval.IsEmpty());
-            RT_ASSERT(fnval->IsFunction());
-
-            auto handle_obj = template_cache()->GetHandleInstance(
-                pool_index, message->recv_index3(),
-                static_cast<Pipe*>(message->ptr()), static_cast<Pipe*>(message->ptr2()));
-            v8::Local<v8::Function> fn = fnval.As<v8::Function>();
-            RT_ASSERT(unpacked->IsArray());
-            v8::Local<v8::Array> args = unpacked.As<v8::Array>();
-            SharedSTLVector<v8::Local<v8::Value>> argv;
-            uint32_t argc = args->Length();
-            argv.reserve(argc);
-            for (uint32_t i = 0; i < argc; ++i) {
-                argv[i] = args->Get(i);
-            }
-
-            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            fn->Call(handle_obj, argc, argv.data());
-        }
-            break;
-        case ThreadMessage::Type::HANDLE_METHOD_CALL: {
-            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-            RT_ASSERT(!unpacked.IsEmpty());
-
-            uint64_t pack = message->recv_index2();
-            uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
-            uint32_t method_index = static_cast<uint32_t>(pack);
-
-            HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(pool_index);
-            RT_ASSERT(pool);
-            RT_ASSERT(pool->thread());
-            RT_ASSERT(pool->thread() == this);
-            v8::Local<v8::Value> fnval = pool->GetImpl(iv8_, method_index);
-            RT_ASSERT(!fnval.IsEmpty());
-            RT_ASSERT(fnval->IsFunction());
-
-            auto handle_obj = template_cache()->GetHandleInstance(
-                pool_index, message->recv_index3(),
-                static_cast<Pipe*>(message->ptr()), static_cast<Pipe*>(message->ptr2()));
-            {   RT_ASSERT(!call_wrapper_.IsEmpty());
-                v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
-                v8::Local<v8::Value> argv[] {
-                   fnval,
-                   message->sender().NewExternal(iv8_),
-                   unpacked,
-                   v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
-                };
-                RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-                fnwrap->Call(handle_obj, 4, argv);
-            }
-        }
-            break;
         case ThreadMessage::Type::FUNCTION_RETURN_RESOLVE: {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());
@@ -421,45 +362,6 @@ bool Thread::Run() {
             fn->Call(context->Global(), 0, nullptr);
         }
             break;
-        case ThreadMessage::Type::PIPE_PULL: {
-            v8::Local<v8::Value> unpacked;
-            if (!message->data().empty()) {
-                unpacked = message->data().Unpack(this);
-            } else if (message->recv_index2() > 0 && message->ptr()){
-                TransportData* dataarray = static_cast<TransportData*>(message->ptr());
-                size_t data_size = message->recv_index2();
-                RT_ASSERT(data_size > 0);
-                auto array = v8::Array::New(iv8_, data_size);
-                for (uint32_t i = 0; i < data_size; ++i) {
-                    array->Set(i, dataarray[i].Unpack(this));
-                }
-                unpacked = array;
-                delete[] dataarray;
-            }
-
-            if (unpacked.IsEmpty()) {
-                // Yield undefined in this case (pipe is closed)
-                unpacked = v8::Undefined(iv8_);
-            }
-
-            auto fnv = TakeObject(message->recv_index());
-            RT_ASSERT(fnv->IsFunction());
-            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-
-            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            v8::Local<v8::Value> argv[] { unpacked };
-            fn->Call(context->Global(), 1, argv);
-        }
-            break;
-        case ThreadMessage::Type::PIPE_WAIT: {
-            auto fnv = TakeObject(message->recv_index());
-            RT_ASSERT(fnv->IsFunction());
-            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-
-            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            fn->Call(context->Global(), 0, nullptr);
-        }
-            break;
         case ThreadMessage::Type::EMPTY:
             break;
         default:
@@ -498,9 +400,13 @@ bool Thread::Run() {
     }
 
     {   uint64_t time_now_end { GLOBAL_platform()->BootTimeMicroseconds() };
-        RT_ASSERT(time_now_end >= time_now);
-        uint64_t tick_runtime = time_now_end - time_now;
-        runtime_ += tick_runtime;
+        if (time_now_end < time_now) {
+            printf("[clock] warning: time goes backwards %lu -> %lu\n", time_now, time_now_end);
+        } else {
+            RT_ASSERT(time_now_end >= time_now);
+            uint64_t tick_runtime = time_now_end - time_now;
+            runtime_ += tick_runtime;
+        }
     }
 
     if (0 == ref_count_ || terminate_) {

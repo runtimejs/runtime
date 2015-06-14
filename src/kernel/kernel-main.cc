@@ -118,7 +118,7 @@ MultibootParseResult KernelMain::ParseMultiboot(void* mbt) {
 
     size_t len = rd_end - rd_start;
 
-    if (0 == len || len  > 128 * common::Constants::MiB) {
+    if (0 == len || len  > 128 * Constants::MiB) {
         printf("Invalid initrd boot module.\n");
         abort();
     }

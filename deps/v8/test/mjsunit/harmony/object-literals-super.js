@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --harmony-classes --allow-natives-syntax
+// Flags: --harmony-classes --harmony-arrow-functions --allow-natives-syntax
 
 
 (function TestHomeObject() {
@@ -22,15 +22,6 @@
     set accessor(v) {
       super.accessor = v;
     },
-    property: function() {
-      super.property();
-    },
-    propertyWithParen: (function() {
-      super.property();
-    }),
-    propertyWithParens: ((function() {
-      super.property();
-    })),
 
     methodNoSuper() {},
     get getterNoSuper() {},
@@ -50,9 +41,6 @@
   desc = Object.getOwnPropertyDescriptor(object, 'accessor');
   assertEquals(object, desc.get[%HomeObjectSymbol()]);
   assertEquals(object, desc.set[%HomeObjectSymbol()]);
-  assertEquals(object, object.property[%HomeObjectSymbol()]);
-  assertEquals(object, object.propertyWithParen[%HomeObjectSymbol()]);
-  assertEquals(object, object.propertyWithParens[%HomeObjectSymbol()]);
 
   assertEquals(undefined, object.methodNoSuper[%HomeObjectSymbol()]);
   desc = Object.getOwnPropertyDescriptor(object, 'getterNoSuper');
@@ -118,21 +106,6 @@
 })();
 
 
-(function TestMethodAsProperty() {
-  var object = {
-    __proto__: {
-      method: function(x) {
-        return 'proto' + x;
-      }
-    },
-    method: function(x) {
-      return super.method(x);
-    }
-  };
-  assertEquals('proto42', object.method(42));
-})();
-
-
 (function TestOptimized() {
   // Object literals without any accessors get optimized.
   var object = {
@@ -154,15 +127,56 @@
     *g() {
       yield super.m();
     },
-    g2: function*() {
-      yield super.m() + 1;
-    },
-    g3: (function*() {
-      yield super.m() + 2;
-    })
   };
 
   assertEquals(42, o.g().next().value);
-  assertEquals(43, o.g2().next().value);
-  assertEquals(44, o.g3().next().value);
+})();
+
+
+(function TestSuperPropertyInEval() {
+  var y = 3;
+  var p  = {
+    m() { return 1; },
+    get x() { return 2; }
+  };
+  var o = {
+    __proto__: p,
+    evalM() {
+      assertEquals(1, eval('super.m()'));
+    },
+    evalX() {
+      assertEquals(2, eval('super.x'));
+    },
+    globalEval1() {
+      assertThrows('super.x', SyntaxError);
+      assertThrows('super.m()', SyntaxError);
+    },
+    globalEval2() {
+      super.x;
+      assertThrows('super.x', SyntaxError);
+      assertThrows('super.m()', SyntaxError);
+    }
+  };
+  o.evalM();
+  o.evalX();
+  o.globalEval1();
+  o.globalEval2();
+})();
+
+
+(function TestSuperPropertyInArrow() {
+  var y = 3;
+  var p  = {
+    m() { return 1; },
+    get x() { return 2; }
+  };
+  var o = {
+    __proto__: p,
+    arrow() {
+      assertSame(super.x, (() => super.x)());
+      assertSame(super.m(), (() => super.m())());
+      return (() => super.m())();
+    }
+  };
+  assertSame(1, o.arrow());
 })();

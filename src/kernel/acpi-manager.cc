@@ -47,7 +47,9 @@ bool AcpiManager::SetInterruptRoutingMode() {
     ACPI_STATUS ret;
     ret = AcpiEvaluateObject(ACPI_ROOT_OBJECT, method, &args, NULL);
     if (ACPI_FAILURE(ret)) {
+#ifdef RUNTIME_DEBUG
         printf("SetInterruptRoutingMode failed.");
+#endif
         return false;
     }
     return true;

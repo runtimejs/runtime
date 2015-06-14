@@ -5,14 +5,15 @@
 #ifndef V8_ARM64_ASSEMBLER_ARM64_H_
 #define V8_ARM64_ASSEMBLER_ARM64_H_
 
+#include <deque>
 #include <list>
 #include <map>
 #include <vector>
 
 #include "src/arm64/instructions-arm64.h"
 #include "src/assembler.h"
+#include "src/compiler.h"
 #include "src/globals.h"
-#include "src/serialize.h"
 #include "src/utils.h"
 
 
@@ -763,7 +764,7 @@ class ConstPool {
         shared_entries_count(0) {}
   void RecordEntry(intptr_t data, RelocInfo::Mode mode);
   int EntryCount() const {
-    return shared_entries_count + unique_entries_.size();
+    return shared_entries_count + static_cast<int>(unique_entries_.size());
   }
   bool IsEmpty() const {
     return shared_entries_.empty() && unique_entries_.empty();
@@ -870,13 +871,10 @@ class Assembler : public AssemblerBase {
   inline static Address target_pointer_address_at(Address pc);
 
   // Read/Modify the code target address in the branch/call instruction at pc.
-  inline static Address target_address_at(Address pc,
-                                          ConstantPoolArray* constant_pool);
-  inline static void set_target_address_at(Address pc,
-                                           ConstantPoolArray* constant_pool,
-                                           Address target,
-                                           ICacheFlushMode icache_flush_mode =
-                                               FLUSH_ICACHE_IF_NEEDED);
+  inline static Address target_address_at(Address pc, Address constant_pool);
+  inline static void set_target_address_at(
+      Address pc, Address constant_pool, Address target,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
   static inline Address target_address_at(Address pc, Code* code);
   static inline void set_target_address_at(Address pc,
                                            Code* code,
@@ -899,6 +897,11 @@ class Assembler : public AssemblerBase {
   // This is for calls and branches within generated code.
   inline static void deserialization_set_special_target_at(
       Address constant_pool_entry, Code* code, Address target);
+
+  // This sets the internal reference at the pc.
+  inline static void deserialization_set_target_internal_reference_at(
+      Address pc, Address target,
+      RelocInfo::Mode mode = RelocInfo::INTERNAL_REFERENCE);
 
   // All addresses in the constant pool are the same size as pointers.
   static const int kSpecialTargetSize = kPointerSize;
@@ -945,13 +948,15 @@ class Assembler : public AssemblerBase {
 
   // Return the number of instructions generated from label to the
   // current position.
-  int InstructionsGeneratedSince(const Label* label) {
+  uint64_t InstructionsGeneratedSince(const Label* label) {
     return SizeOfCodeGeneratedSince(label) / kInstructionSize;
   }
 
   // Number of instructions generated for the return sequence in
   // FullCodeGenerator::EmitReturnSequence.
-  static const int kJSRetSequenceInstructions = 7;
+  static const int kJSReturnSequenceInstructions = 7;
+  static const int kJSReturnSequenceLength =
+      kJSReturnSequenceInstructions * kInstructionSize;
   // Distance between start of patched return sequence and the emitted address
   // to jump to.
   static const int kPatchReturnSequenceAddressOffset =  0;
@@ -959,7 +964,7 @@ class Assembler : public AssemblerBase {
 
   // Number of instructions necessary to be able to later patch it to a call.
   // See DebugCodegen::GenerateSlot() and
-  // BreakLocationIterator::SetDebugBreakAtSlot().
+  // BreakLocation::SetDebugBreakAtSlot().
   static const int kDebugBreakSlotInstructions = 4;
   static const int kDebugBreakSlotLength =
     kDebugBreakSlotInstructions * kInstructionSize;
@@ -1010,7 +1015,7 @@ class Assembler : public AssemblerBase {
 
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
-  void RecordDeoptReason(const int reason, const int raw_position);
+  void RecordDeoptReason(const int reason, const SourcePosition position);
 
   int buffer_space() const;
 
@@ -1743,6 +1748,9 @@ class Assembler : public AssemblerBase {
   // Emit 64 bits of data in the instruction stream.
   void dc64(uint64_t data) { EmitData(&data, sizeof(data)); }
 
+  // Emit an address in the instruction stream.
+  void dcptr(Label* label);
+
   // Copy a string into the instruction stream, including the terminating NULL
   // character. The instruction pointer (pc_) is then aligned correctly for
   // subsequent instructions.
@@ -1756,6 +1764,8 @@ class Assembler : public AssemblerBase {
   // Required by V8.
   void dd(uint32_t data) { dc32(data); }
   void db(uint8_t data) { dc8(data); }
+  void dq(uint64_t data) { dc64(data); }
+  void dp(uintptr_t data) { dc64(data); }
 
   // Code generation helpers --------------------------------------------------
 
@@ -1763,7 +1773,7 @@ class Assembler : public AssemblerBase {
 
   Instruction* pc() const { return Instruction::Cast(pc_); }
 
-  Instruction* InstructionAt(int offset) const {
+  Instruction* InstructionAt(ptrdiff_t offset) const {
     return reinterpret_cast<Instruction*>(buffer_ + offset);
   }
 
@@ -1830,7 +1840,7 @@ class Assembler : public AssemblerBase {
 
   // Data Processing encoding.
   inline static Instr SF(Register rd);
-  inline static Instr ImmAddSub(int64_t imm);
+  inline static Instr ImmAddSub(int imm);
   inline static Instr ImmS(unsigned imms, unsigned reg_size);
   inline static Instr ImmR(unsigned immr, unsigned reg_size);
   inline static Instr ImmSetBits(unsigned imms, unsigned reg_size);
@@ -1865,10 +1875,11 @@ class Assembler : public AssemblerBase {
 
   static bool IsImmLSUnscaled(int64_t offset);
   static bool IsImmLSScaled(int64_t offset, LSDataSize size);
+  static bool IsImmLLiteral(int64_t offset);
 
   // Move immediates encoding.
-  inline static Instr ImmMoveWide(uint64_t imm);
-  inline static Instr ShiftMoveWide(int64_t shift);
+  inline static Instr ImmMoveWide(int imm);
+  inline static Instr ShiftMoveWide(int shift);
 
   // FP Immediates.
   static Instr ImmFP32(float imm);
@@ -1897,11 +1908,12 @@ class Assembler : public AssemblerBase {
   // Check if is time to emit a constant pool.
   void CheckConstPool(bool force_emit, bool require_jump);
 
-  // Allocate a constant pool of the correct size for the generated code.
-  Handle<ConstantPoolArray> NewConstantPool(Isolate* isolate);
-
-  // Generate the constant pool for the generated code.
-  void PopulateConstantPool(ConstantPoolArray* constant_pool);
+  void PatchConstantPoolAccessInstruction(int pc_offset, int offset,
+                                          ConstantPoolEntry::Access access,
+                                          ConstantPoolEntry::Type type) {
+    // No embedded constant pool support.
+    UNREACHABLE();
+  }
 
   // Returns true if we should emit a veneer as soon as possible for a branch
   // which can at most reach to specified pc.
@@ -2159,6 +2171,10 @@ class Assembler : public AssemblerBase {
   // Each relocation is encoded as a variable size value
   static const int kMaxRelocSize = RelocInfoWriter::kMaxSize;
   RelocInfoWriter reloc_info_writer;
+  // Internal reference positions, required for (potential) patching in
+  // GrowBuffer(); contains only those internal references whose labels
+  // are already bound.
+  std::deque<int> internal_reference_positions_;
 
   // Relocation info records are also used during code generation as temporary
   // containers for constants and code target addresses until they are emitted

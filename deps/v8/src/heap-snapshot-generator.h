@@ -5,7 +5,7 @@
 #ifndef V8_HEAP_SNAPSHOT_GENERATOR_H_
 #define V8_HEAP_SNAPSHOT_GENERATOR_H_
 
-#include "src/profile-generator-inl.h"
+#include "src/strings-storage.h"
 
 namespace v8 {
 namespace internal {
@@ -82,7 +82,8 @@ class HeapEntry BASE_EMBEDDED {
     kSynthetic = v8::HeapGraphNode::kSynthetic,
     kConsString = v8::HeapGraphNode::kConsString,
     kSlicedString = v8::HeapGraphNode::kSlicedString,
-    kSymbol = v8::HeapGraphNode::kSymbol
+    kSymbol = v8::HeapGraphNode::kSymbol,
+    kSimdValue = v8::HeapGraphNode::kSimdValue
   };
   static const int kNoEntry;
 
@@ -141,14 +142,10 @@ class HeapEntry BASE_EMBEDDED {
 // HeapSnapshotGenerator fills in a HeapSnapshot.
 class HeapSnapshot {
  public:
-  HeapSnapshot(HeapProfiler* profiler,
-               const char* title,
-               unsigned uid);
+  explicit HeapSnapshot(HeapProfiler* profiler);
   void Delete();
 
   HeapProfiler* profiler() { return profiler_; }
-  const char* title() { return title_; }
-  unsigned uid() { return uid_; }
   size_t RawSnapshotSize() const;
   HeapEntry* root() { return &entries_[root_index_]; }
   HeapEntry* gc_roots() { return &entries_[gc_roots_index_]; }
@@ -181,8 +178,6 @@ class HeapSnapshot {
   HeapEntry* AddGcSubrootEntry(int tag, SnapshotObjectId id);
 
   HeapProfiler* profiler_;
-  const char* title_;
-  unsigned uid_;
   int root_index_;
   int gc_roots_index_;
   int gc_subroot_indexes_[VisitorSynchronization::kNumberOfSyncTags];
@@ -200,6 +195,16 @@ class HeapSnapshot {
 
 class HeapObjectsMap {
  public:
+  struct TimeInterval {
+    explicit TimeInterval(SnapshotObjectId id)
+        : id(id), size(0), count(0), timestamp(base::TimeTicks::Now()) {}
+    SnapshotObjectId last_assigned_id() const { return id - kObjectIdStep; }
+    SnapshotObjectId id;
+    uint32_t size;
+    uint32_t count;
+    base::TimeTicks timestamp;
+  };
+
   explicit HeapObjectsMap(Heap* heap);
 
   Heap* heap() const { return heap_; }
@@ -215,7 +220,9 @@ class HeapObjectsMap {
   }
 
   void StopHeapObjectsTracking();
-  SnapshotObjectId PushHeapObjectsStats(OutputStream* stream);
+  SnapshotObjectId PushHeapObjectsStats(OutputStream* stream,
+                                        int64_t* timestamp_us);
+  const List<TimeInterval>& samples() const { return time_intervals_; }
   size_t GetUsedMemorySize() const;
 
   SnapshotObjectId GenerateId(v8::RetainedObjectInfo* info);
@@ -241,12 +248,6 @@ class HeapObjectsMap {
     Address addr;
     unsigned int size;
     bool accessed;
-  };
-  struct TimeInterval {
-    explicit TimeInterval(SnapshotObjectId id) : id(id), size(0), count(0) { }
-    SnapshotObjectId id;
-    uint32_t size;
-    uint32_t count;
   };
 
   SnapshotObjectId next_id_;
@@ -590,6 +591,7 @@ class HeapSnapshotJSONSerializer {
   void SerializeTraceTree();
   void SerializeTraceNode(AllocationTraceNode* node);
   void SerializeTraceNodeInfos();
+  void SerializeSamples();
   void SerializeString(const unsigned char* s);
   void SerializeStrings();
 

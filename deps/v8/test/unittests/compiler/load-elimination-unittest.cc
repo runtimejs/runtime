@@ -15,11 +15,13 @@ namespace compiler {
 class LoadEliminationTest : public GraphTest {
  public:
   LoadEliminationTest() : GraphTest(3), simplified_(zone()) {}
-  ~LoadEliminationTest() OVERRIDE {}
+  ~LoadEliminationTest() override {}
 
  protected:
   Reduction Reduce(Node* node) {
-    LoadElimination reducer;
+    // TODO(titzer): mock the GraphReducer here for better unit testing.
+    GraphReducer graph_reducer(zone(), graph());
+    LoadElimination reducer(&graph_reducer);
     return reducer.Reduce(node);
   }
 

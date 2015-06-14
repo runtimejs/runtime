@@ -30,7 +30,9 @@ class JSGraph : public ZoneObject {
         common_(common),
         javascript_(javascript),
         machine_(machine),
-        cache_(zone()) {}
+        cache_(zone()) {
+    for (int i = 0; i < kNumCachedNodes; i++) cached_nodes_[i] = nullptr;
+  }
 
   // Canonicalized global constants.
   Node* CEntryStubConstant(int result_size);
@@ -100,6 +102,7 @@ class JSGraph : public ZoneObject {
 
   // Creates an ExternalConstant node, usually canonicalized.
   Node* ExternalConstant(ExternalReference ref);
+  Node* ExternalConstant(Runtime::FunctionId function_id);
 
   Node* SmiConstant(int32_t immediate) {
     DCHECK(Smi::IsValid(immediate));
@@ -114,6 +117,9 @@ class JSGraph : public ZoneObject {
   // cannot deopt.
   Node* EmptyFrameState();
 
+  // Create a control node that serves as control dependency for dead nodes.
+  Node* DeadControl();
+
   JSOperatorBuilder* javascript() const { return javascript_; }
   CommonOperatorBuilder* common() const { return common_; }
   MachineOperatorBuilder* machine() const { return machine_; }
@@ -125,25 +131,28 @@ class JSGraph : public ZoneObject {
   void GetCachedNodes(NodeVector* nodes);
 
  private:
+  enum CachedNode {
+    kCEntryStubConstant,
+    kUndefinedConstant,
+    kTheHoleConstant,
+    kTrueConstant,
+    kFalseConstant,
+    kNullConstant,
+    kZeroConstant,
+    kOneConstant,
+    kNaNConstant,
+    kEmptyFrameState,
+    kDeadControl,
+    kNumCachedNodes  // Must remain last.
+  };
+
   Isolate* isolate_;
   Graph* graph_;
   CommonOperatorBuilder* common_;
   JSOperatorBuilder* javascript_;
   MachineOperatorBuilder* machine_;
-
-  // TODO(titzer): make this into a simple array.
-  SetOncePointer<Node> c_entry_stub_constant_;
-  SetOncePointer<Node> undefined_constant_;
-  SetOncePointer<Node> the_hole_constant_;
-  SetOncePointer<Node> true_constant_;
-  SetOncePointer<Node> false_constant_;
-  SetOncePointer<Node> null_constant_;
-  SetOncePointer<Node> zero_constant_;
-  SetOncePointer<Node> one_constant_;
-  SetOncePointer<Node> nan_constant_;
-  SetOncePointer<Node> empty_frame_state_;
-
   CommonNodeCache cache_;
+  Node* cached_nodes_[kNumCachedNodes];
 
   Node* ImmovableHeapConstant(Handle<HeapObject> value);
   Node* NumberConstant(double value);

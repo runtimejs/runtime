@@ -28,6 +28,7 @@
 
 import os
 import shutil
+import sys
 import time
 
 from pool import Pool
@@ -150,6 +151,7 @@ class Runner(object):
     self.indicator.HasRun(test, has_unexpected_output or test.run > 1)
     if has_unexpected_output:
       # Rerun test failures after the indicator has processed the results.
+      self._VerbosePrint("Attempting to rerun test after failure.")
       self._MaybeRerun(pool, test)
     # Update the perf database if the test succeeded.
     return not has_unexpected_output
@@ -230,15 +232,20 @@ class Runner(object):
     try:
       it = pool.imap_unordered(RunTest, queue)
       for result in it:
-        test = test_map[result[0]]
+        if result.heartbeat:
+          self.indicator.Heartbeat()
+          continue
+        test = test_map[result.value[0]]
         if self.context.predictable:
-          update_perf = self._ProcessTestPredictable(test, result, pool)
+          update_perf = self._ProcessTestPredictable(test, result.value, pool)
         else:
-          update_perf = self._ProcessTestNormal(test, result, pool)
+          update_perf = self._ProcessTestNormal(test, result.value, pool)
         if update_perf:
           self._RunPerfSafe(lambda: self.perfdata.UpdatePerfData(test))
     finally:
+      self._VerbosePrint("Closing process pool.")
       pool.terminate()
+      self._VerbosePrint("Closing database connection.")
       self._RunPerfSafe(lambda: self.perf_data_manager.close())
       if self.perf_failures:
         # Nuke perf data in case of failures. This might not work on windows as
@@ -248,8 +255,18 @@ class Runner(object):
     if queued_exception:
       raise queued_exception
 
-    # Make sure that any allocations were printed in predictable mode.
-    assert not self.context.predictable or self.printed_allocations
+    # Make sure that any allocations were printed in predictable mode (if we
+    # ran any tests).
+    assert (
+        not self.total or
+        not self.context.predictable or
+        self.printed_allocations
+    )
+
+  def _VerbosePrint(self, text):
+    if self.context.verbose:
+      print text
+      sys.stdout.flush()
 
   def GetCommand(self, test):
     d8testflag = []

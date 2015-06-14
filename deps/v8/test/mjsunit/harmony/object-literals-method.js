@@ -104,6 +104,34 @@
 })();
 
 
+(function TestNoRestrictedPropertiesStrict() {
+  var obj = {
+    method() { "use strict"; }
+  };
+  assertFalse(obj.method.hasOwnProperty("arguments"));
+  assertThrows(function() { return obj.method.arguments; }, TypeError);
+  assertThrows(function() { obj.method.arguments = {}; }, TypeError);
+
+  assertFalse(obj.method.hasOwnProperty("caller"));
+  assertThrows(function() { return obj.method.caller; }, TypeError);
+  assertThrows(function() { obj.method.caller = {}; }, TypeError);
+})();
+
+
+(function TestNoRestrictedPropertiesSloppy() {
+  var obj = {
+    method() {}
+  };
+  assertFalse(obj.method.hasOwnProperty("arguments"));
+  assertThrows(function() { return obj.method.arguments; }, TypeError);
+  assertThrows(function() { obj.method.arguments = {}; }, TypeError);
+
+  assertFalse(obj.method.hasOwnProperty("caller"));
+  assertThrows(function() { return obj.method.caller; }, TypeError);
+  assertThrows(function() { obj.method.caller = {}; }, TypeError);
+})();
+
+
 (function TestToString() {
   var object = {
     method() { 42; }
@@ -128,6 +156,7 @@
 
 
 var GeneratorFunction = function*() {}.__proto__.constructor;
+var GeneratorPrototype = Object.getPrototypeOf(function*() {}).prototype;
 
 
 function assertIteratorResult(value, done, result) {
@@ -184,6 +213,19 @@ function assertIteratorResult(value, done, result) {
   var g = desc.value();
   assertIteratorResult(1, false, g.next());
   assertIteratorResult(undefined, true, g.next());
+})();
+
+
+(function TestGeneratorPrototypeDescriptor() {
+  var object = {
+    *method() {}
+  };
+
+  var desc = Object.getOwnPropertyDescriptor(object.method, 'prototype');
+  assertFalse(desc.enumerable);
+  assertFalse(desc.configurable);
+  assertTrue(desc.writable);
+  assertEquals(GeneratorPrototype, Object.getPrototypeOf(desc.value));
 })();
 
 

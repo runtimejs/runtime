@@ -34,7 +34,7 @@ RUNTIME_FUNCTION(Runtime_CreateJSFunctionProxy) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_IsJSProxy) {
+RUNTIME_FUNCTION(Runtime_IsJSProxy) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(Object, obj, 0);
@@ -81,5 +81,5 @@ RUNTIME_FUNCTION(Runtime_Fix) {
   JSProxy::Fix(proxy);
   return isolate->heap()->undefined_value();
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

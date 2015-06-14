@@ -121,11 +121,13 @@ RUNTIME_FUNCTION(Runtime_StringReplaceOneCharWithString) {
   if (isolate->has_pending_exception()) return isolate->heap()->exception();
 
   subject = String::Flatten(subject);
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result,
-      StringReplaceOneCharWithString(isolate, subject, search, replace, &found,
-                                     kRecursionLimit));
-  return *result;
+  if (StringReplaceOneCharWithString(isolate, subject, search, replace, &found,
+                                     kRecursionLimit).ToHandle(&result)) {
+    return *result;
+  }
+  if (isolate->has_pending_exception()) return isolate->heap()->exception();
+  // In case of empty handle and no pending exception we have stack overflow.
+  return isolate->StackOverflow();
 }
 
 
@@ -279,7 +281,7 @@ RUNTIME_FUNCTION(Runtime_StringLocaleCompare) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_SubString) {
+RUNTIME_FUNCTION(Runtime_SubStringRT) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 3);
 
@@ -307,7 +309,13 @@ RUNTIME_FUNCTION(Runtime_SubString) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_StringAdd) {
+RUNTIME_FUNCTION(Runtime_SubString) {
+  SealHandleScope shs(isolate);
+  return __RT_impl_Runtime_SubStringRT(args, isolate);
+}
+
+
+RUNTIME_FUNCTION(Runtime_StringAddRT) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(String, str1, 0);
@@ -317,6 +325,12 @@ RUNTIME_FUNCTION(Runtime_StringAdd) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result, isolate->factory()->NewConsString(str1, str2));
   return *result;
+}
+
+
+RUNTIME_FUNCTION(Runtime_StringAdd) {
+  SealHandleScope shs(isolate);
+  return __RT_impl_Runtime_StringAddRT(args, isolate);
 }
 
 
@@ -414,7 +428,7 @@ RUNTIME_FUNCTION(Runtime_CharFromCode) {
 }
 
 
-RUNTIME_FUNCTION(Runtime_StringCompare) {
+RUNTIME_FUNCTION(Runtime_StringCompareRT) {
   HandleScope handle_scope(isolate);
   DCHECK(args.length() == 2);
 
@@ -480,6 +494,12 @@ RUNTIME_FUNCTION(Runtime_StringCompare) {
     result = (r < 0) ? Smi::FromInt(LESS) : Smi::FromInt(GREATER);
   }
   return result;
+}
+
+
+RUNTIME_FUNCTION(Runtime_StringCompare) {
+  SealHandleScope shs(isolate);
+  return __RT_impl_Runtime_StringCompareRT(args, isolate);
 }
 
 
@@ -1203,6 +1223,28 @@ RUNTIME_FUNCTION(Runtime_NewString) {
 }
 
 
+RUNTIME_FUNCTION(Runtime_NewConsString) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 4);
+  CONVERT_INT32_ARG_CHECKED(length, 0);
+  CONVERT_BOOLEAN_ARG_CHECKED(is_one_byte, 1);
+  CONVERT_ARG_HANDLE_CHECKED(String, left, 2);
+  CONVERT_ARG_HANDLE_CHECKED(String, right, 3);
+
+  Handle<String> result;
+  if (is_one_byte) {
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+        isolate, result,
+        isolate->factory()->NewOneByteConsString(length, left, right));
+  } else {
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+        isolate, result,
+        isolate->factory()->NewTwoByteConsString(length, left, right));
+  }
+  return *result;
+}
+
+
 RUNTIME_FUNCTION(Runtime_StringEquals) {
   HandleScope handle_scope(isolate);
   DCHECK(args.length() == 2);
@@ -1229,13 +1271,13 @@ RUNTIME_FUNCTION(Runtime_FlattenString) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_StringCharFromCode) {
+RUNTIME_FUNCTION(Runtime_StringCharFromCode) {
   SealHandleScope shs(isolate);
   return __RT_impl_Runtime_CharFromCode(args, isolate);
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_StringCharAt) {
+RUNTIME_FUNCTION(Runtime_StringCharAt) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 2);
   if (!args[0]->IsString()) return Smi::FromInt(0);
@@ -1247,7 +1289,16 @@ RUNTIME_FUNCTION(RuntimeReference_StringCharAt) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_OneByteSeqStringSetChar) {
+RUNTIME_FUNCTION(Runtime_OneByteSeqStringGetChar) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 2);
+  CONVERT_ARG_CHECKED(SeqOneByteString, string, 0);
+  CONVERT_INT32_ARG_CHECKED(index, 1);
+  return Smi::FromInt(string->SeqOneByteStringGet(index));
+}
+
+
+RUNTIME_FUNCTION(Runtime_OneByteSeqStringSetChar) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 3);
   CONVERT_INT32_ARG_CHECKED(index, 0);
@@ -1258,7 +1309,16 @@ RUNTIME_FUNCTION(RuntimeReference_OneByteSeqStringSetChar) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_TwoByteSeqStringSetChar) {
+RUNTIME_FUNCTION(Runtime_TwoByteSeqStringGetChar) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 2);
+  CONVERT_ARG_CHECKED(SeqTwoByteString, string, 0);
+  CONVERT_INT32_ARG_CHECKED(index, 1);
+  return Smi::FromInt(string->SeqTwoByteStringGet(index));
+}
+
+
+RUNTIME_FUNCTION(Runtime_TwoByteSeqStringSetChar) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 3);
   CONVERT_INT32_ARG_CHECKED(index, 0);
@@ -1269,13 +1329,7 @@ RUNTIME_FUNCTION(RuntimeReference_TwoByteSeqStringSetChar) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_StringCompare) {
-  SealHandleScope shs(isolate);
-  return __RT_impl_Runtime_StringCompare(args, isolate);
-}
-
-
-RUNTIME_FUNCTION(RuntimeReference_StringCharCodeAt) {
+RUNTIME_FUNCTION(Runtime_StringCharCodeAt) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 2);
   if (!args[0]->IsString()) return isolate->heap()->undefined_value();
@@ -1285,21 +1339,17 @@ RUNTIME_FUNCTION(RuntimeReference_StringCharCodeAt) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_SubString) {
-  SealHandleScope shs(isolate);
-  return __RT_impl_Runtime_SubString(args, isolate);
-}
-
-
-RUNTIME_FUNCTION(RuntimeReference_StringAdd) {
-  SealHandleScope shs(isolate);
-  return __RT_impl_Runtime_StringAdd(args, isolate);
-}
-
-
-RUNTIME_FUNCTION(RuntimeReference_IsStringWrapperSafeForDefaultValueOf) {
+RUNTIME_FUNCTION(Runtime_IsStringWrapperSafeForDefaultValueOf) {
   UNIMPLEMENTED();
   return NULL;
 }
+
+
+RUNTIME_FUNCTION(Runtime_StringGetLength) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 1);
+  CONVERT_ARG_HANDLE_CHECKED(String, s, 0);
+  return Smi::FromInt(s->length());
 }
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

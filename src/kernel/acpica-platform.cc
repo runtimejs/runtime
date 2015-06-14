@@ -74,7 +74,9 @@ void AcpiOsSleep(UINT64 Milliseconds) {
 }
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 InterruptLevel, ACPI_OSD_HANDLER Handler, void *Context) {
+#ifdef RUNTIME_DEBUG
     printf("[ACPICA] Install IRQ # %d\n", InterruptLevel);
+#endif
     return AE_OK;
 }
 

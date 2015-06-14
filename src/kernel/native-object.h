@@ -18,12 +18,7 @@
 #include <kernel/v8utils.h>
 #include <kernel/template-cache.h>
 #include <acpi.h>
-#include <common/utils.h>
-#include <kernel/handle.h>
-#include <kernel/pipes.h>
-
-using common::Range;
-using common::MemoryBlock;
+#include <kernel/utils.h>
 
 namespace rt {
 
@@ -53,7 +48,6 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
     DECLARE_NATIVE(BufferAddress);
-    DECLARE_NATIVE(CreatePipe);
     DECLARE_NATIVE(NetChecksum);
     DECLARE_NATIVE(BufferSliceInplace);
 
@@ -72,16 +66,6 @@ public:
     DECLARE_NATIVE(TextEncoderEncode);
     DECLARE_NATIVE(TextDecoder);
     DECLARE_NATIVE(TextDecoderDecode);
-
-    /**
-     * Get unique index of an handle object within the handle pool
-     */
-    DECLARE_NATIVE(HandleIndex);
-
-    /**
-     * Extract pipe object from handle
-     */
-    DECLARE_NATIVE(HandleGetPipe);
 
     /**
      * Handle method call handler
@@ -117,7 +101,6 @@ public:
     /**
      * Create new handle pool
      */
-    DECLARE_NATIVE(CreateHandlePool);
     DECLARE_NATIVE(HandlePoolCtorFunction);
 
     /**
@@ -137,11 +120,8 @@ public:
         obj.SetCallback("stopVideoLog", StopVideoLog);
         obj.SetCallback("initrdList", InitrdList);
         obj.SetCallback("bufferAddress", BufferAddress);
-        obj.SetCallback("createHandlePool", CreateHandlePool);
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
-        obj.SetCallback("handleIndex", HandleIndex);
-        obj.SetCallback("handleGetPipe", HandleGetPipe);
         obj.SetCallback("netChecksum", NetChecksum);
     }
 
@@ -377,25 +357,6 @@ private:
     MemoryBlock<uint32_t> memory_block_;
 };
 
-class IsolatesManagerObject : public JsObjectWrapper<IsolatesManagerObject,
-    NativeTypeId::TYPEID_ISOLATES_MANAGER> {
-public:
-    IsolatesManagerObject() : JsObjectWrapper() { }
-
-    DECLARE_NATIVE(Create);
-    DECLARE_NATIVE(List);
-
-    void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("create", Create);
-        obj.SetCallback("list", List);
-    }
-
-    JsObjectWrapperBase* Clone() const {
-        return new IsolatesManagerObject();
-    }
-private:
-};
-
 class AllocatorObject : public JsObjectWrapper<AllocatorObject,
     NativeTypeId::TYPEID_ALLOCATOR> {
 public:
@@ -411,108 +372,6 @@ public:
         return new AllocatorObject();
     }
 private:
-};
-
-/**
- * Lightweight handle for kernel objects (socket, file, etc)
- */
-class HandleObject : public NativeObjectWrapper {
-public:
-    HandleObject(uint32_t pool_id, uint32_t handle_id, Pipe* wpipe, Pipe* rpipe)
-        :	NativeObjectWrapper(NativeTypeId::TYPEID_HANDLE),
-            pool_id_(pool_id), handle_id_(handle_id),
-            wpipe_(wpipe), rpipe_(rpipe) { }
-
-    uint32_t pool_id() const { return pool_id_; }
-    uint32_t handle_id() const { return handle_id_; }
-    Pipe* wpipe() const { return wpipe_; }
-    Pipe* rpipe() const { return rpipe_; }
-
-    DECLARE_NATIVE(PipePull);
-    DECLARE_NATIVE(PipePush);
-    DECLARE_NATIVE(PipeClose);
-
-    static HandleObject* FromInstance(v8::Local<v8::Value> val) {
-        if (!val->IsObject()) return nullptr;
-        NativeObjectWrapper* ptr = TemplateCache::GetWrapped(val);
-        if (nullptr == ptr) return nullptr;
-        if (NativeTypeId::TYPEID_HANDLE != ptr->type_id()) return nullptr;
-        RT_ASSERT(ptr);
-        auto handle_object = reinterpret_cast<HandleObject*>(ptr);
-        RT_ASSERT(handle_object);
-        return handle_object;
-    }
-private:
-    uint32_t pool_id_;
-    uint32_t handle_id_;
-    Pipe* wpipe_;
-    Pipe* rpipe_;
-};
-
-class HandlePoolObject : public JsObjectWrapper<HandlePoolObject,
-    NativeTypeId::TYPEID_HANDLE_POOL> {
-public:
-    HandlePoolObject(HandlePool* pool) : JsObjectWrapper(), pool_(pool) {
-        RT_ASSERT(pool_);
-    }
-
-    DECLARE_NATIVE(CreateHandle);
-    DECLARE_NATIVE(Has);
-    DECLARE_NATIVE(Ctor);
-
-    void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("createHandle", CreateHandle);
-        obj.SetCallback("has", Has);
-        obj.SetCallback("ctor", Ctor);
-    }
-
-    JsObjectWrapperBase* Clone() const {
-        return nullptr; // Not clonable
-    }
-
-    HandlePool* pool() const { return pool_; }
-private:
-    HandlePool* pool_;
-};
-
-class PipeObject : public JsObjectWrapper<PipeObject,
-    NativeTypeId::TYPEID_PIPE> {
-public:
-    PipeObject(Pipe* pipe) : JsObjectWrapper(), pipe_(pipe) {
-        RT_ASSERT(pipe_);
-    }
-
-    DECLARE_NATIVE(Push);
-    DECLARE_NATIVE(Pull);
-    DECLARE_NATIVE(Wait);
-    DECLARE_NATIVE(Close);
-
-    static void PushImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args);
-    static void PullImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args);
-
-    void ObjectInit(ExportBuilder obj) {
-        obj.SetCallback("push", Push);
-        obj.SetCallback("pull", Pull);
-
-        obj.SetCallback("write", Push);
-        obj.SetCallback("read", Pull);
-
-        obj.SetCallback("wait", Wait);
-        obj.SetCallback("close", Close);
-    }
-
-    ~PipeObject() {
-        pipe_->Unref();
-    }
-
-    JsObjectWrapperBase* Clone() const {
-        pipe_->Ref();
-        return new PipeObject(pipe_);
-    }
-
-    Pipe* pipe() const { return pipe_; }
-private:
-    Pipe* pipe_;
 };
 
 } // namespace rt

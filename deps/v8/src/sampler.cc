@@ -569,7 +569,7 @@ class SamplerThread : public base::Thread {
           sampler->DoSample();
         }
       }
-      base::OS::Sleep(interval_);
+      base::OS::Sleep(base::TimeDelta::FromMilliseconds(interval_));
     }
   }
 
@@ -792,4 +792,5 @@ void Sampler::DoSample() {
 #endif  // USE_SIGNALS
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

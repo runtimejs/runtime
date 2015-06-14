@@ -2,13 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-"use strict";
-
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Array = global.Array;
-
-// And requires following symbols to be set in the bootstrapper during genesis:
+// Expects following symbols to be set in the bootstrapper during genesis:
 // - symbolHasInstance
 // - symbolIsConcatSpreadable
 // - symbolIsRegExp
@@ -16,23 +10,39 @@
 // - symbolToStringTag
 // - symbolUnscopables
 
-var $Symbol = global.Symbol;
+var $symbolToString;
+
+(function(global, utils) {
+
+"use strict";
+
+%CheckIsBootstrapping();
+
+// -------------------------------------------------------------------
+// Imports
+
+var GlobalObject = global.Object;
+var GlobalSymbol = global.Symbol;
+
+var ObjectGetOwnPropertyKeys;
+
+utils.Import(function(from) {
+  ObjectGetOwnPropertyKeys = from.ObjectGetOwnPropertyKeys;
+});
 
 // -------------------------------------------------------------------
 
 function SymbolConstructor(x) {
-  if (%_IsConstructCall()) {
-    throw MakeTypeError('not_constructor', ["Symbol"]);
-  }
+  if (%_IsConstructCall()) throw MakeTypeError(kNotConstructor, "Symbol");
   // NOTE: Passing in a Symbol value will throw on ToString().
-  return %CreateSymbol(IS_UNDEFINED(x) ? x : ToString(x));
+  return %CreateSymbol(IS_UNDEFINED(x) ? x : $toString(x));
 }
 
 
 function SymbolToString() {
   if (!(IS_SYMBOL(this) || IS_SYMBOL_WRAPPER(this))) {
-    throw MakeTypeError(
-      'incompatible_method_receiver', ["Symbol.prototype.toString", this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        "Symbol.prototype.toString", this);
   }
   var description = %SymbolDescription(%_ValueOf(this));
   return "Symbol(" + (IS_UNDEFINED(description) ? "" : description) + ")";
@@ -41,8 +51,8 @@ function SymbolToString() {
 
 function SymbolValueOf() {
   if (!(IS_SYMBOL(this) || IS_SYMBOL_WRAPPER(this))) {
-    throw MakeTypeError(
-      'incompatible_method_receiver', ["Symbol.prototype.valueOf", this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        "Symbol.prototype.valueOf", this);
   }
   return %_ValueOf(this);
 }
@@ -61,14 +71,14 @@ function SymbolFor(key) {
 
 
 function SymbolKeyFor(symbol) {
-  if (!IS_SYMBOL(symbol)) throw MakeTypeError("not_a_symbol", [symbol]);
+  if (!IS_SYMBOL(symbol)) throw MakeTypeError(kSymbolKeyFor, symbol);
   return %SymbolRegistry().keyFor[symbol];
 }
 
 
 // ES6 19.1.2.8
 function ObjectGetOwnPropertySymbols(obj) {
-  obj = ToObject(obj);
+  obj = $toObject(obj);
 
   // TODO(arv): Proxies use a shared trap for String and Symbol keys.
 
@@ -77,46 +87,40 @@ function ObjectGetOwnPropertySymbols(obj) {
 
 //-------------------------------------------------------------------
 
-function SetUpSymbol() {
-  %CheckIsBootstrapping();
+%SetCode(GlobalSymbol, SymbolConstructor);
+%FunctionSetPrototype(GlobalSymbol, new GlobalObject());
 
-  %SetCode($Symbol, SymbolConstructor);
-  %FunctionSetPrototype($Symbol, new $Object());
+utils.InstallConstants(GlobalSymbol, [
+  // TODO(rossberg): expose when implemented.
+  // "hasInstance", symbolHasInstance,
+  // "isConcatSpreadable", symbolIsConcatSpreadable,
+  // "isRegExp", symbolIsRegExp,
+  "iterator", symbolIterator,
+  // TODO(dslomov, caitp): Currently defined in harmony-tostring.js ---
+  // Move here when shipping
+  // "toStringTag", symbolToStringTag,
+  "unscopables", symbolUnscopables
+]);
 
-  InstallConstants($Symbol, $Array(
-    // TODO(rossberg): expose when implemented.
-    // "hasInstance", symbolHasInstance,
-    // "isConcatSpreadable", symbolIsConcatSpreadable,
-    // "isRegExp", symbolIsRegExp,
-    "iterator", symbolIterator,
-    // TODO(dslomov, caitp): Currently defined in harmony-tostring.js ---
-    // Move here when shipping
-    // "toStringTag", symbolToStringTag,
-    "unscopables", symbolUnscopables
-  ));
-  InstallFunctions($Symbol, DONT_ENUM, $Array(
-    "for", SymbolFor,
-    "keyFor", SymbolKeyFor
-  ));
+utils.InstallFunctions(GlobalSymbol, DONT_ENUM, [
+  "for", SymbolFor,
+  "keyFor", SymbolKeyFor
+]);
 
-  %AddNamedProperty($Symbol.prototype, "constructor", $Symbol, DONT_ENUM);
-  %AddNamedProperty(
-      $Symbol.prototype, symbolToStringTag, "Symbol", DONT_ENUM | READ_ONLY);
-  InstallFunctions($Symbol.prototype, DONT_ENUM, $Array(
-    "toString", SymbolToString,
-    "valueOf", SymbolValueOf
-  ));
-}
+%AddNamedProperty(
+    GlobalSymbol.prototype, "constructor", GlobalSymbol, DONT_ENUM);
+%AddNamedProperty(
+    GlobalSymbol.prototype, symbolToStringTag, "Symbol", DONT_ENUM | READ_ONLY);
 
-SetUpSymbol();
+utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM, [
+  "toString", SymbolToString,
+  "valueOf", SymbolValueOf
+]);
 
+utils.InstallFunctions(GlobalObject, DONT_ENUM, [
+  "getOwnPropertySymbols", ObjectGetOwnPropertySymbols
+]);
 
-function ExtendObject() {
-  %CheckIsBootstrapping();
+$symbolToString = SymbolToString;
 
-  InstallFunctions($Object, DONT_ENUM, $Array(
-    "getOwnPropertySymbols", ObjectGetOwnPropertySymbols
-  ));
-}
-
-ExtendObject();
+})

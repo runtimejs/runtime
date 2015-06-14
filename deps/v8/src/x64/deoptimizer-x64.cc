@@ -134,7 +134,7 @@ bool Deoptimizer::HasAlignmentPadding(JSFunction* function) {
 
 #define __ masm()->
 
-void Deoptimizer::EntryGenerator::Generate() {
+void Deoptimizer::TableEntryGenerator::Generate() {
   GeneratePrologue();
 
   // Save all general purpose registers before messing with them.
@@ -159,6 +159,8 @@ void Deoptimizer::EntryGenerator::Generate() {
 
   const int kSavedRegistersAreaSize = kNumberOfRegisters * kRegisterSize +
                                       kDoubleRegsSize;
+
+  __ Store(ExternalReference(Isolate::kCEntryFPAddress, isolate()), rbp);
 
   // We use this to keep the value of the fifth argument temporarily.
   // Unfortunately we can't store it directly in r8 (used for passing
@@ -305,7 +307,6 @@ void Deoptimizer::EntryGenerator::Generate() {
 
   // Set up the roots register.
   __ InitializeRootRegister();
-  __ InitializeSmiConstantRegister();
 
   // Return to the continuation point.
   __ ret(0);
@@ -345,7 +346,7 @@ void FrameDescription::SetCallerFp(unsigned offset, intptr_t value) {
 
 
 void FrameDescription::SetCallerConstantPool(unsigned offset, intptr_t value) {
-  // No out-of-line constant pool support.
+  // No embedded constant pool support.
   UNREACHABLE();
 }
 
@@ -353,6 +354,7 @@ void FrameDescription::SetCallerConstantPool(unsigned offset, intptr_t value) {
 #undef __
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X64

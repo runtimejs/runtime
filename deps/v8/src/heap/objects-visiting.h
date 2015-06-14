@@ -34,7 +34,6 @@ class StaticVisitorBase : public AllStatic {
   V(FixedDoubleArray)      \
   V(FixedTypedArray)       \
   V(FixedFloat64Array)     \
-  V(ConstantPoolArray)     \
   V(NativeContext)         \
   V(AllocationSite)        \
   V(DataObject2)           \
@@ -413,6 +412,7 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   INLINE(static void VisitCodeTarget(Heap* heap, RelocInfo* rinfo));
   INLINE(static void VisitCodeAgeSequence(Heap* heap, RelocInfo* rinfo));
   INLINE(static void VisitExternalReference(RelocInfo* rinfo)) {}
+  INLINE(static void VisitInternalReference(RelocInfo* rinfo)) {}
   INLINE(static void VisitRuntimeEntry(RelocInfo* rinfo)) {}
   // Skip the weak next code link in a code object.
   INLINE(static void VisitNextCodeLink(Heap* heap, Object** slot)) {}
@@ -426,7 +426,6 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   INLINE(static void VisitMap(Map* map, HeapObject* object));
   INLINE(static void VisitCode(Map* map, HeapObject* object));
   INLINE(static void VisitSharedFunctionInfo(Map* map, HeapObject* object));
-  INLINE(static void VisitConstantPoolArray(Map* map, HeapObject* object));
   INLINE(static void VisitAllocationSite(Map* map, HeapObject* object));
   INLINE(static void VisitWeakCollection(Map* map, HeapObject* object));
   INLINE(static void VisitJSFunction(Map* map, HeapObject* object));

@@ -1,0 +1,34 @@
+{
+  "name": "runtimejs",
+  "version": "0.1.11",
+  "description": "Core runtime.js library",
+  "main": "index.js",
+  "scripts": {
+    "test": "tape test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:runtimejs/runtime.git"
+  },
+  "author": "runtime.js project authors",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/runtimejs/runtime/issues"
+  },
+  "homepage": "http://runtimejs.org",
+  "devDependencies": {
+    "tape": "^4.0.0"
+  },
+  "runtimejs": {
+    "debug": false
+  },
+  "dependencies": {
+    "assert-error": "^1.0.2",
+    "bit-twiddle": "^1.0.2",
+    "event-controller": "^1.0.1",
+    "isint": "^1.0.0",
+    "module-singleton": "^2.0.0",
+    "typeutils": "^1.0.1",
+    "u8-view": "^1.0.0"
+  }
+}

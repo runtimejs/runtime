@@ -7,6 +7,7 @@
 #include "src/accessors.h"
 #include "src/arguments.h"
 #include "src/frames-inl.h"
+#include "src/messages.h"
 #include "src/runtime/runtime-utils.h"
 #include "src/scopeinfo.h"
 #include "src/scopes.h"
@@ -16,17 +17,15 @@ namespace internal {
 
 static Object* ThrowRedeclarationError(Isolate* isolate, Handle<String> name) {
   HandleScope scope(isolate);
-  Handle<Object> args[1] = {name};
   THROW_NEW_ERROR_RETURN_FAILURE(
-      isolate, NewTypeError("var_redeclaration", HandleVector(args, 1)));
+      isolate, NewTypeError(MessageTemplate::kVarRedeclaration, name));
 }
 
 
 RUNTIME_FUNCTION(Runtime_ThrowConstAssignError) {
   HandleScope scope(isolate);
-  THROW_NEW_ERROR_RETURN_FAILURE(
-      isolate,
-      NewTypeError("harmony_const_assign", HandleVector<Object>(NULL, 0)));
+  THROW_NEW_ERROR_RETURN_FAILURE(isolate,
+                                 NewTypeError(MessageTemplate::kConstAssign));
 }
 
 
@@ -46,10 +45,10 @@ static Object* DeclareGlobals(Isolate* isolate, Handle<GlobalObject> global,
   // Do the lookup own properties only, see ES5 erratum.
   LookupIterator it(global, name, LookupIterator::HIDDEN_SKIP_INTERCEPTOR);
   Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-  if (!maybe.has_value) return isolate->heap()->exception();
+  if (!maybe.IsJust()) return isolate->heap()->exception();
 
   if (it.IsFound()) {
-    PropertyAttributes old_attributes = maybe.value;
+    PropertyAttributes old_attributes = maybe.FromJust();
     // The name was declared before; check for conflicting re-declarations.
     if (is_const) return ThrowRedeclarationError(isolate, name);
 
@@ -178,8 +177,8 @@ RUNTIME_FUNCTION(Runtime_InitializeConstGlobal) {
   // Lookup the property as own on the global object.
   LookupIterator it(global, name, LookupIterator::HIDDEN_SKIP_INTERCEPTOR);
   Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-  DCHECK(maybe.has_value);
-  PropertyAttributes old_attributes = maybe.value;
+  DCHECK(maybe.IsJust());
+  PropertyAttributes old_attributes = maybe.FromJust();
 
   PropertyAttributes attr =
       static_cast<PropertyAttributes>(DONT_DELETE | READ_ONLY);
@@ -239,11 +238,22 @@ RUNTIME_FUNCTION(Runtime_DeclareLookupSlot) {
 
   // TODO(verwaest): This case should probably not be covered by this function,
   // but by DeclareGlobals instead.
-  if ((attributes != ABSENT && holder->IsJSGlobalObject()) ||
-      (context_arg->has_extension() &&
-       context_arg->extension()->IsJSGlobalObject())) {
+  if (attributes != ABSENT && holder->IsJSGlobalObject()) {
     return DeclareGlobals(isolate, Handle<JSGlobalObject>::cast(holder), name,
                           value, attr, is_var, is_const, is_function);
+  }
+  if (context_arg->has_extension() &&
+      context_arg->extension()->IsJSGlobalObject()) {
+    Handle<JSGlobalObject> global(
+        JSGlobalObject::cast(context_arg->extension()), isolate);
+    return DeclareGlobals(isolate, global, name, value, attr, is_var, is_const,
+                          is_function);
+  } else if (context->IsScriptContext()) {
+    DCHECK(context->global_object()->IsJSGlobalObject());
+    Handle<JSGlobalObject> global(
+        JSGlobalObject::cast(context->global_object()), isolate);
+    return DeclareGlobals(isolate, global, name, value, attr, is_var, is_const,
+                          is_function);
   }
 
   if (attributes != ABSENT) {
@@ -319,8 +329,12 @@ RUNTIME_FUNCTION(Runtime_InitializeLegacyConstLookupSlot) {
   // meanwhile. If so, re-introduce the variable in the context extension.
   if (attributes == ABSENT) {
     Handle<Context> declaration_context(context_arg->declaration_context());
-    DCHECK(declaration_context->has_extension());
-    holder = handle(declaration_context->extension(), isolate);
+    if (declaration_context->IsScriptContext()) {
+      holder = handle(declaration_context->global_object(), isolate);
+    } else {
+      DCHECK(declaration_context->has_extension());
+      holder = handle(declaration_context->extension(), isolate);
+    }
     CHECK(holder->IsJSObject());
   } else {
     // For JSContextExtensionObjects, the initializer can be run multiple times
@@ -331,8 +345,8 @@ RUNTIME_FUNCTION(Runtime_InitializeLegacyConstLookupSlot) {
 
     LookupIterator it(holder, name, LookupIterator::HIDDEN_SKIP_INTERCEPTOR);
     Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-    if (!maybe.has_value) return isolate->heap()->exception();
-    PropertyAttributes old_attributes = maybe.value;
+    if (!maybe.IsJust()) return isolate->heap()->exception();
+    PropertyAttributes old_attributes = maybe.FromJust();
 
     // Ignore if we can't reconfigure the value.
     if ((old_attributes & DONT_DELETE) != 0) {
@@ -356,11 +370,13 @@ static Handle<JSObject> NewSloppyArguments(Isolate* isolate,
                                            Handle<JSFunction> callee,
                                            Object** parameters,
                                            int argument_count) {
+  CHECK(!IsSubclassConstructor(callee->shared()->kind()));
+  DCHECK(callee->is_simple_parameter_list());
   Handle<JSObject> result =
       isolate->factory()->NewArgumentsObject(callee, argument_count);
 
   // Allocate the elements if needed.
-  int parameter_count = callee->shared()->formal_parameter_count();
+  int parameter_count = callee->shared()->internal_formal_parameter_count();
   if (argument_count > 0) {
     if (parameter_count > 0) {
       int mapped_count = Min(argument_count, parameter_count);
@@ -419,6 +435,7 @@ static Handle<JSObject> NewSloppyArguments(Isolate* isolate,
               break;
             }
           }
+
           DCHECK(context_index >= 0);
           arguments->set_the_hole(index);
           parameter_map->set(
@@ -477,7 +494,9 @@ RUNTIME_FUNCTION(Runtime_NewArguments) {
   // Determine parameter location on the stack and dispatch on language mode.
   int argument_count = frame->GetArgumentsLength();
   Object** parameters = reinterpret_cast<Object**>(frame->GetParameterSlot(-1));
-  return is_strict(callee->shared()->language_mode())
+
+  return (is_strict(callee->shared()->language_mode()) ||
+             !callee->is_simple_parameter_list())
              ? *NewStrictArguments(isolate, callee, parameters, argument_count)
              : *NewSloppyArguments(isolate, callee, parameters, argument_count);
 }
@@ -500,6 +519,54 @@ RUNTIME_FUNCTION(Runtime_NewStrictArguments) {
   Object** parameters = reinterpret_cast<Object**>(args[1]);
   CONVERT_SMI_ARG_CHECKED(argument_count, 2);
   return *NewStrictArguments(isolate, callee, parameters, argument_count);
+}
+
+
+static Handle<JSArray> NewRestParam(Isolate* isolate, Object** parameters,
+                                    int num_params, int rest_index,
+                                    LanguageMode language_mode) {
+  parameters -= rest_index;
+  int num_elements = std::max(0, num_params - rest_index);
+  Handle<FixedArray> elements =
+      isolate->factory()->NewUninitializedFixedArray(num_elements);
+  for (int i = 0; i < num_elements; ++i) {
+    elements->set(i, *--parameters);
+  }
+  return isolate->factory()->NewJSArrayWithElements(
+      elements, FAST_ELEMENTS, num_elements, strength(language_mode));
+}
+
+
+RUNTIME_FUNCTION(Runtime_NewRestParam) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 4);
+  Object** parameters = reinterpret_cast<Object**>(args[0]);
+  CONVERT_SMI_ARG_CHECKED(num_params, 1);
+  CONVERT_SMI_ARG_CHECKED(rest_index, 2);
+  CONVERT_SMI_ARG_CHECKED(language_mode, 3);
+
+  return *NewRestParam(isolate, parameters, num_params, rest_index,
+                       static_cast<LanguageMode>(language_mode));
+}
+
+
+RUNTIME_FUNCTION(Runtime_NewRestParamSlow) {
+  HandleScope scope(isolate);
+  DCHECK(args.length() == 2);
+  CONVERT_SMI_ARG_CHECKED(rest_index, 0);
+  CONVERT_SMI_ARG_CHECKED(language_mode, 1);
+
+  JavaScriptFrameIterator it(isolate);
+
+  // Find the frame that holds the actual arguments passed to the function.
+  it.AdvanceToArgumentsFrame();
+  JavaScriptFrame* frame = it.frame();
+
+  int argument_count = frame->GetArgumentsLength();
+  Object** parameters = reinterpret_cast<Object**>(frame->GetParameterSlot(-1));
+
+  return *NewRestParam(isolate, parameters, argument_count, rest_index,
+                       static_cast<LanguageMode>(language_mode));
 }
 
 
@@ -546,8 +613,8 @@ static Object* FindNameClash(Handle<ScopeInfo> scope_info,
       LookupIterator it(global_object, name,
                         LookupIterator::HIDDEN_SKIP_INTERCEPTOR);
       Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-      if (!maybe.has_value) return isolate->heap()->exception();
-      if ((maybe.value & DONT_DELETE) != 0) {
+      if (!maybe.IsJust()) return isolate->heap()->exception();
+      if ((maybe.FromJust() & DONT_DELETE) != 0) {
         return ThrowRedeclarationError(isolate, name);
       }
 
@@ -574,8 +641,12 @@ RUNTIME_FUNCTION(Runtime_NewScriptContext) {
       FindNameClash(scope_info, global_object, script_context_table);
   if (isolate->has_pending_exception()) return name_clash_result;
 
+  // Script contexts have a canonical empty function as their closure, not the
+  // anonymous closure containing the global code.  See
+  // FullCodeGenerator::PushFunctionArgumentForContextAllocation.
+  Handle<JSFunction> closure(native_context->closure());
   Handle<Context> result =
-      isolate->factory()->NewScriptContext(function, scope_info);
+      isolate->factory()->NewScriptContext(closure, scope_info);
 
   DCHECK(function->context() == isolate->context());
   DCHECK(function->context()->global_object() == result->global_object());
@@ -612,7 +683,7 @@ RUNTIME_FUNCTION(Runtime_PushWithContext) {
     if (!maybe_object.ToHandle(&extension_object)) {
       Handle<Object> handle = args.at<Object>(0);
       THROW_NEW_ERROR_RETURN_FAILURE(
-          isolate, NewTypeError("with_expression", HandleVector(&handle, 1)));
+          isolate, NewTypeError(MessageTemplate::kWithExpression, handle));
     }
   }
 
@@ -740,7 +811,8 @@ RUNTIME_FUNCTION(Runtime_DeclareModules) {
         case VAR:
         case LET:
         case CONST:
-        case CONST_LEGACY: {
+        case CONST_LEGACY:
+        case IMPORT: {
           PropertyAttributes attr =
               IsImmutableVariableMode(mode) ? FROZEN : SEALED;
           Handle<AccessorInfo> info =
@@ -749,13 +821,6 @@ RUNTIME_FUNCTION(Runtime_DeclareModules) {
               JSObject::SetAccessor(module, info).ToHandleChecked();
           DCHECK(!result->IsUndefined());
           USE(result);
-          break;
-        }
-        case MODULE: {
-          Object* referenced_context = Context::cast(host_context)->get(index);
-          Handle<JSModule> value(Context::cast(referenced_context)->module());
-          JSObject::SetOwnPropertyIgnoreAttributes(module, name, value, FROZEN)
-              .Assert();
           break;
         }
         case INTERNAL:
@@ -812,16 +877,14 @@ RUNTIME_FUNCTION(Runtime_DeleteLookupSlot) {
 
 static Object* ComputeReceiverForNonGlobal(Isolate* isolate, JSObject* holder) {
   DCHECK(!holder->IsGlobalObject());
-  Context* top = isolate->context();
-  // Get the context extension function.
-  JSFunction* context_extension_function =
-      top->native_context()->context_extension_function();
+
   // If the holder isn't a context extension object, we just return it
   // as the receiver. This allows arguments objects to be used as
   // receivers, but only if they are put in the context scope chain
   // explicitly via a with-statement.
-  Object* constructor = holder->map()->constructor();
-  if (constructor != context_extension_function) return holder;
+  if (holder->map()->instance_type() != JS_CONTEXT_EXTENSION_OBJECT_TYPE) {
+    return holder;
+  }
   // Fall back to using the global object as the implicit receiver if
   // the property turns out to be a local variable allocated in a
   // context extension object - introduced via eval.
@@ -862,11 +925,9 @@ static ObjectPair LoadLookupSlotHelper(Arguments args, Isolate* isolate,
       case MUTABLE_CHECK_INITIALIZED:
       case IMMUTABLE_CHECK_INITIALIZED_HARMONY:
         if (value->IsTheHole()) {
-          Handle<Object> error;
-          MaybeHandle<Object> maybe_error =
-              isolate->factory()->NewReferenceError("not_defined",
-                                                    HandleVector(&name, 1));
-          if (maybe_error.ToHandle(&error)) isolate->Throw(*error);
+          Handle<Object> error = isolate->factory()->NewReferenceError(
+              MessageTemplate::kNotDefined, name);
+          isolate->Throw(*error);
           return MakePair(isolate->heap()->exception(), NULL);
         }
       // FALLTHROUGH
@@ -892,13 +953,6 @@ static ObjectPair LoadLookupSlotHelper(Arguments args, Isolate* isolate,
   // property from it.
   if (!holder.is_null()) {
     Handle<JSReceiver> object = Handle<JSReceiver>::cast(holder);
-#ifdef DEBUG
-    if (!object->IsJSProxy()) {
-      Maybe<bool> maybe = JSReceiver::HasProperty(object, name);
-      DCHECK(maybe.has_value);
-      DCHECK(maybe.value);
-    }
-#endif
     // GetProperty below can cause GC.
     Handle<Object> receiver_handle(
         object->IsGlobalObject()
@@ -919,10 +973,9 @@ static ObjectPair LoadLookupSlotHelper(Arguments args, Isolate* isolate,
 
   if (throw_error) {
     // The property doesn't exist - throw exception.
-    Handle<Object> error;
-    MaybeHandle<Object> maybe_error = isolate->factory()->NewReferenceError(
-        "not_defined", HandleVector(&name, 1));
-    if (maybe_error.ToHandle(&error)) isolate->Throw(*error);
+    Handle<Object> error = isolate->factory()->NewReferenceError(
+        MessageTemplate::kNotDefined, name);
+    isolate->Throw(*error);
     return MakePair(isolate->heap()->exception(), NULL);
   } else {
     // The property doesn't exist - return undefined.
@@ -967,8 +1020,7 @@ RUNTIME_FUNCTION(Runtime_StoreLookupSlot) {
     } else if (is_strict(language_mode)) {
       // Setting read only property in strict mode.
       THROW_NEW_ERROR_RETURN_FAILURE(
-          isolate,
-          NewTypeError("strict_cannot_assign", HandleVector(&name, 1)));
+          isolate, NewTypeError(MessageTemplate::kStrictCannotAssign, name));
     }
     return *value;
   }
@@ -983,7 +1035,7 @@ RUNTIME_FUNCTION(Runtime_StoreLookupSlot) {
   } else if (is_strict(language_mode)) {
     // If absent in strict mode: throw.
     THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewReferenceError("not_defined", HandleVector(&name, 1)));
+        isolate, NewReferenceError(MessageTemplate::kNotDefined, name));
   } else {
     // If absent in sloppy mode: add the property to the global object.
     object = Handle<JSReceiver>(context->global_object());
@@ -1059,8 +1111,7 @@ RUNTIME_FUNCTION(Runtime_GetArgumentsProperty) {
     JSFunction* function = frame->function();
     if (is_strict(function->shared()->language_mode())) {
       THROW_NEW_ERROR_RETURN_FAILURE(
-          isolate, NewTypeError("strict_arguments_callee",
-                                HandleVector<Object>(NULL, 0)));
+          isolate, NewTypeError(MessageTemplate::kStrictPoisonPill));
     }
     return function;
   }
@@ -1074,7 +1125,7 @@ RUNTIME_FUNCTION(Runtime_GetArgumentsProperty) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_ArgumentsLength) {
+RUNTIME_FUNCTION(Runtime_ArgumentsLength) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 0);
   JavaScriptFrameIterator it(isolate);
@@ -1083,9 +1134,9 @@ RUNTIME_FUNCTION(RuntimeReference_ArgumentsLength) {
 }
 
 
-RUNTIME_FUNCTION(RuntimeReference_Arguments) {
+RUNTIME_FUNCTION(Runtime_Arguments) {
   SealHandleScope shs(isolate);
   return __RT_impl_Runtime_GetArgumentsProperty(args, isolate);
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -406,7 +406,7 @@ FOR_EACH_REG_EXP_TREE_TYPE(FORWARD_DECLARE)
 #undef FORWARD_DECLARE
 
 
-class TextElement FINAL BASE_EMBEDDED {
+class TextElement final BASE_EMBEDDED {
  public:
   enum TextType {
     ATOM,
@@ -570,7 +570,7 @@ extern int kUninitializedRegExpNodePlaceHolder;
 class RegExpNode: public ZoneObject {
  public:
   explicit RegExpNode(Zone* zone)
-  : replacement_(NULL), trace_count_(0), zone_(zone) {
+      : replacement_(NULL), on_work_list_(false), trace_count_(0), zone_(zone) {
     bm_info_[0] = bm_info_[1] = NULL;
   }
   virtual ~RegExpNode();
@@ -618,10 +618,9 @@ class RegExpNode: public ZoneObject {
   // EatsAtLeast, GetQuickCheckDetails.  The budget argument is used to limit
   // the number of nodes we are willing to look at in order to create this data.
   static const int kRecursionBudget = 200;
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start) {
+  bool KeepRecursing(RegExpCompiler* compiler);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start) {
     UNREACHABLE();
   }
 
@@ -658,6 +657,9 @@ class RegExpNode: public ZoneObject {
   // the deferred actions in the current trace and generating a goto.
   static const int kMaxCopiesCodeGenerated = 10;
 
+  bool on_work_list() { return on_work_list_; }
+  void set_on_work_list(bool value) { on_work_list_ = value; }
+
   NodeInfo* info() { return &info_; }
 
   BoyerMooreLookahead* bm_info(bool not_at_start) {
@@ -679,6 +681,7 @@ class RegExpNode: public ZoneObject {
  private:
   static const int kFirstCharBudget = 10;
   Label label_;
+  bool on_work_list_;
   NodeInfo info_;
   // This variable keeps track of how many times code has been generated for
   // this node (in different traces).  We don't keep track of where the
@@ -726,11 +729,9 @@ class SeqRegExpNode: public RegExpNode {
   RegExpNode* on_success() { return on_success_; }
   void set_on_success(RegExpNode* node) { on_success_ = node; }
   virtual RegExpNode* FilterOneByte(int depth, bool ignore_case);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start) {
-    on_success_->FillInBMInfo(offset, budget - 1, bm, not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start) {
+    on_success_->FillInBMInfo(isolate, offset, budget - 1, bm, not_at_start);
     if (offset == 0) set_bm_info(not_at_start, bm);
   }
 
@@ -781,10 +782,8 @@ class ActionNode: public SeqRegExpNode {
     return on_success()->GetQuickCheckDetails(
         details, compiler, filled_in, not_at_start);
   }
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
   ActionType action_type() { return action_type_; }
   // TODO(erikcorry): We should allow some action nodes in greedy loops.
   virtual int GreedyLoopTextLength() { return kNodeIsTooComplexForGreedyLoops; }
@@ -850,10 +849,8 @@ class TextNode: public SeqRegExpNode {
   virtual int GreedyLoopTextLength();
   virtual RegExpNode* GetSuccessorOfOmnivorousTextNode(
       RegExpCompiler* compiler);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
   void CalculateOffsets();
   virtual RegExpNode* FilterOneByte(int depth, bool ignore_case);
 
@@ -910,10 +907,8 @@ class AssertionNode: public SeqRegExpNode {
                                     RegExpCompiler* compiler,
                                     int filled_in,
                                     bool not_at_start);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
   AssertionType assertion_type() { return assertion_type_; }
 
  private:
@@ -949,10 +944,8 @@ class BackReferenceNode: public SeqRegExpNode {
                                     bool not_at_start) {
     return;
   }
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
 
  private:
   int start_reg_;
@@ -977,10 +970,8 @@ class EndNode: public RegExpNode {
     // Returning 0 from EatsAtLeast should ensure we never get here.
     UNREACHABLE();
   }
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start) {
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start) {
     // Returning 0 from EatsAtLeast should ensure we never get here.
     UNREACHABLE();
   }
@@ -1072,10 +1063,8 @@ class ChoiceNode: public RegExpNode {
                                     RegExpCompiler* compiler,
                                     int characters_filled_in,
                                     bool not_at_start);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
 
   bool being_calculated() { return being_calculated_; }
   bool not_at_start() { return not_at_start_; }
@@ -1141,12 +1130,10 @@ class NegativeLookaheadChoiceNode: public ChoiceNode {
                                     RegExpCompiler* compiler,
                                     int characters_filled_in,
                                     bool not_at_start);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start) {
-    alternatives_->at(1).node()->FillInBMInfo(
-        offset, budget - 1, bm, not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start) {
+    alternatives_->at(1).node()->FillInBMInfo(isolate, offset, budget - 1, bm,
+                                              not_at_start);
     if (offset == 0) set_bm_info(not_at_start, bm);
   }
   // For a negative lookahead we don't emit the quick check for the
@@ -1177,10 +1164,8 @@ class LoopChoiceNode: public ChoiceNode {
                                     RegExpCompiler* compiler,
                                     int characters_filled_in,
                                     bool not_at_start);
-  virtual void FillInBMInfo(int offset,
-                            int budget,
-                            BoyerMooreLookahead* bm,
-                            bool not_at_start);
+  virtual void FillInBMInfo(Isolate* isolate, int offset, int budget,
+                            BoyerMooreLookahead* bm, bool not_at_start);
   RegExpNode* loop_node() { return loop_node_; }
   RegExpNode* continue_node() { return continue_node_; }
   bool body_can_be_zero_length() { return body_can_be_zero_length_; }

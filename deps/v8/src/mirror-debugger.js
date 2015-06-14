@@ -25,7 +25,7 @@ function ToggleMirrorCache(value) {
 function ObjectIsPromise(value) {
   try {
     return IS_SPEC_OBJECT(value) &&
-           !IS_UNDEFINED(%DebugGetProperty(value, builtins.promiseStatus));
+           !IS_UNDEFINED(%DebugGetProperty(value, builtins.$promiseStatus));
   } catch (e) {
     return false;
   }
@@ -657,7 +657,7 @@ SymbolMirror.prototype.description = function() {
 
 
 SymbolMirror.prototype.toText = function() {
-  return %_CallFunction(this.value_, builtins.SymbolToString);
+  return %_CallFunction(this.value_, builtins.$symbolToString);
 }
 
 
@@ -823,7 +823,7 @@ ObjectMirror.prototype.internalProperties = function() {
 
 
 ObjectMirror.prototype.property = function(name) {
-  var details = %DebugGetPropertyDetails(this.value_, %ToName(name));
+  var details = %DebugGetPropertyDetails(this.value_, builtins.$toName(name));
   if (details) {
     return new PropertyMirror(this, name, details);
   }
@@ -904,57 +904,12 @@ ObjectMirror.prototype.toText = function() {
  * @return {Array} array (possibly empty) of InternalProperty instances
  */
 ObjectMirror.GetInternalProperties = function(value) {
-  if (IS_STRING_WRAPPER(value) || IS_NUMBER_WRAPPER(value) ||
-      IS_BOOLEAN_WRAPPER(value)) {
-    var primitiveValue = %_ValueOf(value);
-    return [new InternalPropertyMirror("[[PrimitiveValue]]", primitiveValue)];
-  } else if (IS_FUNCTION(value)) {
-    var bindings = %BoundFunctionGetBindings(value);
-    var result = [];
-    if (bindings && IS_ARRAY(bindings)) {
-      result.push(new InternalPropertyMirror("[[TargetFunction]]",
-                                             bindings[0]));
-      result.push(new InternalPropertyMirror("[[BoundThis]]", bindings[1]));
-      var boundArgs = [];
-      for (var i = 2; i < bindings.length; i++) {
-        boundArgs.push(bindings[i]);
-      }
-      result.push(new InternalPropertyMirror("[[BoundArgs]]", boundArgs));
-    }
-    return result;
-  } else if (IS_MAP_ITERATOR(value) || IS_SET_ITERATOR(value)) {
-    var details = IS_MAP_ITERATOR(value) ? %MapIteratorDetails(value)
-                                         : %SetIteratorDetails(value);
-    var kind;
-    switch (details[2]) {
-      case 1: kind = "keys"; break;
-      case 2: kind = "values"; break;
-      case 3: kind = "entries"; break;
-    }
-    var result = [
-      new InternalPropertyMirror("[[IteratorHasMore]]", details[0]),
-      new InternalPropertyMirror("[[IteratorIndex]]", details[1])
-    ];
-    if (kind) {
-      result.push(new InternalPropertyMirror("[[IteratorKind]]", kind));
-    }
-    return result;
-  } else if (IS_GENERATOR(value)) {
-    return [
-      new InternalPropertyMirror("[[GeneratorStatus]]",
-                                 GeneratorGetStatus_(value)),
-      new InternalPropertyMirror("[[GeneratorFunction]]",
-                                 %GeneratorGetFunction(value)),
-      new InternalPropertyMirror("[[GeneratorReceiver]]",
-                                 %GeneratorGetReceiver(value))
-    ];
-  } else if (ObjectIsPromise(value)) {
-    return [
-      new InternalPropertyMirror("[[PromiseStatus]]", PromiseGetStatus_(value)),
-      new InternalPropertyMirror("[[PromiseValue]]", PromiseGetValue_(value))
-    ];
+  var properties = %DebugGetInternalProperties(value);
+  var result = [];
+  for (var i = 0; i < properties.length; i += 2) {
+    result.push(new InternalPropertyMirror(properties[i], properties[i + 1]));
   }
-  return [];
+  return result;
 }
 
 
@@ -1008,7 +963,7 @@ FunctionMirror.prototype.source = function() {
   // Return source if function is resolved. Otherwise just fall through to
   // return undefined.
   if (this.resolved()) {
-    return builtins.FunctionSourceString(this.value_);
+    return builtins.$functionSourceString(this.value_);
   }
 };
 
@@ -1186,7 +1141,7 @@ ArrayMirror.prototype.indexedPropertiesFromRange = function(opt_from_index,
   if (from_index > to_index) return new Array();
   var values = new Array(to_index - from_index + 1);
   for (var i = from_index; i <= to_index; i++) {
-    var details = %DebugGetPropertyDetails(this.value_, %ToString(i));
+    var details = %DebugGetPropertyDetails(this.value_, builtins.$toString(i));
     var value;
     if (details) {
       value = new PropertyMirror(this, i, details);
@@ -1314,7 +1269,7 @@ ErrorMirror.prototype.toText = function() {
   // Use the same text representation as in messages.js.
   var text;
   try {
-    text = %_CallFunction(this.value_, builtins.ErrorToString);
+    text = %_CallFunction(this.value_, builtins.$errorToString);
   } catch (e) {
     text = '#<Error>';
   }
@@ -1335,7 +1290,7 @@ inherits(PromiseMirror, ObjectMirror);
 
 
 function PromiseGetStatus_(value) {
-  var status = %DebugGetProperty(value, builtins.promiseStatus);
+  var status = %DebugGetProperty(value, builtins.$promiseStatus);
   if (status == 0) return "pending";
   if (status == 1) return "resolved";
   return "rejected";
@@ -1343,7 +1298,7 @@ function PromiseGetStatus_(value) {
 
 
 function PromiseGetValue_(value) {
-  return %DebugGetProperty(value, builtins.promiseValue);
+  return %DebugGetProperty(value, builtins.$promiseValue);
 }
 
 
@@ -1384,7 +1339,7 @@ MapMirror.prototype.entries = function(opt_limit) {
     return result;
   }
 
-  var iter = %_CallFunction(this.value_, builtins.MapEntries);
+  var iter = %_CallFunction(this.value_, builtins.$mapEntries);
   var next;
   while ((!opt_limit || result.length < opt_limit) &&
          !(next = iter.next()).done) {
@@ -1426,8 +1381,8 @@ SetMirror.prototype.values = function(opt_limit) {
     return %GetWeakSetValues(this.value_, opt_limit || 0);
   }
 
-  var iter = %_CallFunction(this.value_, builtins.SetValues);
-  return IteratorGetValues_(iter, builtins.SetIteratorNextJS, opt_limit);
+  var iter = %_CallFunction(this.value_, builtins.$setValues);
+  return IteratorGetValues_(iter, builtins.$setIteratorNext, opt_limit);
 };
 
 
@@ -1447,11 +1402,11 @@ inherits(IteratorMirror, ObjectMirror);
 IteratorMirror.prototype.preview = function(opt_limit) {
   if (IS_MAP_ITERATOR(this.value_)) {
     return IteratorGetValues_(%MapIteratorClone(this.value_),
-                              builtins.MapIteratorNextJS,
+                              builtins.$mapIteratorNext,
                               opt_limit);
   } else if (IS_SET_ITERATOR(this.value_)) {
     return IteratorGetValues_(%SetIteratorClone(this.value_),
-                              builtins.SetIteratorNextJS,
+                              builtins.$setIteratorNext,
                               opt_limit);
   }
 };

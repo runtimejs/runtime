@@ -6,6 +6,7 @@
 
 #include "src/accessors.h"
 #include "src/codegen.h"
+#include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/disasm.h"
 #include "src/full-codegen.h"
@@ -259,7 +260,7 @@ void Deoptimizer::VisitAllOptimizedFunctionsForContext(
       // changed the code to which it refers to no longer be optimized code.
       // Remove the function from this list.
       if (prev != NULL) {
-        prev->set_next_function_link(next);
+        prev->set_next_function_link(next, UPDATE_WEAK_WRITE_BARRIER);
       } else {
         context->SetOptimizedFunctionsListHead(next);
       }
@@ -267,7 +268,8 @@ void Deoptimizer::VisitAllOptimizedFunctionsForContext(
       CHECK_EQ(function->next_function_link(), next);
       // Set the next function link to undefined to indicate it is no longer
       // in the optimized functions list.
-      function->set_next_function_link(context->GetHeap()->undefined_value());
+      function->set_next_function_link(context->GetHeap()->undefined_value(),
+                                       SKIP_WRITE_BARRIER);
     } else {
       // The visitor should not alter the link directly.
       CHECK_EQ(function->next_function_link(), next);
@@ -341,9 +343,9 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
     StackFrame::Type type = it.frame()->type();
     if (type == StackFrame::OPTIMIZED) {
       Code* code = it.frame()->LookupCode();
+      JSFunction* function =
+          static_cast<OptimizedFrame*>(it.frame())->function();
       if (FLAG_trace_deopt) {
-        JSFunction* function =
-            static_cast<OptimizedFrame*>(it.frame())->function();
         CodeTracer::Scope scope(isolate->GetCodeTracer());
         PrintF(scope.file(), "[deoptimizer found activation of function: ");
         function->PrintName(scope.file());
@@ -353,7 +355,9 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
       SafepointEntry safepoint = code->GetSafepointEntry(it.frame()->pc());
       int deopt_index = safepoint.deoptimization_index();
       // Turbofan deopt is checked when we are patching addresses on stack.
-      bool turbofanned = code->is_turbofanned() && !FLAG_turbo_deoptimization;
+      bool turbofanned = code->is_turbofanned() &&
+                         function->shared()->asm_function() &&
+                         !FLAG_turbo_asm_deoptimization;
       bool safe_to_deopt =
           deopt_index != Safepoint::kNoDeoptimizationIndex || turbofanned;
       CHECK(topmost_optimized_code == NULL || safe_to_deopt || turbofanned);
@@ -378,8 +382,7 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
     CHECK_EQ(code->kind(), Code::OPTIMIZED_FUNCTION);
     Object* next = code->next_code_link();
 
-    if (code->marked_for_deoptimization() &&
-        (!code->is_turbofanned() || FLAG_turbo_deoptimization)) {
+    if (code->marked_for_deoptimization()) {
       // Put the code into the list for later patching.
       codes.Add(code, &zone);
 
@@ -422,14 +425,12 @@ void Deoptimizer::DeoptimizeMarkedCodeForContext(Context* context) {
     shared->EvictFromOptimizedCodeMap(codes[i], "deoptimized code");
 
     // Do platform-specific patching to force any activations to lazy deopt.
-    if (!codes[i]->is_turbofanned() || FLAG_turbo_deoptimization) {
-      PatchCodeForDeoptimization(isolate, codes[i]);
+    PatchCodeForDeoptimization(isolate, codes[i]);
 
-      // We might be in the middle of incremental marking with compaction.
-      // Tell collector to treat this code object in a special way and
-      // ignore all slots that might have been recorded on it.
-      isolate->heap()->mark_compact_collector()->InvalidateCode(codes[i]);
-    }
+    // We might be in the middle of incremental marking with compaction.
+    // Tell collector to treat this code object in a special way and
+    // ignore all slots that might have been recorded on it.
+    isolate->heap()->mark_compact_collector()->InvalidateCode(codes[i]);
   }
 }
 
@@ -592,7 +593,6 @@ Deoptimizer::Deoptimizer(Isolate* isolate,
     }
   }
   compiled_code_ = FindOptimizedCode(function, optimized_code);
-
 #if DEBUG
   DCHECK(compiled_code_ != NULL);
   if (type == EAGER || type == SOFT || type == LAZY) {
@@ -609,6 +609,9 @@ Deoptimizer::Deoptimizer(Isolate* isolate,
   CHECK(AllowHeapAllocation::IsAllowed());
   disallow_heap_allocation_ = new DisallowHeapAllocation();
 #endif  // DEBUG
+  if (compiled_code_->kind() == Code::OPTIMIZED_FUNCTION) {
+    PROFILE(isolate_, CodeDeoptEvent(compiled_code_, from_, fp_to_sp_delta_));
+  }
   unsigned size = ComputeInputFrameSize();
   input_ = new(size) FrameDescription(size, function);
   input_->SetFrameType(frame_type);
@@ -720,6 +723,8 @@ int Deoptimizer::GetOutputInfo(DeoptimizationOutputData* data,
      << "[method: " << shared->DebugName()->ToCString().get() << "]\n"
      << "[source:\n" << SourceCodeOf(shared) << "\n]" << std::endl;
 
+  shared->GetHeap()->isolate()->PushStackTraceAndDie(0xfefefefe, data, shared,
+                                                     0xfefefeff);
   FATAL("unable to find pc offset during deoptimization");
   return -1;
 }
@@ -747,11 +752,6 @@ int Deoptimizer::GetDeoptimizedCodeCount(Isolate* isolate) {
 // We rely on this function not causing a GC.  It is called from generated code
 // without having a real stack frame in place.
 void Deoptimizer::DoComputeOutputFrames() {
-  // Print some helpful diagnostic information.
-  if (FLAG_log_timer_events &&
-      compiled_code_->kind() == Code::OPTIMIZED_FUNCTION) {
-    LOG(isolate(), CodeDeoptEvent(compiled_code_));
-  }
   base::ElapsedTimer timer;
 
   // Determine basic deoptimization information.  The optimized frame is
@@ -771,7 +771,7 @@ void Deoptimizer::DoComputeOutputFrames() {
            fp_to_sp_delta_);
     if (bailout_type_ == EAGER || bailout_type_ == SOFT ||
         (compiled_code_->is_hydrogen_stub())) {
-      compiled_code_->PrintDeoptLocation(trace_scope_->file(), bailout_id_);
+      compiled_code_->PrintDeoptLocation(trace_scope_->file(), from_);
     }
   }
 
@@ -831,14 +831,17 @@ void Deoptimizer::DoComputeOutputFrames() {
       case Translation::REGISTER:
       case Translation::INT32_REGISTER:
       case Translation::UINT32_REGISTER:
+      case Translation::BOOL_REGISTER:
       case Translation::DOUBLE_REGISTER:
       case Translation::STACK_SLOT:
       case Translation::INT32_STACK_SLOT:
       case Translation::UINT32_STACK_SLOT:
+      case Translation::BOOL_STACK_SLOT:
       case Translation::DOUBLE_STACK_SLOT:
       case Translation::LITERAL:
       case Translation::ARGUMENTS_OBJECT:
-      default:
+      case Translation::DUPLICATED_OBJECT:
+      case Translation::CAPTURED_OBJECT:
         FATAL("Unsupported translation");
         break;
     }
@@ -929,7 +932,8 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   output_frame->SetTop(top_address);
 
   // Compute the incoming parameter translation.
-  int parameter_count = function->shared()->formal_parameter_count() + 1;
+  int parameter_count =
+      function->shared()->internal_formal_parameter_count() + 1;
   unsigned output_offset = output_frame_size;
   unsigned input_offset = input_frame_size;
   for (int i = 0; i < parameter_count; ++i) {
@@ -988,7 +992,7 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   DCHECK(!is_bottommost || !has_alignment_padding_ ||
          (fp_value & kPointerSize) != 0);
 
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     // For the bottommost output frame the constant pool pointer can be gotten
     // from the input frame. For subsequent output frames, it can be read from
     // the previous frame.
@@ -1073,7 +1077,7 @@ void Deoptimizer::DoComputeJSFrame(TranslationIterator* iterator,
   output_frame->SetPc(pc_value);
 
   // Update constant pool.
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     intptr_t constant_pool_value =
         reinterpret_cast<intptr_t>(non_optimized_code->constant_pool());
     output_frame->SetConstantPool(constant_pool_value);
@@ -1166,7 +1170,7 @@ void Deoptimizer::DoComputeArgumentsAdaptorFrame(TranslationIterator* iterator,
            fp_value, output_offset, value);
   }
 
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     // Read the caller's constant pool from the previous frame.
     output_offset -= kPointerSize;
     value = output_[frame_index - 1]->GetConstantPool();
@@ -1221,7 +1225,7 @@ void Deoptimizer::DoComputeArgumentsAdaptorFrame(TranslationIterator* iterator,
       adaptor_trampoline->instruction_start() +
       isolate_->heap()->arguments_adaptor_deopt_pc_offset()->value());
   output_frame->SetPc(pc_value);
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     intptr_t constant_pool_value =
         reinterpret_cast<intptr_t>(adaptor_trampoline->constant_pool());
     output_frame->SetConstantPool(constant_pool_value);
@@ -1300,7 +1304,7 @@ void Deoptimizer::DoComputeConstructStubFrame(TranslationIterator* iterator,
            fp_value, output_offset, value);
   }
 
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     // Read the caller's constant pool from the previous frame.
     output_offset -= kPointerSize;
     value = output_[frame_index - 1]->GetConstantPool();
@@ -1388,7 +1392,7 @@ void Deoptimizer::DoComputeConstructStubFrame(TranslationIterator* iterator,
       construct_stub->instruction_start() +
       isolate_->heap()->construct_stub_deopt_pc_offset()->value());
   output_frame->SetPc(pc);
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     intptr_t constant_pool_value =
         reinterpret_cast<intptr_t>(construct_stub->constant_pool());
     output_frame->SetConstantPool(constant_pool_value);
@@ -1413,7 +1417,7 @@ void Deoptimizer::DoComputeAccessorStubFrame(TranslationIterator* iterator,
 
   // We need 1 stack entry for the return address and enough entries for the
   // StackFrame::INTERNAL (FP, context, frame type, code object and constant
-  // pool (if FLAG_enable_ool_constant_pool)- see MacroAssembler::EnterFrame).
+  // pool (if enabled)- see MacroAssembler::EnterFrame).
   // For a setter stub frame we need one additional entry for the implicit
   // return value, see StoreStubCompiler::CompileStoreViaSetter.
   unsigned fixed_frame_entries =
@@ -1463,7 +1467,7 @@ void Deoptimizer::DoComputeAccessorStubFrame(TranslationIterator* iterator,
            fp_value, output_offset, value);
   }
 
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     // Read the caller's constant pool from the previous frame.
     output_offset -= kPointerSize;
     value = output_[frame_index - 1]->GetConstantPool();
@@ -1530,7 +1534,7 @@ void Deoptimizer::DoComputeAccessorStubFrame(TranslationIterator* iterator,
   intptr_t pc = reinterpret_cast<intptr_t>(
       accessor_stub->instruction_start() + offset->value());
   output_frame->SetPc(pc);
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     intptr_t constant_pool_value =
         reinterpret_cast<intptr_t>(accessor_stub->constant_pool());
     output_frame->SetConstantPool(constant_pool_value);
@@ -1637,7 +1641,7 @@ void Deoptimizer::DoComputeCompiledStubFrame(TranslationIterator* iterator,
            top_address + output_frame_offset, output_frame_offset, value);
   }
 
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     // Read the caller's constant pool from the input frame.
     input_frame_offset -= kPointerSize;
     value = input_->GetFrameSlot(input_frame_offset);
@@ -1779,7 +1783,7 @@ void Deoptimizer::DoComputeCompiledStubFrame(TranslationIterator* iterator,
   DCHECK(trampoline != NULL);
   output_frame->SetPc(reinterpret_cast<intptr_t>(
       trampoline->instruction_start()));
-  if (FLAG_enable_ool_constant_pool) {
+  if (FLAG_enable_embedded_constant_pool) {
     Register constant_pool_reg =
         StubFailureTrampolineFrame::constant_pool_pointer_register();
     intptr_t constant_pool_value =
@@ -2015,7 +2019,8 @@ void Deoptimizer::MaterializeHeapObjects(JavaScriptFrameIterator* it) {
   }
 
   if (prev_materialized_count_ > 0) {
-    materialized_store->Remove(stack_fp_);
+    bool removed = materialized_store->Remove(stack_fp_);
+    CHECK(removed);
   }
 }
 
@@ -2102,10 +2107,12 @@ void Deoptimizer::DoTranslateObjectAndSkip(TranslationIterator* iterator) {
     case Translation::REGISTER:
     case Translation::INT32_REGISTER:
     case Translation::UINT32_REGISTER:
+    case Translation::BOOL_REGISTER:
     case Translation::DOUBLE_REGISTER:
     case Translation::STACK_SLOT:
     case Translation::INT32_STACK_SLOT:
     case Translation::UINT32_STACK_SLOT:
+    case Translation::BOOL_STACK_SLOT:
     case Translation::DOUBLE_STACK_SLOT:
     case Translation::LITERAL: {
       // The value is not part of any materialized object, so we can ignore it.
@@ -2224,10 +2231,8 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
                "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
                reinterpret_cast<intptr_t>(object_slot),
                field_index);
-        PrintF(trace_scope_->file(),
-               "%" V8PRIdPTR " ; uint %s (%s)\n", value,
-               converter.NameOfCPURegister(input_reg),
-               TraceValueType(is_smi));
+        PrintF(trace_scope_->file(), "%" V8PRIuPTR " ; uint %s (%s)\n", value,
+               converter.NameOfCPURegister(input_reg), TraceValueType(is_smi));
       }
       if (is_smi) {
         intptr_t tagged_value =
@@ -2240,9 +2245,34 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
       return;
     }
 
+    case Translation::BOOL_REGISTER: {
+      int input_reg = iterator->Next();
+      uintptr_t value = static_cast<uintptr_t>(input_->GetRegister(input_reg));
+      bool is_smi = (value <= static_cast<uintptr_t>(Smi::kMaxValue));
+      if (trace_scope_ != NULL) {
+        PrintF(trace_scope_->file(),
+               "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
+               reinterpret_cast<intptr_t>(object_slot), field_index);
+        PrintF(trace_scope_->file(), "%" V8PRIuPTR " ; bool %s (%s)\n", value,
+               converter.NameOfCPURegister(input_reg), TraceValueType(is_smi));
+      }
+      if (value == 0) {
+        AddObjectTaggedValue(
+            reinterpret_cast<intptr_t>(isolate_->heap()->false_value()));
+      } else {
+        DCHECK_EQ(1U, value);
+        AddObjectTaggedValue(
+            reinterpret_cast<intptr_t>(isolate_->heap()->true_value()));
+      }
+      return;
+    }
+
     case Translation::DOUBLE_REGISTER: {
       int input_reg = iterator->Next();
       double value = input_->GetDoubleRegister(input_reg);
+      int int_value = FastD2IChecked(value);
+      bool is_smi =
+          !IsMinusZero(value) && value == int_value && Smi::IsValid(int_value);
       if (trace_scope_ != NULL) {
         PrintF(trace_scope_->file(),
                "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
@@ -2252,7 +2282,13 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
                "%e ; %s\n", value,
                DoubleRegister::AllocationIndexToString(input_reg));
       }
-      AddObjectDoubleValue(value);
+      if (is_smi) {
+        intptr_t tagged_value =
+            reinterpret_cast<intptr_t>(Smi::FromInt(int_value));
+        AddObjectTaggedValue(tagged_value);
+      } else {
+        AddObjectDoubleValue(value);
+      }
       return;
     }
 
@@ -2312,8 +2348,7 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
                "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
                reinterpret_cast<intptr_t>(object_slot),
                field_index);
-        PrintF(trace_scope_->file(),
-               "%" V8PRIdPTR " ; [sp + %d] (uint %s)\n",
+        PrintF(trace_scope_->file(), "%" V8PRIuPTR " ; [sp + %d] (uint %s)\n",
                value, input_offset, TraceValueType(is_smi));
       }
       if (is_smi) {
@@ -2327,10 +2362,37 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
       return;
     }
 
+    case Translation::BOOL_STACK_SLOT: {
+      int input_slot_index = iterator->Next();
+      unsigned input_offset = input_->GetOffsetFromSlotIndex(input_slot_index);
+      uintptr_t value =
+          static_cast<uintptr_t>(input_->GetFrameSlot(input_offset));
+      bool is_smi = (value <= static_cast<uintptr_t>(Smi::kMaxValue));
+      if (trace_scope_ != NULL) {
+        PrintF(trace_scope_->file(),
+               "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
+               reinterpret_cast<intptr_t>(object_slot), field_index);
+        PrintF(trace_scope_->file(), "%" V8PRIuPTR " ; [sp + %d] (bool %s)\n",
+               value, input_offset, TraceValueType(is_smi));
+      }
+      if (value == 0) {
+        AddObjectTaggedValue(
+            reinterpret_cast<intptr_t>(isolate_->heap()->false_value()));
+      } else {
+        DCHECK_EQ(1U, value);
+        AddObjectTaggedValue(
+            reinterpret_cast<intptr_t>(isolate_->heap()->true_value()));
+      }
+      return;
+    }
+
     case Translation::DOUBLE_STACK_SLOT: {
       int input_slot_index = iterator->Next();
       unsigned input_offset = input_->GetOffsetFromSlotIndex(input_slot_index);
       double value = input_->GetDoubleFrameSlot(input_offset);
+      int int_value = FastD2IChecked(value);
+      bool is_smi =
+          !IsMinusZero(value) && value == int_value && Smi::IsValid(int_value);
       if (trace_scope_ != NULL) {
         PrintF(trace_scope_->file(),
                "      object @0x%08" V8PRIxPTR ": [field #%d] <- ",
@@ -2339,7 +2401,13 @@ void Deoptimizer::DoTranslateObject(TranslationIterator* iterator,
         PrintF(trace_scope_->file(),
                "%e ; [sp + %d]\n", value, input_offset);
       }
-      AddObjectDoubleValue(value);
+      if (is_smi) {
+        intptr_t tagged_value =
+            reinterpret_cast<intptr_t>(Smi::FromInt(int_value));
+        AddObjectTaggedValue(tagged_value);
+      } else {
+        AddObjectDoubleValue(value);
+      }
       return;
     }
 
@@ -2509,21 +2577,53 @@ void Deoptimizer::DoTranslateCommand(TranslationIterator* iterator,
       return;
     }
 
+    case Translation::BOOL_REGISTER: {
+      int input_reg = iterator->Next();
+      uintptr_t value = static_cast<uintptr_t>(input_->GetRegister(input_reg));
+      bool is_smi = value <= static_cast<uintptr_t>(Smi::kMaxValue);
+      if (trace_scope_ != NULL) {
+        PrintF(trace_scope_->file(),
+               "    0x%08" V8PRIxPTR ": [top + %d] <- %" V8PRIuPTR
+               " ; bool %s (%s)\n",
+               output_[frame_index]->GetTop() + output_offset, output_offset,
+               value, converter.NameOfCPURegister(input_reg),
+               TraceValueType(is_smi));
+      }
+      if (value == 0) {
+        output_[frame_index]->SetFrameSlot(
+            output_offset,
+            reinterpret_cast<intptr_t>(isolate_->heap()->false_value()));
+      } else {
+        DCHECK_EQ(1U, value);
+        output_[frame_index]->SetFrameSlot(
+            output_offset,
+            reinterpret_cast<intptr_t>(isolate_->heap()->true_value()));
+      }
+      return;
+    }
+
     case Translation::DOUBLE_REGISTER: {
       int input_reg = iterator->Next();
       double value = input_->GetDoubleRegister(input_reg);
+      int int_value = FastD2IChecked(value);
+      bool is_smi =
+          !IsMinusZero(value) && value == int_value && Smi::IsValid(int_value);
       if (trace_scope_ != NULL) {
         PrintF(trace_scope_->file(),
                "    0x%08" V8PRIxPTR ": [top + %d] <- %e ; %s\n",
-               output_[frame_index]->GetTop() + output_offset,
-               output_offset,
-               value,
-               DoubleRegister::AllocationIndexToString(input_reg));
+               output_[frame_index]->GetTop() + output_offset, output_offset,
+               value, DoubleRegister::AllocationIndexToString(input_reg));
       }
-      // We save the untagged value on the side and store a GC-safe
-      // temporary placeholder in the frame.
-      AddDoubleValue(output_[frame_index]->GetTop() + output_offset, value);
-      output_[frame_index]->SetFrameSlot(output_offset, kPlaceholder);
+      if (is_smi) {
+        intptr_t tagged_value =
+            reinterpret_cast<intptr_t>(Smi::FromInt(int_value));
+        output_[frame_index]->SetFrameSlot(output_offset, tagged_value);
+      } else {
+        // We save the untagged value on the side and store a GC-safe
+        // temporary placeholder in the frame.
+        AddDoubleValue(output_[frame_index]->GetTop() + output_offset, value);
+        output_[frame_index]->SetFrameSlot(output_offset, kPlaceholder);
+      }
       return;
     }
 
@@ -2609,10 +2709,39 @@ void Deoptimizer::DoTranslateCommand(TranslationIterator* iterator,
       return;
     }
 
+    case Translation::BOOL_STACK_SLOT: {
+      int input_slot_index = iterator->Next();
+      unsigned input_offset = input_->GetOffsetFromSlotIndex(input_slot_index);
+      uintptr_t value =
+          static_cast<uintptr_t>(input_->GetFrameSlot(input_offset));
+      bool is_smi = value <= static_cast<uintptr_t>(Smi::kMaxValue);
+      if (trace_scope_ != NULL) {
+        PrintF(trace_scope_->file(), "    0x%08" V8PRIxPTR ": ",
+               output_[frame_index]->GetTop() + output_offset);
+        PrintF(trace_scope_->file(),
+               "[top + %d] <- %" V8PRIuPTR " ; [sp + %d] (uint32 %s)\n",
+               output_offset, value, input_offset, TraceValueType(is_smi));
+      }
+      if (value == 0) {
+        output_[frame_index]->SetFrameSlot(
+            output_offset,
+            reinterpret_cast<intptr_t>(isolate_->heap()->false_value()));
+      } else {
+        DCHECK_EQ(1U, value);
+        output_[frame_index]->SetFrameSlot(
+            output_offset,
+            reinterpret_cast<intptr_t>(isolate_->heap()->true_value()));
+      }
+      return;
+    }
+
     case Translation::DOUBLE_STACK_SLOT: {
       int input_slot_index = iterator->Next();
       unsigned input_offset = input_->GetOffsetFromSlotIndex(input_slot_index);
       double value = input_->GetDoubleFrameSlot(input_offset);
+      int int_value = FastD2IChecked(value);
+      bool is_smi =
+          !IsMinusZero(value) && value == int_value && Smi::IsValid(int_value);
       if (trace_scope_ != NULL) {
         PrintF(trace_scope_->file(),
                "    0x%08" V8PRIxPTR ": [top + %d] <- %e ; [sp + %d]\n",
@@ -2621,10 +2750,16 @@ void Deoptimizer::DoTranslateCommand(TranslationIterator* iterator,
                value,
                input_offset);
       }
-      // We save the untagged value on the side and store a GC-safe
-      // temporary placeholder in the frame.
-      AddDoubleValue(output_[frame_index]->GetTop() + output_offset, value);
-      output_[frame_index]->SetFrameSlot(output_offset, kPlaceholder);
+      if (is_smi) {
+        intptr_t tagged_value =
+            reinterpret_cast<intptr_t>(Smi::FromInt(int_value));
+        output_[frame_index]->SetFrameSlot(output_offset, tagged_value);
+      } else {
+        // We save the untagged value on the side and store a GC-safe
+        // temporary placeholder in the frame.
+        AddDoubleValue(output_[frame_index]->GetTop() + output_offset, value);
+        output_[frame_index]->SetFrameSlot(output_offset, kPlaceholder);
+      }
       return;
     }
 
@@ -2726,7 +2861,8 @@ unsigned Deoptimizer::ComputeIncomingArgumentSize(JSFunction* function) const {
     CHECK_EQ(Smi::cast(function), Smi::FromInt(StackFrame::STUB));
     return 0;
   }
-  unsigned arguments = function->shared()->formal_parameter_count() + 1;
+  unsigned arguments =
+      function->shared()->internal_formal_parameter_count() + 1;
   return arguments * kPointerSize;
 }
 
@@ -2806,7 +2942,10 @@ void Deoptimizer::EnsureCodeForDeoptimizationEntry(Isolate* isolate,
   MemoryChunk* chunk = data->deopt_entry_code_[type];
   CHECK(static_cast<int>(Deoptimizer::GetMaxDeoptTableSize()) >=
         desc.instr_size);
-  chunk->CommitArea(desc.instr_size);
+  if (!chunk->CommitArea(desc.instr_size)) {
+    V8::FatalProcessOutOfMemory(
+        "Deoptimizer::EnsureCodeForDeoptimizationEntry");
+  }
   CopyBytes(chunk->area_start(), desc.buffer,
       static_cast<size_t>(desc.instr_size));
   CpuFeatures::FlushICache(chunk->area_start(), desc.instr_size);
@@ -2863,7 +3002,7 @@ unsigned FrameDescription::GetOffsetFromSlotIndex(int slot_index) {
 int FrameDescription::ComputeParametersCount() {
   switch (type_) {
     case StackFrame::JAVA_SCRIPT:
-      return function_->shared()->formal_parameter_count();
+      return function_->shared()->internal_formal_parameter_count();
     case StackFrame::ARGUMENTS_ADAPTOR: {
       // Last slot contains number of incomming arguments as a smi.
       // Can't use GetExpression(0) because it would cause infinite recursion.
@@ -2902,6 +3041,8 @@ Object* FrameDescription::GetExpression(int index) {
 
 
 void TranslationBuffer::Add(int32_t value, Zone* zone) {
+  // This wouldn't handle kMinInt correctly if it ever encountered it.
+  DCHECK(value != kMinInt);
   // Encode the sign bit in the least significant bit.
   bool is_negative = (value < 0);
   uint32_t bits = ((is_negative ? -value : value) << 1) |
@@ -3018,6 +3159,12 @@ void Translation::StoreUint32Register(Register reg) {
 }
 
 
+void Translation::StoreBoolRegister(Register reg) {
+  buffer_->Add(BOOL_REGISTER, zone());
+  buffer_->Add(reg.code(), zone());
+}
+
+
 void Translation::StoreDoubleRegister(DoubleRegister reg) {
   buffer_->Add(DOUBLE_REGISTER, zone());
   buffer_->Add(DoubleRegister::ToAllocationIndex(reg), zone());
@@ -3038,6 +3185,12 @@ void Translation::StoreInt32StackSlot(int index) {
 
 void Translation::StoreUint32StackSlot(int index) {
   buffer_->Add(UINT32_STACK_SLOT, zone());
+  buffer_->Add(index, zone());
+}
+
+
+void Translation::StoreBoolStackSlot(int index) {
+  buffer_->Add(BOOL_STACK_SLOT, zone());
   buffer_->Add(index, zone());
 }
 
@@ -3074,10 +3227,12 @@ int Translation::NumberOfOperandsFor(Opcode opcode) {
     case REGISTER:
     case INT32_REGISTER:
     case UINT32_REGISTER:
+    case BOOL_REGISTER:
     case DOUBLE_REGISTER:
     case STACK_SLOT:
     case INT32_STACK_SLOT:
     case UINT32_STACK_SLOT:
+    case BOOL_STACK_SLOT:
     case DOUBLE_STACK_SLOT:
     case LITERAL:
     case COMPILED_STUB_FRAME:
@@ -3141,6 +3296,7 @@ SlotRef SlotRefValueBuilder::ComputeSlotForNextArgument(
     case Translation::REGISTER:
     case Translation::INT32_REGISTER:
     case Translation::UINT32_REGISTER:
+    case Translation::BOOL_REGISTER:
     case Translation::DOUBLE_REGISTER:
       // We are at safepoint which corresponds to call.  All registers are
       // saved by caller so there would be no live registers at this
@@ -3163,6 +3319,12 @@ SlotRef SlotRefValueBuilder::ComputeSlotForNextArgument(
       int slot_index = iterator->Next();
       Address slot_addr = SlotAddress(frame, slot_index);
       return SlotRef(slot_addr, SlotRef::UINT32);
+    }
+
+    case Translation::BOOL_STACK_SLOT: {
+      int slot_index = iterator->Next();
+      Address slot_addr = SlotAddress(frame, slot_index);
+      return SlotRef(slot_addr, SlotRef::BOOLBIT);
     }
 
     case Translation::DOUBLE_STACK_SLOT: {
@@ -3190,7 +3352,10 @@ SlotRef SlotRefValueBuilder::ComputeSlotForNextArgument(
 SlotRefValueBuilder::SlotRefValueBuilder(JavaScriptFrame* frame,
                                          int inlined_jsframe_index,
                                          int formal_parameter_count)
-    : current_slot_(0), args_length_(-1), first_slot_index_(-1) {
+    : current_slot_(0),
+      args_length_(-1),
+      first_slot_index_(-1),
+      should_deoptimize_(false) {
   DisallowHeapAllocation no_gc;
 
   int deopt_index = Safepoint::kNoDeoptimizationIndex;
@@ -3208,7 +3373,6 @@ SlotRefValueBuilder::SlotRefValueBuilder(JavaScriptFrame* frame,
   CHECK_GT(jsframe_count, inlined_jsframe_index);
   int jsframes_to_skip = inlined_jsframe_index;
   int number_of_slots = -1;  // Number of slots inside our frame (yet unknown)
-  bool should_deopt = false;
   while (number_of_slots != 0) {
     opcode = static_cast<Translation::Opcode>(it.Next());
     bool processed = false;
@@ -3265,7 +3429,7 @@ SlotRefValueBuilder::SlotRefValueBuilder(JavaScriptFrame* frame,
         number_of_slots += slot.GetChildrenCount();
         if (slot.Representation() == SlotRef::DEFERRED_OBJECT ||
             slot.Representation() == SlotRef::DUPLICATE_OBJECT) {
-          should_deopt = true;
+          should_deoptimize_ = true;
         }
       }
 
@@ -3276,7 +3440,7 @@ SlotRefValueBuilder::SlotRefValueBuilder(JavaScriptFrame* frame,
       it.Skip(Translation::NumberOfOperandsFor(opcode));
     }
   }
-  if (should_deopt) {
+  if (should_deoptimize_) {
     List<JSFunction*> functions(2);
     frame->GetFunctions(&functions);
     Deoptimizer::DeoptimizeFunction(functions[0]);
@@ -3286,8 +3450,13 @@ SlotRefValueBuilder::SlotRefValueBuilder(JavaScriptFrame* frame,
 
 Handle<Object> SlotRef::GetValue(Isolate* isolate) {
   switch (representation_) {
-    case TAGGED:
-      return Handle<Object>(Memory::Object_at(addr_), isolate);
+    case TAGGED: {
+      Handle<Object> value(Memory::Object_at(addr_), isolate);
+      if (value->IsMutableHeapNumber()) {
+        HeapNumber::cast(*value)->set_map(isolate->heap()->heap_number_map());
+      }
+      return value;
+    }
 
     case INT32: {
 #if V8_TARGET_BIG_ENDIAN && V8_HOST_ARCH_64_BIT
@@ -3312,6 +3481,20 @@ Handle<Object> SlotRef::GetValue(Isolate* isolate) {
         return Handle<Object>(Smi::FromInt(static_cast<int>(value)), isolate);
       } else {
         return isolate->factory()->NewNumber(static_cast<double>(value));
+      }
+    }
+
+    case BOOLBIT: {
+#if V8_TARGET_BIG_ENDIAN && V8_HOST_ARCH_64_BIT
+      uint32_t value = Memory::uint32_at(addr_ + kIntSize);
+#else
+      uint32_t value = Memory::uint32_at(addr_);
+#endif
+      if (value == 0) {
+        return isolate->factory()->false_value();
+      } else {
+        DCHECK_EQ(1U, value);
+        return isolate->factory()->true_value();
       }
     }
 
@@ -3387,10 +3570,11 @@ Handle<Object> SlotRefValueBuilder::GetNext(Isolate* isolate, int lvl) {
     case SlotRef::TAGGED:
     case SlotRef::INT32:
     case SlotRef::UINT32:
+    case SlotRef::BOOLBIT:
     case SlotRef::DOUBLE:
-    case SlotRef::LITERAL: {
+    case SlotRef::LITERAL:
       return slot.GetValue(isolate);
-    }
+
     case SlotRef::ARGUMENTS_OBJECT: {
       // We should never need to materialize an arguments object,
       // but we still need to put something into the array
@@ -3492,9 +3676,11 @@ void SlotRefValueBuilder::Finish(Isolate* isolate) {
   // We should have processed all the slots
   CHECK_EQ(slot_refs_.length(), current_slot_);
 
-  if (materialized_objects_.length() > prev_materialized_count_) {
-    // We have materialized some new objects, so we have to store them
-    // to prevent duplicate materialization
+  if (should_deoptimize_ &&
+      materialized_objects_.length() > prev_materialized_count_) {
+    // We have materialized some new objects and they might be accessible
+    // from the arguments object, so we have to store them
+    // to prevent duplicate materialization.
     Handle<FixedArray> array = isolate->factory()->NewFixedArray(
         materialized_objects_.length());
     for (int i = 0; i < materialized_objects_.length(); i++) {
@@ -3530,17 +3716,21 @@ void MaterializedObjectStore::Set(Address fp,
 }
 
 
-void MaterializedObjectStore::Remove(Address fp) {
+bool MaterializedObjectStore::Remove(Address fp) {
   int index = StackIdToIndex(fp);
+  if (index == -1) {
+    return false;
+  }
   CHECK_GE(index, 0);
 
   frame_fps_.Remove(index);
-  Handle<FixedArray> array = GetStackEntries();
+  FixedArray* array = isolate()->heap()->materialized_objects();
   CHECK_LT(index, array->length());
   for (int i = index; i < frame_fps_.length(); i++) {
     array->set(i, array->get(i + 1));
   }
   array->set(frame_fps_.length(), isolate()->heap()->undefined_value());
+  return true;
 }
 
 
@@ -3637,4 +3827,25 @@ const char* Deoptimizer::GetDeoptReason(DeoptReason deopt_reason) {
 #undef DEOPT_MESSAGES_TEXTS
   return deopt_messages_[deopt_reason];
 }
-} }  // namespace v8::internal
+
+
+Deoptimizer::DeoptInfo Deoptimizer::GetDeoptInfo(Code* code, Address pc) {
+  SourcePosition last_position = SourcePosition::Unknown();
+  Deoptimizer::DeoptReason last_reason = Deoptimizer::kNoReason;
+  int mask = RelocInfo::ModeMask(RelocInfo::DEOPT_REASON) |
+             RelocInfo::ModeMask(RelocInfo::POSITION);
+  for (RelocIterator it(code, mask); !it.done(); it.next()) {
+    RelocInfo* info = it.rinfo();
+    if (info->pc() >= pc) return DeoptInfo(last_position, NULL, last_reason);
+    if (info->rmode() == RelocInfo::POSITION) {
+      int raw_position = static_cast<int>(info->data());
+      last_position = raw_position ? SourcePosition::FromRaw(raw_position)
+                                   : SourcePosition::Unknown();
+    } else if (info->rmode() == RelocInfo::DEOPT_REASON) {
+      last_reason = static_cast<Deoptimizer::DeoptReason>(info->data());
+    }
+  }
+  return DeoptInfo(SourcePosition::Unknown(), NULL, Deoptimizer::kNoReason);
+}
+}  // namespace internal
+}  // namespace v8

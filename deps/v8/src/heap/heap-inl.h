@@ -8,7 +8,6 @@
 #include <cmath>
 
 #include "src/base/platform/platform.h"
-#include "src/cpu-profiler.h"
 #include "src/heap/heap.h"
 #include "src/heap/store-buffer.h"
 #include "src/heap/store-buffer-inl.h"
@@ -25,13 +24,6 @@ void PromotionQueue::insert(HeapObject* target, int size) {
   if (emergency_stack_ != NULL) {
     emergency_stack_->Add(Entry(target, size));
     return;
-  }
-
-  if (NewSpacePage::IsAtStart(reinterpret_cast<Address>(rear_))) {
-    NewSpacePage* rear_page =
-        NewSpacePage::FromAddress(reinterpret_cast<Address>(rear_));
-    DCHECK(!rear_page->prev_page()->is_anchor());
-    rear_ = reinterpret_cast<intptr_t*>(rear_page->prev_page()->area_end());
   }
 
   if ((rear_ - 2) < limit_) {
@@ -89,12 +81,12 @@ AllocationResult Heap::AllocateOneByteInternalizedString(
   // Compute map and object size.
   Map* map = one_byte_internalized_string_map();
   int size = SeqOneByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, OLD_DATA_SPACE, TENURED);
+  AllocationSpace space = SelectSpace(size, TENURED);
 
   // Allocate string.
   HeapObject* result;
   {
-    AllocationResult allocation = AllocateRaw(size, space, OLD_DATA_SPACE);
+    AllocationResult allocation = AllocateRaw(size, space, OLD_SPACE);
     if (!allocation.To(&result)) return allocation;
   }
 
@@ -121,12 +113,12 @@ AllocationResult Heap::AllocateTwoByteInternalizedString(Vector<const uc16> str,
   // Compute map and object size.
   Map* map = internalized_string_map();
   int size = SeqTwoByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, OLD_DATA_SPACE, TENURED);
+  AllocationSpace space = SelectSpace(size, TENURED);
 
   // Allocate string.
   HeapObject* result;
   {
-    AllocationResult allocation = AllocateRaw(size, space, OLD_DATA_SPACE);
+    AllocationResult allocation = AllocateRaw(size, space, OLD_SPACE);
     if (!allocation.To(&result)) return allocation;
   }
 
@@ -157,14 +149,9 @@ AllocationResult Heap::CopyFixedDoubleArray(FixedDoubleArray* src) {
 }
 
 
-AllocationResult Heap::CopyConstantPoolArray(ConstantPoolArray* src) {
-  if (src->length() == 0) return src;
-  return CopyConstantPoolArrayWithMap(src, src->map());
-}
-
-
 AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
-                                   AllocationSpace retry_space) {
+                                   AllocationSpace retry_space,
+                                   AllocationAlignment alignment) {
   DCHECK(AllowHandleAllocation::IsAllowed());
   DCHECK(AllowHeapAllocation::IsAllowed());
   DCHECK(gc_state_ == NOT_IN_GC);
@@ -180,7 +167,7 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
   HeapObject* object;
   AllocationResult allocation;
   if (NEW_SPACE == space) {
-    allocation = new_space_.AllocateRaw(size_in_bytes);
+    allocation = new_space_.AllocateRaw(size_in_bytes, alignment);
     if (always_allocate() && allocation.IsRetry() && retry_space != NEW_SPACE) {
       space = retry_space;
     } else {
@@ -191,26 +178,20 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
     }
   }
 
-  if (OLD_POINTER_SPACE == space) {
-    allocation = old_pointer_space_->AllocateRaw(size_in_bytes);
-  } else if (OLD_DATA_SPACE == space) {
-    allocation = old_data_space_->AllocateRaw(size_in_bytes);
+  if (OLD_SPACE == space) {
+    allocation = old_space_->AllocateRaw(size_in_bytes, alignment);
   } else if (CODE_SPACE == space) {
     if (size_in_bytes <= code_space()->AreaSize()) {
-      allocation = code_space_->AllocateRaw(size_in_bytes);
+      allocation = code_space_->AllocateRawUnaligned(size_in_bytes);
     } else {
       // Large code objects are allocated in large object space.
       allocation = lo_space_->AllocateRaw(size_in_bytes, EXECUTABLE);
     }
   } else if (LO_SPACE == space) {
     allocation = lo_space_->AllocateRaw(size_in_bytes, NOT_EXECUTABLE);
-  } else if (CELL_SPACE == space) {
-    allocation = cell_space_->AllocateRaw(size_in_bytes);
-  } else if (PROPERTY_CELL_SPACE == space) {
-    allocation = property_cell_space_->AllocateRaw(size_in_bytes);
   } else {
     DCHECK(MAP_SPACE == space);
-    allocation = map_space_->AllocateRaw(size_in_bytes);
+    allocation = map_space_->AllocateRawUnaligned(size_in_bytes);
   }
   if (allocation.To(&object)) {
     OnAllocationEvent(object, size_in_bytes);
@@ -227,9 +208,9 @@ void Heap::OnAllocationEvent(HeapObject* object, int size_in_bytes) {
     profiler->AllocationEvent(object->address(), size_in_bytes);
   }
 
-  if (FLAG_verify_predictable) {
-    ++allocations_count_;
+  ++allocations_count_;
 
+  if (FLAG_verify_predictable) {
     UpdateAllocationsHash(object);
     UpdateAllocationsHash(size_in_bytes);
 
@@ -237,6 +218,12 @@ void Heap::OnAllocationEvent(HeapObject* object, int size_in_bytes) {
         (--dump_allocations_hash_countdown_ == 0)) {
       dump_allocations_hash_countdown_ = FLAG_dump_allocations_digest_at_alloc;
       PrintAlloctionsHash();
+    }
+  }
+
+  if (FLAG_trace_allocation_stack_interval > 0) {
+    if (allocations_count_ % FLAG_trace_allocation_stack_interval == 0) {
+      isolate()->PrintStack(stdout, Isolate::kPrintStackConcise);
     }
   }
 }
@@ -249,13 +236,9 @@ void Heap::OnMoveEvent(HeapObject* target, HeapObject* source,
     heap_profiler->ObjectMoveEvent(source->address(), target->address(),
                                    size_in_bytes);
   }
-
-  if (isolate_->logger()->is_logging_code_events() ||
-      isolate_->cpu_profiler()->is_profiling()) {
-    if (target->IsSharedFunctionInfo()) {
-      PROFILE(isolate_, SharedFunctionInfoMoveEvent(source->address(),
-                                                    target->address()));
-    }
+  if (target->IsSharedFunctionInfo()) {
+    LOG_CODE_EVENT(isolate_, SharedFunctionInfoMoveEvent(source->address(),
+                                                         target->address()));
   }
 
   if (FLAG_verify_predictable) {
@@ -341,23 +324,11 @@ bool Heap::InToSpace(Object* object) {
 }
 
 
-bool Heap::InOldPointerSpace(Address address) {
-  return old_pointer_space_->Contains(address);
-}
+bool Heap::InOldSpace(Address address) { return old_space_->Contains(address); }
 
 
-bool Heap::InOldPointerSpace(Object* object) {
-  return InOldPointerSpace(reinterpret_cast<Address>(object));
-}
-
-
-bool Heap::InOldDataSpace(Address address) {
-  return old_data_space_->Contains(address);
-}
-
-
-bool Heap::InOldDataSpace(Object* object) {
-  return InOldDataSpace(reinterpret_cast<Address>(object));
+bool Heap::InOldSpace(Object* object) {
+  return InOldSpace(reinterpret_cast<Address>(object));
 }
 
 
@@ -389,53 +360,16 @@ void Heap::RecordWrites(Address address, int start, int len) {
 }
 
 
-OldSpace* Heap::TargetSpace(HeapObject* object) {
-  InstanceType type = object->map()->instance_type();
-  AllocationSpace space = TargetSpaceId(type);
-  return (space == OLD_POINTER_SPACE) ? old_pointer_space_ : old_data_space_;
-}
-
-
-AllocationSpace Heap::TargetSpaceId(InstanceType type) {
-  // Heap numbers and sequential strings are promoted to old data space, all
-  // other object types are promoted to old pointer space.  We do not use
-  // object->IsHeapNumber() and object->IsSeqString() because we already
-  // know that object has the heap object tag.
-
-  // These objects are never allocated in new space.
-  DCHECK(type != MAP_TYPE);
-  DCHECK(type != CODE_TYPE);
-  DCHECK(type != ODDBALL_TYPE);
-  DCHECK(type != CELL_TYPE);
-  DCHECK(type != PROPERTY_CELL_TYPE);
-
-  if (type <= LAST_NAME_TYPE) {
-    if (type == SYMBOL_TYPE) return OLD_POINTER_SPACE;
-    DCHECK(type < FIRST_NONSTRING_TYPE);
-    // There are four string representations: sequential strings, external
-    // strings, cons strings, and sliced strings.
-    // Only the latter two contain non-map-word pointers to heap objects.
-    return ((type & kIsIndirectStringMask) == kIsIndirectStringTag)
-               ? OLD_POINTER_SPACE
-               : OLD_DATA_SPACE;
-  } else {
-    return (type <= LAST_DATA_TYPE) ? OLD_DATA_SPACE : OLD_POINTER_SPACE;
-  }
-}
-
-
 bool Heap::AllowedToBeMigrated(HeapObject* obj, AllocationSpace dst) {
   // Object migration is governed by the following rules:
   //
-  // 1) Objects in new-space can be migrated to one of the old spaces
+  // 1) Objects in new-space can be migrated to the old space
   //    that matches their target space or they stay in new-space.
   // 2) Objects in old-space stay in the same space when migrating.
   // 3) Fillers (two or more words) can migrate due to left-trimming of
-  //    fixed arrays in new-space, old-data-space and old-pointer-space.
+  //    fixed arrays in new-space or old space.
   // 4) Fillers (one word) can never migrate, they are skipped by
   //    incremental marking explicitly to prevent invalid pattern.
-  // 5) Short external strings can end up in old pointer space when a cons
-  //    string in old pointer space is made external (String::MakeExternal).
   //
   // Since this function is used for debugging only, we do not place
   // asserts here, but check everything explicitly.
@@ -445,17 +379,13 @@ bool Heap::AllowedToBeMigrated(HeapObject* obj, AllocationSpace dst) {
   AllocationSpace src = chunk->owner()->identity();
   switch (src) {
     case NEW_SPACE:
-      return dst == src || dst == TargetSpaceId(type);
-    case OLD_POINTER_SPACE:
-      return dst == src && (dst == TargetSpaceId(type) || obj->IsFiller() ||
-                            obj->IsExternalString());
-    case OLD_DATA_SPACE:
-      return dst == src && dst == TargetSpaceId(type);
+      return dst == src || dst == OLD_SPACE;
+    case OLD_SPACE:
+      return dst == src &&
+             (dst == OLD_SPACE || obj->IsFiller() || obj->IsExternalString());
     case CODE_SPACE:
       return dst == src && type == CODE_TYPE;
     case MAP_SPACE:
-    case CELL_SPACE:
-    case PROPERTY_CELL_SPACE:
     case LO_SPACE:
       return false;
   }
@@ -609,10 +539,13 @@ Isolate* Heap::isolate() {
     AllocationResult __allocation__ = FUNCTION_CALL;                          \
     Object* __object__ = NULL;                                                \
     RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                         \
-    (ISOLATE)->heap()->CollectGarbage(__allocation__.RetrySpace(),            \
-                                      "allocation failure");                  \
-    __allocation__ = FUNCTION_CALL;                                           \
-    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                         \
+    /* Two GCs before panicking.  In newspace will almost always succeed. */  \
+    for (int __i__ = 0; __i__ < 2; __i__++) {                                 \
+      (ISOLATE)->heap()->CollectGarbage(__allocation__.RetrySpace(),          \
+                                        "allocation failure");                \
+      __allocation__ = FUNCTION_CALL;                                         \
+      RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                       \
+    }                                                                         \
     (ISOLATE)->counters()->gc_last_resort_from_handles()->Increment();        \
     (ISOLATE)->heap()->CollectAllAvailableGarbage("last resort gc");          \
     {                                                                         \
@@ -714,18 +647,12 @@ void Heap::CompletelyClearInstanceofCache() {
 
 AlwaysAllocateScope::AlwaysAllocateScope(Isolate* isolate)
     : heap_(isolate->heap()), daf_(isolate) {
-  // We shouldn't hit any nested scopes, because that requires
-  // non-handle code to call handle code. The code still works but
-  // performance will degrade, so we want to catch this situation
-  // in debug mode.
-  DCHECK(heap_->always_allocate_scope_depth_ == 0);
   heap_->always_allocate_scope_depth_++;
 }
 
 
 AlwaysAllocateScope::~AlwaysAllocateScope() {
   heap_->always_allocate_scope_depth_--;
-  DCHECK(heap_->always_allocate_scope_depth_ == 0);
 }
 
 

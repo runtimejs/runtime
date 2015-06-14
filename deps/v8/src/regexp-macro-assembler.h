@@ -45,6 +45,9 @@ class RegExpMacroAssembler {
 
   RegExpMacroAssembler(Isolate* isolate, Zone* zone);
   virtual ~RegExpMacroAssembler();
+  // This function is called when code generation is aborted, so that
+  // the assembler could clean up internal data structures.
+  virtual void AbortedCodeGeneration() {}
   // The maximal number of pushes between stack checks. Users must supply
   // kCheckStackLimit flag to push operations (instead of kNoStackLimitCheck)
   // at least once for every stack_limit() pushes that are executed.
@@ -214,6 +217,12 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
                            Isolate* isolate);
 
   static const byte* StringCharacterPosition(String* subject, int start_index);
+
+  static int CheckStackGuardState(Isolate* isolate, int start_index,
+                                  bool is_direct_call, Address* return_address,
+                                  Code* re_code, String** subject,
+                                  const byte** input_start,
+                                  const byte** input_end);
 
   // Byte map of one byte characters with a 0xff if the character is a word
   // character (digit, letter or underscore) and 0x00 otherwise.

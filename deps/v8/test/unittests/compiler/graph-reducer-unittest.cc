@@ -2,18 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
-#include "src/compiler/graph-reducer.h"
 #include "src/compiler/node.h"
 #include "src/compiler/operator.h"
+#include "test/unittests/compiler/graph-reducer-unittest.h"
 #include "test/unittests/test-utils.h"
-#include "testing/gmock/include/gmock/gmock.h"
 
 using testing::_;
 using testing::DefaultValue;
+using testing::ElementsAre;
 using testing::Return;
 using testing::Sequence;
 using testing::StrictMock;
+using testing::UnorderedElementsAre;
 
 namespace v8 {
 namespace internal {
@@ -55,9 +57,9 @@ struct MockReducer : public Reducer {
 
 
 // Replaces all "A" operators with "B" operators without creating new nodes.
-class InPlaceABReducer : public Reducer {
+class InPlaceABReducer final : public Reducer {
  public:
-  virtual Reduction Reduce(Node* node) {
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeA0:
         EXPECT_EQ(0, node->InputCount());
@@ -78,10 +80,11 @@ class InPlaceABReducer : public Reducer {
 
 
 // Replaces all "A" operators with "B" operators by allocating new nodes.
-class NewABReducer : public Reducer {
+class NewABReducer final : public Reducer {
  public:
   explicit NewABReducer(Graph* graph) : graph_(graph) {}
-  virtual Reduction Reduce(Node* node) {
+
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeA0:
         EXPECT_EQ(0, node->InputCount());
@@ -96,15 +99,18 @@ class NewABReducer : public Reducer {
     }
     return NoChange();
   }
-  Graph* graph_;
+
+ private:
+  Graph* const graph_;
 };
 
 
 // Wraps all "kOpA0" nodes in "kOpB1" operators by allocating new nodes.
-class A0Wrapper FINAL : public Reducer {
+class A0Wrapper final : public Reducer {
  public:
   explicit A0Wrapper(Graph* graph) : graph_(graph) {}
-  virtual Reduction Reduce(Node* node) OVERRIDE {
+
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeA0:
         EXPECT_EQ(0, node->InputCount());
@@ -112,15 +118,18 @@ class A0Wrapper FINAL : public Reducer {
     }
     return NoChange();
   }
-  Graph* graph_;
+
+ private:
+  Graph* const graph_;
 };
 
 
 // Wraps all "kOpB0" nodes in two "kOpC1" operators by allocating new nodes.
-class B0Wrapper FINAL : public Reducer {
+class B0Wrapper final : public Reducer {
  public:
   explicit B0Wrapper(Graph* graph) : graph_(graph) {}
-  virtual Reduction Reduce(Node* node) OVERRIDE {
+
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeB0:
         EXPECT_EQ(0, node->InputCount());
@@ -128,13 +137,16 @@ class B0Wrapper FINAL : public Reducer {
     }
     return NoChange();
   }
-  Graph* graph_;
+
+ private:
+  Graph* const graph_;
 };
 
 
 // Replaces all "kOpA1" nodes with the first input.
-class A1Forwarder : public Reducer {
-  virtual Reduction Reduce(Node* node) {
+class A1Forwarder final : public Reducer {
+ public:
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeA1:
         EXPECT_EQ(1, node->InputCount());
@@ -146,8 +158,9 @@ class A1Forwarder : public Reducer {
 
 
 // Replaces all "kOpB1" nodes with the first input.
-class B1Forwarder : public Reducer {
-  virtual Reduction Reduce(Node* node) {
+class B1Forwarder final : public Reducer {
+ public:
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeB1:
         EXPECT_EQ(1, node->InputCount());
@@ -159,9 +172,9 @@ class B1Forwarder : public Reducer {
 
 
 // Replaces all "B" operators with "C" operators without creating new nodes.
-class InPlaceBCReducer : public Reducer {
+class InPlaceBCReducer final : public Reducer {
  public:
-  virtual Reduction Reduce(Node* node) {
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeB0:
         EXPECT_EQ(0, node->InputCount());
@@ -182,8 +195,9 @@ class InPlaceBCReducer : public Reducer {
 
 
 // Swaps the inputs to "kOp2A" and "kOp2B" nodes based on ids.
-class AB2Sorter : public Reducer {
-  virtual Reduction Reduce(Node* node) {
+class AB2Sorter final : public Reducer {
+ public:
+  Reduction Reduce(Node* node) final {
     switch (node->op()->opcode()) {
       case kOpcodeA2:
       case kOpcodeB2:
@@ -200,8 +214,175 @@ class AB2Sorter : public Reducer {
   }
 };
 
+}  // namespace
+
+
+class AdvancedReducerTest : public TestWithZone {
+ public:
+  AdvancedReducerTest() : graph_(zone()) {}
+
+ protected:
+  Graph* graph() { return &graph_; }
+
+ private:
+  Graph graph_;
+};
+
+
+TEST_F(AdvancedReducerTest, Replace) {
+  struct DummyReducer final : public AdvancedReducer {
+    explicit DummyReducer(Editor* editor) : AdvancedReducer(editor) {}
+    Reduction Reduce(Node* node) final {
+      Replace(node, node);
+      return NoChange();
+    }
+  };
+  StrictMock<MockAdvancedReducerEditor> e;
+  DummyReducer r(&e);
+  Node* node0 = graph()->NewNode(&kOpA0);
+  Node* node1 = graph()->NewNode(&kOpA1, node0);
+  EXPECT_CALL(e, Replace(node0, node0));
+  EXPECT_CALL(e, Replace(node1, node1));
+  EXPECT_FALSE(r.Reduce(node0).Changed());
+  EXPECT_FALSE(r.Reduce(node1).Changed());
+}
+
+
+TEST_F(AdvancedReducerTest, Revisit) {
+  struct DummyReducer final : public AdvancedReducer {
+    explicit DummyReducer(Editor* editor) : AdvancedReducer(editor) {}
+    Reduction Reduce(Node* node) final {
+      Revisit(node);
+      return NoChange();
+    }
+  };
+  StrictMock<MockAdvancedReducerEditor> e;
+  DummyReducer r(&e);
+  Node* node0 = graph()->NewNode(&kOpA0);
+  Node* node1 = graph()->NewNode(&kOpA1, node0);
+  EXPECT_CALL(e, Revisit(node0));
+  EXPECT_CALL(e, Revisit(node1));
+  EXPECT_FALSE(r.Reduce(node0).Changed());
+  EXPECT_FALSE(r.Reduce(node1).Changed());
+}
+
+
+namespace {
+
+struct ReplaceWithValueReducer final : public AdvancedReducer {
+  explicit ReplaceWithValueReducer(Editor* editor) : AdvancedReducer(editor) {}
+  Reduction Reduce(Node* node) final { return NoChange(); }
+  using AdvancedReducer::ReplaceWithValue;
+};
+
+const Operator kMockOperator(IrOpcode::kDead, Operator::kNoProperties,
+                             "MockOperator", 0, 0, 0, 1, 0, 0);
+const Operator kMockOpEffect(IrOpcode::kDead, Operator::kNoProperties,
+                             "MockOpEffect", 0, 1, 0, 1, 1, 0);
+const Operator kMockOpControl(IrOpcode::kDead, Operator::kNoProperties,
+                              "MockOpControl", 0, 0, 1, 1, 0, 1);
+
+const IfExceptionHint kNoHint = IfExceptionHint::kLocallyCaught;
 
 }  // namespace
+
+
+TEST_F(AdvancedReducerTest, ReplaceWithValue_ValueUse) {
+  CommonOperatorBuilder common(zone());
+  Node* node = graph()->NewNode(&kMockOperator);
+  Node* use_value = graph()->NewNode(common.Return(), node);
+  Node* replacement = graph()->NewNode(&kMockOperator);
+  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  ReplaceWithValueReducer r(&graph_reducer);
+  r.ReplaceWithValue(node, replacement);
+  EXPECT_EQ(replacement, use_value->InputAt(0));
+  EXPECT_EQ(0, node->UseCount());
+  EXPECT_EQ(1, replacement->UseCount());
+  EXPECT_THAT(replacement->uses(), ElementsAre(use_value));
+}
+
+
+TEST_F(AdvancedReducerTest, ReplaceWithValue_EffectUse) {
+  CommonOperatorBuilder common(zone());
+  Node* start = graph()->NewNode(common.Start(1));
+  Node* node = graph()->NewNode(&kMockOpEffect, start);
+  Node* use_effect = graph()->NewNode(common.EffectPhi(1), node);
+  Node* replacement = graph()->NewNode(&kMockOperator);
+  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  ReplaceWithValueReducer r(&graph_reducer);
+  r.ReplaceWithValue(node, replacement);
+  EXPECT_EQ(start, use_effect->InputAt(0));
+  EXPECT_EQ(0, node->UseCount());
+  EXPECT_EQ(2, start->UseCount());
+  EXPECT_EQ(0, replacement->UseCount());
+  EXPECT_THAT(start->uses(), UnorderedElementsAre(use_effect, node));
+}
+
+
+TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse1) {
+  CommonOperatorBuilder common(zone());
+  Node* start = graph()->NewNode(common.Start(1));
+  Node* node = graph()->NewNode(&kMockOpControl, start);
+  Node* success = graph()->NewNode(common.IfSuccess(), node);
+  Node* use_control = graph()->NewNode(common.Merge(1), success);
+  Node* replacement = graph()->NewNode(&kMockOperator);
+  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  ReplaceWithValueReducer r(&graph_reducer);
+  r.ReplaceWithValue(node, replacement);
+  EXPECT_EQ(start, use_control->InputAt(0));
+  EXPECT_EQ(0, node->UseCount());
+  EXPECT_EQ(2, start->UseCount());
+  EXPECT_EQ(0, replacement->UseCount());
+  EXPECT_THAT(start->uses(), UnorderedElementsAre(use_control, node));
+}
+
+
+TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse2) {
+  CommonOperatorBuilder common(zone());
+  Node* start = graph()->NewNode(common.Start(1));
+  Node* dead = graph()->NewNode(&kMockOperator);
+  Node* node = graph()->NewNode(&kMockOpControl, start);
+  Node* success = graph()->NewNode(common.IfSuccess(), node);
+  Node* exception = graph()->NewNode(common.IfException(kNoHint), node);
+  Node* use_control = graph()->NewNode(common.Merge(1), success);
+  Node* use_exception_control = graph()->NewNode(common.Merge(1), exception);
+  Node* replacement = graph()->NewNode(&kMockOperator);
+  GraphReducer graph_reducer(zone(), graph(), nullptr, dead);
+  ReplaceWithValueReducer r(&graph_reducer);
+  r.ReplaceWithValue(node, replacement);
+  EXPECT_EQ(start, use_control->InputAt(0));
+  EXPECT_EQ(dead, use_exception_control->InputAt(0));
+  EXPECT_EQ(0, node->UseCount());
+  EXPECT_EQ(2, start->UseCount());
+  EXPECT_EQ(1, dead->UseCount());
+  EXPECT_EQ(0, replacement->UseCount());
+  EXPECT_THAT(start->uses(), UnorderedElementsAre(use_control, node));
+  EXPECT_THAT(dead->uses(), ElementsAre(use_exception_control));
+}
+
+
+TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse3) {
+  CommonOperatorBuilder common(zone());
+  Node* start = graph()->NewNode(common.Start(1));
+  Node* dead = graph()->NewNode(&kMockOperator);
+  Node* node = graph()->NewNode(&kMockOpControl, start);
+  Node* success = graph()->NewNode(common.IfSuccess(), node);
+  Node* exception = graph()->NewNode(common.IfException(kNoHint), node);
+  Node* use_control = graph()->NewNode(common.Merge(1), success);
+  Node* use_exception_value = graph()->NewNode(common.Return(), exception);
+  Node* replacement = graph()->NewNode(&kMockOperator);
+  GraphReducer graph_reducer(zone(), graph(), dead, nullptr);
+  ReplaceWithValueReducer r(&graph_reducer);
+  r.ReplaceWithValue(node, replacement);
+  EXPECT_EQ(start, use_control->InputAt(0));
+  EXPECT_EQ(dead, use_exception_value->InputAt(0));
+  EXPECT_EQ(0, node->UseCount());
+  EXPECT_EQ(2, start->UseCount());
+  EXPECT_EQ(1, dead->UseCount());
+  EXPECT_EQ(0, replacement->UseCount());
+  EXPECT_THAT(start->uses(), UnorderedElementsAre(use_control, node));
+  EXPECT_THAT(dead->uses(), ElementsAre(use_exception_value));
+}
 
 
 class GraphReducerTest : public TestWithZone {
@@ -220,20 +401,20 @@ class GraphReducerTest : public TestWithZone {
 
  protected:
   void ReduceNode(Node* node, Reducer* r) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r);
     reducer.ReduceNode(node);
   }
 
   void ReduceNode(Node* node, Reducer* r1, Reducer* r2) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.ReduceNode(node);
   }
 
   void ReduceNode(Node* node, Reducer* r1, Reducer* r2, Reducer* r3) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.AddReducer(r3);
@@ -241,20 +422,20 @@ class GraphReducerTest : public TestWithZone {
   }
 
   void ReduceGraph(Reducer* r1) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.ReduceGraph();
   }
 
   void ReduceGraph(Reducer* r1, Reducer* r2) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.ReduceGraph();
   }
 
   void ReduceGraph(Reducer* r1, Reducer* r2, Reducer* r3) {
-    GraphReducer reducer(graph(), zone());
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.AddReducer(r3);
@@ -573,6 +754,8 @@ TEST_F(GraphReducerTest, Sorter1) {
 }
 
 
+namespace {
+
 // Generate a node graph with the given permutations.
 void GenDAG(Graph* graph, int* p3, int* p2, int* p1) {
   Node* level4 = graph->NewNode(&kOpA0);
@@ -590,6 +773,8 @@ void GenDAG(Graph* graph, int* p3, int* p2, int* p1) {
   Node* end = graph->NewNode(&kOpA2, level1[p1[0]], level1[p1[1]]);
   graph->SetEnd(end);
 }
+
+}  // namespace
 
 
 TEST_F(GraphReducerTest, SortForwardReduce) {
@@ -666,7 +851,6 @@ TEST_F(GraphReducerTest, Order) {
     }
   }
 }
-
 
 }  // namespace compiler
 }  // namespace internal

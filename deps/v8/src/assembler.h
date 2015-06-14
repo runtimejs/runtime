@@ -79,11 +79,11 @@ class AssemblerBase: public Malloced {
     return (enabled_cpu_features_ & (static_cast<uint64_t>(1) << f)) != 0;
   }
 
-  bool is_ool_constant_pool_available() const {
-    if (FLAG_enable_ool_constant_pool) {
-      return ool_constant_pool_available_;
+  bool is_constant_pool_available() const {
+    if (FLAG_enable_embedded_constant_pool) {
+      return constant_pool_available_;
     } else {
-      // Out-of-line constant pool not supported on this architecture.
+      // Embedded constant pool not supported on this architecture.
       UNREACHABLE();
       return false;
     }
@@ -108,11 +108,11 @@ class AssemblerBase: public Malloced {
   int buffer_size_;
   bool own_buffer_;
 
-  void set_ool_constant_pool_available(bool available) {
-    if (FLAG_enable_ool_constant_pool) {
-      ool_constant_pool_available_ = available;
+  void set_constant_pool_available(bool available) {
+    if (FLAG_enable_embedded_constant_pool) {
+      constant_pool_available_ = available;
     } else {
-      // Out-of-line constant pool not supported on this architecture.
+      // Embedded constant pool not supported on this architecture.
       UNREACHABLE();
     }
   }
@@ -130,7 +130,7 @@ class AssemblerBase: public Malloced {
 
   // Indicates whether the constant pool can be accessed, which is only possible
   // if the pp register points to the current code object's constant pool.
-  bool ool_constant_pool_available_;
+  bool constant_pool_available_;
 
   // Constant pool.
   friend class FrameAndConstantPoolScope;
@@ -379,6 +379,9 @@ class RelocInfo {
     EXTERNAL_REFERENCE,  // The address of an external C++ function.
     INTERNAL_REFERENCE,  // An address inside the same function.
 
+    // Encoded internal reference, used only on MIPS, MIPS64 and PPC.
+    INTERNAL_REFERENCE_ENCODED,
+
     // Marks constant and veneer pools. Only used on ARM and ARM64.
     // They use a custom noncompact encoding.
     CONST_POOL,
@@ -393,6 +396,7 @@ class RelocInfo {
     NONE64,             // never recorded 64-bit value
     CODE_AGE_SEQUENCE,  // Not stored in RelocInfo array, used explictly by
                         // code aging.
+
     FIRST_REAL_RELOC_MODE = CODE_TARGET,
     LAST_REAL_RELOC_MODE = VENEER_POOL,
     FIRST_PSEUDO_RELOC_MODE = CODE_AGE_SEQUENCE,
@@ -401,16 +405,13 @@ class RelocInfo {
     LAST_GCED_ENUM = CELL,
     // Modes <= LAST_COMPACT_ENUM are guaranteed to have compact encoding.
     LAST_COMPACT_ENUM = CODE_TARGET_WITH_ID,
-    LAST_STANDARD_NONCOMPACT_ENUM = INTERNAL_REFERENCE
+    LAST_STANDARD_NONCOMPACT_ENUM = INTERNAL_REFERENCE_ENCODED
   };
 
   RelocInfo() {}
 
   RelocInfo(byte* pc, Mode rmode, intptr_t data, Code* host)
       : pc_(pc), rmode_(rmode), data_(data), host_(host) {
-  }
-  RelocInfo(byte* pc, double data64)
-      : pc_(pc), rmode_(NONE64), data64_(data64), host_(NULL) {
   }
 
   static inline bool IsRealRelocMode(Mode mode) {
@@ -431,6 +432,7 @@ class RelocInfo {
   static inline bool IsEmbeddedObject(Mode mode) {
     return mode == EMBEDDED_OBJECT;
   }
+  static inline bool IsCell(Mode mode) { return mode == CELL; }
   static inline bool IsRuntimeEntry(Mode mode) {
     return mode == RUNTIME_ENTRY;
   }
@@ -450,6 +452,9 @@ class RelocInfo {
   static inline bool IsVeneerPool(Mode mode) {
     return mode == VENEER_POOL;
   }
+  static inline bool IsDeoptReason(Mode mode) {
+    return mode == DEOPT_REASON;
+  }
   static inline bool IsPosition(Mode mode) {
     return mode == POSITION || mode == STATEMENT_POSITION;
   }
@@ -462,8 +467,14 @@ class RelocInfo {
   static inline bool IsInternalReference(Mode mode) {
     return mode == INTERNAL_REFERENCE;
   }
+  static inline bool IsInternalReferenceEncoded(Mode mode) {
+    return mode == INTERNAL_REFERENCE_ENCODED;
+  }
   static inline bool IsDebugBreakSlot(Mode mode) {
     return mode == DEBUG_BREAK_SLOT;
+  }
+  static inline bool IsDebuggerStatement(Mode mode) {
+    return mode == DEBUG_BREAK;
   }
   static inline bool IsNone(Mode mode) {
     return mode == NONE32 || mode == NONE64;
@@ -473,22 +484,11 @@ class RelocInfo {
   }
   static inline int ModeMask(Mode mode) { return 1 << mode; }
 
-  // Returns true if the first RelocInfo has the same mode and raw data as the
-  // second one.
-  static inline bool IsEqual(RelocInfo first, RelocInfo second) {
-    return first.rmode() == second.rmode() &&
-           (first.rmode() == RelocInfo::NONE64 ?
-              first.raw_data64() == second.raw_data64() :
-              first.data() == second.data());
-  }
-
   // Accessors
   byte* pc() const { return pc_; }
   void set_pc(byte* pc) { pc_ = pc; }
   Mode rmode() const {  return rmode_; }
   intptr_t data() const { return data_; }
-  double data64() const { return data64_; }
-  uint64_t raw_data64() { return bit_cast<uint64_t>(data64_); }
   Code* host() const { return host_; }
   void set_host(Code* host) { host_ = host; }
 
@@ -564,9 +564,17 @@ class RelocInfo {
   // place, ready to be patched with the target.
   INLINE(int target_address_size());
 
-  // Read/modify the reference in the instruction this relocation
-  // applies to; can only be called if rmode_ is external_reference
-  INLINE(Address target_reference());
+  // Read the reference in the instruction this relocation
+  // applies to; can only be called if rmode_ is EXTERNAL_REFERENCE.
+  INLINE(Address target_external_reference());
+
+  // Read the reference in the instruction this relocation
+  // applies to; can only be called if rmode_ is INTERNAL_REFERENCE.
+  INLINE(Address target_internal_reference());
+
+  // Return the reference address this relocation applies to;
+  // can only be called if rmode_ is INTERNAL_REFERENCE.
+  INLINE(Address target_internal_reference_address());
 
   // Read/modify the address of a call instruction. This is used to relocate
   // the break points where straight-line code is patched with a call
@@ -583,9 +591,6 @@ class RelocInfo {
 
   template<typename StaticVisitor> inline void Visit(Heap* heap);
   inline void Visit(Isolate* isolate, ObjectVisitor* v);
-
-  // Patch the code with some other code.
-  void PatchCode(byte* instructions, int instruction_count);
 
   // Patch the code with a call.
   void PatchCodeWithCall(Address target, int guard_bytes);
@@ -626,10 +631,7 @@ class RelocInfo {
   // comment).
   byte* pc_;
   Mode rmode_;
-  union {
-    intptr_t data_;
-    double data64_;
-  };
+  intptr_t data_;
   Code* host_;
   // External-reference pointers are also split across instruction-pairs
   // on some platforms, but are accessed via indirect pointers. This location
@@ -644,14 +646,24 @@ class RelocInfo {
 // lower addresses.
 class RelocInfoWriter BASE_EMBEDDED {
  public:
-  RelocInfoWriter() : pos_(NULL),
-                      last_pc_(NULL),
-                      last_id_(0),
-                      last_position_(0) {}
-  RelocInfoWriter(byte* pos, byte* pc) : pos_(pos),
-                                         last_pc_(pc),
-                                         last_id_(0),
-                                         last_position_(0) {}
+  RelocInfoWriter()
+      : pos_(NULL),
+        last_pc_(NULL),
+        last_id_(0),
+        last_position_(0),
+        last_mode_(RelocInfo::NUMBER_OF_MODES),
+        next_position_candidate_pos_delta_(0),
+        next_position_candidate_pc_delta_(0),
+        next_position_candidate_flushed_(true) {}
+  RelocInfoWriter(byte* pos, byte* pc)
+      : pos_(pos),
+        last_pc_(pc),
+        last_id_(0),
+        last_position_(0),
+        last_mode_(RelocInfo::NUMBER_OF_MODES),
+        next_position_candidate_pos_delta_(0),
+        next_position_candidate_pc_delta_(0),
+        next_position_candidate_flushed_(true) {}
 
   byte* pos() const { return pos_; }
   byte* last_pc() const { return last_pc_; }
@@ -664,6 +676,8 @@ class RelocInfoWriter BASE_EMBEDDED {
     pos_ = pos;
     last_pc_ = pc;
   }
+
+  void Finish() { FlushPosition(); }
 
   // Max size (bytes) of a written RelocInfo. Longest encoding is
   // ExtraTag, VariableLengthPCJump, ExtraTag, pc_delta, ExtraTag, data_delta.
@@ -681,11 +695,19 @@ class RelocInfoWriter BASE_EMBEDDED {
   inline void WriteExtraTaggedData(intptr_t data_delta, int top_tag);
   inline void WriteTaggedData(intptr_t data_delta, int tag);
   inline void WriteExtraTag(int extra_tag, int top_tag);
+  inline void WritePosition(int pc_delta, int pos_delta, RelocInfo::Mode rmode);
+
+  void FlushPosition();
 
   byte* pos_;
   byte* last_pc_;
   int last_id_;
   int last_position_;
+  RelocInfo::Mode last_mode_;
+  int next_position_candidate_pos_delta_;
+  uint32_t next_position_candidate_pc_delta_;
+  bool next_position_candidate_flushed_;
+
   DISALLOW_COPY_AND_ASSIGN(RelocInfoWriter);
 };
 
@@ -901,14 +923,8 @@ class ExternalReference BASE_EMBEDDED {
   // Used for fast allocation in generated code.
   static ExternalReference new_space_allocation_top_address(Isolate* isolate);
   static ExternalReference new_space_allocation_limit_address(Isolate* isolate);
-  static ExternalReference old_pointer_space_allocation_top_address(
-      Isolate* isolate);
-  static ExternalReference old_pointer_space_allocation_limit_address(
-      Isolate* isolate);
-  static ExternalReference old_data_space_allocation_top_address(
-      Isolate* isolate);
-  static ExternalReference old_data_space_allocation_limit_address(
-      Isolate* isolate);
+  static ExternalReference old_space_allocation_top_address(Isolate* isolate);
+  static ExternalReference old_space_allocation_limit_address(Isolate* isolate);
 
   static ExternalReference mod_two_doubles_operation(Isolate* isolate);
   static ExternalReference power_double_double_function(Isolate* isolate);
@@ -920,8 +936,6 @@ class ExternalReference BASE_EMBEDDED {
 
   static ExternalReference scheduled_exception_address(Isolate* isolate);
   static ExternalReference address_of_pending_message_obj(Isolate* isolate);
-  static ExternalReference address_of_has_pending_message(Isolate* isolate);
-  static ExternalReference address_of_pending_message_script(Isolate* isolate);
 
   // Static variables containing common double constants.
   static ExternalReference address_of_min_int();
@@ -1081,7 +1095,11 @@ class PreservePositionScope BASE_EMBEDDED {
  public:
   explicit PreservePositionScope(PositionsRecorder* positions_recorder)
       : positions_recorder_(positions_recorder),
-        saved_state_(positions_recorder->state_) {}
+        saved_state_(positions_recorder->state_) {
+    // Reset positions so that previous ones do not accidentally get
+    // recorded within this scope.
+    positions_recorder->state_ = PositionState();
+  }
 
   ~PreservePositionScope() {
     positions_recorder_->state_ = saved_state_;
@@ -1133,6 +1151,126 @@ class NullCallWrapper : public CallWrapper {
   virtual ~NullCallWrapper() { }
   virtual void BeforeCall(int call_size) const { }
   virtual void AfterCall() const { }
+};
+
+
+// -----------------------------------------------------------------------------
+// Constant pool support
+
+class ConstantPoolEntry {
+ public:
+  ConstantPoolEntry() {}
+  ConstantPoolEntry(int position, intptr_t value, bool sharing_ok)
+      : position_(position),
+        merged_index_(sharing_ok ? SHARING_ALLOWED : SHARING_PROHIBITED),
+        value_(value) {}
+  ConstantPoolEntry(int position, double value)
+      : position_(position), merged_index_(SHARING_ALLOWED), value64_(value) {}
+
+  int position() const { return position_; }
+  bool sharing_ok() const { return merged_index_ != SHARING_PROHIBITED; }
+  bool is_merged() const { return merged_index_ >= 0; }
+  int merged_index(void) const {
+    DCHECK(is_merged());
+    return merged_index_;
+  }
+  void set_merged_index(int index) {
+    merged_index_ = index;
+    DCHECK(is_merged());
+  }
+  int offset(void) const {
+    DCHECK(merged_index_ >= 0);
+    return merged_index_;
+  }
+  void set_offset(int offset) {
+    DCHECK(offset >= 0);
+    merged_index_ = offset;
+  }
+  intptr_t value() const { return value_; }
+  uint64_t value64() const { return bit_cast<uint64_t>(value64_); }
+
+  enum Type { INTPTR, DOUBLE, NUMBER_OF_TYPES };
+
+  static int size(Type type) {
+    return (type == INTPTR) ? kPointerSize : kDoubleSize;
+  }
+
+  enum Access { REGULAR, OVERFLOWED };
+
+ private:
+  int position_;
+  int merged_index_;
+  union {
+    intptr_t value_;
+    double value64_;
+  };
+  enum { SHARING_PROHIBITED = -2, SHARING_ALLOWED = -1 };
+};
+
+
+// -----------------------------------------------------------------------------
+// Embedded constant pool support
+
+class ConstantPoolBuilder BASE_EMBEDDED {
+ public:
+  ConstantPoolBuilder(int ptr_reach_bits, int double_reach_bits);
+
+  // Add pointer-sized constant to the embedded constant pool
+  ConstantPoolEntry::Access AddEntry(int position, intptr_t value,
+                                     bool sharing_ok) {
+    ConstantPoolEntry entry(position, value, sharing_ok);
+    return AddEntry(entry, ConstantPoolEntry::INTPTR);
+  }
+
+  // Add double constant to the embedded constant pool
+  ConstantPoolEntry::Access AddEntry(int position, double value) {
+    ConstantPoolEntry entry(position, value);
+    return AddEntry(entry, ConstantPoolEntry::DOUBLE);
+  }
+
+  // Previews the access type required for the next new entry to be added.
+  ConstantPoolEntry::Access NextAccess(ConstantPoolEntry::Type type) const;
+
+  bool IsEmpty() {
+    return info_[ConstantPoolEntry::INTPTR].entries.empty() &&
+           info_[ConstantPoolEntry::INTPTR].shared_entries.empty() &&
+           info_[ConstantPoolEntry::DOUBLE].entries.empty() &&
+           info_[ConstantPoolEntry::DOUBLE].shared_entries.empty();
+  }
+
+  // Emit the constant pool.  Invoke only after all entries have been
+  // added and all instructions have been emitted.
+  // Returns position of the emitted pool (zero implies no constant pool).
+  int Emit(Assembler* assm);
+
+  // Returns the label associated with the start of the constant pool.
+  // Linking to this label in the function prologue may provide an
+  // efficient means of constant pool pointer register initialization
+  // on some architectures.
+  inline Label* EmittedPosition() { return &emitted_label_; }
+
+ private:
+  ConstantPoolEntry::Access AddEntry(ConstantPoolEntry& entry,
+                                     ConstantPoolEntry::Type type);
+  void EmitSharedEntries(Assembler* assm, ConstantPoolEntry::Type type);
+  void EmitGroup(Assembler* assm, ConstantPoolEntry::Access access,
+                 ConstantPoolEntry::Type type);
+
+  struct PerTypeEntryInfo {
+    PerTypeEntryInfo() : regular_count(0), overflow_start(-1) {}
+    bool overflow() const {
+      return (overflow_start >= 0 &&
+              overflow_start < static_cast<int>(entries.size()));
+    }
+    int regular_reach_bits;
+    int regular_count;
+    int overflow_start;
+    std::vector<ConstantPoolEntry> entries;
+    std::vector<ConstantPoolEntry> shared_entries;
+  };
+
+  Label emitted_label_;  // Records pc_offset of emitted pool
+  PerTypeEntryInfo info_[ConstantPoolEntry::NUMBER_OF_TYPES];
 };
 
 

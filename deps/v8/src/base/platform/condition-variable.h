@@ -28,7 +28,7 @@ class TimeDelta;
 // the mutex and suspend the execution of the calling thread. When the condition
 // variable is notified, the thread is awakened, and the mutex is reacquired.
 
-class ConditionVariable FINAL {
+class ConditionVariable final {
  public:
   ConditionVariable();
   ~ConditionVariable();
@@ -63,7 +63,7 @@ class ConditionVariable FINAL {
   typedef pthread_cond_t NativeHandle;
 #elif V8_OS_WIN
   struct Event;
-  class NativeHandle FINAL {
+  class NativeHandle final {
    public:
     NativeHandle() : waitlist_(NULL), freelist_(NULL) {}
     ~NativeHandle();
@@ -81,6 +81,8 @@ class ConditionVariable FINAL {
 
     DISALLOW_COPY_AND_ASSIGN(NativeHandle);
   };
+#elif V8_OS_RUNTIMEJS
+  typedef threadlib::condvar_t NativeHandle;
 #endif
 
   NativeHandle& native_handle() {

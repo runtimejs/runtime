@@ -9,6 +9,8 @@
 #include "src/compiler/frame.h"
 #include "src/compiler/machine-type.h"
 #include "src/compiler/operator.h"
+#include "src/frames.h"
+#include "src/runtime/runtime.h"
 #include "src/zone.h"
 
 namespace v8 {
@@ -25,10 +27,22 @@ class LinkageLocation {
  public:
   explicit LinkageLocation(int location) : location_(location) {}
 
+  bool is_register() const {
+    return 0 <= location_ && location_ <= ANY_REGISTER;
+  }
+
   static const int16_t ANY_REGISTER = 1023;
   static const int16_t MAX_STACK_SLOT = 32767;
 
   static LinkageLocation AnyRegister() { return LinkageLocation(ANY_REGISTER); }
+
+  bool operator==(const LinkageLocation& other) const {
+    return location_ == other.location_;
+  }
+
+  bool operator!=(const LinkageLocation& other) const {
+    return !(*this == other);
+  }
 
  private:
   friend class CallDescriptor;
@@ -44,7 +58,7 @@ typedef Signature<LinkageLocation> LocationSignature;
 
 // Describes a call to various parts of the compiler. Every call has the notion
 // of a "target", which is the first input to the call.
-class CallDescriptor FINAL : public ZoneObject {
+class CallDescriptor final : public ZoneObject {
  public:
   // Describes the kind of this call, which determines the target.
   enum Kind {
@@ -54,11 +68,13 @@ class CallDescriptor FINAL : public ZoneObject {
   };
 
   enum Flag {
-    // TODO(jarin) kLazyDeoptimization and kNeedsFrameState should be unified.
     kNoFlags = 0u,
     kNeedsFrameState = 1u << 0,
     kPatchableCallSite = 1u << 1,
     kNeedsNopAfterCall = 1u << 2,
+    kHasExceptionHandler = 1u << 3,
+    kHasLocalCatchHandler = 1u << 4,
+    kSupportsTailCalls = 1u << 5,
     kPatchableCallSiteWithNop = kPatchableCallSite | kNeedsNopAfterCall
   };
   typedef base::Flags<Flag> Flags;
@@ -106,6 +122,7 @@ class CallDescriptor FINAL : public ZoneObject {
   Flags flags() const { return flags_; }
 
   bool NeedsFrameState() const { return flags() & kNeedsFrameState; }
+  bool SupportsTailCalls() const { return flags() & kSupportsTailCalls; }
 
   LinkageLocation GetReturnLocation(size_t index) const {
     return location_sig_->GetReturn(index);
@@ -134,6 +151,10 @@ class CallDescriptor FINAL : public ZoneObject {
   RegList CalleeSavedRegisters() const { return callee_saved_registers_; }
 
   const char* debug_name() const { return debug_name_; }
+
+  bool UsesOnlyRegisters() const;
+
+  bool HasSameReturnLocationsAs(const CallDescriptor* other) const;
 
  private:
   friend class Linkage;
@@ -172,38 +193,25 @@ std::ostream& operator<<(std::ostream& os, const CallDescriptor::Kind& k);
 // Call[Runtime]    CEntryStub, arg 1, arg 2, arg 3, [...], fun, #arg, context
 class Linkage : public ZoneObject {
  public:
-  Linkage(Zone* zone, CompilationInfo* info)
-      : isolate_(info->isolate()),
-        zone_(zone),
-        incoming_(ComputeIncoming(zone, info)) {}
-  Linkage(Isolate* isolate, Zone* zone, CallDescriptor* incoming)
-      : isolate_(isolate), zone_(zone), incoming_(incoming) {}
+  explicit Linkage(CallDescriptor* incoming) : incoming_(incoming) {}
 
   static CallDescriptor* ComputeIncoming(Zone* zone, CompilationInfo* info);
 
   // The call descriptor for this compilation unit describes the locations
   // of incoming parameters and the outgoing return value(s).
   CallDescriptor* GetIncomingDescriptor() const { return incoming_; }
-  CallDescriptor* GetJSCallDescriptor(int parameter_count,
-                                      CallDescriptor::Flags flags) const;
   static CallDescriptor* GetJSCallDescriptor(Zone* zone, bool is_osr,
                                              int parameter_count,
                                              CallDescriptor::Flags flags);
-  CallDescriptor* GetRuntimeCallDescriptor(
-      Runtime::FunctionId function, int parameter_count,
-      Operator::Properties properties) const;
   static CallDescriptor* GetRuntimeCallDescriptor(
       Zone* zone, Runtime::FunctionId function, int parameter_count,
       Operator::Properties properties);
 
-  CallDescriptor* GetStubCallDescriptor(
-      const CallInterfaceDescriptor& descriptor, int stack_parameter_count = 0,
-      CallDescriptor::Flags flags = CallDescriptor::kNoFlags,
-      Operator::Properties properties = Operator::kNoProperties) const;
   static CallDescriptor* GetStubCallDescriptor(
       Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
       int stack_parameter_count, CallDescriptor::Flags flags,
-      Operator::Properties properties);
+      Operator::Properties properties = Operator::kNoProperties,
+      MachineType return_type = kMachAnyTagged);
 
   // Creates a call descriptor for simplified C calls that is appropriate
   // for the host platform. This simplified calling convention only supports
@@ -246,8 +254,6 @@ class Linkage : public ZoneObject {
   static const int kJSFunctionCallClosureParamIndex = -1;
 
  private:
-  Isolate* isolate_;
-  Zone* const zone_;
   CallDescriptor* const incoming_;
 
   DISALLOW_COPY_AND_ASSIGN(Linkage);

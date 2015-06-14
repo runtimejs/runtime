@@ -100,38 +100,11 @@ void CallPrinter::VisitVariableDeclaration(VariableDeclaration* node) {}
 void CallPrinter::VisitFunctionDeclaration(FunctionDeclaration* node) {}
 
 
-void CallPrinter::VisitModuleDeclaration(ModuleDeclaration* node) {
-  Find(node->module());
-}
-
-
 void CallPrinter::VisitImportDeclaration(ImportDeclaration* node) {
-  Find(node->module());
 }
 
 
 void CallPrinter::VisitExportDeclaration(ExportDeclaration* node) {}
-
-
-void CallPrinter::VisitModuleLiteral(ModuleLiteral* node) {
-  VisitBlock(node->body());
-}
-
-
-void CallPrinter::VisitModuleVariable(ModuleVariable* node) {
-  Find(node->proxy());
-}
-
-
-void CallPrinter::VisitModulePath(ModulePath* node) { Find(node->module()); }
-
-
-void CallPrinter::VisitModuleUrl(ModuleUrl* node) {}
-
-
-void CallPrinter::VisitModuleStatement(ModuleStatement* node) {
-  Find(node->body());
-}
 
 
 void CallPrinter::VisitExpressionStatement(ExpressionStatement* node) {
@@ -331,7 +304,7 @@ void CallPrinter::VisitCall(Call* node) {
 
 
 void CallPrinter::VisitCallNew(CallNew* node) {
-  bool was_found = !found_ && node->expression()->position() == position_;
+  bool was_found = !found_ && node->position() == position_;
   if (was_found) found_ = true;
   Find(node->expression(), was_found);
   FindArguments(node->arguments());
@@ -381,10 +354,20 @@ void CallPrinter::VisitCompareOperation(CompareOperation* node) {
 }
 
 
+void CallPrinter::VisitSpread(Spread* node) {
+  Print("(...");
+  Find(node->expression(), true);
+  Print(")");
+}
+
+
 void CallPrinter::VisitThisFunction(ThisFunction* node) {}
 
 
-void CallPrinter::VisitSuperReference(SuperReference* node) {}
+void CallPrinter::VisitSuperPropertyReference(SuperPropertyReference* node) {}
+
+
+void CallPrinter::VisitSuperCallReference(SuperCallReference* node) {}
 
 
 void CallPrinter::FindStatements(ZoneList<Statement*>* statements) {
@@ -473,20 +456,11 @@ void PrettyPrinter::VisitFunctionDeclaration(FunctionDeclaration* node) {
 }
 
 
-void PrettyPrinter::VisitModuleDeclaration(ModuleDeclaration* node) {
-  Print("module ");
-  PrintLiteral(node->proxy()->name(), false);
-  Print(" = ");
-  Visit(node->module());
-  Print(";");
-}
-
-
 void PrettyPrinter::VisitImportDeclaration(ImportDeclaration* node) {
   Print("import ");
   PrintLiteral(node->proxy()->name(), false);
   Print(" from ");
-  Visit(node->module());
+  PrintLiteral(node->module_specifier()->string(), true);
   Print(";");
 }
 
@@ -495,37 +469,6 @@ void PrettyPrinter::VisitExportDeclaration(ExportDeclaration* node) {
   Print("export ");
   PrintLiteral(node->proxy()->name(), false);
   Print(";");
-}
-
-
-void PrettyPrinter::VisitModuleLiteral(ModuleLiteral* node) {
-  VisitBlock(node->body());
-}
-
-
-void PrettyPrinter::VisitModuleVariable(ModuleVariable* node) {
-  Visit(node->proxy());
-}
-
-
-void PrettyPrinter::VisitModulePath(ModulePath* node) {
-  Visit(node->module());
-  Print(".");
-  PrintLiteral(node->name(), false);
-}
-
-
-void PrettyPrinter::VisitModuleUrl(ModuleUrl* node) {
-  Print("at ");
-  PrintLiteral(node->url(), true);
-}
-
-
-void PrettyPrinter::VisitModuleStatement(ModuleStatement* node) {
-  Print("module ");
-  PrintLiteral(node->proxy()->name(), false);
-  Print(" ");
-  Visit(node->body());
 }
 
 
@@ -883,13 +826,25 @@ void PrettyPrinter::VisitCompareOperation(CompareOperation* node) {
 }
 
 
+void PrettyPrinter::VisitSpread(Spread* node) {
+  Print("(...");
+  Visit(node->expression());
+  Print(")");
+}
+
+
 void PrettyPrinter::VisitThisFunction(ThisFunction* node) {
   Print("<this-function>");
 }
 
 
-void PrettyPrinter::VisitSuperReference(SuperReference* node) {
-  Print("<super-reference>");
+void PrettyPrinter::VisitSuperPropertyReference(SuperPropertyReference* node) {
+  Print("<super-property-reference>");
+}
+
+
+void PrettyPrinter::VisitSuperCallReference(SuperCallReference* node) {
+  Print("<super-call-reference>");
 }
 
 
@@ -1215,54 +1170,16 @@ void AstPrinter::VisitFunctionDeclaration(FunctionDeclaration* node) {
 }
 
 
-void AstPrinter::VisitModuleDeclaration(ModuleDeclaration* node) {
-  IndentedScope indent(this, "MODULE");
-  PrintLiteralIndented("NAME", node->proxy()->name(), true);
-  Visit(node->module());
-}
-
-
 void AstPrinter::VisitImportDeclaration(ImportDeclaration* node) {
   IndentedScope indent(this, "IMPORT");
   PrintLiteralIndented("NAME", node->proxy()->name(), true);
-  Visit(node->module());
+  PrintLiteralIndented("FROM", node->module_specifier()->string(), true);
 }
 
 
 void AstPrinter::VisitExportDeclaration(ExportDeclaration* node) {
   IndentedScope indent(this, "EXPORT ");
   PrintLiteral(node->proxy()->name(), true);
-}
-
-
-void AstPrinter::VisitModuleLiteral(ModuleLiteral* node) {
-  IndentedScope indent(this, "MODULE LITERAL");
-  VisitBlock(node->body());
-}
-
-
-void AstPrinter::VisitModuleVariable(ModuleVariable* node) {
-  IndentedScope indent(this, "MODULE VARIABLE");
-  Visit(node->proxy());
-}
-
-
-void AstPrinter::VisitModulePath(ModulePath* node) {
-  IndentedScope indent(this, "MODULE PATH");
-  PrintIndentedVisit("MODULE PATH PARENT", node->module());
-  PrintLiteralIndented("NAME", node->name(), true);
-}
-
-
-void AstPrinter::VisitModuleUrl(ModuleUrl* node) {
-  PrintLiteralIndented("URL", node->url(), true);
-}
-
-
-void AstPrinter::VisitModuleStatement(ModuleStatement* node) {
-  IndentedScope indent(this, "MODULE STATEMENT");
-  PrintLiteralIndented("NAME", node->proxy()->name(), true);
-  PrintStatements(node->body()->statements());
 }
 
 
@@ -1387,7 +1304,7 @@ void AstPrinter::VisitTryCatchStatement(TryCatchStatement* node) {
 
 
 void AstPrinter::VisitTryFinallyStatement(TryFinallyStatement* node) {
-  IndentedScope indent(this, "TRY FINALLY");
+  IndentedScope indent(this, "TRY finalLY");
   PrintIndentedVisit("TRY", node->try_block());
   PrintIndentedVisit("FINALLY", node->finally_block());
 }
@@ -1412,7 +1329,48 @@ void AstPrinter::VisitFunctionLiteral(FunctionLiteral* node) {
 
 void AstPrinter::VisitClassLiteral(ClassLiteral* node) {
   IndentedScope indent(this, "CLASS LITERAL");
-  PrintLiteralIndented("NAME", node->name(), false);
+  if (node->raw_name() != nullptr) {
+    PrintLiteralIndented("NAME", node->name(), false);
+  }
+  if (node->extends() != nullptr) {
+    PrintIndentedVisit("EXTENDS", node->extends());
+  }
+  PrintProperties(node->properties());
+}
+
+
+void AstPrinter::PrintProperties(
+    ZoneList<ObjectLiteral::Property*>* properties) {
+  for (int i = 0; i < properties->length(); i++) {
+    ObjectLiteral::Property* property = properties->at(i);
+    const char* prop_kind = nullptr;
+    switch (property->kind()) {
+      case ObjectLiteral::Property::CONSTANT:
+        prop_kind = "CONSTANT";
+        break;
+      case ObjectLiteral::Property::COMPUTED:
+        prop_kind = "COMPUTED";
+        break;
+      case ObjectLiteral::Property::MATERIALIZED_LITERAL:
+        prop_kind = "MATERIALIZED_LITERAL";
+        break;
+      case ObjectLiteral::Property::PROTOTYPE:
+        prop_kind = "PROTOTYPE";
+        break;
+      case ObjectLiteral::Property::GETTER:
+        prop_kind = "GETTER";
+        break;
+      case ObjectLiteral::Property::SETTER:
+        prop_kind = "SETTER";
+        break;
+    }
+    EmbeddedVector<char, 128> buf;
+    SNPrintF(buf, "PROPERTY%s - %s", property->is_static() ? " - STATIC" : "",
+             prop_kind);
+    IndentedScope prop(this, buf.start());
+    PrintIndentedVisit("KEY", properties->at(i)->key());
+    PrintIndentedVisit("VALUE", properties->at(i)->value());
+  }
 }
 
 
@@ -1445,34 +1403,7 @@ void AstPrinter::VisitRegExpLiteral(RegExpLiteral* node) {
 
 void AstPrinter::VisitObjectLiteral(ObjectLiteral* node) {
   IndentedScope indent(this, "OBJ LITERAL");
-  for (int i = 0; i < node->properties()->length(); i++) {
-    const char* prop_kind = NULL;
-    switch (node->properties()->at(i)->kind()) {
-      case ObjectLiteral::Property::CONSTANT:
-        prop_kind = "PROPERTY - CONSTANT";
-        break;
-      case ObjectLiteral::Property::COMPUTED:
-        prop_kind = "PROPERTY - COMPUTED";
-        break;
-      case ObjectLiteral::Property::MATERIALIZED_LITERAL:
-        prop_kind = "PROPERTY - MATERIALIZED_LITERAL";
-        break;
-      case ObjectLiteral::Property::PROTOTYPE:
-        prop_kind = "PROPERTY - PROTOTYPE";
-        break;
-      case ObjectLiteral::Property::GETTER:
-        prop_kind = "PROPERTY - GETTER";
-        break;
-      case ObjectLiteral::Property::SETTER:
-        prop_kind = "PROPERTY - SETTER";
-        break;
-      default:
-        UNREACHABLE();
-    }
-    IndentedScope prop(this, prop_kind);
-    PrintIndentedVisit("KEY", node->properties()->at(i)->key());
-    PrintIndentedVisit("VALUE", node->properties()->at(i)->value());
-  }
+  PrintProperties(node->properties());
 }
 
 
@@ -1593,15 +1524,28 @@ void AstPrinter::VisitCompareOperation(CompareOperation* node) {
 }
 
 
+void AstPrinter::VisitSpread(Spread* node) {
+  IndentedScope indent(this, "...");
+  Visit(node->expression());
+}
+
+
 void AstPrinter::VisitThisFunction(ThisFunction* node) {
   IndentedScope indent(this, "THIS-FUNCTION");
 }
 
 
-void AstPrinter::VisitSuperReference(SuperReference* node) {
-  IndentedScope indent(this, "SUPER-REFERENCE");
+void AstPrinter::VisitSuperPropertyReference(SuperPropertyReference* node) {
+  IndentedScope indent(this, "SUPER-PROPERTY-REFERENCE");
 }
+
+
+void AstPrinter::VisitSuperCallReference(SuperCallReference* node) {
+  IndentedScope indent(this, "SUPER-CALL-REFERENCE");
+}
+
 
 #endif  // DEBUG
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

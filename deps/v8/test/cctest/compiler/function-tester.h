@@ -39,9 +39,11 @@ class FunctionTester : public InitializedHandleScope {
     CHECK_EQ(0u, flags_ & ~supported_flags);
   }
 
+  // TODO(turbofan): generalize FunctionTester to work with N arguments. Now, it
+  // can handle up to four.
   explicit FunctionTester(Graph* graph)
       : isolate(main_isolate()),
-        function(NewFunction("(function(a,b){})")),
+        function(NewFunction("(function(a,b,c,d){})")),
         flags_(0) {
     CompileGraph(graph);
   }
@@ -54,27 +56,30 @@ class FunctionTester : public InitializedHandleScope {
     return Execution::Call(isolate, function, undefined(), 2, args, false);
   }
 
+  MaybeHandle<Object> Call(Handle<Object> a, Handle<Object> b, Handle<Object> c,
+                           Handle<Object> d) {
+    Handle<Object> args[] = {a, b, c, d};
+    return Execution::Call(isolate, function, undefined(), 4, args, false);
+  }
+
   void CheckThrows(Handle<Object> a, Handle<Object> b) {
-    TryCatch try_catch;
+    TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate));
     MaybeHandle<Object> no_result = Call(a, b);
     CHECK(isolate->has_pending_exception());
     CHECK(try_catch.HasCaught());
     CHECK(no_result.is_null());
-    // TODO(mstarzinger): Temporary workaround for issue chromium:362388.
     isolate->OptionalRescheduleException(true);
   }
 
   v8::Handle<v8::Message> CheckThrowsReturnMessage(Handle<Object> a,
                                                    Handle<Object> b) {
-    TryCatch try_catch;
+    TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate));
     MaybeHandle<Object> no_result = Call(a, b);
     CHECK(isolate->has_pending_exception());
     CHECK(try_catch.HasCaught());
     CHECK(no_result.is_null());
-    // TODO(mstarzinger): Calling OptionalRescheduleException is a dirty hack,
-    // it's the only way to make Message() not to assert because an external
-    // exception has been caught by the try_catch.
     isolate->OptionalRescheduleException(true);
+    CHECK(!try_catch.Message().IsEmpty());
     return try_catch.Message();
   }
 
@@ -152,9 +157,12 @@ class FunctionTester : public InitializedHandleScope {
   Handle<JSFunction> Compile(Handle<JSFunction> function) {
 // TODO(titzer): make this method private.
 #if V8_TURBOFAN_TARGET
-    CompilationInfoWithZone info(function);
+    Zone zone;
+    ParseInfo parse_info(&zone, function);
+    CompilationInfo info(&parse_info);
+    info.MarkAsDeoptimizationEnabled();
 
-    CHECK(Parser::Parse(&info));
+    CHECK(Parser::ParseStatic(info.parse_info()));
     info.SetOptimizing(BailoutId::None(), Handle<Code>(function->code()));
     if (flags_ & CompilationInfo::kContextSpecializing) {
       info.MarkAsContextSpecializing();
@@ -165,16 +173,13 @@ class FunctionTester : public InitializedHandleScope {
     if (flags_ & CompilationInfo::kTypingEnabled) {
       info.MarkAsTypingEnabled();
     }
-    CHECK(Compiler::Analyze(&info));
+    CHECK(Compiler::Analyze(info.parse_info()));
     CHECK(Compiler::EnsureDeoptimizationSupport(&info));
 
     Pipeline pipeline(&info);
     Handle<Code> code = pipeline.GenerateCode();
-    if (FLAG_turbo_deoptimization) {
-      info.context()->native_context()->AddOptimizedCode(*code);
-    }
-
     CHECK(!code.is_null());
+    info.context()->native_context()->AddOptimizedCode(*code);
     function->ReplaceCode(*code);
 #elif USE_CRANKSHAFT
     Handle<Code> unoptimized = Handle<Code>(function->code());
@@ -208,12 +213,14 @@ class FunctionTester : public InitializedHandleScope {
   // and replace the JSFunction's code with the result.
   Handle<JSFunction> CompileGraph(Graph* graph) {
     CHECK(Pipeline::SupportedTarget());
-    CompilationInfoWithZone info(function);
+    Zone zone;
+    ParseInfo parse_info(&zone, function);
+    CompilationInfo info(&parse_info);
 
-    CHECK(Parser::Parse(&info));
+    CHECK(Parser::ParseStatic(info.parse_info()));
     info.SetOptimizing(BailoutId::None(),
                        Handle<Code>(function->shared()->code()));
-    CHECK(Compiler::Analyze(&info));
+    CHECK(Compiler::Analyze(info.parse_info()));
     CHECK(Compiler::EnsureDeoptimizationSupport(&info));
 
     Handle<Code> code = Pipeline::GenerateCodeForTesting(&info, graph);

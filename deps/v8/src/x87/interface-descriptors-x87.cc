@@ -16,17 +16,20 @@ const Register CallInterfaceDescriptor::ContextRegister() { return esi; }
 
 const Register LoadDescriptor::ReceiverRegister() { return edx; }
 const Register LoadDescriptor::NameRegister() { return ecx; }
+const Register LoadDescriptor::SlotRegister() { return eax; }
 
-
-const Register VectorLoadICTrampolineDescriptor::SlotRegister() { return eax; }
-
-
-const Register VectorLoadICDescriptor::VectorRegister() { return ebx; }
+const Register LoadWithVectorDescriptor::VectorRegister() { return ebx; }
 
 
 const Register StoreDescriptor::ReceiverRegister() { return edx; }
 const Register StoreDescriptor::NameRegister() { return ecx; }
 const Register StoreDescriptor::ValueRegister() { return eax; }
+
+
+const Register VectorStoreICTrampolineDescriptor::SlotRegister() { return edi; }
+
+
+const Register VectorStoreICDescriptor::VectorRegister() { return ebx; }
 
 
 const Register StoreTransitionDescriptor::MapRegister() { return ebx; }
@@ -56,6 +59,10 @@ const Register MathPowIntegerDescriptor::exponent() {
 }
 
 
+const Register GrowArrayElementsDescriptor::ObjectRegister() { return eax; }
+const Register GrowArrayElementsDescriptor::KeyRegister() { return ebx; }
+
+
 void FastNewClosureDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   Register registers[] = {esi, ebx};
   data->Initialize(arraysize(registers), registers, NULL);
@@ -77,6 +84,12 @@ void ToNumberDescriptor::Initialize(CallInterfaceDescriptorData* data) {
 
 void NumberToStringDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   Register registers[] = {esi, eax};
+  data->Initialize(arraysize(registers), registers, NULL);
+}
+
+
+void TypeofDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {esi, ebx};
   data->Initialize(arraysize(registers), registers, NULL);
 }
 
@@ -228,6 +241,12 @@ void InternalArrayConstructorDescriptor::Initialize(
 }
 
 
+void CompareDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {esi, edx, eax};
+  data->Initialize(arraysize(registers), registers, NULL);
+}
+
+
 void CompareNilDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   Register registers[] = {esi, eax};
   data->Initialize(arraysize(registers), registers, NULL);
@@ -353,7 +372,22 @@ void ApiAccessorDescriptor::Initialize(CallInterfaceDescriptorData* data) {
   };
   data->Initialize(arraysize(registers), registers, representations);
 }
+
+
+void MathRoundVariantDescriptor::Initialize(CallInterfaceDescriptorData* data) {
+  Register registers[] = {
+      esi,  // context
+      edi,  // math rounding function
+      edx,  // vector slot id
+  };
+  Representation representations[] = {
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+      Representation::Tagged(),  //
+  };
+  data->Initialize(arraysize(registers), registers, representations);
 }
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X87

@@ -17,7 +17,7 @@ namespace compiler {
   do {                                                    \
     Node* __n[] = {__VA_ARGS__};                          \
     ASSERT_TRUE(IsEquivalenceClass(arraysize(__n), __n)); \
-  } while (false);
+  } while (false)
 
 class ControlEquivalenceTest : public GraphTest {
  public:
@@ -27,7 +27,7 @@ class ControlEquivalenceTest : public GraphTest {
 
  protected:
   void ComputeEquivalence(Node* node) {
-    graph()->SetEnd(graph()->NewNode(common()->End(), node));
+    graph()->SetEnd(graph()->NewNode(common()->End(1), node));
     if (FLAG_trace_turbo) {
       OFStream os(stdout);
       os << AsDOT(*graph());
@@ -79,7 +79,7 @@ class ControlEquivalenceTest : public GraphTest {
   }
 
   Node* End(Node* control) {
-    return Store(graph()->NewNode(common()->End(), control));
+    return Store(graph()->NewNode(common()->End(1), control));
   }
 
  private:

@@ -29,7 +29,7 @@ void HRepresentationChangesPhase::InsertRepresentationChangeForUse(
     // Try to create a new copy of the constant with the new representation.
     if (is_truncating_to_int && to.IsInteger32()) {
       Maybe<HConstant*> res = constant->CopyToTruncatedInt32(graph()->zone());
-      if (res.has_value) new_value = res.value;
+      if (res.IsJust()) new_value = res.FromJust();
     } else {
       new_value = constant->CopyToRepresentation(to, graph()->zone());
     }
@@ -210,4 +210,5 @@ void HRepresentationChangesPhase::Run() {
   }
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

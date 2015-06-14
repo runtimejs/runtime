@@ -23,43 +23,35 @@ namespace rt {
 enum class NativeThreadStatus {
     IDLE,
     RUNNING,
+    DONE,
     WAITING
 };
 
+typedef void (*NativeThreadEntry)(void* arg);
+
 class NativeThread {
 public:
-    NativeThread(uint32_t id, std::string name, uint32_t stacksize, void* entry, void* arg);
+    NativeThread(NativeThreadEntry entry, void* arg);
     ~NativeThread();
 
     std::string name() const { return name_; }
-    uint32_t id() const { return id_; }
     NativeThreadStatus status() const { return status_; }
-    void* entry() const { return entry_; }
+    NativeThreadEntry entry() const { return entry_; }
     void* arg() const { return arg_; }
 
     void SetStatus(NativeThreadStatus status) {
         status_ = status;
     }
 
+    void Run();
     DELETE_COPY_AND_ASSIGN(NativeThread);
 private:
-    uint32_t id_;
     std::string name_;
     NativeThreadStatus status_;
+    NativeThreadEntry entry_;
     void* state_;
     VirtualStack vstack_;
-    void* entry_;
     void* arg_;
-};
-
-class NativeThreadHandle {
-public:
-    NativeThreadHandle()
-        :	index_(0) { }
-    NativeThreadHandle(size_t index)
-        :	index_(index) { }
-private:
-    size_t index_;
 };
 
 } // namespace rt

@@ -17,38 +17,26 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-template <typename MachineAssembler>
-class MachineAssemblerTester : public HandleAndZoneScope,
-                               public CallHelper,
-                               public MachineAssembler {
+template <typename ReturnType>
+class RawMachineAssemblerTester : public HandleAndZoneScope,
+                                  public CallHelper<ReturnType>,
+                                  public RawMachineAssembler {
  public:
-  MachineAssemblerTester(MachineType return_type, MachineType p0,
-                         MachineType p1, MachineType p2, MachineType p3,
-                         MachineType p4,
-                         MachineOperatorBuilder::Flags flags =
-                             MachineOperatorBuilder::Flag::kNoFlags)
+  RawMachineAssemblerTester(MachineType p0 = kMachNone,
+                            MachineType p1 = kMachNone,
+                            MachineType p2 = kMachNone,
+                            MachineType p3 = kMachNone,
+                            MachineType p4 = kMachNone)
       : HandleAndZoneScope(),
-        CallHelper(
+        CallHelper<ReturnType>(
             main_isolate(),
-            MakeMachineSignature(main_zone(), return_type, p0, p1, p2, p3, p4)),
-        MachineAssembler(
+            CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p0, p1,
+                            p2, p3, p4)),
+        RawMachineAssembler(
             main_isolate(), new (main_zone()) Graph(main_zone()),
-            MakeMachineSignature(main_zone(), return_type, p0, p1, p2, p3, p4),
-            kMachPtr, flags) {}
-
-  Node* LoadFromPointer(void* address, MachineType rep, int32_t offset = 0) {
-    return this->Load(rep, this->PointerConstant(address),
-                      this->Int32Constant(offset));
-  }
-
-  void StoreToPointer(void* address, MachineType rep, Node* node) {
-    this->Store(rep, this->PointerConstant(address), node);
-  }
-
-  Node* StringConstant(const char* string) {
-    return this->HeapConstant(
-        this->isolate()->factory()->InternalizeUtf8String(string));
-  }
+            CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p0, p1,
+                            p2, p3, p4),
+            kMachPtr, InstructionSelector::SupportedMachineOperatorFlags()) {}
 
   void CheckNumber(double expected, Object* number) {
     CHECK(this->isolate()->factory()->NewNumber(expected)->SameValue(number));
@@ -76,41 +64,6 @@ class MachineAssemblerTester : public HandleAndZoneScope,
 
  private:
   MaybeHandle<Code> code_;
-};
-
-
-template <typename ReturnType>
-class RawMachineAssemblerTester
-    : public MachineAssemblerTester<RawMachineAssembler>,
-      public CallHelper2<ReturnType, RawMachineAssemblerTester<ReturnType> > {
- public:
-  RawMachineAssemblerTester(MachineType p0 = kMachNone,
-                            MachineType p1 = kMachNone,
-                            MachineType p2 = kMachNone,
-                            MachineType p3 = kMachNone,
-                            MachineType p4 = kMachNone)
-      : MachineAssemblerTester<RawMachineAssembler>(
-            ReturnValueTraits<ReturnType>::Representation(), p0, p1, p2, p3, p4,
-            InstructionSelector::SupportedMachineOperatorFlags()) {}
-
-  template <typename Ci, typename Fn>
-  void Run(const Ci& ci, const Fn& fn) {
-    typename Ci::const_iterator i;
-    for (i = ci.begin(); i != ci.end(); ++i) {
-      CHECK_EQ(fn(*i), this->Call(*i));
-    }
-  }
-
-  template <typename Ci, typename Cj, typename Fn>
-  void Run(const Ci& ci, const Cj& cj, const Fn& fn) {
-    typename Ci::const_iterator i;
-    typename Cj::const_iterator j;
-    for (i = ci.begin(); i != ci.end(); ++i) {
-      for (j = cj.begin(); j != cj.end(); ++j) {
-        CHECK_EQ(fn(*i, *j), this->Call(*i, *j));
-      }
-    }
-  }
 };
 
 
@@ -143,7 +96,7 @@ class BinopTester {
       CHECK_EQ(CHECK_VALUE, T->Call());
       return result;
     } else {
-      return T->Call();
+      return static_cast<CType>(T->Call());
     }
   }
 
@@ -197,6 +150,17 @@ class Uint32BinopTester
     p1 = a1;
     return static_cast<uint32_t>(T->Call());
   }
+};
+
+
+// A helper class for testing code sequences that take two float parameters and
+// return a float value.
+// TODO(titzer): figure out how to return floats correctly on ia32.
+class Float32BinopTester
+    : public BinopTester<float, kMachFloat32, USE_RESULT_BUFFER> {
+ public:
+  explicit Float32BinopTester(RawMachineAssemblerTester<int32_t>* tester)
+      : BinopTester<float, kMachFloat32, USE_RESULT_BUFFER>(tester) {}
 };
 
 
@@ -334,6 +298,14 @@ class Int32BinopInputShapeTester {
 };
 
 // TODO(bmeurer): Drop this crap once we switch to GTest/Gmock.
+static inline void CheckFloatEq(volatile float x, volatile float y) {
+  if (std::isnan(x)) {
+    CHECK(std::isnan(y));
+  } else {
+    CHECK(x == y);
+  }
+}
+
 static inline void CheckDoubleEq(volatile double x, volatile double y) {
   if (std::isnan(x)) {
     CHECK(std::isnan(y));

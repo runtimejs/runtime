@@ -30,8 +30,6 @@
 
 #include "src/v8.h"
 
-#include "src/isolate-inl.h"
-
 #ifndef TEST
 #define TEST(Name)                                                             \
   static void Test##Name();                                                    \
@@ -95,6 +93,7 @@ class TestHeap : public i::Heap {
   using i::Heap::AllocateByteArray;
   using i::Heap::AllocateFixedArray;
   using i::Heap::AllocateHeapNumber;
+  using i::Heap::AllocateFloat32x4;
   using i::Heap::AllocateJSObject;
   using i::Heap::AllocateJSObjectFromMap;
   using i::Heap::AllocateMap;
@@ -147,6 +146,15 @@ class CcTest {
     return isolate()->GetCurrentContext()->Global();
   }
 
+  static v8::ArrayBuffer::Allocator* array_buffer_allocator() {
+    return allocator_;
+  }
+
+  static void set_array_buffer_allocator(
+      v8::ArrayBuffer::Allocator* allocator) {
+    allocator_ = allocator;
+  }
+
   // TODO(dcarney): Remove.
   // This must be called first in a test.
   static void InitializeVM() {
@@ -180,6 +188,7 @@ class CcTest {
   bool initialize_;
   CcTest* prev_;
   static CcTest* last_;
+  static v8::ArrayBuffer::Allocator* allocator_;
   static v8::Isolate* isolate_;
   static bool initialize_called_;
   static v8::base::Atomic32 isolate_used_;
@@ -496,8 +505,8 @@ static inline void ExpectUndefined(const char* code) {
 
 // Helper function that simulates a full new-space in the heap.
 static inline bool FillUpOnePage(v8::internal::NewSpace* space) {
-  v8::internal::AllocationResult allocation =
-      space->AllocateRaw(v8::internal::Page::kMaxRegularHeapObjectSize);
+  v8::internal::AllocationResult allocation = space->AllocateRawUnaligned(
+      v8::internal::Page::kMaxRegularHeapObjectSize);
   if (allocation.IsRetry()) return false;
   v8::internal::HeapObject* free_space = NULL;
   CHECK(allocation.To(&free_space));
@@ -516,7 +525,7 @@ static inline void AllocateAllButNBytes(v8::internal::NewSpace* space,
   int new_linear_size = space_remaining - extra_bytes;
   if (new_linear_size == 0) return;
   v8::internal::AllocationResult allocation =
-      space->AllocateRaw(new_linear_size);
+      space->AllocateRawUnaligned(new_linear_size);
   v8::internal::HeapObject* free_space = NULL;
   CHECK(allocation.To(&free_space));
   space->heap()->CreateFillerObjectAt(free_space->address(), new_linear_size);
@@ -553,11 +562,14 @@ static inline void SimulateIncrementalMarking(i::Heap* heap) {
   }
   CHECK(marking->IsMarking() || marking->IsStopped());
   if (marking->IsStopped()) {
-    marking->Start();
+    marking->Start(i::Heap::kNoGCFlags);
   }
   CHECK(marking->IsMarking());
   while (!marking->IsComplete()) {
     marking->Step(i::MB, i::IncrementalMarking::NO_GC_VIA_STACK_GUARD);
+    if (marking->IsReadyToOverApproximateWeakClosure()) {
+      marking->MarkObjectGroups();
+    }
   }
   CHECK(marking->IsComplete());
 }

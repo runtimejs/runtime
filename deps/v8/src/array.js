@@ -2,11 +2,42 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+var $arrayConcat;
+var $arrayPush;
+var $arrayPop;
+var $arrayShift;
+var $arraySlice;
+var $arraySplice;
+var $arrayUnshift;
+
+(function(global, utils) {
+
 "use strict";
 
-// This file relies on the fact that the following declarations have been made
-// in runtime.js:
-// var $Array = global.Array;
+%CheckIsBootstrapping();
+
+// -------------------------------------------------------------------
+// Imports
+
+var GlobalArray = global.Array;
+var InternalArray = utils.InternalArray;
+var InternalPackedArray = utils.InternalPackedArray;
+
+var Delete;
+var MathMin;
+var ObjectHasOwnProperty;
+var ObjectIsFrozen;
+var ObjectIsSealed;
+var ObjectToString;
+
+utils.Import(function(from) {
+  Delete = from.Delete;
+  MathMin = from.MathMin;
+  ObjectHasOwnProperty = from.ObjectHasOwnProperty;
+  ObjectIsFrozen = from.ObjectIsFrozen;
+  ObjectIsSealed = from.ObjectIsSealed;
+  ObjectToString = from.ObjectToString;
+});
 
 // -------------------------------------------------------------------
 
@@ -185,7 +216,7 @@ function ConvertToString(x) {
   // Assumes x is a non-string.
   if (IS_NUMBER(x)) return %_NumberToString(x);
   if (IS_BOOLEAN(x)) return x ? 'true' : 'false';
-  return (IS_NULL_OR_UNDEFINED(x)) ? '' : %ToString(%DefaultString(x));
+  return (IS_NULL_OR_UNDEFINED(x)) ? '' : $toString($defaultString(x));
 }
 
 
@@ -196,8 +227,8 @@ function ConvertToLocaleString(e) {
     // According to ES5, section 15.4.4.3, the toLocaleString conversion
     // must throw a TypeError if ToObject(e).toLocaleString isn't
     // callable.
-    var e_obj = ToObject(e);
-    return %ToString(e_obj.toLocaleString());
+    var e_obj = $toObject(e);
+    return $toString(e_obj.toLocaleString());
   }
 }
 
@@ -272,7 +303,7 @@ function SparseMove(array, start_i, del_count, len, num_additional_args) {
           if (!IS_UNDEFINED(current) || key in array) {
             var new_key = key - del_count + num_additional_args;
             new_array[new_key] = current;
-            if (new_key > 0xffffffff) {
+            if (new_key > 0xfffffffe) {
               big_indices = big_indices || new InternalArray();
               big_indices.push(new_key);
             }
@@ -357,34 +388,35 @@ function ArrayToString() {
     }
     array = this;
   } else {
-    array = ToObject(this);
+    array = $toObject(this);
     func = array.join;
   }
   if (!IS_SPEC_FUNCTION(func)) {
-    return %_CallFunction(array, DefaultObjectToString);
+    return %_CallFunction(array, ObjectToString);
   }
   return %_CallFunction(array, func);
 }
 
 
-function ArrayToLocaleString() {
-  var array = ToObject(this);
-  var arrayLen = array.length;
-  var len = TO_UINT32(arrayLen);
+function InnerArrayToLocaleString(array, length) {
+  var len = TO_UINT32(length);
   if (len === 0) return "";
   return Join(array, len, ',', ConvertToLocaleString);
 }
 
 
-function ArrayJoin(separator) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.join");
+function ArrayToLocaleString() {
+  var array = $toObject(this);
+  var arrayLen = array.length;
+  return InnerArrayToLocaleString(array, arrayLen);
+}
 
-  var array = TO_OBJECT_INLINE(this);
-  var length = TO_UINT32(array.length);
+
+function InnerArrayJoin(separator, array, length) {
   if (IS_UNDEFINED(separator)) {
     separator = ',';
   } else if (!IS_STRING(separator)) {
-    separator = NonStringToString(separator);
+    separator = $nonStringToString(separator);
   }
 
   var result = %_FastOneByteArrayJoin(array, separator);
@@ -395,10 +427,20 @@ function ArrayJoin(separator) {
     var e = array[0];
     if (IS_STRING(e)) return e;
     if (IS_NULL_OR_UNDEFINED(e)) return '';
-    return NonStringToString(e);
+    return $nonStringToString(e);
   }
 
   return Join(array, length, separator, ConvertToString);
+}
+
+
+function ArrayJoin(separator) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.join");
+
+  var array = TO_OBJECT_INLINE(this);
+  var length = TO_UINT32(array.length);
+
+  return InnerArrayJoin(separator, array, length);
 }
 
 
@@ -407,16 +449,17 @@ function ObservedArrayPop(n) {
   var value = this[n];
 
   try {
-    BeginPerformSplice(this);
+    $observeBeginPerformSplice(this);
     delete this[n];
     this.length = n;
   } finally {
-    EndPerformSplice(this);
-    EnqueueSpliceRecord(this, n, [value], 0);
+    $observeEndPerformSplice(this);
+    $observeEnqueueSpliceRecord(this, n, [value], 0);
   }
 
   return value;
 }
+
 
 // Removes the last element from the array and returns it. See
 // ECMA-262, section 15.4.4.6.
@@ -435,7 +478,7 @@ function ArrayPop() {
 
   n--;
   var value = array[n];
-  Delete(array, ToName(n), true);
+  Delete(array, $toName(n), true);
   array.length = n;
   return value;
 }
@@ -446,19 +489,20 @@ function ObservedArrayPush() {
   var m = %_ArgumentsLength();
 
   try {
-    BeginPerformSplice(this);
+    $observeBeginPerformSplice(this);
     for (var i = 0; i < m; i++) {
       this[i+n] = %_Arguments(i);
     }
     var new_length = n + m;
     this.length = new_length;
   } finally {
-    EndPerformSplice(this);
-    EnqueueSpliceRecord(this, n, [], m);
+    $observeEndPerformSplice(this);
+    $observeEnqueueSpliceRecord(this, n, [], m);
   }
 
   return new_length;
 }
+
 
 // Appends the arguments to the end of the array and returns the new
 // length of the array. See ECMA-262, section 15.4.4.7.
@@ -488,7 +532,7 @@ function ArrayPush() {
 function ArrayConcatJS(arg1) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.concat");
 
-  var array = ToObject(this);
+  var array = $toObject(this);
   var arg_count = %_ArgumentsLength();
   var arrays = new InternalArray(1 + arg_count);
   arrays[0] = array;
@@ -544,18 +588,7 @@ function SparseReverse(array, len) {
 }
 
 
-function ArrayReverse() {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reverse");
-
-  var array = TO_OBJECT_INLINE(this);
-  var len = TO_UINT32(array.length);
-
-  if (UseSparseVariant(array, len, IS_ARRAY(array), len)) {
-    %NormalizeElements(array);
-    SparseReverse(array, len);
-    return array;
-  }
-
+function InnerArrayReverse(array, len) {
   var j = len - 1;
   for (var i = 0; i < j; i++, j--) {
     var current_i = array[i];
@@ -580,20 +613,37 @@ function ArrayReverse() {
 }
 
 
+function ArrayReverse() {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reverse");
+
+  var array = TO_OBJECT_INLINE(this);
+  var len = TO_UINT32(array.length);
+
+  if (UseSparseVariant(array, len, IS_ARRAY(array), len)) {
+    %NormalizeElements(array);
+    SparseReverse(array, len);
+    return array;
+  }
+
+  return InnerArrayReverse(array, len);
+}
+
+
 function ObservedArrayShift(len) {
   var first = this[0];
 
   try {
-    BeginPerformSplice(this);
+    $observeBeginPerformSplice(this);
     SimpleMove(this, 0, 1, len, 0);
     this.length = len - 1;
   } finally {
-    EndPerformSplice(this);
-    EnqueueSpliceRecord(this, 0, [first], 0);
+    $observeEndPerformSplice(this);
+    $observeEnqueueSpliceRecord(this, 0, [first], 0);
   }
 
   return first;
 }
+
 
 function ArrayShift() {
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.shift");
@@ -606,10 +656,7 @@ function ArrayShift() {
     return;
   }
 
-  if (ObjectIsSealed(array)) {
-    throw MakeTypeError("array_functions_change_sealed",
-                        ["Array.prototype.shift"]);
-  }
+  if (ObjectIsSealed(array)) throw MakeTypeError(kArrayFunctionsOnSealed);
 
   if (%IsObserved(array))
     return ObservedArrayShift.call(array, len);
@@ -627,12 +674,13 @@ function ArrayShift() {
   return first;
 }
 
+
 function ObservedArrayUnshift() {
   var len = TO_UINT32(this.length);
   var num_arguments = %_ArgumentsLength();
 
   try {
-    BeginPerformSplice(this);
+    $observeBeginPerformSplice(this);
     SimpleMove(this, 0, 0, len, num_arguments);
     for (var i = 0; i < num_arguments; i++) {
       this[i] = %_Arguments(i);
@@ -640,12 +688,13 @@ function ObservedArrayUnshift() {
     var new_length = len + num_arguments;
     this.length = new_length;
   } finally {
-    EndPerformSplice(this);
-    EnqueueSpliceRecord(this, 0, [], num_arguments);
+    $observeEndPerformSplice(this);
+    $observeEnqueueSpliceRecord(this, 0, [], num_arguments);
   }
 
   return new_length;
 }
+
 
 function ArrayUnshift(arg1) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.unshift");
@@ -658,7 +707,7 @@ function ArrayUnshift(arg1) {  // length == 1
   var num_arguments = %_ArgumentsLength();
 
   if (len > 0 && UseSparseVariant(array, len, IS_ARRAY(array), len) &&
-     !ObjectIsSealed(array)) {
+      !ObjectIsSealed(array)) {
     SparseMove(array, 0, 0, len, num_arguments);
   } else {
     SimpleMove(array, 0, 0, len, num_arguments);
@@ -758,7 +807,7 @@ function ObservedArraySplice(start, delete_count) {
   var num_elements_to_add = num_arguments > 2 ? num_arguments - 2 : 0;
 
   try {
-    BeginPerformSplice(this);
+    $observeBeginPerformSplice(this);
 
     SimpleSlice(this, start_i, del_count, len, deleted_elements);
     SimpleMove(this, start_i, del_count, len, num_elements_to_add);
@@ -774,12 +823,12 @@ function ObservedArraySplice(start, delete_count) {
     this.length = len - del_count + num_elements_to_add;
 
   } finally {
-    EndPerformSplice(this);
+    $observeEndPerformSplice(this);
     if (deleted_elements.length || num_elements_to_add) {
-       EnqueueSpliceRecord(this,
-                           start_i,
-                           deleted_elements.slice(),
-                           num_elements_to_add);
+      $observeEnqueueSpliceRecord(this,
+                                  start_i,
+                                  deleted_elements.slice(),
+                                  num_elements_to_add);
     }
   }
 
@@ -805,11 +854,9 @@ function ArraySplice(start, delete_count) {
   var num_elements_to_add = num_arguments > 2 ? num_arguments - 2 : 0;
 
   if (del_count != num_elements_to_add && ObjectIsSealed(array)) {
-    throw MakeTypeError("array_functions_change_sealed",
-                        ["Array.prototype.splice"]);
+    throw MakeTypeError(kArrayFunctionsOnSealed);
   } else if (del_count > 0 && ObjectIsFrozen(array)) {
-    throw MakeTypeError("array_functions_on_frozen",
-                        ["Array.prototype.splice"]);
+    throw MakeTypeError(kArrayFunctionsOnFrozen);
   }
 
   var changed_elements = del_count;
@@ -843,9 +890,7 @@ function ArraySplice(start, delete_count) {
 }
 
 
-function ArraySort(comparefn) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.sort");
-
+function InnerArraySort(length, comparefn) {
   // In-place QuickSort algorithm.
   // For short (length <= 22) arrays, insertion sort is used for efficiency.
 
@@ -855,20 +900,18 @@ function ArraySort(comparefn) {
       if (%_IsSmi(x) && %_IsSmi(y)) {
         return %SmiLexicographicCompare(x, y);
       }
-      x = ToString(x);
-      y = ToString(y);
+      x = $toString(x);
+      y = $toString(y);
       if (x == y) return 0;
       else return x < y ? -1 : 1;
     };
   }
-  var receiver = %GetDefaultReceiver(comparefn);
-
   var InsertionSort = function InsertionSort(a, from, to) {
     for (var i = from + 1; i < to; i++) {
       var element = a[i];
       for (var j = i - 1; j >= from; j--) {
         var tmp = a[j];
-        var order = %_CallFunction(receiver, tmp, element, comparefn);
+        var order = %_CallFunction(UNDEFINED, tmp, element, comparefn);
         if (order > 0) {
           a[j + 1] = tmp;
         } else {
@@ -887,7 +930,7 @@ function ArraySort(comparefn) {
       t_array[j] = [i, a[i]];
     }
     %_CallFunction(t_array, function(a, b) {
-      return %_CallFunction(receiver, a[1], b[1], comparefn);
+      return %_CallFunction(UNDEFINED, a[1], b[1], comparefn);
     }, ArraySort);
     var third_index = t_array[t_array.length >> 1][0];
     return third_index;
@@ -910,14 +953,14 @@ function ArraySort(comparefn) {
       var v0 = a[from];
       var v1 = a[to - 1];
       var v2 = a[third_index];
-      var c01 = %_CallFunction(receiver, v0, v1, comparefn);
+      var c01 = %_CallFunction(UNDEFINED, v0, v1, comparefn);
       if (c01 > 0) {
         // v1 < v0, so swap them.
         var tmp = v0;
         v0 = v1;
         v1 = tmp;
       } // v0 <= v1.
-      var c02 = %_CallFunction(receiver, v0, v2, comparefn);
+      var c02 = %_CallFunction(UNDEFINED, v0, v2, comparefn);
       if (c02 >= 0) {
         // v2 <= v0 <= v1.
         var tmp = v0;
@@ -926,7 +969,7 @@ function ArraySort(comparefn) {
         v1 = tmp;
       } else {
         // v0 <= v1 && v0 < v2
-        var c12 = %_CallFunction(receiver, v1, v2, comparefn);
+        var c12 = %_CallFunction(UNDEFINED, v1, v2, comparefn);
         if (c12 > 0) {
           // v0 <= v2 < v1
           var tmp = v1;
@@ -947,7 +990,7 @@ function ArraySort(comparefn) {
       // From i to high_start are elements that haven't been compared yet.
       partition: for (var i = low_end + 1; i < high_start; i++) {
         var element = a[i];
-        var order = %_CallFunction(receiver, element, pivot, comparefn);
+        var order = %_CallFunction(UNDEFINED, element, pivot, comparefn);
         if (order < 0) {
           a[i] = a[low_end];
           a[low_end] = element;
@@ -957,7 +1000,7 @@ function ArraySort(comparefn) {
             high_start--;
             if (high_start == i) break partition;
             var top_elem = a[high_start];
-            order = %_CallFunction(receiver, top_elem, pivot, comparefn);
+            order = %_CallFunction(UNDEFINED, top_elem, pivot, comparefn);
           } while (order > 0);
           a[i] = a[high_start];
           a[high_start] = element;
@@ -1092,7 +1135,6 @@ function ArraySort(comparefn) {
     return first_undefined;
   };
 
-  var length = TO_UINT32(this.length);
   if (length < 2) return this;
 
   var is_array = IS_ARRAY(this);
@@ -1131,28 +1173,26 @@ function ArraySort(comparefn) {
 }
 
 
+function ArraySort(comparefn) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.sort");
+
+  var length = TO_UINT32(this.length);
+  return %_CallFunction(this, length, comparefn, InnerArraySort);
+}
+
+
 // The following functions cannot be made efficient on sparse arrays while
 // preserving the semantics, since the calls to the receiver function can add
 // or delete elements from the array.
-function ArrayFilter(f, receiver) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.filter");
-
-  // Pull out the length so that modifications to the length in the
-  // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
-  var length = ToUint32(array.length);
-
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
+function InnerArrayFilter(f, receiver, array, length) {
+  if (!IS_SPEC_FUNCTION(f)) throw MakeTypeError(kCalledNonCallable, f);
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
+  if (IS_NULL(receiver)) {
+    if (%IsSloppyModeFunction(f)) receiver = UNDEFINED;
+  } else if (!IS_UNDEFINED(receiver)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
   }
 
-  var result = new $Array();
   var accumulator = new InternalArray();
   var accumulator_length = 0;
   var is_array = IS_ARRAY(array);
@@ -1162,32 +1202,34 @@ function ArrayFilter(f, receiver) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(f);
-      var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
+      var new_receiver = needs_wrapper ? $toObject(receiver) : receiver;
       if (%_CallFunction(new_receiver, element, i, array, f)) {
         accumulator[accumulator_length++] = element;
       }
     }
   }
+  return accumulator;
+}
+
+function ArrayFilter(f, receiver) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.filter");
+
+  // Pull out the length so that modifications to the length in the
+  // loop will not affect the looping and side effects are visible.
+  var array = $toObject(this);
+  var length = $toUint32(array.length);
+  var accumulator = InnerArrayFilter(f, receiver, array, length);
+  var result = new GlobalArray();
   %MoveArrayContents(accumulator, result);
   return result;
 }
 
-
-function ArrayForEach(f, receiver) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.forEach");
-
-  // Pull out the length so that modifications to the length in the
-  // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
-  var length = TO_UINT32(array.length);
-
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
+function InnerArrayForEach(f, receiver, array, length) {
+  if (!IS_SPEC_FUNCTION(f)) throw MakeTypeError(kCalledNonCallable, f);
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
+  if (IS_NULL(receiver)) {
+    if (%IsSloppyModeFunction(f)) receiver = UNDEFINED;
+  } else if (!IS_UNDEFINED(receiver)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
   }
 
@@ -1198,10 +1240,44 @@ function ArrayForEach(f, receiver) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(f);
-      var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
+      var new_receiver = needs_wrapper ? $toObject(receiver) : receiver;
       %_CallFunction(new_receiver, element, i, array, f);
     }
   }
+}
+
+function ArrayForEach(f, receiver) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.forEach");
+
+  // Pull out the length so that modifications to the length in the
+  // loop will not affect the looping and side effects are visible.
+  var array = $toObject(this);
+  var length = TO_UINT32(array.length);
+  InnerArrayForEach(f, receiver, array, length);
+}
+
+
+function InnerArraySome(f, receiver, array, length) {
+  if (!IS_SPEC_FUNCTION(f)) throw MakeTypeError(kCalledNonCallable, f);
+  var needs_wrapper = false;
+  if (IS_NULL(receiver)) {
+    if (%IsSloppyModeFunction(f)) receiver = UNDEFINED;
+  } else if (!IS_UNDEFINED(receiver)) {
+    needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
+  }
+
+  var is_array = IS_ARRAY(array);
+  var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
+  for (var i = 0; i < length; i++) {
+    if (HAS_INDEX(array, i, is_array)) {
+      var element = array[i];
+      // Prepare break slots for debugger step in.
+      if (stepping) %DebugPrepareStepInIfStepping(f);
+      var new_receiver = needs_wrapper ? $toObject(receiver) : receiver;
+      if (%_CallFunction(new_receiver, element, i, array, f)) return true;
+    }
+  }
+  return false;
 }
 
 
@@ -1212,49 +1288,18 @@ function ArraySome(f, receiver) {
 
   // Pull out the length so that modifications to the length in the
   // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
+  var array = $toObject(this);
   var length = TO_UINT32(array.length);
-
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
-  var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
-    needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
-  }
-
-  var is_array = IS_ARRAY(array);
-  var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
-  for (var i = 0; i < length; i++) {
-    if (HAS_INDEX(array, i, is_array)) {
-      var element = array[i];
-      // Prepare break slots for debugger step in.
-      if (stepping) %DebugPrepareStepInIfStepping(f);
-      var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
-      if (%_CallFunction(new_receiver, element, i, array, f)) return true;
-    }
-  }
-  return false;
+  return InnerArraySome(f, receiver, array, length);
 }
 
 
-function ArrayEvery(f, receiver) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.every");
-
-  // Pull out the length so that modifications to the length in the
-  // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
-  var length = TO_UINT32(array.length);
-
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
+function InnerArrayEvery(f, receiver, array, length) {
+  if (!IS_SPEC_FUNCTION(f)) throw MakeTypeError(kCalledNonCallable, f);
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
+  if (IS_NULL(receiver)) {
+    if (%IsSloppyModeFunction(f)) receiver = UNDEFINED;
+  } else if (!IS_UNDEFINED(receiver)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
   }
 
@@ -1265,32 +1310,33 @@ function ArrayEvery(f, receiver) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(f);
-      var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
+      var new_receiver = needs_wrapper ? $toObject(receiver) : receiver;
       if (!%_CallFunction(new_receiver, element, i, array, f)) return false;
     }
   }
   return true;
 }
 
-function ArrayMap(f, receiver) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.map");
+function ArrayEvery(f, receiver) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.every");
 
   // Pull out the length so that modifications to the length in the
   // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
+  var array = $toObject(this);
   var length = TO_UINT32(array.length);
+  return InnerArrayEvery(f, receiver, array, length);
+}
 
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
+
+function InnerArrayMap(f, receiver, array, length) {
+  if (!IS_SPEC_FUNCTION(f)) throw MakeTypeError(kCalledNonCallable, f);
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
+  if (IS_NULL(receiver)) {
+    if (%IsSloppyModeFunction(f)) receiver = UNDEFINED;
+  } else if (!IS_UNDEFINED(receiver)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
   }
 
-  var result = new $Array();
   var accumulator = new InternalArray(length);
   var is_array = IS_ARRAY(array);
   var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
@@ -1299,19 +1345,33 @@ function ArrayMap(f, receiver) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(f);
-      var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
+      var new_receiver = needs_wrapper ? $toObject(receiver) : receiver;
       accumulator[i] = %_CallFunction(new_receiver, element, i, array, f);
     }
   }
+  return accumulator;
+}
+
+
+function ArrayMap(f, receiver) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.map");
+
+  // Pull out the length so that modifications to the length in the
+  // loop will not affect the looping and side effects are visible.
+  var array = $toObject(this);
+  var length = TO_UINT32(array.length);
+  var accumulator = InnerArrayMap(f, receiver, array, length);
+  var result = new GlobalArray();
   %MoveArrayContents(accumulator, result);
   return result;
 }
 
 
-function ArrayIndexOf(element, index) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.indexOf");
-
-  var length = TO_UINT32(this.length);
+// For .indexOf, we don't need to pass in the number of arguments
+// at the callsite since ToInteger(undefined) == 0; however, for
+// .lastIndexOf, we need to pass it, since the behavior for passing
+// undefined is 0 but for not including the argument is length-1.
+function InnerArrayIndexOf(element, index, length) {
   if (length == 0) return -1;
   if (IS_UNDEFINED(index)) {
     index = 0;
@@ -1365,12 +1425,17 @@ function ArrayIndexOf(element, index) {
 }
 
 
-function ArrayLastIndexOf(element, index) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.lastIndexOf");
+function ArrayIndexOf(element, index) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.indexOf");
 
   var length = TO_UINT32(this.length);
+  return %_CallFunction(this, element, index, length, InnerArrayIndexOf);
+}
+
+
+function InnerArrayLastIndexOf(element, index, length, argumentsLength) {
   if (length == 0) return -1;
-  if (%_ArgumentsLength() < 2) {
+  if (argumentsLength < 2) {
     index = length - 1;
   } else {
     index = TO_INTEGER(index);
@@ -1418,78 +1483,97 @@ function ArrayLastIndexOf(element, index) {
 }
 
 
-function ArrayReduce(callback, current) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reduce");
+function ArrayLastIndexOf(element, index) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.lastIndexOf");
 
-  // Pull out the length so that modifications to the length in the
-  // loop will not affect the looping and side effects are visible.
-  var array = ToObject(this);
-  var length = ToUint32(array.length);
+  var length = TO_UINT32(this.length);
+  return %_CallFunction(this, element, index, length,
+                        %_ArgumentsLength(), InnerArrayLastIndexOf);
+}
 
+
+function InnerArrayReduce(callback, current, array, length, argumentsLength) {
   if (!IS_SPEC_FUNCTION(callback)) {
-    throw MakeTypeError('called_non_callable', [callback]);
+    throw MakeTypeError(kCalledNonCallable, callback);
   }
 
   var is_array = IS_ARRAY(array);
   var i = 0;
-  find_initial: if (%_ArgumentsLength() < 2) {
+  find_initial: if (argumentsLength < 2) {
     for (; i < length; i++) {
       if (HAS_INDEX(array, i, is_array)) {
         current = array[i++];
         break find_initial;
       }
     }
-    throw MakeTypeError('reduce_no_initial', []);
+    throw MakeTypeError(kReduceNoInitial);
   }
 
-  var receiver = %GetDefaultReceiver(callback);
   var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(callback);
   for (; i < length; i++) {
     if (HAS_INDEX(array, i, is_array)) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(callback);
-      current = %_CallFunction(receiver, current, element, i, array, callback);
+      current = %_CallFunction(UNDEFINED, current, element, i, array, callback);
     }
   }
   return current;
 }
 
-function ArrayReduceRight(callback, current) {
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reduceRight");
 
-  // Pull out the length so that side effects are visible before the
-  // callback function is checked.
-  var array = ToObject(this);
-  var length = ToUint32(array.length);
+function ArrayReduce(callback, current) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reduce");
 
+  // Pull out the length so that modifications to the length in the
+  // loop will not affect the looping and side effects are visible.
+  var array = $toObject(this);
+  var length = $toUint32(array.length);
+  return InnerArrayReduce(callback, current, array, length,
+                          %_ArgumentsLength());
+}
+
+
+function InnerArrayReduceRight(callback, current, array, length,
+                               argumentsLength) {
   if (!IS_SPEC_FUNCTION(callback)) {
-    throw MakeTypeError('called_non_callable', [callback]);
+    throw MakeTypeError(kCalledNonCallable, callback);
   }
 
   var is_array = IS_ARRAY(array);
   var i = length - 1;
-  find_initial: if (%_ArgumentsLength() < 2) {
+  find_initial: if (argumentsLength < 2) {
     for (; i >= 0; i--) {
       if (HAS_INDEX(array, i, is_array)) {
         current = array[i--];
         break find_initial;
       }
     }
-    throw MakeTypeError('reduce_no_initial', []);
+    throw MakeTypeError(kReduceNoInitial);
   }
 
-  var receiver = %GetDefaultReceiver(callback);
   var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(callback);
   for (; i >= 0; i--) {
     if (HAS_INDEX(array, i, is_array)) {
       var element = array[i];
       // Prepare break slots for debugger step in.
       if (stepping) %DebugPrepareStepInIfStepping(callback);
-      current = %_CallFunction(receiver, current, element, i, array, callback);
+      current = %_CallFunction(UNDEFINED, current, element, i, array, callback);
     }
   }
   return current;
+}
+
+
+function ArrayReduceRight(callback, current) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.reduceRight");
+
+  // Pull out the length so that side effects are visible before the
+  // callback function is checked.
+  var array = $toObject(this);
+  var length = $toUint32(array.length);
+  return InnerArrayReduceRight(callback, current, array, length,
+                               %_ArgumentsLength());
 }
 
 // ES5, 15.4.3.2
@@ -1500,91 +1584,120 @@ function ArrayIsArray(obj) {
 
 // -------------------------------------------------------------------
 
-function SetUpArray() {
-  %CheckIsBootstrapping();
+// Set up non-enumerable constructor property on the Array.prototype
+// object.
+%AddNamedProperty(GlobalArray.prototype, "constructor", GlobalArray,
+                  DONT_ENUM);
 
-  // Set up non-enumerable constructor property on the Array.prototype
-  // object.
-  %AddNamedProperty($Array.prototype, "constructor", $Array, DONT_ENUM);
+// Set up unscopable properties on the Array.prototype object.
+var unscopables = {
+  __proto__: null,
+  copyWithin: true,
+  entries: true,
+  fill: true,
+  find: true,
+  findIndex: true,
+  keys: true,
+};
 
-  // Set up unscopable properties on the Array.prototype object.
-  var unscopables = {
-    __proto__: null,
-    copyWithin: true,
-    entries: true,
-    fill: true,
-    find: true,
-    findIndex: true,
-    keys: true,
-  };
-  %AddNamedProperty($Array.prototype, symbolUnscopables, unscopables,
-      DONT_ENUM | READ_ONLY);
+%AddNamedProperty(GlobalArray.prototype, symbolUnscopables, unscopables,
+                  DONT_ENUM | READ_ONLY);
 
-  // Set up non-enumerable functions on the Array object.
-  InstallFunctions($Array, DONT_ENUM, $Array(
-    "isArray", ArrayIsArray
-  ));
+// Set up non-enumerable functions on the Array object.
+utils.InstallFunctions(GlobalArray, DONT_ENUM, [
+  "isArray", ArrayIsArray
+]);
 
-  var specialFunctions = %SpecialArrayFunctions();
+var specialFunctions = %SpecialArrayFunctions();
 
-  var getFunction = function(name, jsBuiltin, len) {
-    var f = jsBuiltin;
-    if (specialFunctions.hasOwnProperty(name)) {
-      f = specialFunctions[name];
-    }
-    if (!IS_UNDEFINED(len)) {
-      %FunctionSetLength(f, len);
-    }
-    return f;
-  };
+var getFunction = function(name, jsBuiltin, len) {
+  var f = jsBuiltin;
+  if (specialFunctions.hasOwnProperty(name)) {
+    f = specialFunctions[name];
+  }
+  if (!IS_UNDEFINED(len)) {
+    %FunctionSetLength(f, len);
+  }
+  return f;
+};
 
-  // Set up non-enumerable functions of the Array.prototype object and
-  // set their names.
-  // Manipulate the length of some of the functions to meet
-  // expectations set by ECMA-262 or Mozilla.
-  InstallFunctions($Array.prototype, DONT_ENUM, $Array(
-    "toString", getFunction("toString", ArrayToString),
-    "toLocaleString", getFunction("toLocaleString", ArrayToLocaleString),
-    "join", getFunction("join", ArrayJoin),
-    "pop", getFunction("pop", ArrayPop),
-    "push", getFunction("push", ArrayPush, 1),
-    "concat", getFunction("concat", ArrayConcatJS, 1),
-    "reverse", getFunction("reverse", ArrayReverse),
-    "shift", getFunction("shift", ArrayShift),
-    "unshift", getFunction("unshift", ArrayUnshift, 1),
-    "slice", getFunction("slice", ArraySlice, 2),
-    "splice", getFunction("splice", ArraySplice, 2),
-    "sort", getFunction("sort", ArraySort),
-    "filter", getFunction("filter", ArrayFilter, 1),
-    "forEach", getFunction("forEach", ArrayForEach, 1),
-    "some", getFunction("some", ArraySome, 1),
-    "every", getFunction("every", ArrayEvery, 1),
-    "map", getFunction("map", ArrayMap, 1),
-    "indexOf", getFunction("indexOf", ArrayIndexOf, 1),
-    "lastIndexOf", getFunction("lastIndexOf", ArrayLastIndexOf, 1),
-    "reduce", getFunction("reduce", ArrayReduce, 1),
-    "reduceRight", getFunction("reduceRight", ArrayReduceRight, 1)
-  ));
+// Set up non-enumerable functions of the Array.prototype object and
+// set their names.
+// Manipulate the length of some of the functions to meet
+// expectations set by ECMA-262 or Mozilla.
+utils.InstallFunctions(GlobalArray.prototype, DONT_ENUM, [
+  "toString", getFunction("toString", ArrayToString),
+  "toLocaleString", getFunction("toLocaleString", ArrayToLocaleString),
+  "join", getFunction("join", ArrayJoin),
+  "pop", getFunction("pop", ArrayPop),
+  "push", getFunction("push", ArrayPush, 1),
+  "concat", getFunction("concat", ArrayConcatJS, 1),
+  "reverse", getFunction("reverse", ArrayReverse),
+  "shift", getFunction("shift", ArrayShift),
+  "unshift", getFunction("unshift", ArrayUnshift, 1),
+  "slice", getFunction("slice", ArraySlice, 2),
+  "splice", getFunction("splice", ArraySplice, 2),
+  "sort", getFunction("sort", ArraySort),
+  "filter", getFunction("filter", ArrayFilter, 1),
+  "forEach", getFunction("forEach", ArrayForEach, 1),
+  "some", getFunction("some", ArraySome, 1),
+  "every", getFunction("every", ArrayEvery, 1),
+  "map", getFunction("map", ArrayMap, 1),
+  "indexOf", getFunction("indexOf", ArrayIndexOf, 1),
+  "lastIndexOf", getFunction("lastIndexOf", ArrayLastIndexOf, 1),
+  "reduce", getFunction("reduce", ArrayReduce, 1),
+  "reduceRight", getFunction("reduceRight", ArrayReduceRight, 1)
+]);
 
-  %FinishArrayPrototypeSetup($Array.prototype);
+%FinishArrayPrototypeSetup(GlobalArray.prototype);
 
-  // The internal Array prototype doesn't need to be fancy, since it's never
-  // exposed to user code.
-  // Adding only the functions that are actually used.
-  SetUpLockedPrototype(InternalArray, $Array(), $Array(
-    "concat", getFunction("concat", ArrayConcatJS),
-    "indexOf", getFunction("indexOf", ArrayIndexOf),
-    "join", getFunction("join", ArrayJoin),
-    "pop", getFunction("pop", ArrayPop),
-    "push", getFunction("push", ArrayPush),
-    "splice", getFunction("splice", ArraySplice)
-  ));
+// The internal Array prototype doesn't need to be fancy, since it's never
+// exposed to user code.
+// Adding only the functions that are actually used.
+utils.SetUpLockedPrototype(InternalArray, GlobalArray(), [
+  "concat", getFunction("concat", ArrayConcatJS),
+  "indexOf", getFunction("indexOf", ArrayIndexOf),
+  "join", getFunction("join", ArrayJoin),
+  "pop", getFunction("pop", ArrayPop),
+  "push", getFunction("push", ArrayPush),
+  "shift", getFunction("shift", ArrayShift),
+  "splice", getFunction("splice", ArraySplice)
+]);
 
-  SetUpLockedPrototype(InternalPackedArray, $Array(), $Array(
-    "join", getFunction("join", ArrayJoin),
-    "pop", getFunction("pop", ArrayPop),
-    "push", getFunction("push", ArrayPush)
-  ));
-}
+utils.SetUpLockedPrototype(InternalPackedArray, GlobalArray(), [
+  "join", getFunction("join", ArrayJoin),
+  "pop", getFunction("pop", ArrayPop),
+  "push", getFunction("push", ArrayPush),
+  "shift", getFunction("shift", ArrayShift)
+]);
 
-SetUpArray();
+// -------------------------------------------------------------------
+// Exports
+
+utils.Export(function(to) {
+  to.ArrayJoin = ArrayJoin;
+  to.ArrayToString = ArrayToString;
+  to.InnerArrayEvery = InnerArrayEvery;
+  to.InnerArrayFilter = InnerArrayFilter;
+  to.InnerArrayForEach = InnerArrayForEach;
+  to.InnerArrayIndexOf = InnerArrayIndexOf;
+  to.InnerArrayJoin = InnerArrayJoin;
+  to.InnerArrayLastIndexOf = InnerArrayLastIndexOf;
+  to.InnerArrayMap = InnerArrayMap;
+  to.InnerArrayReduce = InnerArrayReduce;
+  to.InnerArrayReduceRight = InnerArrayReduceRight;
+  to.InnerArrayReverse = InnerArrayReverse;
+  to.InnerArraySome = InnerArraySome;
+  to.InnerArraySort = InnerArraySort;
+  to.InnerArrayToLocaleString = InnerArrayToLocaleString;
+});
+
+$arrayConcat = ArrayConcatJS;
+$arrayPush = ArrayPush;
+$arrayPop = ArrayPop;
+$arrayShift = ArrayShift;
+$arraySlice = ArraySlice;
+$arraySplice = ArraySplice;
+$arrayUnshift = ArrayUnshift;
+
+});

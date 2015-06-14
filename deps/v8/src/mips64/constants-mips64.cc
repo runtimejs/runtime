@@ -269,6 +269,8 @@ Instruction::Type Instruction::InstructionType() const {
         case MOVZ:
         case MOVN:
         case MOVCI:
+        case SELEQZ_S:
+        case SELNEZ_S:
           return kRegisterType;
         default:
           return kUnsupported;
@@ -288,6 +290,8 @@ Instruction::Type Instruction::InstructionType() const {
         case INS:
         case EXT:
         case DEXT:
+        case BITSWAP:
+        case DBITSWAP:
           return kRegisterType;
         default:
           return kUnsupported;
@@ -358,6 +362,7 @@ Instruction::Type Instruction::InstructionType() const {
 }
 
 
-} }   // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_MIPS64

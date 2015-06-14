@@ -2,65 +2,312 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+(function(global, utils) {
+
 "use strict";
 
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Array = global.Array;
+%CheckIsBootstrapping();
 
 // -------------------------------------------------------------------
+// Imports
 
 macro TYPED_ARRAYS(FUNCTION)
 // arrayIds below should be synchronized with Runtime_TypedArrayInitialize.
-FUNCTION(1, Uint8Array, 1)
-FUNCTION(2, Int8Array, 1)
-FUNCTION(3, Uint16Array, 2)
-FUNCTION(4, Int16Array, 2)
-FUNCTION(5, Uint32Array, 4)
-FUNCTION(6, Int32Array, 4)
-FUNCTION(7, Float32Array, 4)
-FUNCTION(8, Float64Array, 8)
-FUNCTION(9, Uint8ClampedArray, 1)
+FUNCTION(Uint8Array)
+FUNCTION(Int8Array)
+FUNCTION(Uint16Array)
+FUNCTION(Int16Array)
+FUNCTION(Uint32Array)
+FUNCTION(Int32Array)
+FUNCTION(Float32Array)
+FUNCTION(Float64Array)
+FUNCTION(Uint8ClampedArray)
 endmacro
 
+macro DECLARE_GLOBALS(NAME)
+var GlobalNAME = global.NAME;
+endmacro
 
-macro TYPED_ARRAY_HARMONY_ADDITIONS(ARRAY_ID, NAME, ELEMENT_SIZE)
+TYPED_ARRAYS(DECLARE_GLOBALS)
+DECLARE_GLOBALS(Array)
 
-// ES6 draft 08-24-14, section 22.2.3.12
-function NAMEForEach(f /* thisArg */) {  // length == 1
-  if (!%IsTypedArray(this)) {
-    throw MakeTypeError('not_typed_array', []);
+var ArrayFrom;
+var ArrayToString;
+var InnerArrayCopyWithin;
+var InnerArrayEvery;
+var InnerArrayFill;
+var InnerArrayFilter;
+var InnerArrayFind;
+var InnerArrayFindIndex;
+var InnerArrayForEach;
+var InnerArrayIndexOf;
+var InnerArrayJoin;
+var InnerArrayLastIndexOf;
+var InnerArrayMap;
+var InnerArrayReverse;
+var InnerArraySome;
+var InnerArraySort;
+var InnerArrayToLocaleString;
+var IsNaN;
+
+utils.Import(function(from) {
+  ArrayFrom = from.ArrayFrom;
+  ArrayToString = from.ArrayToString;
+  InnerArrayCopyWithin = from.InnerArrayCopyWithin;
+  InnerArrayEvery = from.InnerArrayEvery;
+  InnerArrayFill = from.InnerArrayFill;
+  InnerArrayFilter = from.InnerArrayFilter;
+  InnerArrayFind = from.InnerArrayFind;
+  InnerArrayFindIndex = from.InnerArrayFindIndex;
+  InnerArrayForEach = from.InnerArrayForEach;
+  InnerArrayIndexOf = from.InnerArrayIndexOf;
+  InnerArrayJoin = from.InnerArrayJoin;
+  InnerArrayLastIndexOf = from.InnerArrayLastIndexOf;
+  InnerArrayMap = from.InnerArrayMap;
+  InnerArrayReduce = from.InnerArrayReduce;
+  InnerArrayReduceRight = from.InnerArrayReduceRight;
+  InnerArrayReverse = from.InnerArrayReverse;
+  InnerArraySome = from.InnerArraySome;
+  InnerArraySort = from.InnerArraySort;
+  InnerArrayToLocaleString = from.InnerArrayToLocaleString;
+  IsNaN = from.IsNaN;
+});
+
+// -------------------------------------------------------------------
+
+function ConstructTypedArray(constructor, array) {
+  // TODO(littledan): This is an approximation of the spec, which requires
+  // that only real TypedArray classes should be accepted (22.2.2.1.1)
+  if (!%IsConstructor(constructor) || IS_UNDEFINED(constructor.prototype) ||
+      !%HasOwnProperty(constructor.prototype, "BYTES_PER_ELEMENT")) {
+    throw MakeTypeError(kNotTypedArray);
   }
-  if (!IS_SPEC_FUNCTION(f)) {
-    throw MakeTypeError('called_non_callable', [ f ]);
-  }
 
-  var length = %_TypedArrayGetLength(this);
-  var receiver;
-
-  if (%_ArgumentsLength() > 1) {
-    receiver = %_Arguments(1);
-  }
-
-  var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(receiver)) {
-    receiver = %GetDefaultReceiver(f) || receiver;
-  } else {
-    needs_wrapper = SHOULD_CREATE_WRAPPER(f, receiver);
-  }
-
-  var stepping = DEBUG_IS_ACTIVE && %DebugCallbackSupportsStepping(f);
-  for (var i = 0; i < length; i++) {
-    var element = this[i];
-    // Prepare break slots for debugger step in.
-    if (stepping) %DebugPrepareStepInIfStepping(f);
-    var new_receiver = needs_wrapper ? ToObject(receiver) : receiver;
-    %_CallFunction(new_receiver, TO_OBJECT_INLINE(element), i, this, f);
-  }
+  // TODO(littledan): The spec requires that, rather than directly calling
+  // the constructor, a TypedArray is created with the proper proto and
+  // underlying size and element size, and elements are put in one by one.
+  // By contrast, this would allow subclasses to make a radically different
+  // constructor with different semantics.
+  return new constructor(array);
 }
 
+function ConstructTypedArrayLike(typedArray, arrayContents) {
+  // TODO(littledan): The spec requires that we actuallly use
+  // typedArray.constructor[Symbol.species] (bug v8:4093)
+  return ConstructTypedArray(typedArray.constructor, arrayContents);
+}
+
+function TypedArrayCopyWithin(target, start, end) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  // TODO(littledan): Replace with a memcpy for better performance
+  return InnerArrayCopyWithin(target, start, end, this, length);
+}
+%FunctionSetLength(TypedArrayCopyWithin, 2);
+
+// ES6 draft 05-05-15, section 22.2.3.7
+function TypedArrayEvery(f, receiver) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayEvery(f, receiver, this, length);
+}
+%FunctionSetLength(TypedArrayEvery, 1);
+
+// ES6 draft 08-24-14, section 22.2.3.12
+function TypedArrayForEach(f, receiver) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  InnerArrayForEach(f, receiver, this, length);
+}
+%FunctionSetLength(TypedArrayForEach, 1);
+
+// ES6 draft 04-05-14 section 22.2.3.8
+function TypedArrayFill(value, start, end) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayFill(value, start, end, this, length);
+}
+%FunctionSetLength(TypedArrayFill, 1);
+
+// ES6 draft 07-15-13, section 22.2.3.9
+function TypedArrayFilter(predicate, thisArg) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+  var array = InnerArrayFilter(predicate, thisArg, this, length);
+  return ConstructTypedArrayLike(this, array);
+}
+%FunctionSetLength(TypedArrayFilter, 1);
+
+// ES6 draft 07-15-13, section 22.2.3.10
+function TypedArrayFind(predicate, thisArg) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayFind(predicate, thisArg, this, length);
+}
+%FunctionSetLength(TypedArrayFind, 1);
+
+// ES6 draft 07-15-13, section 22.2.3.11
+function TypedArrayFindIndex(predicate, thisArg) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayFindIndex(predicate, thisArg, this, length);
+}
+%FunctionSetLength(TypedArrayFindIndex, 1);
+
+// ES6 draft 05-18-15, section 22.2.3.21
+function TypedArrayReverse() {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayReverse(this, length);
+}
+
+
+function TypedArrayComparefn(x, y) {
+  if (IsNaN(x) && IsNaN(y)) {
+    return IsNaN(y) ? 0 : 1;
+  }
+  if (IsNaN(x)) {
+    return 1;
+  }
+  if (x === 0 && x === y) {
+    if (%_IsMinusZero(x)) {
+      if (!%_IsMinusZero(y)) {
+        return -1;
+      }
+    } else if (%_IsMinusZero(y)) {
+      return 1;
+    }
+  }
+  return x - y;
+}
+
+
+// ES6 draft 05-18-15, section 22.2.3.25
+function TypedArraySort(comparefn) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  if (IS_UNDEFINED(comparefn)) {
+    comparefn = TypedArrayComparefn;
+  }
+
+  return %_CallFunction(this, length, comparefn, InnerArraySort);
+}
+
+
+// ES6 section 22.2.3.13
+function TypedArrayIndexOf(element, index) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return %_CallFunction(this, element, index, length, InnerArrayIndexOf);
+}
+%FunctionSetLength(TypedArrayIndexOf, 1);
+
+
+// ES6 section 22.2.3.16
+function TypedArrayLastIndexOf(element, index) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return %_CallFunction(this, element, index, length,
+                        %_ArgumentsLength(), InnerArrayLastIndexOf);
+}
+%FunctionSetLength(TypedArrayLastIndexOf, 1);
+
+
+// ES6 draft 07-15-13, section 22.2.3.18
+function TypedArrayMap(predicate, thisArg) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  // TODO(littledan): Preallocate rather than making an intermediate
+  // InternalArray, for better performance.
+  var length = %_TypedArrayGetLength(this);
+  var array = InnerArrayMap(predicate, thisArg, this, length);
+  return ConstructTypedArrayLike(this, array);
+}
+%FunctionSetLength(TypedArrayMap, 1);
+
+
+// ES6 draft 05-05-15, section 22.2.3.24
+function TypedArraySome(f, receiver) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArraySome(f, receiver, this, length);
+}
+%FunctionSetLength(TypedArraySome, 1);
+
+
+// ES6 section 22.2.3.27
+function TypedArrayToLocaleString() {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayToLocaleString(this, length);
+}
+
+
+// ES6 section 22.2.3.28
+function TypedArrayToString() {
+  return %_CallFunction(this, ArrayToString);
+}
+
+
+// ES6 section 22.2.3.14
+function TypedArrayJoin(separator) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+
+  return InnerArrayJoin(separator, this, length);
+}
+
+
+// ES6 draft 07-15-13, section 22.2.3.19
+function TypedArrayReduce(callback, current) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+  return InnerArrayReduce(callback, current, this, length,
+                          %_ArgumentsLength());
+}
+%FunctionSetLength(TypedArrayReduce, 1);
+
+
+// ES6 draft 07-15-13, section 22.2.3.19
+function TypedArrayReduceRight(callback, current) {
+  if (!%IsTypedArray(this)) throw MakeTypeError(kNotTypedArray);
+
+  var length = %_TypedArrayGetLength(this);
+  return InnerArrayReduceRight(callback, current, this, length,
+                               %_ArgumentsLength());
+}
+%FunctionSetLength(TypedArrayReduceRight, 1);
+
+
 // ES6 draft 08-24-14, section 22.2.2.2
-function NAMEOf() {  // length == 0
+function TypedArrayOf() {
   var length = %_ArgumentsLength();
   var array = new this(length);
   for (var i = 0; i < length; i++) {
@@ -69,27 +316,46 @@ function NAMEOf() {  // length == 0
   return array;
 }
 
-endmacro
 
-TYPED_ARRAYS(TYPED_ARRAY_HARMONY_ADDITIONS)
+function TypedArrayFrom(source, mapfn, thisArg) {
+  // TODO(littledan): Investigate if there is a receiver which could be
+  // faster to accumulate on than Array, e.g., a TypedVector.
+  var array = %_CallFunction(GlobalArray, source, mapfn, thisArg, ArrayFrom);
+  return ConstructTypedArray(this, array);
+}
+%FunctionSetLength(TypedArrayFrom, 1);
 
-
-function HarmonyTypedArrayExtendPrototypes() {
-macro EXTEND_TYPED_ARRAY(ARRAY_ID, NAME, ELEMENT_SIZE)
-  %CheckIsBootstrapping();
-
+// TODO(littledan): Fix the TypedArray proto chain (bug v8:4085).
+macro EXTEND_TYPED_ARRAY(NAME)
   // Set up non-enumerable functions on the object.
-  InstallFunctions(global.NAME, DONT_ENUM | DONT_DELETE | READ_ONLY, $Array(
-    "of", NAMEOf
-  ));
+  utils.InstallFunctions(GlobalNAME, DONT_ENUM | DONT_DELETE | READ_ONLY, [
+    "from", TypedArrayFrom,
+    "of", TypedArrayOf
+  ]);
 
   // Set up non-enumerable functions on the prototype object.
-  InstallFunctions(global.NAME.prototype, DONT_ENUM, $Array(
-    "forEach", NAMEForEach
-  ));
+  utils.InstallFunctions(GlobalNAME.prototype, DONT_ENUM, [
+    "copyWithin", TypedArrayCopyWithin,
+    "every", TypedArrayEvery,
+    "fill", TypedArrayFill,
+    "filter", TypedArrayFilter,
+    "find", TypedArrayFind,
+    "findIndex", TypedArrayFindIndex,
+    "indexOf", TypedArrayIndexOf,
+    "join", TypedArrayJoin,
+    "lastIndexOf", TypedArrayLastIndexOf,
+    "forEach", TypedArrayForEach,
+    "map", TypedArrayMap,
+    "reduce", TypedArrayReduce,
+    "reduceRight", TypedArrayReduceRight,
+    "reverse", TypedArrayReverse,
+    "some", TypedArraySome,
+    "sort", TypedArraySort,
+    "toString", TypedArrayToString,
+    "toLocaleString", TypedArrayToLocaleString
+  ]);
 endmacro
 
-  TYPED_ARRAYS(EXTEND_TYPED_ARRAY)
-}
+TYPED_ARRAYS(EXTEND_TYPED_ARRAY)
 
-HarmonyTypedArrayExtendPrototypes();
+})

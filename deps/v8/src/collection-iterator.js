@@ -2,14 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+var $mapEntries;
+var $mapIteratorNext;
+var $setIteratorNext;
+var $setValues;
+
+(function(global, utils) {
+
 "use strict";
 
+%CheckIsBootstrapping();
 
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Set = global.Set;
-// var $Map = global.Map;
+var GlobalMap = global.Map;
+var GlobalSet = global.Set;
 
+// -------------------------------------------------------------------
 
 function SetIteratorConstructor(set, kind) {
   %SetIteratorInitialize(this, set, kind);
@@ -18,8 +25,8 @@ function SetIteratorConstructor(set, kind) {
 
 function SetIteratorNextJS() {
   if (!IS_SET_ITERATOR(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Set Iterator.prototype.next', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Set Iterator.prototype.next', this);
   }
 
   var value_array = [UNDEFINED, UNDEFINED];
@@ -41,15 +48,10 @@ function SetIteratorNextJS() {
 }
 
 
-function SetIteratorSymbolIterator() {
-  return this;
-}
-
-
 function SetEntries() {
   if (!IS_SET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Set.prototype.entries', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Set.prototype.entries', this);
   }
   return new SetIterator(this, ITERATOR_KIND_ENTRIES);
 }
@@ -57,63 +59,46 @@ function SetEntries() {
 
 function SetValues() {
   if (!IS_SET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Set.prototype.values', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Set.prototype.values', this);
   }
   return new SetIterator(this, ITERATOR_KIND_VALUES);
 }
 
+// -------------------------------------------------------------------
 
-function SetUpSetIterator() {
-  %CheckIsBootstrapping();
+%SetCode(SetIterator, SetIteratorConstructor);
+%FunctionSetPrototype(SetIterator, {__proto__: $iteratorPrototype});
+%FunctionSetInstanceClassName(SetIterator, 'Set Iterator');
+utils.InstallFunctions(SetIterator.prototype, DONT_ENUM, [
+  'next', SetIteratorNextJS
+]);
 
-  %SetCode(SetIterator, SetIteratorConstructor);
-  %FunctionSetPrototype(SetIterator, new $Object());
-  %FunctionSetInstanceClassName(SetIterator, 'Set Iterator');
-  InstallFunctions(SetIterator.prototype, DONT_ENUM, $Array(
-    'next', SetIteratorNextJS
-  ));
+%AddNamedProperty(SetIterator.prototype, symbolToStringTag,
+    "Set Iterator", READ_ONLY | DONT_ENUM);
 
-  %FunctionSetName(SetIteratorSymbolIterator, '[Symbol.iterator]');
-  %AddNamedProperty(SetIterator.prototype, symbolIterator,
-      SetIteratorSymbolIterator, DONT_ENUM);
-  %AddNamedProperty(SetIterator.prototype, symbolToStringTag,
-      "Set Iterator", READ_ONLY | DONT_ENUM);
-}
+utils.InstallFunctions(GlobalSet.prototype, DONT_ENUM, [
+  'entries', SetEntries,
+  'keys', SetValues,
+  'values', SetValues
+]);
 
-SetUpSetIterator();
+%AddNamedProperty(GlobalSet.prototype, symbolIterator, SetValues, DONT_ENUM);
 
+$setIteratorNext = SetIteratorNextJS;
+$setValues = SetValues;
 
-function ExtendSetPrototype() {
-  %CheckIsBootstrapping();
-
-  InstallFunctions($Set.prototype, DONT_ENUM, $Array(
-    'entries', SetEntries,
-    'keys', SetValues,
-    'values', SetValues
-  ));
-
-  %AddNamedProperty($Set.prototype, symbolIterator, SetValues, DONT_ENUM);
-}
-
-ExtendSetPrototype();
-
-
+// -------------------------------------------------------------------
 
 function MapIteratorConstructor(map, kind) {
   %MapIteratorInitialize(this, map, kind);
 }
 
 
-function MapIteratorSymbolIterator() {
-  return this;
-}
-
-
 function MapIteratorNextJS() {
   if (!IS_MAP_ITERATOR(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Map Iterator.prototype.next', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Map Iterator.prototype.next', this);
   }
 
   var value_array = [UNDEFINED, UNDEFINED];
@@ -138,8 +123,8 @@ function MapIteratorNextJS() {
 
 function MapEntries() {
   if (!IS_MAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Map.prototype.entries', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Map.prototype.entries', this);
   }
   return new MapIterator(this, ITERATOR_KIND_ENTRIES);
 }
@@ -147,8 +132,8 @@ function MapEntries() {
 
 function MapKeys() {
   if (!IS_MAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Map.prototype.keys', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Map.prototype.keys', this);
   }
   return new MapIterator(this, ITERATOR_KIND_KEYS);
 }
@@ -156,43 +141,34 @@ function MapKeys() {
 
 function MapValues() {
   if (!IS_MAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['Map.prototype.values', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'Map.prototype.values', this);
   }
   return new MapIterator(this, ITERATOR_KIND_VALUES);
 }
 
+// -------------------------------------------------------------------
 
-function SetUpMapIterator() {
-  %CheckIsBootstrapping();
+%SetCode(MapIterator, MapIteratorConstructor);
+%FunctionSetPrototype(MapIterator, {__proto__: $iteratorPrototype});
+%FunctionSetInstanceClassName(MapIterator, 'Map Iterator');
+utils.InstallFunctions(MapIterator.prototype, DONT_ENUM, [
+  'next', MapIteratorNextJS
+]);
 
-  %SetCode(MapIterator, MapIteratorConstructor);
-  %FunctionSetPrototype(MapIterator, new $Object());
-  %FunctionSetInstanceClassName(MapIterator, 'Map Iterator');
-  InstallFunctions(MapIterator.prototype, DONT_ENUM, $Array(
-    'next', MapIteratorNextJS
-  ));
-
-  %FunctionSetName(MapIteratorSymbolIterator, '[Symbol.iterator]');
-  %AddNamedProperty(MapIterator.prototype, symbolIterator,
-      MapIteratorSymbolIterator, DONT_ENUM);
-  %AddNamedProperty(MapIterator.prototype, symbolToStringTag,
-      "Map Iterator", READ_ONLY | DONT_ENUM);
-}
-
-SetUpMapIterator();
+%AddNamedProperty(MapIterator.prototype, symbolToStringTag,
+    "Map Iterator", READ_ONLY | DONT_ENUM);
 
 
-function ExtendMapPrototype() {
-  %CheckIsBootstrapping();
+utils.InstallFunctions(GlobalMap.prototype, DONT_ENUM, [
+  'entries', MapEntries,
+  'keys', MapKeys,
+  'values', MapValues
+]);
 
-  InstallFunctions($Map.prototype, DONT_ENUM, $Array(
-    'entries', MapEntries,
-    'keys', MapKeys,
-    'values', MapValues
-  ));
+%AddNamedProperty(GlobalMap.prototype, symbolIterator, MapEntries, DONT_ENUM);
 
-  %AddNamedProperty($Map.prototype, symbolIterator, MapEntries, DONT_ENUM);
-}
+$mapEntries = MapEntries;
+$mapIteratorNext = MapIteratorNextJS;
 
-ExtendMapPrototype();
+})

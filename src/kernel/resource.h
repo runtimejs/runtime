@@ -15,10 +15,7 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <common/utils.h>
-#include <kernel/allocator.h>
-#include <common/utils.h>
-#include <kernel/vector.h>
+#include <kernel/utils.h>
 #include <kernel/spinlock.h>
 #include <v8.h>
 
@@ -27,8 +24,6 @@ namespace rt {
 class Isolate;
 class EngineThread;
 class Thread;
-
-using ::common::Nullable;
 
 template<typename R>
 class ResourceHandle {
@@ -50,11 +45,6 @@ public:
 
     bool operator!=(const ResourceHandle<R>& that) const {
         return !(this == that);
-    }
-
-    LockingPtr<R> get() const {
-        RT_ASSERT(resource_ && "Using empty handle.");
-        return LockingPtr<R>(resource_, &resource_->locker_);
     }
 
     /**
@@ -93,7 +83,7 @@ public:
     Resource() { }
     virtual v8::Local<v8::Object> NewInstance(Thread* thread) = 0;
 private:
-    Locker locker_;
+    threadlib::spinlock_t locker_;
     DELETE_COPY_AND_ASSIGN(Resource);
 };
 

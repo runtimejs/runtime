@@ -15,16 +15,14 @@
 #pragma once
 
 #include <vector>
+#include <atomic>
 #include <kernel/kernel.h>
 #include <kernel/cpu.h>
-#include <kernel/allocator.h>
 #include <kernel/resource.h>
 #include <kernel/engine.h>
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <kernel/v8platform.h>
-#include <kernel/handle.h>
-#include <kernel/pipes.h>
 
 namespace rt {
 
@@ -48,7 +46,7 @@ public:
         RT_ASSERT(this);
         RT_ASSERT(cpu_count >= 1);
 
-        global_ticks_counter_.Set(0);
+        global_ticks_counter_ = 1;
 
         engines_.reserve(cpu_count);
         engines_execution_.reserve(cpu_count);
@@ -90,10 +88,10 @@ public:
         RT_ASSERT(first_engine);
         ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
-        const char* filename = "/system/kernel.js";
+        const char* filename = "/bundle.js";
         InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
         if (startup_file.IsEmpty()) {
-            printf("Unable to load /system/kernel.js from initrd.\n");
+            printf("Unable to load /bundle.js from initrd.\n");
             abort();
         }
 
@@ -102,7 +100,7 @@ public:
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS_NOPARENT,
                 ResourceHandle<EngineThread>(), std::move(data)));
-            st.get()->PushMessage(std::move(msg));
+            st.getUnsafe()->PushMessage(std::move(msg));
         }
 
         {	TransportData data;
@@ -110,7 +108,7 @@ public:
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
                 ResourceHandle<EngineThread>(), std::move(data)));
-            st.get()->PushMessage(std::move(msg));
+            st.getUnsafe()->PushMessage(std::move(msg));
         }
     }
 
@@ -166,7 +164,7 @@ public:
     }
 
     void Sleep(uint64_t microseconds) {
-        uint64_t before = global_ticks_counter_.Get();
+        uint64_t before = global_ticks_counter_;
         uint64_t wait_ticks = microseconds / 1000 / MsPerTick();
         if (wait_ticks < 1) wait_ticks = 1;
 
@@ -177,14 +175,14 @@ public:
 
         uint64_t after = before + wait_ticks;
 
-        while (global_ticks_counter_.Get() < after) {
+        while (global_ticks_counter_ < after) {
             Cpu::WaitPause();
         }
     }
 
     void TimerTick(SystemContextIRQ& irq_context) {
         const Engine* cpuengine = cpu_engine();
-        global_ticks_counter_.AddFetch(1);
+        global_ticks_counter_++;
         if (cpuengine->is_init()) {
             cpuengine->TimerTick(irq_context);
         } else {
@@ -237,25 +235,18 @@ public:
 
     AcpiManager* acpi_manager();
 
-    HandlePoolManager& handle_pools() { return handle_pools_; }
-    PipeManager& pipe_manager() { return pipe_manager_; }
-
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
 private:
     uint32_t cpu_count_;
-    SharedSTLVector<Engine*> engines_;
-    SharedSTLVector<Engine*> engines_execution_;
+    std::vector<Engine*> engines_;
+    std::vector<Engine*> engines_execution_;
     AcpiManager* _acpi_manager;
     volatile uint64_t _non_isolate_ticks;
 
     v8::Platform* v8_platform_;
-    Atomic<uint64_t> global_ticks_counter_;
+    std::atomic<uint64_t> global_ticks_counter_;
     MallocArrayBufferAllocator* arraybuffer_allocator_;
-    HandlePoolManager handle_pools_;
-    PipeManager pipe_manager_;
-
-    mutable Locker _platform_locker;
 };
 
 } // namespace rt

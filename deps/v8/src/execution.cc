@@ -7,7 +7,7 @@
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
 #include "src/deoptimizer.h"
-#include "src/isolate-inl.h"
+#include "src/messages.h"
 #include "src/vm-state-inl.h"
 
 namespace v8 {
@@ -20,16 +20,16 @@ StackGuard::StackGuard()
 
 void StackGuard::set_interrupt_limits(const ExecutionAccess& lock) {
   DCHECK(isolate_ != NULL);
-  thread_local_.jslimit_ = kInterruptLimit;
-  thread_local_.climit_ = kInterruptLimit;
+  thread_local_.set_jslimit(kInterruptLimit);
+  thread_local_.set_climit(kInterruptLimit);
   isolate_->heap()->SetStackLimits();
 }
 
 
 void StackGuard::reset_limits(const ExecutionAccess& lock) {
   DCHECK(isolate_ != NULL);
-  thread_local_.jslimit_ = thread_local_.real_jslimit_;
-  thread_local_.climit_ = thread_local_.real_climit_;
+  thread_local_.set_jslimit(thread_local_.real_jslimit_);
+  thread_local_.set_climit(thread_local_.real_climit_);
   isolate_->heap()->SetStackLimits();
 }
 
@@ -200,7 +200,7 @@ MaybeHandle<Object> Execution::TryCall(Handle<JSFunction> func,
   // creating message objects during stack overflow we shouldn't
   // capture messages.
   {
-    v8::TryCatch catcher;
+    v8::TryCatch catcher(reinterpret_cast<v8::Isolate*>(isolate));
     catcher.SetVerbose(false);
     catcher.SetCaptureMessage(false);
 
@@ -210,11 +210,11 @@ MaybeHandle<Object> Execution::TryCall(Handle<JSFunction> func,
       DCHECK(catcher.HasCaught());
       DCHECK(isolate->has_pending_exception());
       DCHECK(isolate->external_caught_exception());
-      if (exception_out != NULL) {
-        if (isolate->pending_exception() ==
-            isolate->heap()->termination_exception()) {
-          is_termination = true;
-        } else {
+      if (isolate->pending_exception() ==
+          isolate->heap()->termination_exception()) {
+        is_termination = true;
+      } else {
+        if (exception_out != NULL) {
           *exception_out = v8::Utils::OpenHandle(*catcher.Exception());
         }
       }
@@ -222,9 +222,11 @@ MaybeHandle<Object> Execution::TryCall(Handle<JSFunction> func,
     }
 
     DCHECK(!isolate->has_pending_exception());
-    DCHECK(!isolate->external_caught_exception());
   }
-  if (is_termination) isolate->TerminateExecution();
+
+  // Re-request terminate execution interrupt to trigger later.
+  if (is_termination) isolate->stack_guard()->RequestTerminateExecution();
+
   return maybe_result;
 }
 
@@ -277,8 +279,8 @@ MaybeHandle<Object> Execution::TryGetFunctionDelegate(Isolate* isolate,
 
   // If the Object doesn't have an instance-call handler we should
   // throw a non-callable exception.
-  THROW_NEW_ERROR(isolate, NewTypeError("called_non_callable",
-                                        i::HandleVector<i::Object>(&object, 1)),
+  THROW_NEW_ERROR(isolate,
+                  NewTypeError(MessageTemplate::kCalledNonCallable, object),
                   Object);
 }
 
@@ -333,8 +335,8 @@ MaybeHandle<Object> Execution::TryGetConstructorDelegate(
 
   // If the Object doesn't have an instance-call handler we should
   // throw a non-callable exception.
-  THROW_NEW_ERROR(isolate, NewTypeError("called_non_callable",
-                                        i::HandleVector<i::Object>(&object, 1)),
+  THROW_NEW_ERROR(isolate,
+                  NewTypeError(MessageTemplate::kCalledNonCallable, object),
                   Object);
 }
 
@@ -352,11 +354,11 @@ void StackGuard::SetStackLimit(uintptr_t limit) {
   // If the current limits are special (e.g. due to a pending interrupt) then
   // leave them alone.
   uintptr_t jslimit = SimulatorStack::JsLimitFromCLimit(isolate_, limit);
-  if (thread_local_.jslimit_ == thread_local_.real_jslimit_) {
-    thread_local_.jslimit_ = jslimit;
+  if (thread_local_.jslimit() == thread_local_.real_jslimit_) {
+    thread_local_.set_jslimit(jslimit);
   }
-  if (thread_local_.climit_ == thread_local_.real_climit_) {
-    thread_local_.climit_ = limit;
+  if (thread_local_.climit() == thread_local_.real_climit_) {
+    thread_local_.set_climit(limit);
   }
   thread_local_.real_climit_ = limit;
   thread_local_.real_jslimit_ = jslimit;
@@ -472,9 +474,9 @@ void StackGuard::FreeThreadResources() {
 
 void StackGuard::ThreadLocal::Clear() {
   real_jslimit_ = kIllegalLimit;
-  jslimit_ = kIllegalLimit;
+  set_jslimit(kIllegalLimit);
   real_climit_ = kIllegalLimit;
-  climit_ = kIllegalLimit;
+  set_climit(kIllegalLimit);
   postpone_interrupts_ = NULL;
   interrupt_flags_ = 0;
 }
@@ -487,9 +489,9 @@ bool StackGuard::ThreadLocal::Initialize(Isolate* isolate) {
     DCHECK(GetCurrentStackPosition() > kLimitSize);
     uintptr_t limit = GetCurrentStackPosition() - kLimitSize;
     real_jslimit_ = SimulatorStack::JsLimitFromCLimit(isolate, limit);
-    jslimit_ = SimulatorStack::JsLimitFromCLimit(isolate, limit);
+    set_jslimit(SimulatorStack::JsLimitFromCLimit(isolate, limit));
     real_climit_ = limit;
-    climit_ = limit;
+    set_climit(limit);
     should_set_stack_limits = true;
   }
   postpone_interrupts_ = NULL;
@@ -600,35 +602,6 @@ MaybeHandle<JSRegExp> Execution::NewJSRegExp(Handle<String> pattern,
 }
 
 
-Handle<Object> Execution::CharAt(Handle<String> string, uint32_t index) {
-  Isolate* isolate = string->GetIsolate();
-  Factory* factory = isolate->factory();
-
-  int int_index = static_cast<int>(index);
-  if (int_index < 0 || int_index >= string->length()) {
-    return factory->undefined_value();
-  }
-
-  Handle<Object> char_at = Object::GetProperty(
-      isolate->js_builtins_object(),
-      factory->char_at_string()).ToHandleChecked();
-  if (!char_at->IsJSFunction()) {
-    return factory->undefined_value();
-  }
-
-  Handle<Object> index_object = factory->NewNumberFromInt(int_index);
-  Handle<Object> index_arg[] = { index_object };
-  Handle<Object> result;
-  if (!TryCall(Handle<JSFunction>::cast(char_at),
-               string,
-               arraysize(index_arg),
-               index_arg).ToHandle(&result)) {
-    return factory->undefined_value();
-  }
-  return result;
-}
-
-
 Handle<String> Execution::GetStackTraceLine(Handle<Object> recv,
                                             Handle<JSFunction> fun,
                                             Handle<Object> pos,
@@ -646,6 +619,13 @@ Handle<String> Execution::GetStackTraceLine(Handle<Object> recv,
   }
 
   return Handle<String>::cast(result);
+}
+
+
+void StackGuard::CheckAndHandleGCInterrupt() {
+  if (CheckAndClearInterrupt(GC_REQUEST)) {
+    isolate_->heap()->HandleGCRequest();
+  }
 }
 
 
@@ -668,7 +648,7 @@ Object* StackGuard::HandleInterrupts() {
 
   if (CheckAndClearInterrupt(INSTALL_CODE)) {
     DCHECK(isolate_->concurrent_recompilation_enabled());
-    isolate_->optimizing_compiler_thread()->InstallOptimizedFunctions();
+    isolate_->optimizing_compile_dispatcher()->InstallOptimizedFunctions();
   }
 
   if (CheckAndClearInterrupt(API_INTERRUPT)) {
@@ -683,4 +663,5 @@ Object* StackGuard::HandleInterrupts() {
   return isolate_->heap()->undefined_value();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

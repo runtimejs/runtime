@@ -14,40 +14,37 @@
 using namespace v8::internal;
 using namespace v8::internal::compiler;
 
-class ContextSpecializationTester : public HandleAndZoneScope,
-                                    public DirectGraphBuilder {
+class ContextSpecializationTester : public HandleAndZoneScope {
  public:
   ContextSpecializationTester()
-      : DirectGraphBuilder(main_isolate(),
-                           new (main_zone()) Graph(main_zone())),
+      : graph_(new (main_zone()) Graph(main_zone())),
         common_(main_zone()),
         javascript_(main_zone()),
         machine_(main_zone()),
         simplified_(main_zone()),
-        jsgraph_(main_isolate(), graph(), common(), &javascript_, &machine_),
-        info_(main_isolate(), main_zone()) {}
+        jsgraph_(main_isolate(), graph(), common(), &javascript_, &machine_) {}
 
   Factory* factory() { return main_isolate()->factory(); }
   CommonOperatorBuilder* common() { return &common_; }
   JSOperatorBuilder* javascript() { return &javascript_; }
   SimplifiedOperatorBuilder* simplified() { return &simplified_; }
   JSGraph* jsgraph() { return &jsgraph_; }
-  CompilationInfo* info() { return &info_; }
+  Graph* graph() { return graph_; }
 
  private:
+  Graph* graph_;
   CommonOperatorBuilder common_;
   JSOperatorBuilder javascript_;
   MachineOperatorBuilder machine_;
   SimplifiedOperatorBuilder simplified_;
   JSGraph jsgraph_;
-  CompilationInfo info_;
 };
 
 
 TEST(ReduceJSLoadContext) {
   ContextSpecializationTester t;
 
-  Node* start = t.NewNode(t.common()->Start(0));
+  Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
 
   // Make a context and initialize it a bit for this test.
@@ -62,28 +59,28 @@ TEST(ReduceJSLoadContext) {
 
   Node* const_context = t.jsgraph()->Constant(native);
   Node* deep_const_context = t.jsgraph()->Constant(subcontext2);
-  Node* param_context = t.NewNode(t.common()->Parameter(0), start);
-  JSContextSpecializer spec(t.info(), t.jsgraph(), const_context);
+  Node* param_context = t.graph()->NewNode(t.common()->Parameter(0), start);
+  JSContextSpecializer spec(t.jsgraph());
 
   {
     // Mutable slot, constant context, depth = 0 => do nothing.
-    Node* load = t.NewNode(t.javascript()->LoadContext(0, 0, false),
-                           const_context, const_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->LoadContext(0, 0, false),
+                                    const_context, const_context, start);
     Reduction r = spec.ReduceJSLoadContext(load);
     CHECK(!r.Changed());
   }
 
   {
     // Mutable slot, non-constant context, depth = 0 => do nothing.
-    Node* load = t.NewNode(t.javascript()->LoadContext(0, 0, false),
-                           param_context, param_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->LoadContext(0, 0, false),
+                                    param_context, param_context, start);
     Reduction r = spec.ReduceJSLoadContext(load);
     CHECK(!r.Changed());
   }
 
   {
     // Mutable slot, constant context, depth > 0 => fold-in parent context.
-    Node* load = t.NewNode(
+    Node* load = t.graph()->NewNode(
         t.javascript()->LoadContext(2, Context::GLOBAL_EVAL_FUN_INDEX, false),
         deep_const_context, deep_const_context, start);
     Reduction r = spec.ReduceJSLoadContext(load);
@@ -100,8 +97,8 @@ TEST(ReduceJSLoadContext) {
 
   {
     // Immutable slot, constant context, depth = 0 => specialize.
-    Node* load = t.NewNode(t.javascript()->LoadContext(0, slot, true),
-                           const_context, const_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->LoadContext(0, slot, true),
+                                    const_context, const_context, start);
     Reduction r = spec.ReduceJSLoadContext(load);
     CHECK(r.Changed());
     CHECK(r.replacement() != load);
@@ -119,7 +116,7 @@ TEST(ReduceJSLoadContext) {
 TEST(ReduceJSStoreContext) {
   ContextSpecializationTester t;
 
-  Node* start = t.NewNode(t.common()->Start(0));
+  Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
 
   // Make a context and initialize it a bit for this test.
@@ -134,36 +131,36 @@ TEST(ReduceJSStoreContext) {
 
   Node* const_context = t.jsgraph()->Constant(native);
   Node* deep_const_context = t.jsgraph()->Constant(subcontext2);
-  Node* param_context = t.NewNode(t.common()->Parameter(0), start);
-  JSContextSpecializer spec(t.info(), t.jsgraph(), const_context);
+  Node* param_context = t.graph()->NewNode(t.common()->Parameter(0), start);
+  JSContextSpecializer spec(t.jsgraph());
 
   {
     // Mutable slot, constant context, depth = 0 => do nothing.
-    Node* load = t.NewNode(t.javascript()->StoreContext(0, 0), const_context,
-                           const_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->StoreContext(0, 0),
+                                    const_context, const_context, start);
     Reduction r = spec.ReduceJSStoreContext(load);
     CHECK(!r.Changed());
   }
 
   {
     // Mutable slot, non-constant context, depth = 0 => do nothing.
-    Node* load = t.NewNode(t.javascript()->StoreContext(0, 0), param_context,
-                           param_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->StoreContext(0, 0),
+                                    param_context, param_context, start);
     Reduction r = spec.ReduceJSStoreContext(load);
     CHECK(!r.Changed());
   }
 
   {
     // Immutable slot, constant context, depth = 0 => do nothing.
-    Node* load = t.NewNode(t.javascript()->StoreContext(0, slot), const_context,
-                           const_context, start);
+    Node* load = t.graph()->NewNode(t.javascript()->StoreContext(0, slot),
+                                    const_context, const_context, start);
     Reduction r = spec.ReduceJSStoreContext(load);
     CHECK(!r.Changed());
   }
 
   {
     // Mutable slot, constant context, depth > 0 => fold-in parent context.
-    Node* load = t.NewNode(
+    Node* load = t.graph()->NewNode(
         t.javascript()->StoreContext(2, Context::GLOBAL_EVAL_FUN_INDEX),
         deep_const_context, deep_const_context, start);
     Reduction r = spec.ReduceJSStoreContext(load);
@@ -189,7 +186,7 @@ static void CheckEffectInput(Node* effect, Node* use) {
 TEST(SpecializeToContext) {
   ContextSpecializationTester t;
 
-  Node* start = t.NewNode(t.common()->Start(0));
+  Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
 
   // Make a context and initialize it a bit for this test.
@@ -197,32 +194,35 @@ TEST(SpecializeToContext) {
   Handle<Object> expected = t.factory()->InternalizeUtf8String("gboy!");
   const int slot = Context::GLOBAL_OBJECT_INDEX;
   native->set(slot, *expected);
-  t.info()->SetContext(native);
 
   Node* const_context = t.jsgraph()->Constant(native);
-  Node* param_context = t.NewNode(t.common()->Parameter(0), start);
-  JSContextSpecializer spec(t.info(), t.jsgraph(), const_context);
+  Node* param_context = t.graph()->NewNode(t.common()->Parameter(0), start);
+  JSContextSpecializer spec(t.jsgraph());
 
   {
     // Check that specialization replaces values and forwards effects
     // correctly, and folds values from constant and non-constant contexts
     Node* effect_in = start;
-    Node* load = t.NewNode(t.javascript()->LoadContext(0, slot, true),
-                           const_context, const_context, effect_in);
+    Node* load = t.graph()->NewNode(t.javascript()->LoadContext(0, slot, true),
+                                    const_context, const_context, effect_in);
 
 
-    Node* value_use = t.NewNode(t.simplified()->ChangeTaggedToInt32(), load);
-    Node* other_load = t.NewNode(t.javascript()->LoadContext(0, slot, true),
-                                 param_context, param_context, load);
+    Node* value_use =
+        t.graph()->NewNode(t.simplified()->ChangeTaggedToInt32(), load);
+    Node* other_load =
+        t.graph()->NewNode(t.javascript()->LoadContext(0, slot, true),
+                           param_context, param_context, load);
     Node* effect_use = other_load;
     Node* other_use =
-        t.NewNode(t.simplified()->ChangeTaggedToInt32(), other_load);
+        t.graph()->NewNode(t.simplified()->ChangeTaggedToInt32(), other_load);
 
-    Node* add = t.NewNode(t.javascript()->Add(), value_use, other_use,
-                          param_context, other_load, start);
+    Node* add =
+        t.graph()->NewNode(t.javascript()->Add(LanguageMode::SLOPPY), value_use,
+                           other_use, param_context, other_load, start);
 
-    Node* ret = t.NewNode(t.common()->Return(), add, effect_use, start);
-    Node* end = t.NewNode(t.common()->End(), ret);
+    Node* ret =
+        t.graph()->NewNode(t.common()->Return(), add, effect_use, start);
+    Node* end = t.graph()->NewNode(t.common()->End(1), ret);
     USE(end);
     t.graph()->SetEnd(end);
 
@@ -231,7 +231,7 @@ TEST(SpecializeToContext) {
     CheckEffectInput(load, effect_use);
 
     // Perform the reduction on the entire graph.
-    GraphReducer graph_reducer(t.graph(), t.main_zone());
+    GraphReducer graph_reducer(t.main_zone(), t.graph());
     graph_reducer.AddReducer(&spec);
     graph_reducer.ReduceGraph();
 

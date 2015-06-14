@@ -6,6 +6,7 @@
 #define V8_COMPILER_JS_INLINING_H_
 
 #include "src/compiler/js-graph.h"
+#include "src/compiler/graph-reducer.h"
 
 namespace v8 {
 namespace internal {
@@ -13,28 +14,34 @@ namespace compiler {
 
 class JSCallFunctionAccessor;
 
-class JSInliner {
+class JSInliner final : public AdvancedReducer {
  public:
-  JSInliner(Zone* local_zone, CompilationInfo* info, JSGraph* jsgraph)
-      : local_zone_(local_zone), info_(info), jsgraph_(jsgraph) {}
+  enum Mode { kRestrictedInlining, kGeneralInlining };
 
-  void Inline();
-  void TryInlineJSCall(Node* node);
+  JSInliner(Editor* editor, Mode mode, Zone* local_zone, CompilationInfo* info,
+            JSGraph* jsgraph)
+      : AdvancedReducer(editor),
+        mode_(mode),
+        local_zone_(local_zone),
+        info_(info),
+        jsgraph_(jsgraph) {}
+
+  Reduction Reduce(Node* node) final;
 
  private:
-  friend class InlinerVisitor;
+  Mode const mode_;
   Zone* local_zone_;
   CompilationInfo* info_;
   JSGraph* jsgraph_;
 
   Node* CreateArgumentsAdaptorFrameState(JSCallFunctionAccessor* call,
-                                         Handle<JSFunction> jsfunction,
                                          Zone* temp_zone);
-  void AddClosureToFrameState(Node* frame_state, Handle<JSFunction> jsfunction);
-  static void UnifyReturn(Graph* graph);
+
+  Reduction InlineCall(Node* call, Node* frame_state, Node* start, Node* end);
 };
-}
-}
-}  // namespace v8::internal::compiler
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_COMPILER_JS_INLINING_H_

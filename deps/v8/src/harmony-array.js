@@ -2,106 +2,161 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+(function(global, utils) {
+
 'use strict';
 
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Array = global.Array;
+%CheckIsBootstrapping();
+
+// -------------------------------------------------------------------
+// Imports
+
+var GlobalArray = global.Array;
+var GlobalSymbol = global.Symbol;
+
+var GetIterator;
+var GetMethod;
+var MathMax;
+var MathMin;
+var ObjectIsFrozen;
+
+utils.Import(function(from) {
+  GetIterator = from.GetIterator;
+  GetMethod = from.GetMethod;
+  MathMax = from.MathMax;
+  MathMin = from.MathMin;
+  ObjectIsFrozen = from.ObjectIsFrozen;
+});
 
 // -------------------------------------------------------------------
 
-// ES6 draft 07-15-13, section 15.4.3.23
-function ArrayFind(predicate /* thisArg */) {  // length == 1
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.find");
-
-  var array = ToObject(this);
-  var length = ToInteger(array.length);
-
-  if (!IS_SPEC_FUNCTION(predicate)) {
-    throw MakeTypeError('called_non_callable', [predicate]);
+function InnerArrayCopyWithin(target, start, end, array, length) {
+  target = TO_INTEGER(target);
+  var to;
+  if (target < 0) {
+    to = MathMax(length + target, 0);
+  } else {
+    to = MathMin(target, length);
   }
 
-  var thisArg;
-  if (%_ArgumentsLength() > 1) {
-    thisArg = %_Arguments(1);
+  start = TO_INTEGER(start);
+  var from;
+  if (start < 0) {
+    from = MathMax(length + start, 0);
+  } else {
+    from = MathMin(start, length);
+  }
+
+  end = IS_UNDEFINED(end) ? length : TO_INTEGER(end);
+  var final;
+  if (end < 0) {
+    final = MathMax(length + end, 0);
+  } else {
+    final = MathMin(end, length);
+  }
+
+  var count = MathMin(final - from, length - to);
+  var direction = 1;
+  if (from < to && to < (from + count)) {
+    direction = -1;
+    from = from + count - 1;
+    to = to + count - 1;
+  }
+
+  while (count > 0) {
+    if (from in array) {
+      array[to] = array[from];
+    } else {
+      delete array[to];
+    }
+    from = from + direction;
+    to = to + direction;
+    count--;
+  }
+
+  return array;
+}
+
+// ES6 draft 03-17-15, section 22.1.3.3
+function ArrayCopyWithin(target, start, end) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.copyWithin");
+
+  var array = TO_OBJECT_INLINE(this);
+  var length = $toLength(array.length);
+
+  return InnerArrayCopyWithin(target, start, end, array, length);
+}
+
+function InnerArrayFind(predicate, thisArg, array, length) {
+  if (!IS_SPEC_FUNCTION(predicate)) {
+    throw MakeTypeError(kCalledNonCallable, predicate);
   }
 
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(thisArg)) {
-    thisArg = %GetDefaultReceiver(predicate) || thisArg;
-  } else {
+  if (IS_NULL(thisArg)) {
+    if (%IsSloppyModeFunction(predicate)) thisArg = UNDEFINED;
+  } else if (!IS_UNDEFINED(thisArg)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(predicate, thisArg);
   }
 
   for (var i = 0; i < length; i++) {
-    if (i in array) {
-      var element = array[i];
-      var newThisArg = needs_wrapper ? ToObject(thisArg) : thisArg;
-      if (%_CallFunction(newThisArg, element, i, array, predicate)) {
-        return element;
-      }
+    var element = array[i];
+    var newThisArg = needs_wrapper ? $toObject(thisArg) : thisArg;
+    if (%_CallFunction(newThisArg, element, i, array, predicate)) {
+      return element;
     }
   }
 
   return;
 }
 
+// ES6 draft 07-15-13, section 15.4.3.23
+function ArrayFind(predicate, thisArg) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.find");
 
-// ES6 draft 07-15-13, section 15.4.3.24
-function ArrayFindIndex(predicate /* thisArg */) {  // length == 1
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.findIndex");
+  var array = $toObject(this);
+  var length = $toInteger(array.length);
 
-  var array = ToObject(this);
-  var length = ToInteger(array.length);
+  return InnerArrayFind(predicate, thisArg, array, length);
+}
 
+function InnerArrayFindIndex(predicate, thisArg, array, length) {
   if (!IS_SPEC_FUNCTION(predicate)) {
-    throw MakeTypeError('called_non_callable', [predicate]);
-  }
-
-  var thisArg;
-  if (%_ArgumentsLength() > 1) {
-    thisArg = %_Arguments(1);
+    throw MakeTypeError(kCalledNonCallable, predicate);
   }
 
   var needs_wrapper = false;
-  if (IS_NULL_OR_UNDEFINED(thisArg)) {
-    thisArg = %GetDefaultReceiver(predicate) || thisArg;
-  } else {
+  if (IS_NULL(thisArg)) {
+    if (%IsSloppyModeFunction(predicate)) thisArg = UNDEFINED;
+  } else if (!IS_UNDEFINED(thisArg)) {
     needs_wrapper = SHOULD_CREATE_WRAPPER(predicate, thisArg);
   }
 
   for (var i = 0; i < length; i++) {
-    if (i in array) {
-      var element = array[i];
-      var newThisArg = needs_wrapper ? ToObject(thisArg) : thisArg;
-      if (%_CallFunction(newThisArg, element, i, array, predicate)) {
-        return i;
-      }
+    var element = array[i];
+    var newThisArg = needs_wrapper ? $toObject(thisArg) : thisArg;
+    if (%_CallFunction(newThisArg, element, i, array, predicate)) {
+      return i;
     }
   }
 
   return -1;
 }
 
+// ES6 draft 07-15-13, section 15.4.3.24
+function ArrayFindIndex(predicate, thisArg) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.findIndex");
+
+  var array = $toObject(this);
+  var length = $toInteger(array.length);
+
+  return InnerArrayFindIndex(predicate, thisArg, array, length);
+}
 
 // ES6, draft 04-05-14, section 22.1.3.6
-function ArrayFill(value /* [, start [, end ] ] */) {  // length == 1
-  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.fill");
-
-  var array = ToObject(this);
-  var length = TO_UINT32(array.length);
-
-  var i = 0;
-  var end = length;
-
-  if (%_ArgumentsLength() > 1) {
-    i = %_Arguments(1);
-    i = IS_UNDEFINED(i) ? 0 : TO_INTEGER(i);
-    if (%_ArgumentsLength() > 2) {
-      end = %_Arguments(2);
-      end = IS_UNDEFINED(end) ? length : TO_INTEGER(end);
-    }
-  }
+function InnerArrayFill(value, start, end, array, length) {
+  var i = IS_UNDEFINED(start) ? 0 : TO_INTEGER(start);
+  var end = IS_UNDEFINED(end) ? length : TO_INTEGER(end);
 
   if (i < 0) {
     i += length;
@@ -118,8 +173,7 @@ function ArrayFill(value /* [, start [, end ] ] */) {  // length == 1
   }
 
   if ((end - i) > 0 && ObjectIsFrozen(array)) {
-    throw MakeTypeError("array_functions_on_frozen",
-                        ["Array.prototype.fill"]);
+    throw MakeTypeError(kArrayFunctionsOnFrozen);
   }
 
   for (; i < end; i++)
@@ -127,18 +181,30 @@ function ArrayFill(value /* [, start [, end ] ] */) {  // length == 1
   return array;
 }
 
+// ES6, draft 04-05-14, section 22.1.3.6
+function ArrayFill(value, start, end) {
+  CHECK_OBJECT_COERCIBLE(this, "Array.prototype.fill");
+
+  var array = $toObject(this);
+  var length = TO_UINT32(array.length);
+
+  return InnerArrayFill(value, start, end, array, length);
+}
+
 // ES6, draft 10-14-14, section 22.1.2.1
 function ArrayFrom(arrayLike, mapfn, receiver) {
-  var items = ToObject(arrayLike);
+  var items = $toObject(arrayLike);
   var mapping = !IS_UNDEFINED(mapfn);
 
   if (mapping) {
     if (!IS_SPEC_FUNCTION(mapfn)) {
-      throw MakeTypeError('called_non_callable', [ mapfn ]);
-    } else if (IS_NULL_OR_UNDEFINED(receiver)) {
-      receiver = %GetDefaultReceiver(mapfn) || receiver;
-    } else if (!IS_SPEC_OBJECT(receiver) && %IsSloppyModeFunction(mapfn)) {
-      receiver = ToObject(receiver);
+      throw MakeTypeError(kCalledNonCallable, mapfn);
+    } else if (%IsSloppyModeFunction(mapfn)) {
+      if (IS_NULL(receiver)) {
+        receiver = UNDEFINED;
+      } else if (!IS_UNDEFINED(receiver)) {
+        receiver = TO_OBJECT_INLINE(receiver);
+      }
     }
   }
 
@@ -158,7 +224,7 @@ function ArrayFrom(arrayLike, mapfn, receiver) {
       var next = iterator.next();
 
       if (!IS_OBJECT(next)) {
-        throw MakeTypeError("iterator_result_not_an_object", [next]);
+        throw MakeTypeError(kIteratorResultNotAnObject, next);
       }
 
       if (next.done) {
@@ -175,8 +241,8 @@ function ArrayFrom(arrayLike, mapfn, receiver) {
       %AddElement(result, k++, mappedValue, NONE);
     }
   } else {
-    var len = ToLength(items.length);
-    result = %IsConstructor(this) ? new this(len) : new $Array(len);
+    var len = $toLength(items.length);
+    result = %IsConstructor(this) ? new this(len) : new GlobalArray(len);
 
     for (k = 0; k < len; ++k) {
       nextValue = items[k];
@@ -208,34 +274,40 @@ function ArrayOf() {
 
 // -------------------------------------------------------------------
 
-function HarmonyArrayExtendSymbolPrototype() {
-  %CheckIsBootstrapping();
+utils.InstallConstants(GlobalSymbol, [
+  // TODO(dslomov, caitp): Move to symbol.js when shipping
+  "isConcatSpreadable", symbolIsConcatSpreadable
+]);
 
-  InstallConstants($Symbol, $Array(
-    // TODO(dslomov, caitp): Move to symbol.js when shipping
-   "isConcatSpreadable", symbolIsConcatSpreadable
-  ));
-}
+%FunctionSetLength(ArrayCopyWithin, 2);
+%FunctionSetLength(ArrayFrom, 1);
+%FunctionSetLength(ArrayFill, 1);
+%FunctionSetLength(ArrayFind, 1);
+%FunctionSetLength(ArrayFindIndex, 1);
 
-HarmonyArrayExtendSymbolPrototype();
+// Set up non-enumerable functions on the Array object.
+utils.InstallFunctions(GlobalArray, DONT_ENUM, [
+  "from", ArrayFrom,
+  "of", ArrayOf
+]);
 
-function HarmonyArrayExtendArrayPrototype() {
-  %CheckIsBootstrapping();
+// Set up the non-enumerable functions on the Array prototype object.
+utils.InstallFunctions(GlobalArray.prototype, DONT_ENUM, [
+  "copyWithin", ArrayCopyWithin,
+  "find", ArrayFind,
+  "findIndex", ArrayFindIndex,
+  "fill", ArrayFill
+]);
 
-  %FunctionSetLength(ArrayFrom, 1);
+// -------------------------------------------------------------------
+// Exports
 
-  // Set up non-enumerable functions on the Array object.
-  InstallFunctions($Array, DONT_ENUM, $Array(
-    "from", ArrayFrom,
-    "of", ArrayOf
-  ));
+utils.Export(function(to) {
+  to.ArrayFrom = ArrayFrom;
+  to.InnerArrayCopyWithin = InnerArrayCopyWithin;
+  to.InnerArrayFill = InnerArrayFill;
+  to.InnerArrayFind = InnerArrayFind;
+  to.InnerArrayFindIndex = InnerArrayFindIndex;
+});
 
-  // Set up the non-enumerable functions on the Array prototype object.
-  InstallFunctions($Array.prototype, DONT_ENUM, $Array(
-    "find", ArrayFind,
-    "findIndex", ArrayFindIndex,
-    "fill", ArrayFill
-  ));
-}
-
-HarmonyArrayExtendArrayPrototype();
+})

@@ -66,6 +66,9 @@ class ProgressIndicator(object):
   def HasRun(self, test, has_unexpected_output):
     pass
 
+  def Heartbeat(self):
+    pass
+
   def PrintFailureHeader(self, test):
     if test.suite.IsNegativeTest(test):
       negative_marker = '[negative] '
@@ -127,6 +130,11 @@ class VerboseProgressIndicator(SimpleProgressIndicator):
     else:
       outcome = 'pass'
     print 'Done running %s: %s' % (test.GetLabel(), outcome)
+    sys.stdout.flush()
+
+  def Heartbeat(self):
+    print 'Still working...'
+    sys.stdout.flush()
 
 
 class DotsProgressIndicator(SimpleProgressIndicator):
@@ -192,10 +200,12 @@ class CompactProgressIndicator(ProgressIndicator):
   def PrintProgress(self, name):
     self.ClearLine(self.last_status_length)
     elapsed = time.time() - self.start_time
+    progress = 0 if not self.runner.total else (
+        ((self.runner.total - self.runner.remaining) * 100) //
+          self.runner.total)
     status = self.templates['status_line'] % {
       'passed': self.runner.succeeded,
-      'remaining': (((self.runner.total - self.runner.remaining) * 100) //
-                    self.runner.total),
+      'progress': progress,
       'failed': len(self.runner.failed),
       'test': name,
       'mins': int(elapsed) / 60,
@@ -212,7 +222,7 @@ class ColorProgressIndicator(CompactProgressIndicator):
   def __init__(self):
     templates = {
       'status_line': ("[%(mins)02i:%(secs)02i|"
-                      "\033[34m%%%(remaining) 4d\033[0m|"
+                      "\033[34m%%%(progress) 4d\033[0m|"
                       "\033[32m+%(passed) 4d\033[0m|"
                       "\033[31m-%(failed) 4d\033[0m]: %(test)s"),
       'stdout': "\033[1m%s\033[0m",
@@ -228,7 +238,7 @@ class MonochromeProgressIndicator(CompactProgressIndicator):
 
   def __init__(self):
     templates = {
-      'status_line': ("[%(mins)02i:%(secs)02i|%%%(remaining) 4d|"
+      'status_line': ("[%(mins)02i:%(secs)02i|%%%(progress) 4d|"
                       "+%(passed) 4d|-%(failed) 4d]: %(test)s"),
       'stdout': '%s',
       'stderr': '%s',
@@ -282,6 +292,8 @@ class JUnitTestProgressIndicator(ProgressIndicator):
         test.duration,
         fail_text)
 
+  def Heartbeat(self):
+    self.progress_indicator.Heartbeat()
 
 class JsonTestProgressIndicator(ProgressIndicator):
 
@@ -291,6 +303,7 @@ class JsonTestProgressIndicator(ProgressIndicator):
     self.arch = arch
     self.mode = mode
     self.results = []
+    self.tests = []
 
   def Starting(self):
     self.progress_indicator.runner = self.runner
@@ -304,10 +317,24 @@ class JsonTestProgressIndicator(ProgressIndicator):
         # Buildbot might start out with an empty file.
         complete_results = json.loads(f.read() or "[]")
 
+    # Sort tests by duration.
+    timed_tests = [t for t in self.tests if t.duration is not None]
+    timed_tests.sort(lambda a, b: cmp(b.duration, a.duration))
+    slowest_tests = [
+      {
+        "name": test.GetLabel(),
+        "flags": test.flags,
+        "command": EscapeCommand(self.runner.GetCommand(test)).replace(
+            ABS_PATH_PREFIX, ""),
+        "duration": test.duration,
+      } for test in timed_tests[:20]
+    ]
+
     complete_results.append({
       "arch": self.arch,
       "mode": self.mode,
       "results": self.results,
+      "slowest_tests": slowest_tests,
     })
 
     with open(self.json_test_results, "w") as f:
@@ -318,6 +345,8 @@ class JsonTestProgressIndicator(ProgressIndicator):
 
   def HasRun(self, test, has_unexpected_output):
     self.progress_indicator.HasRun(test, has_unexpected_output)
+    # Buffer all tests for sorting the durations in the end.
+    self.tests.append(test)
     if not has_unexpected_output:
       # Omit tests that run as expected. Passing tests of reruns after failures
       # will have unexpected_output to be reported here has well.
@@ -334,7 +363,11 @@ class JsonTestProgressIndicator(ProgressIndicator):
       "exit_code": test.output.exit_code,
       "result": test.suite.GetOutcome(test),
       "expected": list(test.outcomes or ["PASS"]),
+      "duration": test.duration,
     })
+
+  def Heartbeat(self):
+    self.progress_indicator.Heartbeat()
 
 
 PROGRESS_INDICATORS = {

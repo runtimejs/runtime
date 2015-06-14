@@ -15,23 +15,17 @@
 #include "native-object.h"
 #include <kernel/x64/io-x64.h>
 #include <kernel/acpi-manager.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 #include <kernel/v8utils.h>
 #include <memory>
 #include <accommon.h>
 #include <acpi.h>
 #include <kernel/engines.h>
-#include <common/utils.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
 #include <kernel/arraybuffer.h>
 
 namespace rt {
-
-using ::common::Nullable;
-
-template<typename T>
-using SharedSTLVector = std::vector<T, DefaultSTLAlloc<T>>;
 
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
     PROLOGUE_NOTHIS;
@@ -107,69 +101,6 @@ NATIVE_FUNCTION(NativesObject, NetChecksum) {
     args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, ck));
 }
 
-NATIVE_FUNCTION(NativesObject, HandleMethodCall) {
-    PROLOGUE_NOTHIS;
-    RuntimeStateScope<RuntimeState::HANDLE_CALL> handle_call_state(th->thread_manager());
-
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    auto obj = thisvalue->ToObject();
-    if (obj->InternalFieldCount() != 1) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    void* ptr = obj->GetAlignedPointerFromInternalField(0);
-    HandleObject* handle_object { static_cast<HandleObject*>(ptr) };
-    RT_ASSERT(handle_object);
-
-    if (NativeTypeId::TYPEID_HANDLE != handle_object->type_id()) {
-        THROW_ERROR("object is not a handle");
-    }
-
-    auto function_data = args.Data();
-    RT_ASSERT(function_data->IsExternal());
-    uint64_t pack = reinterpret_cast<uint64_t>(function_data.As<v8::External>()->Value());
-    uint32_t pool_index = static_cast<uint32_t>(pack >> 32);
-    uint32_t method_index = static_cast<uint32_t>(pack);
-    uint32_t handle_id = handle_object->handle_id();
-
-    if (handle_object->pool_id() != pool_index) {
-        THROW_ERROR("handle does not support this method");
-    }
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    HandlePool* pool = GLOBAL_engines()->handle_pools().GetPoolById(handle_object->pool_id());
-    RT_ASSERT(pool);
-
-    v8::Local<v8::Promise::Resolver> promise_resolver;
-    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
-        promise_resolver = v8::Promise::Resolver::New(iv8);
-    }
-
-    uint32_t promise_index = th->AddPromise(
-        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
-
-    {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            ThreadMessage::Type::HANDLE_METHOD_CALL,
-            th->handle(), std::move(data), handle_object->wpipe(),
-            promise_index, pack, handle_id, handle_object->rpipe()));
-        pool->thread_handle().getUnsafe()->PushMessage(std::move(msg));
-    }
-
-    args.GetReturnValue().Set(promise_resolver);
-}
-
 NATIVE_FUNCTION(NativesObject, CallHandler) {
     PROLOGUE_NOTHIS;
     RuntimeStateScope<RuntimeState::RPC_CALL> rpc_call_state(th->thread_manager());
@@ -237,29 +168,43 @@ NATIVE_FUNCTION(NativesObject, TextDecoderDecode) {
     PROLOGUE_NOTHIS;
     USEARG(0);
 
-    v8::Local<v8::ArrayBuffer> abv8;
-    if (arg0->IsUint8Array()) {
-        auto abviewv8 = arg0.As<v8::ArrayBufferView>();
-        abv8 = abviewv8->Buffer();
-    } else if (arg0->IsArrayBuffer()) {
-        abv8 = arg0.As<v8::ArrayBuffer>();
-    }
+    size_t offset = 0;
+    size_t length = 0;
+    v8::Local<v8::ArrayBuffer> buf;
 
-    if (abv8.IsEmpty()) {
+    if (arg0->IsUint8Array()) {
+        v8::Local<v8::Uint8Array> u8 = arg0.As<v8::Uint8Array>();
+        buf = u8->Buffer();
+        offset = u8->ByteOffset();
+        length = u8->Length();
+    } else if (arg0->IsArrayBuffer()) {
+        buf = arg0.As<v8::ArrayBuffer>();
+        length = buf->ByteLength();
+    } else {
         THROW_ERROR("argument 0 is not an ArrayBuffer or Uint8Array");
     }
 
-    RT_ASSERT(!abv8.IsEmpty());
-    RT_ASSERT(abv8->IsArrayBuffer());
+    RT_ASSERT(!buf.IsEmpty());
 
-    if (0 == abv8->ByteLength()) {
+    if (0 == length) {
         args.GetReturnValue().SetEmptyString();
         return;
     }
 
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
-        reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
+    if (length > std::numeric_limits<int>::max()) {
+        THROW_ERROR("buffer is too big");
+    }
+
+    v8::ArrayBuffer::Contents contents = buf->GetContents();
+    uintptr_t dataPtr = reinterpret_cast<uintptr_t>(contents.Data()) + offset;
+
+    v8::MaybeLocal<v8::String> str = v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(dataPtr), v8::String::kNormalString, length);
+    if (str.IsEmpty()) {
+        THROW_ERROR("failed to construct string");
+    }
+
+    args.GetReturnValue().Set(str.ToLocalChecked());
 }
 
 NATIVE_FUNCTION(NativesObject, TextEncoder) {
@@ -490,7 +435,7 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
             ThreadMessage::Type::EVALUATE,
             th->handle(),
             std::move(data)));
-        th->handle().get()->PushMessage(std::move(msg));
+        th->handle().getUnsafe()->PushMessage(std::move(msg));
     }
 
     th->Ref();
@@ -522,22 +467,51 @@ NATIVE_FUNCTION(NativesObject, SystemInfo) {
 NATIVE_FUNCTION(NativesObject, BufferAddress) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    VALIDATEARG(0, ARRAYBUFFER, "bufferAddress: argument 0 is not an ArrayBuffer");
-    RT_ASSERT(arg0->IsArrayBuffer());
-    auto abv8 = arg0.As<v8::ArrayBuffer>();
-    if (0 == abv8->ByteLength()) {
-        THROW_ERROR("Empty ArrayBuffer doesn't own a memory");
+    VALIDATEARG(0, UINT8ARRAY, "bufferAddress: argument 0 is not a Uint8Array");
+    RT_ASSERT(arg0->IsUint8Array());
+    v8::Local<v8::Uint8Array> u8 = arg0.As<v8::Uint8Array>();
+    v8::Local<v8::ArrayBuffer> buf = u8->Buffer();
+    if (!u8->HasBuffer() || 0 == u8->ByteLength()) {
+        THROW_ERROR("Uint8Array is empty");
     }
 
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    void* ptr = GLOBAL_mem_manager()->VirtualToPhysicalAddress(ab->data());
-    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-    uint32_t high = static_cast<uint32_t>(addr >> 32);
-    uint32_t low = static_cast<uint32_t>(addr & 0xffffffffull);
+    v8::ArrayBuffer::Contents contents = buf->GetContents();
+    uintptr_t vaddr = reinterpret_cast<uintptr_t>(contents.Data()) + u8->ByteOffset();
+    void* ptr = GLOBAL_mem_manager()->VirtualToPhysicalAddress(reinterpret_cast<void*>(vaddr));
 
-    auto arr = v8::Array::New(iv8, 2);
-    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, low));
-    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, high));
+    size_t length = u8->ByteLength();
+    uintptr_t pstart = reinterpret_cast<uintptr_t>(ptr);
+    uintptr_t pend = pstart + length;
+    uintptr_t pboundary = pend & ~0x1FFFFF;
+
+    uint32_t high = static_cast<uint32_t>(pstart >> 32);
+    uint32_t low = static_cast<uint32_t>(pstart & 0xffffffffull);
+
+    auto arr = v8::Array::New(iv8, 6);
+    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, length));
+    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, low));
+    arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, high));
+    arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, 0));
+
+    // Test if this buffer requires more than one physical page
+    // Note: this does not handle buffers over 2MiB (greater
+    // than a single page)
+    if (pstart < pboundary) {
+        size_t len1 = pboundary - pstart;
+        size_t len2 = length - len1;
+        uintptr_t vaddr2 = vaddr + len1;
+        void* ptr2 = GLOBAL_mem_manager()->VirtualToPhysicalAddress(reinterpret_cast<void*>(vaddr2));
+        uintptr_t pstart2 = reinterpret_cast<uintptr_t>(ptr2);
+        uint32_t high2 = static_cast<uint32_t>(pstart2 >> 32);
+        uint32_t low2 = static_cast<uint32_t>(pstart2 & 0xffffffffull);
+        arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, len1));
+        arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, len2));
+        arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, low2));
+        arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, high2));
+    }
+
     args.GetReturnValue().Set(arr);
 }
 
@@ -567,19 +541,6 @@ NATIVE_FUNCTION(NativesObject, BufferSliceInplace) {
     auto ab = ArrayBuffer::FromInstance(iv8, abv8);
     auto abNew = ArrayBuffer::FromArrayBufferSlice(ab, offset, size);
     args.GetReturnValue().Set(abNew->GetInstance());
-}
-
-NATIVE_FUNCTION(NativesObject, CreatePipe) {
-    PROLOGUE_NOTHIS;
-
-    RuntimeStateScope<RuntimeState::PIPE_CREATE> pipe_scope(th->thread_manager());
-    Pipe* pipe = GLOBAL_engines()->pipe_manager().CreatePipe();
-    RT_ASSERT(pipe);
-
-    RT_ASSERT(th->template_cache());
-    args.GetReturnValue().Set((new PipeObject(pipe))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
 }
 
 NATIVE_FUNCTION(NativesObject, ToBuffer) {
@@ -626,118 +587,12 @@ NATIVE_FUNCTION(NativesObject, BufferToString) {
         reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
 }
 
-NATIVE_FUNCTION(NativesObject, HandlePoolCtorFunction) {
-    PROLOGUE_NOTHIS;
-    auto function_data = args.Data();
-    RT_ASSERT(!function_data.IsEmpty());
-    RT_ASSERT(function_data->IsExternal());
-    HandlePool* pool = reinterpret_cast<HandlePool*>(function_data.As<v8::External>()->Value());
-    RT_ASSERT(pool);
-    if (!args.IsConstructCall()) {
-        THROW_ERROR("operator 'new' required to call constructor");
-    }
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    size_t handle_id = pool->AllocNextId();
-    Pipe* wpipe = nullptr;
-    Pipe* rpipe = nullptr;
-    if (pool->pipes()) {
-        wpipe = GLOBAL_engines()->pipe_manager().CreatePipe();
-        rpipe = GLOBAL_engines()->pipe_manager().CreatePipe();
-        auto obj = th->template_cache()->GetHandleInstance(pool->index(),
-            handle_id, wpipe, rpipe);
-        args.GetReturnValue().Set(obj);
-    } else {
-        auto obj = th->template_cache()->GetHandleInstance(pool->index(),
-            handle_id, nullptr, nullptr);
-        args.GetReturnValue().Set(obj);
-    }
-
-    if (pool->has_ctor()) {
-        uint64_t pack = (static_cast<uint64_t>(pool->index()) << 32) | (0); // 0=ctor
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::HANDLE_METHOD_CALL_NO_RETURN,
-                th->handle(), std::move(data), wpipe, 0, pack, handle_id, rpipe));
-            pool->thread_handle().getUnsafe()->PushMessage(std::move(msg));
-        }
-    }
-}
-
-NATIVE_FUNCTION(NativesObject, CreateHandlePool) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    USEARG(2);
-
-    SharedSTLVector<std::string> methods;
-    SharedSTLVector<v8::Eternal<v8::Value>> impls;
-    impls.reserve(2);
-
-    if (arg2->IsObject()) {
-        LOCAL_V8STRING(s_ctor, "ctor");
-        LOCAL_V8STRING(s_dtor, "dtor");
-        auto obj = arg2->ToObject();
-        auto ctor = obj->Get(s_ctor);
-        auto dtor = obj->Get(s_dtor);
-        if (ctor->IsFunction()) {
-            impls.push_back(v8::Eternal<v8::Value>(iv8, ctor));
-        } else {
-            THROW_TYPE_ERROR("ctor is not a function");
-        }
-
-        if (dtor->IsFunction()) {
-            impls.push_back(v8::Eternal<v8::Value>(iv8, dtor));
-        } else {
-            THROW_TYPE_ERROR("dtor is not a function");
-        }
-    } else {
-        impls.push_back(v8::Eternal<v8::Value>());
-        impls.push_back(v8::Eternal<v8::Value>());
-    }
-
-    if (arg0->IsObject()) {
-        auto obj = arg0->ToObject();
-
-        auto namesArray = obj->GetOwnPropertyNames();
-        methods.reserve(namesArray->Length());
-        impls.reserve(namesArray->Length() + 2);
-
-        for (uint32_t i = 0; i < namesArray->Length(); ++i) {
-            auto name = namesArray->Get(i);
-            auto value = obj->Get(name);
-
-            if (!value->IsFunction()) {
-                THROW_TYPE_ERROR("object value is not a function");
-            }
-
-            methods.push_back(V8Utils::ToString(name->ToString()));
-            impls.push_back(v8::Eternal<v8::Value>(iv8, value));
-        }
-    }
-
-    bool pipes = arg1->BooleanValue();
-
-    RT_ASSERT(2 + methods.size() == impls.size());
-    auto handle_pool = GLOBAL_engines()->handle_pools().CreateHandlePool(th, th->handle(),
-        std::move(methods), std::move(impls), pipes);
-
-    RT_ASSERT(handle_pool);
-    args.GetReturnValue().Set((new HandlePoolObject(handle_pool))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-}
-
 NATIVE_FUNCTION(NativesObject, Resources) {
     PROLOGUE_NOTHIS;
 
     LOCAL_V8STRING(s_memory_range, "memoryRange");
     LOCAL_V8STRING(s_io_range, "ioRange");
     LOCAL_V8STRING(s_irq_range, "irqRange");
-    LOCAL_V8STRING(s_isolates_manager, "isolatesManager");
     LOCAL_V8STRING(s_acpi, "acpi");
     LOCAL_V8STRING(s_allocator, "allocator");
     LOCAL_V8STRING(s_loader, "loader");
@@ -754,10 +609,6 @@ NATIVE_FUNCTION(NativesObject, Resources) {
         ->GetInstance());
 
     obj->Set(s_irq_range, (new ResourceIRQRangeObject(Range<uint8_t>(1, 255)))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-
-    obj->Set(s_isolates_manager, (new IsolatesManagerObject())
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
@@ -940,12 +791,6 @@ NATIVE_FUNCTION(NativesObject, Debug) {
         NativeObjectWrapper* ptr { th->template_cache()->GetWrapped(arg0) };
         if (nullptr != ptr) {
             switch (ptr->type_id()) {
-                case NativeTypeId::TYPEID_HANDLE: {
-                    HandleObject* baseptr { static_cast<HandleObject*>(ptr) };
-                    printf("[ HandleObject pool_id=%lu handle_id=%lu wpipe=%p rpipe=%p ]\n",
-                        baseptr->pool_id(), baseptr->handle_id(), baseptr->wpipe(), baseptr->rpipe());
-                    return;
-                }
                 default:
                     break;
             }
@@ -965,45 +810,6 @@ NATIVE_FUNCTION(NativesObject, PerformanceNow) {
 NATIVE_FUNCTION(NativesObject, StopVideoLog) {
     PROLOGUE_NOTHIS;
     GLOBAL_boot_services()->logger()->DisableVideo();
-}
-
-NATIVE_FUNCTION(NativesObject, HandleIndex) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    auto handle_object = HandleObject::FromInstance(arg0);
-    if (nullptr == handle_object) {
-        THROW_ERROR("argument 0 is not a handle object");
-    }
-
-    RT_ASSERT(handle_object);
-    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, handle_object->handle_id()));
-}
-
-NATIVE_FUNCTION(NativesObject, HandleGetPipe) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    auto handle_object = HandleObject::FromInstance(arg0);
-    if (nullptr == handle_object) {
-        THROW_ERROR("argument 0 is not a handle object");
-    }
-
-    uint32_t index = arg1->Uint32Value();
-    Pipe* pipe = nullptr;
-    if (0 == index) {
-        pipe = handle_object->wpipe();
-    } else {
-        pipe = handle_object->rpipe();
-    }
-
-    if (!pipe) {
-        THROW_ERROR("could not get handle pipe");
-    }
-
-    RT_ASSERT(pipe);
-    args.GetReturnValue().Set((new PipeObject(pipe))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
 }
 
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
@@ -1360,14 +1166,14 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
 NATIVE_FUNCTION(ResourceMemoryRangeObject, Begin) {
     PROLOGUE;
     auto begin = that->memory_range_.begin();
-    RT_ASSERT(common::Utils::IsSafeDouble(begin));
+    RT_ASSERT(Utils::IsSafeDouble(begin));
     args.GetReturnValue().Set(v8::Number::New(iv8, begin));
 }
 
 NATIVE_FUNCTION(ResourceMemoryRangeObject, End) {
     PROLOGUE;
     auto end = that->memory_range_.end();
-    RT_ASSERT(common::Utils::IsSafeDouble(end));
+    RT_ASSERT(Utils::IsSafeDouble(end));
     args.GetReturnValue().Set(v8::Number::New(iv8, end));
 }
 
@@ -1512,7 +1318,9 @@ NATIVE_FUNCTION(ResourceIRQObject, On) {
     uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
     GLOBAL_platform()->irq_dispatcher().Bind(irq_number, thread, index);
 
+#ifdef RUNTIME_DEBUG
     printf("[IRQ MANAGER] Bind %d (recv %d)\n", irq_number, index);
+#endif
     args.GetReturnValue().SetUndefined();
 }
 
@@ -1532,77 +1340,6 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
     args.GetReturnValue().Set(v8::Uint32::New(iv8, length));
 }
 
-NATIVE_FUNCTION(IsolatesManagerObject, Create) {
-    PROLOGUE;
-    USEARG(0);
-    USEARG(1);
-    RT_ASSERT(arg0->IsArray());
-    RT_ASSERT(2 == arg0.As<v8::Array>()->Length());
-    RT_ASSERT(arg1->IsObject());
-
-    RT_ASSERT(GLOBAL_engines()->execution_engines_count() > 0);
-    Engine* first_engine = GLOBAL_engines()->execution_engine(0);
-    RT_ASSERT(first_engine);
-
-    TransportData td_code;
-    {	TransportData::SerializeError err { td_code.MoveValue(th, arg0) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    TransportData td_args;
-    {	TransportData::SerializeError err { td_args.MoveValue(th, arg1) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    v8::Local<v8::Promise::Resolver> promise_resolver;
-    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
-        promise_resolver = v8::Promise::Resolver::New(iv8);
-    }
-
-    auto promise_index = th->AddPromise(
-        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
-
-    ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
-
-    {	LockingPtr<EngineThread> thread { st.get() };
-
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::SET_ARGUMENTS,
-                th->handle(),
-                std::move(td_args),
-                nullptr, promise_index));
-            thread->PushMessage(std::move(msg));
-        }
-
-        {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::EVALUATE,
-                th->handle(),
-                std::move(td_code)));
-            thread->PushMessage(std::move(msg));
-        }
-    }
-
-    args.GetReturnValue().Set(promise_resolver);
-}
-
-NATIVE_FUNCTION(IsolatesManagerObject, List) {
-    PROLOGUE;
-    Engine* first_engine = GLOBAL_engines()->execution_engine(0);
-    auto list = first_engine->thread_manager()->List();
-
-    v8::Local<v8::Array> result { v8::Array::New(iv8, list.size()) };
-    for (size_t i = 0; i < list.size(); ++i) {
-        auto& item = list[i];
-        v8::Local<v8::Object> dat { v8::Object::New(iv8) };
-
-        // TODO: add data
-
-        result->Set(i, dat);
-    }
-
-    args.GetReturnValue().Set(result);
-}
-
 NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     PROLOGUE;
 
@@ -1619,7 +1356,9 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     size_t size { GLOBAL_mem_manager()->page_size() };
     RT_ASSERT(size > 0);
 
+#ifdef RUNTIME_DEBUG
     printf("DMA allocated = %p, size %d\n", ptr, size);
+#endif
     // Clean DMA buffer
     memset(ptr, 0, size);
 
@@ -1629,188 +1368,6 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     ret->Set(s_buffer, ArrayBuffer::FromBuffer(iv8, ptr, size)->GetInstance());
 
     args.GetReturnValue().Set(ret);
-}
-
-NATIVE_FUNCTION(HandlePoolObject, CreateHandle) {
-    PROLOGUE;
-    RT_ASSERT(that->pool_);
-    if (that->pool_->pipes()) {
-        USEARG(0);
-        USEARG(1);
-        PipeObject* wpipe_object = PipeObject::FromHandle(th, arg0);
-        PipeObject* rpipe_object = PipeObject::FromHandle(th, arg1);
-        auto obj = th->template_cache()->GetHandleInstance(that->pool_->index(),
-            that->pool_->AllocNextId(), wpipe_object->pipe(), rpipe_object->pipe());
-        args.GetReturnValue().Set(obj);
-    } else {
-        auto obj = th->template_cache()->GetHandleInstance(that->pool_->index(),
-            that->pool_->AllocNextId(), nullptr, nullptr);
-        args.GetReturnValue().Set(obj);
-    }
-}
-
-
-NATIVE_FUNCTION(HandlePoolObject, Ctor) {
-    PROLOGUE;
-    RT_ASSERT(that->pool_);
-    args.GetReturnValue().Set(th->template_cache()->GetHandleCtor(that->pool_));
-}
-
-NATIVE_FUNCTION(HandlePoolObject, Has) {
-    PROLOGUE;
-    USEARG(0);
-    auto handle_object = HandleObject::FromInstance(arg0);
-    if (nullptr == handle_object) {
-        THROW_ERROR("argument 0 is not a handle object");
-    }
-
-    RT_ASSERT(handle_object);
-    RT_ASSERT(that->pool_);
-    if (handle_object->pool_id() != that->pool_->index()) {
-        args.GetReturnValue().Set(v8::False(iv8));
-        return;
-    }
-
-    RT_ASSERT(handle_object->handle_id() < that->pool_->max_handle_id());
-    args.GetReturnValue().Set(v8::True(iv8));
-}
-
-void PipeObject::PushImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args) {
-    auto th = V8Utils::GetThread(args);
-    auto iv8 = args.GetIsolate();
-    RT_ASSERT(th);
-    RT_ASSERT(iv8);
-    RT_ASSERT(pipe);
-    USEARG(0);
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveValue(th, arg0) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    RuntimeStateScope<RuntimeState::PIPE_PUSH> pipe_scope(th->thread_manager());
-    bool result = pipe->Push(std::move(data));
-    args.GetReturnValue().Set(v8::Boolean::New(iv8, result));
-}
-
-void PipeObject::PullImpl(Pipe* pipe, const v8::FunctionCallbackInfo<v8::Value>& args) {
-    auto th = V8Utils::GetThread(args);
-    auto iv8 = args.GetIsolate();
-    RT_ASSERT(th);
-    RT_ASSERT(iv8);
-    RT_ASSERT(pipe);
-    USEARG(0);
-    ResourceHandle<EngineThread> thread { th->handle() };
-    RT_ASSERT(!thread.empty());
-
-    uint32_t index = 0;
-    uint32_t count = 0;
-    if (arg0->IsNumber()) {
-        USEARG(1);
-        VALIDATEARG(1, FUNCTION, "argument 1 is not a function");
-        count = arg0->Uint32Value();
-        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg1));
-    } else {
-        VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
-        count = 1;
-        index = th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0));
-    }
-
-    RT_ASSERT(count > 0);
-    RuntimeStateScope<RuntimeState::PIPE_PULL> pipe_scope(th->thread_manager());
-    pipe->Pull(thread, index, count);
-}
-
-NATIVE_FUNCTION(HandleObject, PipePush) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    PipeObject::PushImpl(handle_object->wpipe_, args);
-}
-
-NATIVE_FUNCTION(HandleObject, PipePull) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    PipeObject::PullImpl(handle_object->rpipe_, args);
-}
-
-NATIVE_FUNCTION(HandleObject, PipeClose) {
-    PROLOGUE_NOTHIS;
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    auto thisvalue = args.This();
-    if (thisvalue.IsEmpty() || !thisvalue->IsObject()) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    HandleObject* handle_object = HandleObject::FromInstance(thisvalue);
-    if (nullptr == handle_object) {
-        THROW_ERROR("illegal invocation");
-    }
-
-    if (handle_object->wpipe_) {
-        handle_object->wpipe_->Close();
-    }
-
-    if (handle_object->rpipe_) {
-        handle_object->rpipe_->Close();
-    }
-}
-
-
-NATIVE_FUNCTION(PipeObject, Push) {
-    PROLOGUE;
-    PushImpl(that->pipe_, args);
-}
-
-NATIVE_FUNCTION(PipeObject, Pull) {
-    PROLOGUE;
-    PullImpl(that->pipe_, args);
-}
-
-NATIVE_FUNCTION(PipeObject, Wait) {
-    PROLOGUE;
-    USEARG(0);
-    VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
-
-    RT_ASSERT(that->pipe_);
-    ResourceHandle<EngineThread> thread { th->handle() };
-    RT_ASSERT(!thread.empty());
-    uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
-    that->pipe_->Wait(thread, index);
-}
-
-NATIVE_FUNCTION(PipeObject, Close) {
-    PROLOGUE;
-    RT_ASSERT(that->pipe_);
-    that->pipe_->Close();
 }
 
 } // namespace rt

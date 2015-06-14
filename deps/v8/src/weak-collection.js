@@ -2,208 +2,176 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+(function(global, utils) {
+
 "use strict";
 
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Array = global.Array;
+%CheckIsBootstrapping();
 
-var $WeakMap = global.WeakMap;
-var $WeakSet = global.WeakSet;
-
+var GlobalObject = global.Object;
+var GlobalWeakMap = global.WeakMap;
+var GlobalWeakSet = global.WeakSet;
 
 // -------------------------------------------------------------------
 // Harmony WeakMap
 
 function WeakMapConstructor(iterable) {
   if (!%_IsConstructCall()) {
-    throw MakeTypeError('constructor_not_function', ['WeakMap']);
-  }
-
-  var iter, adder;
-
-  if (!IS_NULL_OR_UNDEFINED(iterable)) {
-    iter = GetIterator(ToObject(iterable));
-    adder = this.set;
-    if (!IS_SPEC_FUNCTION(adder)) {
-      throw MakeTypeError('property_not_function', ['set', this]);
-    }
+    throw MakeTypeError(kConstructorNotFunction, "WeakMap");
   }
 
   %WeakCollectionInitialize(this);
 
-  if (IS_UNDEFINED(iter)) return;
-
-  var next, done, nextItem;
-  while (!(next = iter.next()).done) {
-    if (!IS_SPEC_OBJECT(next)) {
-      throw MakeTypeError('iterator_result_not_an_object', [next]);
+  if (!IS_NULL_OR_UNDEFINED(iterable)) {
+    var adder = this.set;
+    if (!IS_SPEC_FUNCTION(adder)) {
+      throw MakeTypeError(kPropertyNotFunction, 'set', this);
     }
-    nextItem = next.value;
-    if (!IS_SPEC_OBJECT(nextItem)) {
-      throw MakeTypeError('iterator_value_not_an_object', [nextItem]);
+    for (var nextItem of iterable) {
+      if (!IS_SPEC_OBJECT(nextItem)) {
+        throw MakeTypeError(kIteratorValueNotAnObject, nextItem);
+      }
+      %_CallFunction(this, nextItem[0], nextItem[1], adder);
     }
-    %_CallFunction(this, nextItem[0], nextItem[1], adder);
   }
 }
 
 
 function WeakMapGet(key) {
   if (!IS_WEAKMAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakMap.prototype.get', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakMap.prototype.get', this);
   }
-  if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
-    throw %MakeTypeError('invalid_weakmap_key', [this, key]);
-  }
-  return %WeakCollectionGet(this, key);
+  if (!IS_SPEC_OBJECT(key)) return UNDEFINED;
+  var hash = $getExistingHash(key);
+  if (IS_UNDEFINED(hash)) return UNDEFINED;
+  return %WeakCollectionGet(this, key, hash);
 }
 
 
 function WeakMapSet(key, value) {
   if (!IS_WEAKMAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakMap.prototype.set', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakMap.prototype.set', this);
   }
-  if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
-    throw %MakeTypeError('invalid_weakmap_key', [this, key]);
-  }
-  return %WeakCollectionSet(this, key, value);
+  if (!IS_SPEC_OBJECT(key)) throw MakeTypeError(kInvalidWeakMapKey);
+  return %WeakCollectionSet(this, key, value, $getHash(key));
 }
 
 
 function WeakMapHas(key) {
   if (!IS_WEAKMAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakMap.prototype.has', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakMap.prototype.has', this);
   }
-  if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
-    throw %MakeTypeError('invalid_weakmap_key', [this, key]);
-  }
-  return %WeakCollectionHas(this, key);
+  if (!IS_SPEC_OBJECT(key)) return false;
+  var hash = $getExistingHash(key);
+  if (IS_UNDEFINED(hash)) return false;
+  return %WeakCollectionHas(this, key, hash);
 }
 
 
 function WeakMapDelete(key) {
   if (!IS_WEAKMAP(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakMap.prototype.delete', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakMap.prototype.delete', this);
   }
-  if (!(IS_SPEC_OBJECT(key) || IS_SYMBOL(key))) {
-    throw %MakeTypeError('invalid_weakmap_key', [this, key]);
-  }
-  return %WeakCollectionDelete(this, key);
+  if (!IS_SPEC_OBJECT(key)) return false;
+  var hash = $getExistingHash(key);
+  if (IS_UNDEFINED(hash)) return false;
+  return %WeakCollectionDelete(this, key, hash);
 }
 
 
 // -------------------------------------------------------------------
 
-function SetUpWeakMap() {
-  %CheckIsBootstrapping();
+%SetCode(GlobalWeakMap, WeakMapConstructor);
+%FunctionSetLength(GlobalWeakMap, 0);
+%FunctionSetPrototype(GlobalWeakMap, new GlobalObject());
+%AddNamedProperty(GlobalWeakMap.prototype, "constructor", GlobalWeakMap,
+                  DONT_ENUM);
+%AddNamedProperty(GlobalWeakMap.prototype, symbolToStringTag, "WeakMap",
+                  DONT_ENUM | READ_ONLY);
 
-  %SetCode($WeakMap, WeakMapConstructor);
-  %FunctionSetPrototype($WeakMap, new $Object());
-  %AddNamedProperty($WeakMap.prototype, "constructor", $WeakMap, DONT_ENUM);
-  %AddNamedProperty(
-      $WeakMap.prototype, symbolToStringTag, "WeakMap", DONT_ENUM | READ_ONLY);
-
-  // Set up the non-enumerable functions on the WeakMap prototype object.
-  InstallFunctions($WeakMap.prototype, DONT_ENUM, $Array(
-    "get", WeakMapGet,
-    "set", WeakMapSet,
-    "has", WeakMapHas,
-    "delete", WeakMapDelete
-  ));
-}
-
-SetUpWeakMap();
-
+// Set up the non-enumerable functions on the WeakMap prototype object.
+utils.InstallFunctions(GlobalWeakMap.prototype, DONT_ENUM, [
+  "get", WeakMapGet,
+  "set", WeakMapSet,
+  "has", WeakMapHas,
+  "delete", WeakMapDelete
+]);
 
 // -------------------------------------------------------------------
 // Harmony WeakSet
 
 function WeakSetConstructor(iterable) {
   if (!%_IsConstructCall()) {
-    throw MakeTypeError('constructor_not_function', ['WeakSet']);
-  }
-
-  var iter, adder;
-
-  if (!IS_NULL_OR_UNDEFINED(iterable)) {
-    iter = GetIterator(ToObject(iterable));
-    adder = this.add;
-    if (!IS_SPEC_FUNCTION(adder)) {
-      throw MakeTypeError('property_not_function', ['add', this]);
-    }
+    throw MakeTypeError(kConstructorNotFunction, "WeakSet");
   }
 
   %WeakCollectionInitialize(this);
 
-  if (IS_UNDEFINED(iter)) return;
-
-  var next, done;
-  while (!(next = iter.next()).done) {
-    if (!IS_SPEC_OBJECT(next)) {
-      throw MakeTypeError('iterator_result_not_an_object', [next]);
+  if (!IS_NULL_OR_UNDEFINED(iterable)) {
+    var adder = this.add;
+    if (!IS_SPEC_FUNCTION(adder)) {
+      throw MakeTypeError(kPropertyNotFunction, 'add', this);
     }
-    %_CallFunction(this, next.value, adder);
+    for (var value of iterable) {
+      %_CallFunction(this, value, adder);
+    }
   }
 }
 
 
 function WeakSetAdd(value) {
   if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.add', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakSet.prototype.add', this);
   }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionSet(this, value, true);
+  if (!IS_SPEC_OBJECT(value)) throw MakeTypeError(kInvalidWeakSetValue);
+  return %WeakCollectionSet(this, value, true, $getHash(value));
 }
 
 
 function WeakSetHas(value) {
   if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.has', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakSet.prototype.has', this);
   }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionHas(this, value);
+  if (!IS_SPEC_OBJECT(value)) return false;
+  var hash = $getExistingHash(value);
+  if (IS_UNDEFINED(hash)) return false;
+  return %WeakCollectionHas(this, value, hash);
 }
 
 
 function WeakSetDelete(value) {
   if (!IS_WEAKSET(this)) {
-    throw MakeTypeError('incompatible_method_receiver',
-                        ['WeakSet.prototype.delete', this]);
+    throw MakeTypeError(kIncompatibleMethodReceiver,
+                        'WeakSet.prototype.delete', this);
   }
-  if (!(IS_SPEC_OBJECT(value) || IS_SYMBOL(value))) {
-    throw %MakeTypeError('invalid_weakset_value', [this, value]);
-  }
-  return %WeakCollectionDelete(this, value);
+  if (!IS_SPEC_OBJECT(value)) return false;
+  var hash = $getExistingHash(value);
+  if (IS_UNDEFINED(hash)) return false;
+  return %WeakCollectionDelete(this, value, hash);
 }
 
 
 // -------------------------------------------------------------------
 
-function SetUpWeakSet() {
-  %CheckIsBootstrapping();
+%SetCode(GlobalWeakSet, WeakSetConstructor);
+%FunctionSetLength(GlobalWeakSet, 0);
+%FunctionSetPrototype(GlobalWeakSet, new GlobalObject());
+%AddNamedProperty(GlobalWeakSet.prototype, "constructor", GlobalWeakSet,
+                 DONT_ENUM);
+%AddNamedProperty(GlobalWeakSet.prototype, symbolToStringTag, "WeakSet",
+                  DONT_ENUM | READ_ONLY);
 
-  %SetCode($WeakSet, WeakSetConstructor);
-  %FunctionSetPrototype($WeakSet, new $Object());
-  %AddNamedProperty($WeakSet.prototype, "constructor", $WeakSet, DONT_ENUM);
-  %AddNamedProperty(
-      $WeakSet.prototype, symbolToStringTag, "WeakSet", DONT_ENUM | READ_ONLY);
+// Set up the non-enumerable functions on the WeakSet prototype object.
+utils.InstallFunctions(GlobalWeakSet.prototype, DONT_ENUM, [
+  "add", WeakSetAdd,
+  "has", WeakSetHas,
+  "delete", WeakSetDelete
+]);
 
-  // Set up the non-enumerable functions on the WeakSet prototype object.
-  InstallFunctions($WeakSet.prototype, DONT_ENUM, $Array(
-    "add", WeakSetAdd,
-    "has", WeakSetHas,
-    "delete", WeakSetDelete
-  ));
-}
-
-SetUpWeakSet();
+})

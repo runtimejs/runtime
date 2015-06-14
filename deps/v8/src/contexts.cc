@@ -122,8 +122,8 @@ static Maybe<PropertyAttributes> UnscopableLookup(LookupIterator* it) {
   Isolate* isolate = it->isolate();
 
   Maybe<PropertyAttributes> attrs = JSReceiver::GetPropertyAttributes(it);
-  DCHECK(attrs.has_value || isolate->has_pending_exception());
-  if (!attrs.has_value || attrs.value == ABSENT) return attrs;
+  DCHECK(attrs.IsJust() || isolate->has_pending_exception());
+  if (!attrs.IsJust() || attrs.FromJust() == ABSENT) return attrs;
 
   Handle<Symbol> unscopables_symbol = isolate->factory()->unscopables_symbol();
   Handle<Object> receiver = it->GetReceiver();
@@ -131,7 +131,7 @@ static Maybe<PropertyAttributes> UnscopableLookup(LookupIterator* it) {
   MaybeHandle<Object> maybe_unscopables =
       Object::GetProperty(receiver, unscopables_symbol);
   if (!maybe_unscopables.ToHandle(&unscopables)) {
-    return Maybe<PropertyAttributes>();
+    return Nothing<PropertyAttributes>();
   }
   if (!unscopables->IsSpecObject()) return attrs;
   Handle<Object> blacklist;
@@ -139,10 +139,9 @@ static Maybe<PropertyAttributes> UnscopableLookup(LookupIterator* it) {
       Object::GetProperty(unscopables, it->name());
   if (!maybe_blacklist.ToHandle(&blacklist)) {
     DCHECK(isolate->has_pending_exception());
-    return Maybe<PropertyAttributes>();
+    return Nothing<PropertyAttributes>();
   }
-  if (!blacklist->IsUndefined()) return maybe(ABSENT);
-  return attrs;
+  return blacklist->BooleanValue() ? Just(ABSENT) : attrs;
 }
 
 static void GetAttributesAndBindingFlags(VariableMode mode,
@@ -173,9 +172,9 @@ static void GetAttributesAndBindingFlags(VariableMode mode,
                            ? IMMUTABLE_CHECK_INITIALIZED_HARMONY
                            : IMMUTABLE_IS_INITIALIZED_HARMONY;
       break;
-    case MODULE:
-      *attributes = READ_ONLY;
-      *binding_flags = IMMUTABLE_IS_INITIALIZED_HARMONY;
+    case IMPORT:
+      // TODO(ES6)
+      UNREACHABLE();
       break;
     case DYNAMIC:
     case DYNAMIC_GLOBAL:
@@ -254,22 +253,27 @@ Handle<Object> Context::Lookup(Handle<String> name,
       // Context extension objects needs to behave as if they have no
       // prototype.  So even if we want to follow prototype chains, we need
       // to only do a local lookup for context extension objects.
-      Maybe<PropertyAttributes> maybe;
+      Maybe<PropertyAttributes> maybe = Nothing<PropertyAttributes>();
       if ((flags & FOLLOW_PROTOTYPE_CHAIN) == 0 ||
           object->IsJSContextExtensionObject()) {
         maybe = JSReceiver::GetOwnPropertyAttributes(object, name);
       } else if (context->IsWithContext()) {
-        LookupIterator it(object, name);
-        maybe = UnscopableLookup(&it);
+        // A with context will never bind "this".
+        if (name->Equals(*isolate->factory()->this_string())) {
+          maybe = Just(ABSENT);
+        } else {
+          LookupIterator it(object, name);
+          maybe = UnscopableLookup(&it);
+        }
       } else {
         maybe = JSReceiver::GetPropertyAttributes(object, name);
       }
 
-      if (!maybe.has_value) return Handle<Object>();
+      if (!maybe.IsJust()) return Handle<Object>();
       DCHECK(!isolate->has_pending_exception());
-      *attributes = maybe.value;
+      *attributes = maybe.FromJust();
 
-      if (maybe.value != ABSENT) {
+      if (maybe.FromJust() != ABSENT) {
         if (FLAG_trace_contexts) {
           PrintF("=> found property in context object %p\n",
                  reinterpret_cast<void*>(*object));
@@ -280,7 +284,7 @@ Handle<Object> Context::Lookup(Handle<String> name,
 
     // 2. Check the context proper if it has slots.
     if (context->IsFunctionContext() || context->IsBlockContext() ||
-        (FLAG_harmony_scoping && context->IsScriptContext())) {
+        context->IsScriptContext()) {
       // Use serialized scope information of functions and blocks to search
       // for the context index.
       Handle<ScopeInfo> scope_info;
@@ -390,8 +394,9 @@ void Context::AddOptimizedFunction(JSFunction* function) {
 
   DCHECK(function->next_function_link()->IsUndefined());
 
-  function->set_next_function_link(get(OPTIMIZED_FUNCTIONS_LIST));
-  set(OPTIMIZED_FUNCTIONS_LIST, function);
+  function->set_next_function_link(get(OPTIMIZED_FUNCTIONS_LIST),
+                                   UPDATE_WEAK_WRITE_BARRIER);
+  set(OPTIMIZED_FUNCTIONS_LIST, function, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -405,11 +410,14 @@ void Context::RemoveOptimizedFunction(JSFunction* function) {
            element_function->next_function_link()->IsJSFunction());
     if (element_function == function) {
       if (prev == NULL) {
-        set(OPTIMIZED_FUNCTIONS_LIST, element_function->next_function_link());
+        set(OPTIMIZED_FUNCTIONS_LIST, element_function->next_function_link(),
+            UPDATE_WEAK_WRITE_BARRIER);
       } else {
-        prev->set_next_function_link(element_function->next_function_link());
+        prev->set_next_function_link(element_function->next_function_link(),
+                                     UPDATE_WEAK_WRITE_BARRIER);
       }
-      element_function->set_next_function_link(GetHeap()->undefined_value());
+      element_function->set_next_function_link(GetHeap()->undefined_value(),
+                                               UPDATE_WEAK_WRITE_BARRIER);
       return;
     }
     prev = element_function;
@@ -421,7 +429,7 @@ void Context::RemoveOptimizedFunction(JSFunction* function) {
 
 void Context::SetOptimizedFunctionsListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(OPTIMIZED_FUNCTIONS_LIST, head);
+  set(OPTIMIZED_FUNCTIONS_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -436,13 +444,13 @@ void Context::AddOptimizedCode(Code* code) {
   DCHECK(code->kind() == Code::OPTIMIZED_FUNCTION);
   DCHECK(code->next_code_link()->IsUndefined());
   code->set_next_code_link(get(OPTIMIZED_CODE_LIST));
-  set(OPTIMIZED_CODE_LIST, code);
+  set(OPTIMIZED_CODE_LIST, code, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
 void Context::SetOptimizedCodeListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(OPTIMIZED_CODE_LIST, head);
+  set(OPTIMIZED_CODE_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -454,7 +462,7 @@ Object* Context::OptimizedCodeListHead() {
 
 void Context::SetDeoptimizedCodeListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(DEOPTIMIZED_CODE_LIST, head);
+  set(DEOPTIMIZED_CODE_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -495,4 +503,5 @@ bool Context::IsBootstrappingOrGlobalObject(Isolate* isolate, Object* object) {
 }
 #endif
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

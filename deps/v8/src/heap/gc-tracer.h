@@ -141,15 +141,15 @@ class GCTracer {
     // Default constructor leaves the event uninitialized.
     AllocationEvent() {}
 
-    AllocationEvent(double duration, intptr_t allocation_in_bytes);
+    AllocationEvent(double duration, size_t allocation_in_bytes);
 
-    // Time spent in the mutator during the end of the last garbage collection
-    // to the beginning of the next garbage collection.
+    // Time spent in the mutator during the end of the last sample to the
+    // beginning of the next sample.
     double duration_;
 
-    // Memory allocated in the new space during the end of the last garbage
-    // collection to the beginning of the next garbage collection.
-    intptr_t allocation_in_bytes_;
+    // Memory allocated in the new space during the end of the last sample
+    // to the beginning of the next sample
+    size_t allocation_in_bytes_;
   };
 
 
@@ -165,12 +165,12 @@ class GCTracer {
   };
 
 
-  class PromotionEvent {
+  class SurvivalEvent {
    public:
     // Default constructor leaves the event uninitialized.
-    PromotionEvent() {}
+    SurvivalEvent() {}
 
-    explicit PromotionEvent(double promotion_ratio);
+    explicit SurvivalEvent(double survival_ratio);
 
     double promotion_ratio_;
   };
@@ -284,7 +284,7 @@ class GCTracer {
   typedef RingBuffer<ContextDisposalEvent, kRingBufferMaxSize>
       ContextDisposalEventBuffer;
 
-  typedef RingBuffer<PromotionEvent, kRingBufferMaxSize> PromotionEventBuffer;
+  typedef RingBuffer<SurvivalEvent, kRingBufferMaxSize> SurvivalEventBuffer;
 
   explicit GCTracer(Heap* heap);
 
@@ -295,12 +295,16 @@ class GCTracer {
   // Stop collecting data and print results.
   void Stop(GarbageCollector collector);
 
-  // Log an allocation throughput event.
-  void AddNewSpaceAllocationTime(double duration, intptr_t allocation_in_bytes);
+  // Sample and accumulate bytes allocated since the last GC.
+  void SampleAllocation(double current_ms, size_t new_space_counter_bytes,
+                        size_t old_generation_counter_bytes);
+
+  // Log the accumulated new space allocation bytes.
+  void AddAllocation(double current_ms);
 
   void AddContextDisposalTime(double time);
 
-  void AddPromotionRatio(double promotion_ratio);
+  void AddSurvivalRatio(double survival_ratio);
 
   // Log an incremental marking step.
   void AddIncrementalMarkingStep(double duration, intptr_t bytes);
@@ -379,8 +383,18 @@ class GCTracer {
   intptr_t FinalIncrementalMarkCompactSpeedInBytesPerMillisecond() const;
 
   // Allocation throughput in the new space in bytes/millisecond.
-  // Returns 0 if no events have been recorded.
-  intptr_t NewSpaceAllocationThroughputInBytesPerMillisecond() const;
+  // Returns 0 if no allocation events have been recorded.
+  size_t NewSpaceAllocationThroughputInBytesPerMillisecond() const;
+
+  // Allocation throughput in heap in bytes/millisecond in the last time_ms
+  // milliseconds.
+  // Returns 0 if no allocation events have been recorded.
+  size_t AllocationThroughputInBytesPerMillisecond(double time_ms) const;
+
+  // Allocation throughput in heap in bytes/milliseconds in
+  // the last five seconds.
+  // Returns 0 if no allocation events have been recorded.
+  size_t CurrentAllocationThroughputInBytesPerMillisecond() const;
 
   // Computes the context disposal rate in milliseconds. It takes the time
   // frame of the first recorded context disposal to the current time and
@@ -388,10 +402,10 @@ class GCTracer {
   // Returns 0 if no events have been recorded.
   double ContextDisposalRateInMilliseconds() const;
 
-  // Computes the average promotion ratio based on the last recorded promotion
+  // Computes the average survival ratio based on the last recorded survival
   // events.
   // Returns 0 if no events have been recorded.
-  double AveragePromotionRatio() const;
+  double AverageSurvivalRatio() const;
 
   // Returns true if at least one survival event was recorded.
   bool SurvivalEventsRecorded() const;
@@ -407,6 +421,10 @@ class GCTracer {
   // Print one trace line.
   // TODO(ernstm): Move to Heap.
   void Print() const;
+
+  // Prints a line and also adds it to the heap's ring buffer so that
+  // it can be included in later crash dumps.
+  void Output(const char* format, ...) const;
 
   // Compute the mean duration of the events in the given ring buffer.
   double MeanDuration(const EventBuffer& events) const;
@@ -447,13 +465,14 @@ class GCTracer {
   EventBuffer incremental_mark_compactor_events_;
 
   // RingBuffer for allocation events.
+  AllocationEventBuffer new_space_allocation_events_;
   AllocationEventBuffer allocation_events_;
 
   // RingBuffer for context disposal events.
   ContextDisposalEventBuffer context_disposal_events_;
 
-  // RingBuffer for promotion events.
-  PromotionEventBuffer promotion_events_;
+  // RingBuffer for survival events.
+  SurvivalEventBuffer survival_events_;
 
   // Cumulative number of incremental marking steps since creation of tracer.
   int cumulative_incremental_marking_steps_;
@@ -485,9 +504,15 @@ class GCTracer {
   // all sweeping operations performed on the main thread.
   double cumulative_sweeping_duration_;
 
-  // Holds the new space top pointer recorded at the end of the last garbage
-  // collection.
-  intptr_t new_space_top_after_gc_;
+  // Timestamp and allocation counter at the last sampled allocation event.
+  double allocation_time_ms_;
+  size_t new_space_allocation_counter_bytes_;
+  size_t old_generation_allocation_counter_bytes_;
+
+  // Accumulated duration and allocated bytes since the last GC.
+  double allocation_duration_since_gc_;
+  size_t new_space_allocation_in_bytes_since_gc_;
+  size_t old_generation_allocation_in_bytes_since_gc_;
 
   // Counts how many tracers were started without stopping.
   int start_counter_;

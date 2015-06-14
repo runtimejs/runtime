@@ -39,8 +39,9 @@
 
 #include <deque>
 
+#include "src/assembler.h"
+#include "src/compiler.h"
 #include "src/isolate.h"
-#include "src/serialize.h"
 
 namespace v8 {
 namespace internal {
@@ -278,6 +279,14 @@ inline Condition CommuteCondition(Condition cc) {
 }
 
 
+enum RoundingMode {
+  kRoundToNearest = 0x0,
+  kRoundDown = 0x1,
+  kRoundUp = 0x2,
+  kRoundToZero = 0x3
+};
+
+
 // -----------------------------------------------------------------------------
 // Machine instruction Immediates
 
@@ -503,15 +512,12 @@ class Assembler : public AssemblerBase {
   void GetCode(CodeDesc* desc);
 
   // Read/Modify the code target in the branch/call instruction at pc.
-  inline static Address target_address_at(Address pc,
-                                          ConstantPoolArray* constant_pool);
-  inline static void set_target_address_at(Address pc,
-                                           ConstantPoolArray* constant_pool,
-                                           Address target,
-                                           ICacheFlushMode icache_flush_mode =
-                                               FLUSH_ICACHE_IF_NEEDED);
+  inline static Address target_address_at(Address pc, Address constant_pool);
+  inline static void set_target_address_at(
+      Address pc, Address constant_pool, Address target,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
   static inline Address target_address_at(Address pc, Code* code) {
-    ConstantPoolArray* constant_pool = code ? code->constant_pool() : NULL;
+    Address constant_pool = code ? code->constant_pool() : NULL;
     return target_address_at(pc, constant_pool);
   }
   static inline void set_target_address_at(Address pc,
@@ -519,7 +525,7 @@ class Assembler : public AssemblerBase {
                                            Address target,
                                            ICacheFlushMode icache_flush_mode =
                                                FLUSH_ICACHE_IF_NEEDED) {
-    ConstantPoolArray* constant_pool = code ? code->constant_pool() : NULL;
+    Address constant_pool = code ? code->constant_pool() : NULL;
     set_target_address_at(pc, constant_pool, target);
   }
 
@@ -536,6 +542,11 @@ class Assembler : public AssemblerBase {
       Address instruction_payload, Code* code, Address target) {
     set_target_address_at(instruction_payload, code, target);
   }
+
+  // This sets the internal reference at the pc.
+  inline static void deserialization_set_target_internal_reference_at(
+      Address pc, Address target,
+      RelocInfo::Mode mode = RelocInfo::INTERNAL_REFERENCE);
 
   static const int kSpecialTargetSize = kPointerSize;
 
@@ -940,11 +951,18 @@ class Assembler : public AssemblerBase {
   void mulss(XMMRegister dst, const Operand& src);
   void divss(XMMRegister dst, XMMRegister src) { divss(dst, Operand(src)); }
   void divss(XMMRegister dst, const Operand& src);
+  void sqrtss(XMMRegister dst, XMMRegister src) { sqrtss(dst, Operand(src)); }
+  void sqrtss(XMMRegister dst, const Operand& src);
 
   void ucomiss(XMMRegister dst, XMMRegister src) { ucomiss(dst, Operand(src)); }
   void ucomiss(XMMRegister dst, const Operand& src);
   void movaps(XMMRegister dst, XMMRegister src);
   void shufps(XMMRegister dst, XMMRegister src, byte imm8);
+
+  void maxss(XMMRegister dst, XMMRegister src) { maxss(dst, Operand(src)); }
+  void maxss(XMMRegister dst, const Operand& src);
+  void minss(XMMRegister dst, XMMRegister src) { minss(dst, Operand(src)); }
+  void minss(XMMRegister dst, const Operand& src);
 
   void andps(XMMRegister dst, const Operand& src);
   void andps(XMMRegister dst, XMMRegister src) { andps(dst, Operand(src)); }
@@ -1001,13 +1019,6 @@ class Assembler : public AssemblerBase {
   void ucomisd(XMMRegister dst, XMMRegister src) { ucomisd(dst, Operand(src)); }
   void ucomisd(XMMRegister dst, const Operand& src);
 
-  enum RoundingMode {
-    kRoundToNearest = 0x0,
-    kRoundDown      = 0x1,
-    kRoundUp        = 0x2,
-    kRoundToZero    = 0x3
-  };
-
   void roundsd(XMMRegister dst, XMMRegister src, RoundingMode mode);
 
   void movmskpd(Register dst, XMMRegister src);
@@ -1015,6 +1026,14 @@ class Assembler : public AssemblerBase {
 
   void cmpltsd(XMMRegister dst, XMMRegister src);
   void pcmpeqd(XMMRegister dst, XMMRegister src);
+
+  void punpckldq(XMMRegister dst, XMMRegister src);
+  void punpckhdq(XMMRegister dst, XMMRegister src);
+
+  void maxsd(XMMRegister dst, XMMRegister src) { maxsd(dst, Operand(src)); }
+  void maxsd(XMMRegister dst, const Operand& src);
+  void minsd(XMMRegister dst, XMMRegister src) { minsd(dst, Operand(src)); }
+  void minsd(XMMRegister dst, const Operand& src);
 
   void movdqa(XMMRegister dst, const Operand& src);
   void movdqa(const Operand& dst, XMMRegister src);
@@ -1240,7 +1259,165 @@ class Assembler : public AssemblerBase {
   void vdivsd(XMMRegister dst, XMMRegister src1, const Operand& src2) {
     vsd(0x5e, dst, src1, src2);
   }
+  void vmaxsd(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vmaxsd(dst, src1, Operand(src2));
+  }
+  void vmaxsd(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vsd(0x5f, dst, src1, src2);
+  }
+  void vminsd(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vminsd(dst, src1, Operand(src2));
+  }
+  void vminsd(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vsd(0x5d, dst, src1, src2);
+  }
   void vsd(byte op, XMMRegister dst, XMMRegister src1, const Operand& src2);
+
+  void vaddss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vaddss(dst, src1, Operand(src2));
+  }
+  void vaddss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x58, dst, src1, src2);
+  }
+  void vsubss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vsubss(dst, src1, Operand(src2));
+  }
+  void vsubss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x5c, dst, src1, src2);
+  }
+  void vmulss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vmulss(dst, src1, Operand(src2));
+  }
+  void vmulss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x59, dst, src1, src2);
+  }
+  void vdivss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vdivss(dst, src1, Operand(src2));
+  }
+  void vdivss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x5e, dst, src1, src2);
+  }
+  void vmaxss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vmaxss(dst, src1, Operand(src2));
+  }
+  void vmaxss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x5f, dst, src1, src2);
+  }
+  void vminss(XMMRegister dst, XMMRegister src1, XMMRegister src2) {
+    vminss(dst, src1, Operand(src2));
+  }
+  void vminss(XMMRegister dst, XMMRegister src1, const Operand& src2) {
+    vss(0x5d, dst, src1, src2);
+  }
+  void vss(byte op, XMMRegister dst, XMMRegister src1, const Operand& src2);
+
+  // BMI instruction
+  void andn(Register dst, Register src1, Register src2) {
+    andn(dst, src1, Operand(src2));
+  }
+  void andn(Register dst, Register src1, const Operand& src2) {
+    bmi1(0xf2, dst, src1, src2);
+  }
+  void bextr(Register dst, Register src1, Register src2) {
+    bextr(dst, Operand(src1), src2);
+  }
+  void bextr(Register dst, const Operand& src1, Register src2) {
+    bmi1(0xf7, dst, src2, src1);
+  }
+  void blsi(Register dst, Register src) { blsi(dst, Operand(src)); }
+  void blsi(Register dst, const Operand& src) {
+    Register ireg = {3};
+    bmi1(0xf3, ireg, dst, src);
+  }
+  void blsmsk(Register dst, Register src) { blsmsk(dst, Operand(src)); }
+  void blsmsk(Register dst, const Operand& src) {
+    Register ireg = {2};
+    bmi1(0xf3, ireg, dst, src);
+  }
+  void blsr(Register dst, Register src) { blsr(dst, Operand(src)); }
+  void blsr(Register dst, const Operand& src) {
+    Register ireg = {1};
+    bmi1(0xf3, ireg, dst, src);
+  }
+  void tzcnt(Register dst, Register src) { tzcnt(dst, Operand(src)); }
+  void tzcnt(Register dst, const Operand& src);
+
+  void lzcnt(Register dst, Register src) { lzcnt(dst, Operand(src)); }
+  void lzcnt(Register dst, const Operand& src);
+
+  void popcnt(Register dst, Register src) { popcnt(dst, Operand(src)); }
+  void popcnt(Register dst, const Operand& src);
+
+  void bzhi(Register dst, Register src1, Register src2) {
+    bzhi(dst, Operand(src1), src2);
+  }
+  void bzhi(Register dst, const Operand& src1, Register src2) {
+    bmi2(kNone, 0xf5, dst, src2, src1);
+  }
+  void mulx(Register dst1, Register dst2, Register src) {
+    mulx(dst1, dst2, Operand(src));
+  }
+  void mulx(Register dst1, Register dst2, const Operand& src) {
+    bmi2(kF2, 0xf6, dst1, dst2, src);
+  }
+  void pdep(Register dst, Register src1, Register src2) {
+    pdep(dst, src1, Operand(src2));
+  }
+  void pdep(Register dst, Register src1, const Operand& src2) {
+    bmi2(kF2, 0xf5, dst, src1, src2);
+  }
+  void pext(Register dst, Register src1, Register src2) {
+    pext(dst, src1, Operand(src2));
+  }
+  void pext(Register dst, Register src1, const Operand& src2) {
+    bmi2(kF3, 0xf5, dst, src1, src2);
+  }
+  void sarx(Register dst, Register src1, Register src2) {
+    sarx(dst, Operand(src1), src2);
+  }
+  void sarx(Register dst, const Operand& src1, Register src2) {
+    bmi2(kF3, 0xf7, dst, src2, src1);
+  }
+  void shlx(Register dst, Register src1, Register src2) {
+    shlx(dst, Operand(src1), src2);
+  }
+  void shlx(Register dst, const Operand& src1, Register src2) {
+    bmi2(k66, 0xf7, dst, src2, src1);
+  }
+  void shrx(Register dst, Register src1, Register src2) {
+    shrx(dst, Operand(src1), src2);
+  }
+  void shrx(Register dst, const Operand& src1, Register src2) {
+    bmi2(kF2, 0xf7, dst, src2, src1);
+  }
+  void rorx(Register dst, Register src, byte imm8) {
+    rorx(dst, Operand(src), imm8);
+  }
+  void rorx(Register dst, const Operand& src, byte imm8);
+
+#define PACKED_OP_LIST(V) \
+  V(and, 0x54)            \
+  V(xor, 0x57)
+
+#define AVX_PACKED_OP_DECLARE(name, opcode)                                  \
+  void v##name##ps(XMMRegister dst, XMMRegister src1, XMMRegister src2) {    \
+    vps(opcode, dst, src1, Operand(src2));                                   \
+  }                                                                          \
+  void v##name##ps(XMMRegister dst, XMMRegister src1, const Operand& src2) { \
+    vps(opcode, dst, src1, src2);                                            \
+  }                                                                          \
+  void v##name##pd(XMMRegister dst, XMMRegister src1, XMMRegister src2) {    \
+    vpd(opcode, dst, src1, Operand(src2));                                   \
+  }                                                                          \
+  void v##name##pd(XMMRegister dst, XMMRegister src1, const Operand& src2) { \
+    vpd(opcode, dst, src1, src2);                                            \
+  }
+
+  PACKED_OP_LIST(AVX_PACKED_OP_DECLARE);
+  void vps(byte op, XMMRegister dst, XMMRegister src1, XMMRegister src2);
+  void vps(byte op, XMMRegister dst, XMMRegister src1, const Operand& src2);
+  void vpd(byte op, XMMRegister dst, XMMRegister src1, XMMRegister src2);
+  void vpd(byte op, XMMRegister dst, XMMRegister src1, const Operand& src2);
 
   // Prefetch src position into cache level.
   // Level 1, 2 or 3 specifies CPU cache level. Level 0 specifies a
@@ -1260,18 +1437,19 @@ class Assembler : public AssemblerBase {
   void RecordDebugBreakSlot();
 
   // Record a comment relocation entry that can be used by a disassembler.
-  // Use --code-comments to enable, or provide "force = true" flag to always
-  // write a comment.
-  void RecordComment(const char* msg, bool force = false);
+  // Use --code-comments to enable.
+  void RecordComment(const char* msg);
 
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
-  void RecordDeoptReason(const int reason, const int raw_position);
+  void RecordDeoptReason(const int reason, const SourcePosition position);
 
   // Writes a single byte or word of data in the code stream.  Used for
   // inline tables, e.g., jump-tables.
   void db(uint8_t data);
   void dd(uint32_t data);
+  void dq(uint64_t data);
+  void dp(uintptr_t data) { dd(data); }
   void dd(Label* label);
 
   // Check if there is less than kGap bytes available in the buffer.
@@ -1298,11 +1476,12 @@ class Assembler : public AssemblerBase {
   byte byte_at(int pos) { return buffer_[pos]; }
   void set_byte_at(int pos, byte value) { buffer_[pos] = value; }
 
-  // Allocate a constant pool of the correct size for the generated code.
-  Handle<ConstantPoolArray> NewConstantPool(Isolate* isolate);
-
-  // Generate the constant pool for the generated code.
-  void PopulateConstantPool(ConstantPoolArray* constant_pool);
+  void PatchConstantPoolAccessInstruction(int pc_offset, int offset,
+                                          ConstantPoolEntry::Access access,
+                                          ConstantPoolEntry::Type type) {
+    // No embedded constant pool support.
+    UNREACHABLE();
+  }
 
  protected:
   void emit_sse_operand(XMMRegister reg, const Operand& adr);
@@ -1333,6 +1512,7 @@ class Assembler : public AssemblerBase {
                    TypeFeedbackId id = TypeFeedbackId::None());
   inline void emit(const Immediate& x);
   inline void emit_w(const Immediate& x);
+  inline void emit_q(uint64_t x);
 
   // Emit the code-object-relative offset of the label's position
   inline void emit_code_relative_offset(Label* label);
@@ -1354,10 +1534,12 @@ class Assembler : public AssemblerBase {
 
   // Emit vex prefix
   enum SIMDPrefix { kNone = 0x0, k66 = 0x1, kF3 = 0x2, kF2 = 0x3 };
-  enum VectorLength { kL128 = 0x0, kL256 = 0x4, kLIG = kL128 };
+  enum VectorLength { kL128 = 0x0, kL256 = 0x4, kLIG = kL128, kLZ = kL128 };
   enum VexW { kW0 = 0x0, kW1 = 0x80, kWIG = kW0 };
-  enum LeadingOpcode { k0F = 0x1, k0F38 = 0x2, k0F3A = 0x2 };
+  enum LeadingOpcode { k0F = 0x1, k0F38 = 0x2, k0F3A = 0x3 };
   inline void emit_vex_prefix(XMMRegister v, VectorLength l, SIMDPrefix pp,
+                              LeadingOpcode m, VexW w);
+  inline void emit_vex_prefix(Register v, VectorLength l, SIMDPrefix pp,
                               LeadingOpcode m, VexW w);
 
   // labels
@@ -1369,6 +1551,11 @@ class Assembler : public AssemblerBase {
   inline void disp_at_put(Label* L, Displacement disp);
   inline void emit_disp(Label* L, Displacement::Type type);
   inline void emit_near_disp(Label* L);
+
+  // Most BMI instructions are similiar.
+  void bmi1(byte op, Register reg, Register vreg, const Operand& rm);
+  void bmi2(SIMDPrefix pp, byte op, Register reg, Register vreg,
+            const Operand& rm);
 
   // record reloc info for current pc_
   void RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data = 0);

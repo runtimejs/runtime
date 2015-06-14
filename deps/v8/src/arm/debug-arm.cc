@@ -12,12 +12,7 @@
 namespace v8 {
 namespace internal {
 
-bool BreakLocationIterator::IsDebugBreakAtReturn() {
-  return Debug::IsDebugBreakAtReturn(rinfo());
-}
-
-
-void BreakLocationIterator::SetDebugBreakAtReturn() {
+void BreakLocation::SetDebugBreakAtReturn() {
   // Patch the code changing the return from JS function sequence from
   //   mov sp, fp
   //   ldmia sp!, {fp, lr}
@@ -28,7 +23,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
   //   blx ip
   //   <debug break return code entry point address>
   //   bkpt 0
-  CodePatcher patcher(rinfo()->pc(), Assembler::kJSReturnSequenceInstructions);
+  CodePatcher patcher(pc(), Assembler::kJSReturnSequenceInstructions);
   patcher.masm()->ldr(v8::internal::ip, MemOperand(v8::internal::pc, 0));
   patcher.masm()->blx(v8::internal::ip);
   patcher.Emit(
@@ -37,29 +32,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
 }
 
 
-// Restore the JS frame exit code.
-void BreakLocationIterator::ClearDebugBreakAtReturn() {
-  rinfo()->PatchCode(original_rinfo()->pc(),
-                     Assembler::kJSReturnSequenceInstructions);
-}
-
-
-// A debug break in the frame exit code is identified by the JS frame exit code
-// having been patched with a call instruction.
-bool Debug::IsDebugBreakAtReturn(RelocInfo* rinfo) {
-  DCHECK(RelocInfo::IsJSReturn(rinfo->rmode()));
-  return rinfo->IsPatchedReturnSequence();
-}
-
-
-bool BreakLocationIterator::IsDebugBreakAtSlot() {
-  DCHECK(IsDebugBreakSlot());
-  // Check whether the debug break slot instructions have been patched.
-  return rinfo()->IsPatchedDebugBreakSlotSequence();
-}
-
-
-void BreakLocationIterator::SetDebugBreakAtSlot() {
+void BreakLocation::SetDebugBreakAtSlot() {
   DCHECK(IsDebugBreakSlot());
   // Patch the code changing the debug break slot code from
   //   mov r2, r2
@@ -69,18 +42,11 @@ void BreakLocationIterator::SetDebugBreakAtSlot() {
   //   ldr ip, [pc, #0]
   //   blx ip
   //   <debug break slot code entry point address>
-  CodePatcher patcher(rinfo()->pc(), Assembler::kDebugBreakSlotInstructions);
+  CodePatcher patcher(pc(), Assembler::kDebugBreakSlotInstructions);
   patcher.masm()->ldr(v8::internal::ip, MemOperand(v8::internal::pc, 0));
   patcher.masm()->blx(v8::internal::ip);
   patcher.Emit(
       debug_info_->GetIsolate()->builtins()->Slot_DebugBreak()->entry());
-}
-
-
-void BreakLocationIterator::ClearDebugBreakAtSlot() {
-  DCHECK(IsDebugBreakSlot());
-  rinfo()->PatchCode(original_rinfo()->pc(),
-                     Assembler::kDebugBreakSlotInstructions);
 }
 
 
@@ -178,10 +144,8 @@ void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
   // Calling convention for IC load (from ic-arm.cc).
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register name = LoadDescriptor::NameRegister();
-  RegList regs = receiver.bit() | name.bit();
-  if (FLAG_vector_ics) {
-    regs |= VectorLoadICTrampolineDescriptor::SlotRegister().bit();
-  }
+  Register slot = LoadDescriptor::SlotRegister();
+  RegList regs = receiver.bit() | name.bit() | slot.bit();
   Generate_DebugBreakCallHelper(masm, regs, 0);
 }
 
@@ -301,7 +265,7 @@ void DebugCodegen::GenerateFrameDropperLiveEdit(MacroAssembler* masm) {
          StandardFrameConstants::kConstantPoolOffset - kPointerSize));
 
   // Pop return address, frame and constant pool pointer (if
-  // FLAG_enable_ool_constant_pool).
+  // FLAG_enable_embedded_constant_pool).
   __ LeaveFrame(StackFrame::INTERNAL);
 
   { ConstantPoolUnavailableScope constant_pool_unavailable(masm);
@@ -323,6 +287,7 @@ const bool LiveEdit::kFrameDropperSupported = true;
 
 #undef __
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_ARM

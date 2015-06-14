@@ -8,7 +8,6 @@
 #include "src/double.h"
 #include "src/factory.h"
 #include "src/hydrogen-infer-representation.h"
-#include "src/property-details-inl.h"
 
 #if V8_TARGET_ARCH_IA32
 #include "src/ia32/lithium-ia32.h"  // NOLINT
@@ -622,17 +621,6 @@ void HValue::ComputeInitialRange(Zone* zone) {
 }
 
 
-std::ostream& operator<<(std::ostream& os, const HSourcePosition& p) {
-  if (p.IsUnknown()) {
-    return os << "<?>";
-  } else if (FLAG_hydrogen_track_positions) {
-    return os << "<" << p.inlining_id() << ":" << p.position() << ">";
-  } else {
-    return os << "<0:" << p.raw() << ">";
-  }
-}
-
-
 std::ostream& HInstruction::PrintTo(std::ostream& os) const {  // NOLINT
   os << Mnemonic() << " ";
   PrintDataTo(os) << ChangesOf(this) << TypeOf(this);
@@ -849,7 +837,6 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kStoreNamedGeneric:
     case HValue::kStringCharCodeAt:
     case HValue::kStringCharFromCode:
-    case HValue::kTailCallThroughMegamorphicCache:
     case HValue::kThisFunction:
     case HValue::kTypeofIsAndBranch:
     case HValue::kUnknownOSRValue:
@@ -866,6 +853,7 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kCallRuntime:
     case HValue::kCallWithDescriptor:
     case HValue::kChange:
+    case HValue::kCheckArrayBufferNotNeutered:
     case HValue::kCheckHeapObject:
     case HValue::kCheckInstanceType:
     case HValue::kCheckMapValue:
@@ -882,10 +870,10 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kInvokeFunction:
     case HValue::kLoadContextSlot:
     case HValue::kLoadFunctionPrototype:
-    case HValue::kLoadGlobalCell:
     case HValue::kLoadKeyed:
     case HValue::kLoadKeyedGeneric:
     case HValue::kMathFloorOfDiv:
+    case HValue::kMaybeGrowElements:
     case HValue::kMod:
     case HValue::kMul:
     case HValue::kOsrEntry:
@@ -898,7 +886,6 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kSimulate:
     case HValue::kStackCheck:
     case HValue::kStoreContextSlot:
-    case HValue::kStoreGlobalCell:
     case HValue::kStoreKeyedGeneric:
     case HValue::kStringAdd:
     case HValue::kStringCompareAndBranch:
@@ -1639,6 +1626,9 @@ void HCheckInstanceType::GetCheckInterval(InstanceType* first,
     case IS_JS_ARRAY:
       *first = *last = JS_ARRAY_TYPE;
       return;
+    case IS_JS_DATE:
+      *first = *last = JS_DATE_TYPE;
+      return;
     default:
       UNREACHABLE();
   }
@@ -1708,6 +1698,8 @@ const char* HCheckInstanceType::GetCheckName() const {
   switch (check_) {
     case IS_SPEC_OBJECT: return "object";
     case IS_JS_ARRAY: return "array";
+    case IS_JS_DATE:
+      return "date";
     case IS_STRING: return "string";
     case IS_INTERNALIZED_STRING: return "internalized_string";
   }
@@ -1726,22 +1718,6 @@ std::ostream& HCheckInstanceType::PrintDataTo(
 std::ostream& HCallStub::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << CodeStub::MajorName(major_key_, false) << " ";
   return HUnaryCall::PrintDataTo(os);
-}
-
-
-Code::Flags HTailCallThroughMegamorphicCache::flags() const {
-  Code::Flags code_flags = Code::RemoveTypeAndHolderFromFlags(
-      Code::ComputeHandlerFlags(Code::LOAD_IC));
-  return code_flags;
-}
-
-
-std::ostream& HTailCallThroughMegamorphicCache::PrintDataTo(
-    std::ostream& os) const {  // NOLINT
-  for (int i = 0; i < OperandCount(); i++) {
-    os << NameOf(OperandAt(i)) << " ";
-  }
-  return os << "flags: " << flags();
 }
 
 
@@ -1816,9 +1792,7 @@ Range* HConstant::InferRange(Zone* zone) {
 }
 
 
-HSourcePosition HPhi::position() const {
-  return block()->first()->position();
-}
+SourcePosition HPhi::position() const { return block()->first()->position(); }
 
 
 Range* HPhi::InferRange(Zone* zone) {
@@ -2245,7 +2219,9 @@ int32_t InductionVariableData::ComputeIncrement(HPhi* phi,
     HSub* operation = HSub::cast(phi_operand);
     if (operation->left() == phi &&
         operation->right()->IsInteger32Constant()) {
-      return -operation->right()->GetInteger32Constant();
+      int constant = operation->right()->GetInteger32Constant();
+      if (constant == kMinInt) return 0;
+      return -constant;
     }
   }
 
@@ -2959,7 +2935,7 @@ Maybe<HConstant*> HConstant::CopyToTruncatedInt32(Zone* zone) {
         HConstant(DoubleToInt32(double_value_), Representation::Integer32(),
                   NotInNewSpace(), object_);
   }
-  return Maybe<HConstant*>(res != NULL, res);
+  return res != NULL ? Just(res) : Nothing<HConstant*>();
 }
 
 
@@ -2975,7 +2951,7 @@ Maybe<HConstant*> HConstant::CopyToTruncatedNumber(Isolate* isolate,
   } else if (handle->IsNull()) {
     res = new(zone) HConstant(0);
   }
-  return Maybe<HConstant*>(res != NULL, res);
+  return res != NULL ? Just(res) : Nothing<HConstant*>();
 }
 
 
@@ -2988,7 +2964,7 @@ std::ostream& HConstant::PrintDataTo(std::ostream& os) const {  // NOLINT
     os << reinterpret_cast<void*>(external_reference_value_.address()) << " ";
   } else {
     // The handle() method is silently and lazily mutating the object.
-    Handle<Object> h = const_cast<HConstant*>(this)->handle(Isolate::Current());
+    Handle<Object> h = const_cast<HConstant*>(this)->handle(isolate());
     os << Brief(*h) << " ";
     if (HasStableMapValue()) os << "[stable-map] ";
     if (HasObjectMap()) os << "[map " << *ObjectMap().handle() << "] ";
@@ -3211,13 +3187,18 @@ Range* HLoadNamedField::InferRange(Zone* zone) {
 Range* HLoadKeyed::InferRange(Zone* zone) {
   switch (elements_kind()) {
     case EXTERNAL_INT8_ELEMENTS:
+    case INT8_ELEMENTS:
       return new(zone) Range(kMinInt8, kMaxInt8);
     case EXTERNAL_UINT8_ELEMENTS:
     case EXTERNAL_UINT8_CLAMPED_ELEMENTS:
+    case UINT8_ELEMENTS:
+    case UINT8_CLAMPED_ELEMENTS:
       return new(zone) Range(kMinUInt8, kMaxUInt8);
     case EXTERNAL_INT16_ELEMENTS:
+    case INT16_ELEMENTS:
       return new(zone) Range(kMinInt16, kMaxInt16);
     case EXTERNAL_UINT16_ELEMENTS:
+    case UINT16_ELEMENTS:
       return new(zone) Range(kMinUInt16, kMaxUInt16);
     default:
       return HValue::InferRange(zone);
@@ -3542,6 +3523,10 @@ bool HLoadKeyed::RequiresHoleCheck() const {
     return false;
   }
 
+  if (hole_mode() == CONVERT_HOLE_TO_UNDEFINED) {
+    return false;
+  }
+
   return !UsesMustHandleHole();
 }
 
@@ -3637,24 +3622,6 @@ std::ostream& HTransitionElementsKind::PrintDataTo(
 }
 
 
-std::ostream& HLoadGlobalCell::PrintDataTo(std::ostream& os) const {  // NOLINT
-  os << "[" << *cell().handle() << "]";
-  if (details_.IsConfigurable()) os << " (configurable)";
-  if (details_.IsReadOnly()) os << " (read-only)";
-  return os;
-}
-
-
-bool HLoadGlobalCell::RequiresHoleCheck() const {
-  if (!details_.IsConfigurable()) return false;
-  for (HUseIterator it(uses()); !it.Done(); it.Advance()) {
-    HValue* use = it.value();
-    if (!use->IsChange()) return true;
-  }
-  return false;
-}
-
-
 std::ostream& HLoadGlobalGeneric::PrintDataTo(
     std::ostream& os) const {  // NOLINT
   return os << name()->ToCString().get() << " ";
@@ -3665,14 +3632,6 @@ std::ostream& HInnerAllocatedObject::PrintDataTo(
     std::ostream& os) const {  // NOLINT
   os << NameOf(base_object()) << " offset ";
   return offset()->PrintTo(os);
-}
-
-
-std::ostream& HStoreGlobalCell::PrintDataTo(std::ostream& os) const {  // NOLINT
-  os << "[" << *cell().handle() << "] = " << NameOf(value());
-  if (details_.IsConfigurable()) os << " (configurable)";
-  if (details_.IsReadOnly()) os << " (read-only)";
-  return os;
 }
 
 
@@ -3770,8 +3729,12 @@ bool HAllocate::HandleSideEffectDominator(GVNFlag side_effect,
     return false;
   }
 
-  dominator_allocate = GetFoldableDominator(dominator_allocate);
-  if (dominator_allocate == NULL) {
+
+  if (!IsFoldable(dominator_allocate)) {
+    if (FLAG_trace_allocation_folding) {
+      PrintF("#%d (%s) cannot fold into #%d (%s), different spaces\n", id(),
+             Mnemonic(), dominator->id(), dominator->Mnemonic());
+    }
     return false;
   }
 
@@ -3801,12 +3764,9 @@ bool HAllocate::HandleSideEffectDominator(GVNFlag side_effect,
     }
   }
 
-  DCHECK((IsNewSpaceAllocation() &&
-         dominator_allocate->IsNewSpaceAllocation()) ||
-         (IsOldDataSpaceAllocation() &&
-         dominator_allocate->IsOldDataSpaceAllocation()) ||
-         (IsOldPointerSpaceAllocation() &&
-         dominator_allocate->IsOldPointerSpaceAllocation()));
+  DCHECK(
+      (IsNewSpaceAllocation() && dominator_allocate->IsNewSpaceAllocation()) ||
+      (IsOldSpaceAllocation() && dominator_allocate->IsOldSpaceAllocation()));
 
   // First update the size of the dominator allocate instruction.
   dominator_size = dominator_allocate->size();
@@ -3897,70 +3857,6 @@ bool HAllocate::HandleSideEffectDominator(GVNFlag side_effect,
 }
 
 
-HAllocate* HAllocate::GetFoldableDominator(HAllocate* dominator) {
-  if (!IsFoldable(dominator)) {
-    // We cannot hoist old space allocations over new space allocations.
-    if (IsNewSpaceAllocation() || dominator->IsNewSpaceAllocation()) {
-      if (FLAG_trace_allocation_folding) {
-        PrintF("#%d (%s) cannot fold into #%d (%s), new space hoisting\n",
-            id(), Mnemonic(), dominator->id(), dominator->Mnemonic());
-      }
-      return NULL;
-    }
-
-    HAllocate* dominator_dominator = dominator->dominating_allocate_;
-
-    // We can hoist old data space allocations over an old pointer space
-    // allocation and vice versa. For that we have to check the dominator
-    // of the dominator allocate instruction.
-    if (dominator_dominator == NULL) {
-      dominating_allocate_ = dominator;
-      if (FLAG_trace_allocation_folding) {
-        PrintF("#%d (%s) cannot fold into #%d (%s), different spaces\n",
-            id(), Mnemonic(), dominator->id(), dominator->Mnemonic());
-      }
-      return NULL;
-    }
-
-    // We can just fold old space allocations that are in the same basic block,
-    // since it is not guaranteed that we fill up the whole allocated old
-    // space memory.
-    // TODO(hpayer): Remove this limitation and add filler maps for each each
-    // allocation as soon as we have store elimination.
-    if (block()->block_id() != dominator_dominator->block()->block_id()) {
-      if (FLAG_trace_allocation_folding) {
-        PrintF("#%d (%s) cannot fold into #%d (%s), different basic blocks\n",
-            id(), Mnemonic(), dominator_dominator->id(),
-            dominator_dominator->Mnemonic());
-      }
-      return NULL;
-    }
-
-    DCHECK((IsOldDataSpaceAllocation() &&
-           dominator_dominator->IsOldDataSpaceAllocation()) ||
-           (IsOldPointerSpaceAllocation() &&
-           dominator_dominator->IsOldPointerSpaceAllocation()));
-
-    int32_t current_size = HConstant::cast(size())->GetInteger32Constant();
-    HStoreNamedField* dominator_free_space_size =
-        dominator->filler_free_space_size_;
-    if (dominator_free_space_size != NULL) {
-      // We already hoisted one old space allocation, i.e., we already installed
-      // a filler map. Hence, we just have to update the free space size.
-      dominator->UpdateFreeSpaceFiller(current_size);
-    } else {
-      // This is the first old space allocation that gets hoisted. We have to
-      // install a filler map since the follwing allocation may cause a GC.
-      dominator->CreateFreeSpaceFiller(current_size);
-    }
-
-    // We can hoist the old space allocation over the actual dominator.
-    return dominator_dominator;
-  }
-  return dominator;
-}
-
-
 void HAllocate::UpdateFreeSpaceFiller(int32_t free_space_size) {
   DCHECK(filler_free_space_size_ != NULL);
   Zone* zone = block()->zone();
@@ -4028,8 +3924,7 @@ void HAllocate::ClearNextMapWord(int offset) {
 std::ostream& HAllocate::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(size()) << " (";
   if (IsNewSpaceAllocation()) os << "N";
-  if (IsOldPointerSpaceAllocation()) os << "P";
-  if (IsOldDataSpaceAllocation()) os << "D";
+  if (IsOldSpaceAllocation()) os << "P";
   if (MustAllocateDoubleAligned()) os << "A";
   if (MustPrefillWithFiller()) os << "F";
   return os << ")";
@@ -4078,7 +3973,8 @@ bool HStoreKeyed::NeedsCanonicalization() {
 
 #define DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HInstr, op)                     \
   HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,   \
-                            HValue* left, HValue* right) {                   \
+                            HValue* left, HValue* right,                     \
+                            LanguageMode language_mode) {                    \
     if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {  \
       HConstant* c_left = HConstant::cast(left);                             \
       HConstant* c_right = HConstant::cast(right);                           \
@@ -4090,7 +3986,7 @@ bool HStoreKeyed::NeedsCanonicalization() {
         return H_CONSTANT_DOUBLE(double_res);                                \
       }                                                                      \
     }                                                                        \
-    return new (zone) HInstr(context, left, right);                          \
+    return new (zone) HInstr(context, left, right, language_mode);           \
   }
 
 
@@ -4103,6 +3999,7 @@ DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HSub, -)
 
 HInstruction* HStringAdd::New(Isolate* isolate, Zone* zone, HValue* context,
                               HValue* left, HValue* right,
+                              LanguageMode language_mode,
                               PretenureFlag pretenure_flag,
                               StringAddFlags flags,
                               Handle<AllocationSite> allocation_site) {
@@ -4121,7 +4018,8 @@ HInstruction* HStringAdd::New(Isolate* isolate, Zone* zone, HValue* context,
     }
   }
   return new(zone) HStringAdd(
-      context, left, right, pretenure_flag, flags, allocation_site);
+      context, left, right, language_mode, pretenure_flag, flags,
+      allocation_site);
 }
 
 
@@ -4319,7 +4217,8 @@ HInstruction* HMathMinMax::New(Isolate* isolate, Zone* zone, HValue* context,
 
 
 HInstruction* HMod::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right) {
+                        HValue* left, HValue* right,
+                        LanguageMode language_mode) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4338,12 +4237,13 @@ HInstruction* HMod::New(Isolate* isolate, Zone* zone, HValue* context,
       }
     }
   }
-  return new(zone) HMod(context, left, right);
+  return new(zone) HMod(context, left, right, language_mode);
 }
 
 
 HInstruction* HDiv::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right) {
+                        HValue* left, HValue* right,
+                        LanguageMode language_mode) {
   // If left and right are constant values, try to return a constant value.
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
@@ -4362,12 +4262,13 @@ HInstruction* HDiv::New(Isolate* isolate, Zone* zone, HValue* context,
       }
     }
   }
-  return new(zone) HDiv(context, left, right);
+  return new(zone) HDiv(context, left, right, language_mode);
 }
 
 
 HInstruction* HBitwise::New(Isolate* isolate, Zone* zone, HValue* context,
-                            Token::Value op, HValue* left, HValue* right) {
+                            Token::Value op, HValue* left, HValue* right,
+                            LanguageMode language_mode) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4392,13 +4293,14 @@ HInstruction* HBitwise::New(Isolate* isolate, Zone* zone, HValue* context,
       return H_CONSTANT_INT(result);
     }
   }
-  return new(zone) HBitwise(context, op, left, right);
+  return new(zone) HBitwise(context, op, left, right, language_mode);
 }
 
 
 #define DEFINE_NEW_H_BITWISE_INSTR(HInstr, result)                          \
   HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,  \
-                            HValue* left, HValue* right) {                  \
+                            HValue* left, HValue* right,                    \
+                            LanguageMode language_mode) {                   \
     if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) { \
       HConstant* c_left = HConstant::cast(left);                            \
       HConstant* c_right = HConstant::cast(right);                          \
@@ -4406,7 +4308,7 @@ HInstruction* HBitwise::New(Isolate* isolate, Zone* zone, HValue* context,
         return H_CONSTANT_INT(result);                                      \
       }                                                                     \
     }                                                                       \
-    return new (zone) HInstr(context, left, right);                         \
+    return new (zone) HInstr(context, left, right, language_mode);          \
   }
 
 
@@ -4419,7 +4321,8 @@ c_left->NumberValueAsInteger32() << (c_right->NumberValueAsInteger32() & 0x1f))
 
 
 HInstruction* HShr::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right) {
+                        HValue* left, HValue* right,
+                        LanguageMode language_mode) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4432,7 +4335,7 @@ HInstruction* HShr::New(Isolate* isolate, Zone* zone, HValue* context,
       return H_CONSTANT_INT(static_cast<uint32_t>(left_val) >> right_val);
     }
   }
-  return new(zone) HShr(context, left, right);
+  return new(zone) HShr(context, left, right, language_mode);
 }
 
 
@@ -4708,12 +4611,6 @@ HObjectAccess HObjectAccess::ForField(Handle<Map> map, int index,
 }
 
 
-HObjectAccess HObjectAccess::ForCellPayload(Isolate* isolate) {
-  return HObjectAccess(kInobject, Cell::kValueOffset, Representation::Tagged(),
-                       isolate->factory()->cell_value_string());
-}
-
-
 void HObjectAccess::SetGVNFlags(HValue *instr, PropertyAccessType access_type) {
   // set the appropriate GVN flags for a given load or store instruction
   if (access_type == STORE) {
@@ -4822,4 +4719,5 @@ std::ostream& operator<<(std::ostream& os, const HObjectAccess& access) {
   return os << "@" << access.offset();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

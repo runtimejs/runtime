@@ -27,10 +27,8 @@ enum AllocationFlags {
   SIZE_IN_WORDS = 1 << 2,
   // Align the allocation to a multiple of kDoubleSize
   DOUBLE_ALIGNMENT = 1 << 3,
-  // Directly allocate in old pointer space
-  PRETENURE_OLD_POINTER_SPACE = 1 << 4,
-  // Directly allocate in old data space
-  PRETENURE_OLD_DATA_SPACE = 1 << 5
+  // Directly allocate in old space
+  PRETENURE = 1 << 4,
 };
 
 
@@ -137,11 +135,11 @@ class FrameAndConstantPoolScope {
       : masm_(masm),
         type_(type),
         old_has_frame_(masm->has_frame()),
-        old_constant_pool_available_(FLAG_enable_ool_constant_pool &&
-                                     masm->is_ool_constant_pool_available()) {
+        old_constant_pool_available_(FLAG_enable_embedded_constant_pool &&
+                                     masm->is_constant_pool_available()) {
     masm->set_has_frame(true);
-    if (FLAG_enable_ool_constant_pool) {
-      masm->set_ool_constant_pool_available(true);
+    if (FLAG_enable_embedded_constant_pool) {
+      masm->set_constant_pool_available(true);
     }
     if (type_ != StackFrame::MANUAL && type_ != StackFrame::NONE) {
       masm->EnterFrame(type, !old_constant_pool_available_);
@@ -151,8 +149,8 @@ class FrameAndConstantPoolScope {
   ~FrameAndConstantPoolScope() {
     masm_->LeaveFrame(type_);
     masm_->set_has_frame(old_has_frame_);
-    if (FLAG_enable_ool_constant_pool) {
-      masm_->set_ool_constant_pool_available(old_constant_pool_available_);
+    if (FLAG_enable_embedded_constant_pool) {
+      masm_->set_constant_pool_available(old_constant_pool_available_);
     }
   }
 
@@ -180,15 +178,15 @@ class ConstantPoolUnavailableScope {
  public:
   explicit ConstantPoolUnavailableScope(MacroAssembler* masm)
       : masm_(masm),
-        old_constant_pool_available_(FLAG_enable_ool_constant_pool &&
-                                     masm->is_ool_constant_pool_available()) {
-    if (FLAG_enable_ool_constant_pool) {
-      masm_->set_ool_constant_pool_available(false);
+        old_constant_pool_available_(FLAG_enable_embedded_constant_pool &&
+                                     masm->is_constant_pool_available()) {
+    if (FLAG_enable_embedded_constant_pool) {
+      masm_->set_constant_pool_available(false);
     }
   }
   ~ConstantPoolUnavailableScope() {
-    if (FLAG_enable_ool_constant_pool) {
-      masm_->set_ool_constant_pool_available(old_constant_pool_available_);
+    if (FLAG_enable_embedded_constant_pool) {
+      masm_->set_constant_pool_available(old_constant_pool_available_);
     }
   }
 
@@ -251,11 +249,8 @@ class AllocationUtils {
  public:
   static ExternalReference GetAllocationTopReference(
       Isolate* isolate, AllocationFlags flags) {
-    if ((flags & PRETENURE_OLD_POINTER_SPACE) != 0) {
-      return ExternalReference::old_pointer_space_allocation_top_address(
-          isolate);
-    } else if ((flags & PRETENURE_OLD_DATA_SPACE) != 0) {
-      return ExternalReference::old_data_space_allocation_top_address(isolate);
+    if ((flags & PRETENURE) != 0) {
+      return ExternalReference::old_space_allocation_top_address(isolate);
     }
     return ExternalReference::new_space_allocation_top_address(isolate);
   }
@@ -263,12 +258,8 @@ class AllocationUtils {
 
   static ExternalReference GetAllocationLimitReference(
       Isolate* isolate, AllocationFlags flags) {
-    if ((flags & PRETENURE_OLD_POINTER_SPACE) != 0) {
-      return ExternalReference::old_pointer_space_allocation_limit_address(
-          isolate);
-    } else if ((flags & PRETENURE_OLD_DATA_SPACE) != 0) {
-      return ExternalReference::old_data_space_allocation_limit_address(
-          isolate);
+    if ((flags & PRETENURE) != 0) {
+      return ExternalReference::old_space_allocation_limit_address(isolate);
     }
     return ExternalReference::new_space_allocation_limit_address(isolate);
   }

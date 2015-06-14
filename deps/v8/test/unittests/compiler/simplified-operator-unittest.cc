@@ -38,7 +38,6 @@ const PureOperator kPureOperators[] = {
     &SimplifiedOperatorBuilder::Name, IrOpcode::k##Name, \
         Operator::kPure | properties, input_count        \
   }
-    PURE(AnyToBoolean, Operator::kNoProperties, 1),
     PURE(BooleanNot, Operator::kNoProperties, 1),
     PURE(BooleanToNumber, Operator::kNoProperties, 1),
     PURE(NumberEqual, Operator::kCommutative, 2),
@@ -55,7 +54,6 @@ const PureOperator kPureOperators[] = {
     PURE(StringEqual, Operator::kCommutative, 2),
     PURE(StringLessThan, Operator::kNoProperties, 2),
     PURE(StringLessThanOrEqual, Operator::kNoProperties, 2),
-    PURE(StringAdd, Operator::kNoProperties, 2),
     PURE(ChangeTaggedToInt32, Operator::kNoProperties, 1),
     PURE(ChangeTaggedToUint32, Operator::kNoProperties, 1),
     PURE(ChangeTaggedToFloat64, Operator::kNoProperties, 1),

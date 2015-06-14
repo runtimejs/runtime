@@ -9,7 +9,7 @@
 #include "src/deoptimizer.h"
 #include "src/frames.h"
 #include "src/full-codegen.h"
-#include "src/isolate-inl.h"
+#include "src/messages.h"
 #include "src/runtime/runtime-utils.h"
 #include "src/v8threads.h"
 #include "src/vm-state-inl.h"
@@ -47,7 +47,6 @@ RUNTIME_FUNCTION(Runtime_CompileOptimized) {
   DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
   CONVERT_BOOLEAN_ARG_CHECKED(concurrent, 1);
-  DCHECK(isolate->use_crankshaft());
 
   Compiler::ConcurrencyMode mode =
       concurrent ? Compiler::CONCURRENT : Compiler::NOT_CONCURRENT;
@@ -169,10 +168,9 @@ RUNTIME_FUNCTION(Runtime_NotifyDeoptimized) {
 
 
 static bool IsSuitableForOnStackReplacement(Isolate* isolate,
-                                            Handle<JSFunction> function,
-                                            Handle<Code> current_code) {
+                                            Handle<JSFunction> function) {
   // Keep track of whether we've succeeded in optimizing.
-  if (!current_code->optimizable()) return false;
+  if (function->shared()->optimization_disabled()) return false;
   // If we are trying to do OSR when there are already optimized
   // activations of the function, it means (a) the function is directly or
   // indirectly recursive and (b) an optimized invocation has been
@@ -233,8 +231,9 @@ RUNTIME_FUNCTION(Runtime_CompileForOnStackReplacement) {
     // Gate the OSR entry with a stack check.
     BackEdgeTable::AddStackCheck(caller_code, pc_offset);
     // Poll already queued compilation jobs.
-    OptimizingCompilerThread* thread = isolate->optimizing_compiler_thread();
-    if (thread->IsQueuedForOSR(function, ast_id)) {
+    OptimizingCompileDispatcher* dispatcher =
+        isolate->optimizing_compile_dispatcher();
+    if (dispatcher->IsQueuedForOSR(function, ast_id)) {
       if (FLAG_trace_osr) {
         PrintF("[OSR - Still waiting for queued: ");
         function->PrintName();
@@ -243,7 +242,7 @@ RUNTIME_FUNCTION(Runtime_CompileForOnStackReplacement) {
       return NULL;
     }
 
-    job = thread->FindReadyOSRCandidate(function, ast_id);
+    job = dispatcher->FindReadyOSRCandidate(function, ast_id);
   }
 
   if (job != NULL) {
@@ -253,7 +252,7 @@ RUNTIME_FUNCTION(Runtime_CompileForOnStackReplacement) {
       PrintF(" at AST id %d]\n", ast_id.ToInt());
     }
     result = Compiler::GetConcurrentlyOptimizedCode(job);
-  } else if (IsSuitableForOnStackReplacement(isolate, function, caller_code)) {
+  } else if (IsSuitableForOnStackReplacement(isolate, function)) {
     if (FLAG_trace_osr) {
       PrintF("[OSR - Compiling: ");
       function->PrintName();
@@ -325,7 +324,7 @@ RUNTIME_FUNCTION(Runtime_TryInstallOptimizedCode) {
     return isolate->StackOverflow();
   }
 
-  isolate->optimizing_compiler_thread()->InstallOptimizedFunctions();
+  isolate->optimizing_compile_dispatcher()->InstallOptimizedFunctions();
   return (function->IsOptimized()) ? function->code()
                                    : function->shared()->code();
 }
@@ -350,10 +349,9 @@ bool CodeGenerationFromStringsAllowed(Isolate* isolate,
 
 RUNTIME_FUNCTION(Runtime_CompileString) {
   HandleScope scope(isolate);
-  DCHECK(args.length() == 3);
+  DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(String, source, 0);
   CONVERT_BOOLEAN_ARG_CHECKED(function_literal_only, 1);
-  CONVERT_SMI_ARG_CHECKED(source_offset, 2);
 
   // Extract native context.
   Handle<Context> context(isolate->native_context());
@@ -365,8 +363,8 @@ RUNTIME_FUNCTION(Runtime_CompileString) {
     Handle<Object> error_message =
         context->ErrorMessageForCodeGenerationFromStrings();
     THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewEvalError("code_gen_from_strings",
-                              HandleVector<Object>(&error_message, 1)));
+        isolate,
+        NewEvalError(MessageTemplate::kCodeGenFromStrings, error_message));
   }
 
   // Compile source string in the native context.
@@ -379,14 +377,6 @@ RUNTIME_FUNCTION(Runtime_CompileString) {
       isolate, fun,
       Compiler::GetFunctionFromEval(source, outer_info, context, SLOPPY,
                                     restriction, RelocInfo::kNoPosition));
-  if (function_literal_only) {
-    // The actual body is wrapped, which shifts line numbers.
-    Handle<Script> script(Script::cast(fun->shared()->script()), isolate);
-    if (script->line_offset() == 0) {
-      int line_num = Script::GetLineNumber(script, source_offset);
-      script->set_line_offset(Smi::FromInt(-line_num));
-    }
-  }
   return *fun;
 }
 
@@ -407,7 +397,7 @@ static ObjectPair CompileGlobalEval(Isolate* isolate, Handle<String> source,
         native_context->ErrorMessageForCodeGenerationFromStrings();
     Handle<Object> error;
     MaybeHandle<Object> maybe_error = isolate->factory()->NewEvalError(
-        "code_gen_from_strings", HandleVector<Object>(&error_message, 1));
+        MessageTemplate::kCodeGenFromStrings, error_message);
     if (maybe_error.ToHandle(&error)) isolate->Throw(*error);
     return MakePair(isolate->heap()->exception(), NULL);
   }
@@ -450,5 +440,5 @@ RUNTIME_FUNCTION_RETURN_PAIR(Runtime_ResolvePossiblyDirectEval) {
   return CompileGlobalEval(isolate, args.at<String>(1), outer_info,
                            args.at<Object>(3), language_mode, args.smi_at(5));
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

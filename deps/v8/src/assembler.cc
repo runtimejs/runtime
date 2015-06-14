@@ -40,6 +40,7 @@
 #include "src/base/functional.h"
 #include "src/base/lazy-instance.h"
 #include "src/base/platform/platform.h"
+#include "src/base/utils/random-number-generator.h"
 #include "src/builtins.h"
 #include "src/codegen.h"
 #include "src/counters.h"
@@ -49,12 +50,11 @@
 #include "src/execution.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
-#include "src/isolate-inl.h"
 #include "src/jsregexp.h"
 #include "src/regexp-macro-assembler.h"
 #include "src/regexp-stack.h"
 #include "src/runtime/runtime.h"
-#include "src/serialize.h"
+#include "src/snapshot/serialize.h"
 #include "src/token.h"
 
 #if V8_TARGET_ARCH_IA32
@@ -135,7 +135,7 @@ AssemblerBase::AssemblerBase(Isolate* isolate, void* buffer, int buffer_size)
       predictable_code_size_(false),
       // We may use the assembler without an isolate.
       serializer_enabled_(isolate && isolate->serializer_enabled()),
-      ool_constant_pool_available_(false) {
+      constant_pool_available_(false) {
   if (FLAG_mask_constants_with_cookie && isolate != NULL)  {
     jit_cookie_ = isolate->random_number_generator()->NextInt();
   }
@@ -292,11 +292,6 @@ int Label::pos() const {
 //               (Bits 6..31 of pc delta, with leading zeroes
 //                dropped, and last non-zero chunk tagged with 1.)
 
-
-#ifdef DEBUG
-const int kMaxStandardNonCompactModes = 14;
-#endif
-
 const int kTagBits = 2;
 const int kTagMask = (1 << kTagBits) - 1;
 const int kExtraTagBits = 4;
@@ -415,17 +410,45 @@ void RelocInfoWriter::WriteExtraTaggedData(intptr_t data_delta, int top_tag) {
 }
 
 
+void RelocInfoWriter::WritePosition(int pc_delta, int pos_delta,
+                                    RelocInfo::Mode rmode) {
+  int pos_type_tag = (rmode == RelocInfo::POSITION) ? kNonstatementPositionTag
+                                                    : kStatementPositionTag;
+  // Check if delta is small enough to fit in a tagged byte.
+  if (is_intn(pos_delta, kSmallDataBits)) {
+    WriteTaggedPC(pc_delta, kLocatableTag);
+    WriteTaggedData(pos_delta, pos_type_tag);
+  } else {
+    // Otherwise, use costly encoding.
+    WriteExtraTaggedPC(pc_delta, kPCJumpExtraTag);
+    WriteExtraTaggedIntData(pos_delta, pos_type_tag);
+  }
+}
+
+
+void RelocInfoWriter::FlushPosition() {
+  if (!next_position_candidate_flushed_) {
+    WritePosition(next_position_candidate_pc_delta_,
+                  next_position_candidate_pos_delta_, RelocInfo::POSITION);
+    next_position_candidate_pos_delta_ = 0;
+    next_position_candidate_pc_delta_ = 0;
+    next_position_candidate_flushed_ = true;
+  }
+}
+
+
 void RelocInfoWriter::Write(const RelocInfo* rinfo) {
+  RelocInfo::Mode rmode = rinfo->rmode();
+  if (rmode != RelocInfo::POSITION) {
+    FlushPosition();
+  }
 #ifdef DEBUG
   byte* begin_pos = pos_;
 #endif
   DCHECK(rinfo->rmode() < RelocInfo::NUMBER_OF_MODES);
   DCHECK(rinfo->pc() - last_pc_ >= 0);
-  DCHECK(RelocInfo::LAST_STANDARD_NONCOMPACT_ENUM - RelocInfo::LAST_COMPACT_ENUM
-         <= kMaxStandardNonCompactModes);
   // Use unsigned delta-encoding for pc.
   uint32_t pc_delta = static_cast<uint32_t>(rinfo->pc() - last_pc_);
-  RelocInfo::Mode rmode = rinfo->rmode();
 
   // The two most common modes are given small tags, and usually fit in a byte.
   if (rmode == RelocInfo::EMBEDDED_OBJECT) {
@@ -435,7 +458,7 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
     DCHECK(begin_pos - pos_ <= RelocInfo::kMaxCallSize);
   } else if (rmode == RelocInfo::CODE_TARGET_WITH_ID) {
     // Use signed delta-encoding for id.
-    DCHECK(static_cast<int>(rinfo->data()) == rinfo->data());
+    DCHECK_EQ(static_cast<int>(rinfo->data()), rinfo->data());
     int id_delta = static_cast<int>(rinfo->data()) - last_id_;
     // Check if delta is small enough to fit in a tagged byte.
     if (is_intn(id_delta, kSmallDataBits)) {
@@ -453,18 +476,20 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
     WriteTaggedData(rinfo->data(), kDeoptReasonTag);
   } else if (RelocInfo::IsPosition(rmode)) {
     // Use signed delta-encoding for position.
-    DCHECK(static_cast<int>(rinfo->data()) == rinfo->data());
+    DCHECK_EQ(static_cast<int>(rinfo->data()), rinfo->data());
     int pos_delta = static_cast<int>(rinfo->data()) - last_position_;
-    int pos_type_tag = (rmode == RelocInfo::POSITION) ? kNonstatementPositionTag
-                                                      : kStatementPositionTag;
-    // Check if delta is small enough to fit in a tagged byte.
-    if (is_intn(pos_delta, kSmallDataBits)) {
-      WriteTaggedPC(pc_delta, kLocatableTag);
-      WriteTaggedData(pos_delta, pos_type_tag);
+    if (rmode == RelocInfo::STATEMENT_POSITION) {
+      WritePosition(pc_delta, pos_delta, rmode);
     } else {
-      // Otherwise, use costly encoding.
-      WriteExtraTaggedPC(pc_delta, kPCJumpExtraTag);
-      WriteExtraTaggedIntData(pos_delta, pos_type_tag);
+      DCHECK_EQ(rmode, RelocInfo::POSITION);
+      if (pc_delta != 0 || last_mode_ != RelocInfo::POSITION) {
+        FlushPosition();
+        next_position_candidate_pc_delta_ = pc_delta;
+        next_position_candidate_pos_delta_ = pos_delta;
+      } else {
+        next_position_candidate_pos_delta_ += pos_delta;
+      }
+      next_position_candidate_flushed_ = false;
     }
     last_position_ = static_cast<int>(rinfo->data());
   } else if (RelocInfo::IsComment(rmode)) {
@@ -479,13 +504,18 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
                                                              : kVeneerPoolTag);
   } else {
     DCHECK(rmode > RelocInfo::LAST_COMPACT_ENUM);
-    int saved_mode = rmode - RelocInfo::LAST_COMPACT_ENUM;
+    DCHECK(rmode <= RelocInfo::LAST_STANDARD_NONCOMPACT_ENUM);
+    STATIC_ASSERT(RelocInfo::LAST_STANDARD_NONCOMPACT_ENUM -
+                      RelocInfo::LAST_COMPACT_ENUM <=
+                  kPoolExtraTag);
+    int saved_mode = rmode - RelocInfo::LAST_COMPACT_ENUM - 1;
     // For all other modes we simply use the mode as the extra tag.
     // None of these modes need a data component.
-    DCHECK(saved_mode < kPoolExtraTag);
+    DCHECK(0 <= saved_mode && saved_mode < kPoolExtraTag);
     WriteExtraTaggedPC(pc_delta, saved_mode);
   }
   last_pc_ = rinfo->pc();
+  last_mode_ = rmode;
 #ifdef DEBUG
   DCHECK(begin_pos - pos_ <= kMaxSize);
 #endif
@@ -688,7 +718,7 @@ void RelocIterator::next() {
         Advance(kIntSize);
       } else {
         AdvanceReadPC();
-        int rmode = extra_tag + RelocInfo::LAST_COMPACT_ENUM;
+        int rmode = extra_tag + RelocInfo::LAST_COMPACT_ENUM + 1;
         if (SetMode(static_cast<RelocInfo::Mode>(rmode))) return;
       }
     }
@@ -799,6 +829,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "external reference";
     case RelocInfo::INTERNAL_REFERENCE:
       return "internal reference";
+    case RelocInfo::INTERNAL_REFERENCE_ENCODED:
+      return "encoded internal reference";
     case RelocInfo::DEOPT_REASON:
       return "deopt reason";
     case RelocInfo::CONST_POOL:
@@ -828,8 +860,10 @@ void RelocInfo::Print(Isolate* isolate, std::ostream& os) {  // NOLINT
     os << "  (" << Brief(target_object()) << ")";
   } else if (rmode_ == EXTERNAL_REFERENCE) {
     ExternalReferenceEncoder ref_encoder(isolate);
-    os << " (" << ref_encoder.NameOfAddress(target_reference()) << ")  ("
-       << static_cast<const void*>(target_reference()) << ")";
+    os << " ("
+       << ref_encoder.NameOfAddress(isolate, target_external_reference())
+       << ")  (" << static_cast<const void*>(target_external_reference())
+       << ")";
   } else if (IsCodeTarget(rmode_)) {
     Code* code = Code::GetCodeFromTargetAddress(target_address());
     os << " (" << Code::Kind2String(code->kind()) << ")  ("
@@ -877,13 +911,21 @@ void RelocInfo::Verify(Isolate* isolate) {
       CHECK(code->address() == HeapObject::cast(found)->address());
       break;
     }
+    case INTERNAL_REFERENCE:
+    case INTERNAL_REFERENCE_ENCODED: {
+      Address target = target_internal_reference();
+      Address pc = target_internal_reference_address();
+      Code* code = Code::cast(isolate->FindCodeObject(pc));
+      CHECK(target >= code->instruction_start());
+      CHECK(target <= code->instruction_end());
+      break;
+    }
     case RUNTIME_ENTRY:
     case JS_RETURN:
     case COMMENT:
     case POSITION:
     case STATEMENT_POSITION:
     case EXTERNAL_REFERENCE:
-    case INTERNAL_REFERENCE:
     case DEOPT_REASON:
     case CONST_POOL:
     case VENEER_POOL:
@@ -1174,31 +1216,15 @@ ExternalReference ExternalReference::new_space_allocation_limit_address(
 }
 
 
-ExternalReference ExternalReference::old_pointer_space_allocation_top_address(
+ExternalReference ExternalReference::old_space_allocation_top_address(
     Isolate* isolate) {
-  return ExternalReference(
-      isolate->heap()->OldPointerSpaceAllocationTopAddress());
+  return ExternalReference(isolate->heap()->OldSpaceAllocationTopAddress());
 }
 
 
-ExternalReference ExternalReference::old_pointer_space_allocation_limit_address(
+ExternalReference ExternalReference::old_space_allocation_limit_address(
     Isolate* isolate) {
-  return ExternalReference(
-      isolate->heap()->OldPointerSpaceAllocationLimitAddress());
-}
-
-
-ExternalReference ExternalReference::old_data_space_allocation_top_address(
-    Isolate* isolate) {
-  return ExternalReference(
-      isolate->heap()->OldDataSpaceAllocationTopAddress());
-}
-
-
-ExternalReference ExternalReference::old_data_space_allocation_limit_address(
-    Isolate* isolate) {
-  return ExternalReference(
-      isolate->heap()->OldDataSpaceAllocationLimitAddress());
+  return ExternalReference(isolate->heap()->OldSpaceAllocationLimitAddress());
 }
 
 
@@ -1229,18 +1255,6 @@ ExternalReference ExternalReference::scheduled_exception_address(
 ExternalReference ExternalReference::address_of_pending_message_obj(
     Isolate* isolate) {
   return ExternalReference(isolate->pending_message_obj_address());
-}
-
-
-ExternalReference ExternalReference::address_of_has_pending_message(
-    Isolate* isolate) {
-  return ExternalReference(isolate->has_pending_message_address());
-}
-
-
-ExternalReference ExternalReference::address_of_pending_message_script(
-    Isolate* isolate) {
-  return ExternalReference(isolate->pending_message_script_address());
 }
 
 
@@ -1601,22 +1615,261 @@ bool PositionsRecorder::WriteRecordedPositions() {
     EnsureSpace ensure_space(assembler_);
     assembler_->RecordRelocInfo(RelocInfo::STATEMENT_POSITION,
                                 state_.current_statement_position);
-    state_.written_statement_position = state_.current_statement_position;
     written = true;
   }
+  state_.written_statement_position = state_.current_statement_position;
 
   // Write the position if it is different from what was written last time and
-  // also different from the written statement position.
+  // also different from the statement position that was just written.
   if (state_.current_position != state_.written_position &&
-      state_.current_position != state_.written_statement_position) {
+      (state_.current_position != state_.written_statement_position ||
+       !written)) {
     EnsureSpace ensure_space(assembler_);
     assembler_->RecordRelocInfo(RelocInfo::POSITION, state_.current_position);
-    state_.written_position = state_.current_position;
     written = true;
   }
+  state_.written_position = state_.current_position;
 
   // Return whether something was written.
   return written;
 }
 
-} }  // namespace v8::internal
+
+ConstantPoolBuilder::ConstantPoolBuilder(int ptr_reach_bits,
+                                         int double_reach_bits) {
+  info_[ConstantPoolEntry::INTPTR].entries.reserve(64);
+  info_[ConstantPoolEntry::INTPTR].regular_reach_bits = ptr_reach_bits;
+  info_[ConstantPoolEntry::DOUBLE].regular_reach_bits = double_reach_bits;
+}
+
+
+ConstantPoolEntry::Access ConstantPoolBuilder::NextAccess(
+    ConstantPoolEntry::Type type) const {
+  const PerTypeEntryInfo& info = info_[type];
+
+  if (info.overflow()) return ConstantPoolEntry::OVERFLOWED;
+
+  int dbl_count = info_[ConstantPoolEntry::DOUBLE].regular_count;
+  int dbl_offset = dbl_count * kDoubleSize;
+  int ptr_count = info_[ConstantPoolEntry::INTPTR].regular_count;
+  int ptr_offset = ptr_count * kPointerSize + dbl_offset;
+
+  if (type == ConstantPoolEntry::DOUBLE) {
+    // Double overflow detection must take into account the reach for both types
+    int ptr_reach_bits = info_[ConstantPoolEntry::INTPTR].regular_reach_bits;
+    if (!is_uintn(dbl_offset, info.regular_reach_bits) ||
+        (ptr_count > 0 &&
+         !is_uintn(ptr_offset + kDoubleSize - kPointerSize, ptr_reach_bits))) {
+      return ConstantPoolEntry::OVERFLOWED;
+    }
+  } else {
+    DCHECK(type == ConstantPoolEntry::INTPTR);
+    if (!is_uintn(ptr_offset, info.regular_reach_bits)) {
+      return ConstantPoolEntry::OVERFLOWED;
+    }
+  }
+
+  return ConstantPoolEntry::REGULAR;
+}
+
+
+ConstantPoolEntry::Access ConstantPoolBuilder::AddEntry(
+    ConstantPoolEntry& entry, ConstantPoolEntry::Type type) {
+  DCHECK(!emitted_label_.is_bound());
+  PerTypeEntryInfo& info = info_[type];
+  const int entry_size = ConstantPoolEntry::size(type);
+  bool merged = false;
+
+  if (entry.sharing_ok()) {
+    // Try to merge entries
+    std::vector<ConstantPoolEntry>::iterator it = info.shared_entries.begin();
+    int end = static_cast<int>(info.shared_entries.size());
+    for (int i = 0; i < end; i++, it++) {
+      if ((entry_size == kPointerSize) ? entry.value() == it->value()
+                                       : entry.value64() == it->value64()) {
+        // Merge with found entry.
+        entry.set_merged_index(i);
+        merged = true;
+        break;
+      }
+    }
+  }
+
+  // By definition, merged entries have regular access.
+  DCHECK(!merged || entry.merged_index() < info.regular_count);
+  ConstantPoolEntry::Access access =
+      (merged ? ConstantPoolEntry::REGULAR : NextAccess(type));
+
+  // Enforce an upper bound on search time by limiting the search to
+  // unique sharable entries which fit in the regular section.
+  if (entry.sharing_ok() && !merged && access == ConstantPoolEntry::REGULAR) {
+    info.shared_entries.push_back(entry);
+  } else {
+    info.entries.push_back(entry);
+  }
+
+  // We're done if we found a match or have already triggered the
+  // overflow state.
+  if (merged || info.overflow()) return access;
+
+  if (access == ConstantPoolEntry::REGULAR) {
+    info.regular_count++;
+  } else {
+    info.overflow_start = static_cast<int>(info.entries.size()) - 1;
+  }
+
+  return access;
+}
+
+
+void ConstantPoolBuilder::EmitSharedEntries(Assembler* assm,
+                                            ConstantPoolEntry::Type type) {
+  PerTypeEntryInfo& info = info_[type];
+  std::vector<ConstantPoolEntry>& shared_entries = info.shared_entries;
+  const int entry_size = ConstantPoolEntry::size(type);
+  int base = emitted_label_.pos();
+  DCHECK(base > 0);
+  int shared_end = static_cast<int>(shared_entries.size());
+  std::vector<ConstantPoolEntry>::iterator shared_it = shared_entries.begin();
+  for (int i = 0; i < shared_end; i++, shared_it++) {
+    int offset = assm->pc_offset() - base;
+    shared_it->set_offset(offset);  // Save offset for merged entries.
+    if (entry_size == kPointerSize) {
+      assm->dp(shared_it->value());
+    } else {
+      assm->dq(shared_it->value64());
+    }
+    DCHECK(is_uintn(offset, info.regular_reach_bits));
+
+    // Patch load sequence with correct offset.
+    assm->PatchConstantPoolAccessInstruction(shared_it->position(), offset,
+                                             ConstantPoolEntry::REGULAR, type);
+  }
+}
+
+
+void ConstantPoolBuilder::EmitGroup(Assembler* assm,
+                                    ConstantPoolEntry::Access access,
+                                    ConstantPoolEntry::Type type) {
+  PerTypeEntryInfo& info = info_[type];
+  const bool overflow = info.overflow();
+  std::vector<ConstantPoolEntry>& entries = info.entries;
+  std::vector<ConstantPoolEntry>& shared_entries = info.shared_entries;
+  const int entry_size = ConstantPoolEntry::size(type);
+  int base = emitted_label_.pos();
+  DCHECK(base > 0);
+  int begin;
+  int end;
+
+  if (access == ConstantPoolEntry::REGULAR) {
+    // Emit any shared entries first
+    EmitSharedEntries(assm, type);
+  }
+
+  if (access == ConstantPoolEntry::REGULAR) {
+    begin = 0;
+    end = overflow ? info.overflow_start : static_cast<int>(entries.size());
+  } else {
+    DCHECK(access == ConstantPoolEntry::OVERFLOWED);
+    if (!overflow) return;
+    begin = info.overflow_start;
+    end = static_cast<int>(entries.size());
+  }
+
+  std::vector<ConstantPoolEntry>::iterator it = entries.begin();
+  if (begin > 0) std::advance(it, begin);
+  for (int i = begin; i < end; i++, it++) {
+    // Update constant pool if necessary and get the entry's offset.
+    int offset;
+    ConstantPoolEntry::Access entry_access;
+    if (!it->is_merged()) {
+      // Emit new entry
+      offset = assm->pc_offset() - base;
+      entry_access = access;
+      if (entry_size == kPointerSize) {
+        assm->dp(it->value());
+      } else {
+        assm->dq(it->value64());
+      }
+    } else {
+      // Retrieve offset from shared entry.
+      offset = shared_entries[it->merged_index()].offset();
+      entry_access = ConstantPoolEntry::REGULAR;
+    }
+
+    DCHECK(entry_access == ConstantPoolEntry::OVERFLOWED ||
+           is_uintn(offset, info.regular_reach_bits));
+
+    // Patch load sequence with correct offset.
+    assm->PatchConstantPoolAccessInstruction(it->position(), offset,
+                                             entry_access, type);
+  }
+}
+
+
+// Emit and return position of pool.  Zero implies no constant pool.
+int ConstantPoolBuilder::Emit(Assembler* assm) {
+  bool emitted = emitted_label_.is_bound();
+  bool empty = IsEmpty();
+
+  if (!emitted) {
+    // Mark start of constant pool.  Align if necessary.
+    if (!empty) assm->Align(kDoubleSize);
+    assm->bind(&emitted_label_);
+    if (!empty) {
+      // Emit in groups based on access and type.
+      // Emit doubles first for alignment purposes.
+      EmitGroup(assm, ConstantPoolEntry::REGULAR, ConstantPoolEntry::DOUBLE);
+      EmitGroup(assm, ConstantPoolEntry::REGULAR, ConstantPoolEntry::INTPTR);
+      if (info_[ConstantPoolEntry::DOUBLE].overflow()) {
+        assm->Align(kDoubleSize);
+        EmitGroup(assm, ConstantPoolEntry::OVERFLOWED,
+                  ConstantPoolEntry::DOUBLE);
+      }
+      if (info_[ConstantPoolEntry::INTPTR].overflow()) {
+        EmitGroup(assm, ConstantPoolEntry::OVERFLOWED,
+                  ConstantPoolEntry::INTPTR);
+      }
+    }
+  }
+
+  return !empty ? emitted_label_.pos() : 0;
+}
+
+
+// Platform specific but identical code for all the platforms.
+
+
+void Assembler::RecordDeoptReason(const int reason,
+                                  const SourcePosition position) {
+  if (FLAG_trace_deopt || isolate()->cpu_profiler()->is_profiling()) {
+    EnsureSpace ensure_space(this);
+    int raw_position = position.IsUnknown() ? 0 : position.raw();
+    RecordRelocInfo(RelocInfo::POSITION, raw_position);
+    RecordRelocInfo(RelocInfo::DEOPT_REASON, reason);
+  }
+}
+
+
+void Assembler::RecordComment(const char* msg) {
+  if (FLAG_code_comments) {
+    EnsureSpace ensure_space(this);
+    RecordRelocInfo(RelocInfo::COMMENT, reinterpret_cast<intptr_t>(msg));
+  }
+}
+
+
+void Assembler::RecordJSReturn() {
+  positions_recorder()->WriteRecordedPositions();
+  EnsureSpace ensure_space(this);
+  RecordRelocInfo(RelocInfo::JS_RETURN);
+}
+
+
+void Assembler::RecordDebugBreakSlot() {
+  positions_recorder()->WriteRecordedPositions();
+  EnsureSpace ensure_space(this);
+  RecordRelocInfo(RelocInfo::DEBUG_BREAK_SLOT);
+}
+}  // namespace internal
+}  // namespace v8

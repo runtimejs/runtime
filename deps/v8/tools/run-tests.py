@@ -112,8 +112,18 @@ MODES = {
     "execution_mode": "release",
     "output_folder": "release",
   },
-  # This mode requires v8 to be compiled with dchecks and slow dchecks.
+  # Normal trybot release configuration. There, dchecks are always on which
+  # implies debug is set. Hence, the status file needs to assume debug-like
+  # behavior/timeouts.
   "tryrelease": {
+    "flags": RELEASE_FLAGS,
+    "timeout_scalefactor": 1,
+    "status_mode": "debug",
+    "execution_mode": "release",
+    "output_folder": "release",
+  },
+  # This mode requires v8 to be compiled with dchecks and slow dchecks.
+  "slowrelease": {
     "flags": RELEASE_FLAGS + ["--enable-slow-asserts"],
     "timeout_scalefactor": 2,
     "status_mode": "debug",
@@ -130,6 +140,7 @@ GC_STRESS_FLAGS = ["--gc-interval=500", "--stress-compaction",
 SUPPORTED_ARCHS = ["android_arm",
                    "android_arm64",
                    "android_ia32",
+                   "android_x64",
                    "arm",
                    "ia32",
                    "x87",
@@ -147,6 +158,7 @@ SUPPORTED_ARCHS = ["android_arm",
 SLOW_ARCHS = ["android_arm",
               "android_arm64",
               "android_ia32",
+              "android_x64",
               "arm",
               "mips",
               "mipsel",
@@ -193,6 +205,9 @@ def BuildOptions():
                     help="Prepended to each shell command used to run a test",
                     default="")
   result.add_option("--download-data", help="Download missing test suite data",
+                    default=False, action="store_true")
+  result.add_option("--download-data-only",
+                    help="Download missing test suite data and exit",
                     default=False, action="store_true")
   result.add_option("--extra-flags",
                     help="Additional flags to pass to each test command",
@@ -328,6 +343,8 @@ def ProcessOptions(options):
     # Buildbots run presubmit tests as a separate step.
     options.no_presubmit = True
     options.no_network = True
+  if options.download_data_only:
+    options.no_presubmit = True
   if options.command_prefix:
     print("Specifying --command-prefix disables network distribution, "
           "running tests locally.")
@@ -340,6 +357,10 @@ def ProcessOptions(options):
 
   if options.asan:
     options.extra_flags.append("--invoke-weak-callbacks")
+    options.extra_flags.append("--omit-quit")
+
+  if options.msan:
+    VARIANTS = ["default"]
 
   if options.tsan:
     VARIANTS = ["default"]
@@ -469,9 +490,12 @@ def Main():
     if suite:
       suites.append(suite)
 
-  if options.download_data:
+  if options.download_data or options.download_data_only:
     for s in suites:
       s.DownloadData()
+
+  if options.download_data_only:
+    return exit_code
 
   for (arch, mode) in options.arch_and_mode:
     try:
@@ -516,8 +540,14 @@ def Execute(arch, mode, args, options, suites, workspace):
     # Predictable mode is slower.
     timeout *= 2
 
+  # TODO(machenbach): Remove temporary verbose output on windows after
+  # debugging driver-hung-up on XP.
+  verbose_output = (
+      options.verbose or
+      utils.IsWindows() and options.progress == "verbose"
+  )
   ctx = context.Context(arch, MODES[mode]["execution_mode"], shell_dir,
-                        mode_flags, options.verbose,
+                        mode_flags, verbose_output,
                         timeout, options.isolates,
                         options.command_prefix,
                         options.extra_flags,
@@ -581,10 +611,6 @@ def Execute(arch, mode, args, options, suites, workspace):
 
   if options.report:
     verbose.PrintReport(all_tests)
-
-  if num_tests == 0:
-    print "No tests to run."
-    return 0
 
   # Run the tests, either locally or distributed on the network.
   start_time = time.time()

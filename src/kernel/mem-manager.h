@@ -21,6 +21,7 @@
 #include <kernel/dlmalloc.h>
 #include <kernel/x64/address-space-x64.h>
 #include <kernel/runtime-state.h>
+#include <kernel/threadlib/spinlock.h>
 
 namespace rt {
 
@@ -106,8 +107,8 @@ private:
 class PhysicalAllocator {
 public:
     PhysicalAllocator() :
-        stack_32_(kStackStartAddress, 1 * common::Constants::MiB),
-        stack_64_(kStackStartAddress + common::Constants::MiB, 1 * common::Constants::MiB),
+        stack_32_(kStackStartAddress, 1 * Constants::MiB),
+        stack_64_(kStackStartAddress + Constants::MiB, 1 * Constants::MiB),
         pages_status_(reinterpret_cast<bool*>(kPagesStatusStartAddress)),
         available_phys_memory_(0) {
 
@@ -115,11 +116,11 @@ public:
         MultibootMemoryMapEnumerator mmap = GLOBAL_multiboot()->memory_map();
 
         do {
-            common::MemoryZone zone = mmap.NextAvailableMemory();
+            MemoryZone zone = mmap.NextAvailableMemory();
             if (zone.empty()) {
                 break;
             }
-            uintptr_t start = reinterpret_cast<uintptr_t>(common::Utils
+            uintptr_t start = reinterpret_cast<uintptr_t>(Utils
                 ::AlignPtr<void>(zone.ptr(), chunk_size()));
 
             uintptr_t end = reinterpret_cast<uintptr_t>(
@@ -137,7 +138,7 @@ public:
         }
         while (true);
 
-        if (available_phys_memory_ < 256 * common::Constants::MiB) {
+        if (available_phys_memory_ < 256 * Constants::MiB) {
             printf("System requires at least 256 MiB or memory.\n");
             abort();
         }
@@ -174,7 +175,7 @@ public:
         RT_ASSERT(kAllocStartAddress);
         RT_ASSERT(kPageDirectoryStart);
         RT_ASSERT(kAllocStartAddress - kPageDirectoryStart
-                  >= 1 * common::Constants::MiB);
+                  >= 1 * Constants::MiB);
 
         return PhysicalMemoryZone(reinterpret_cast<void*>(kPageDirectoryStart),
                                   kAllocStartAddress - kPageDirectoryStart);
@@ -223,17 +224,16 @@ public:
         return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(ptr) & ~0x1FFFFF);
     }
 private:
-    static const uint64_t kPageSizeBytes = 2 * common::Constants::MiB;
-    static const uint64_t kAllocStartAddress = 32 * common::Constants::MiB;
-    static const uint64_t kPageDirectoryStart = 26 * common::Constants::MiB;
-    static const uint64_t kStackStartAddress = 22 * common::Constants::MiB;
-    static const uint64_t kPagesStatusStartAddress = 24 * common::Constants::MiB;
-    static const uint64_t kPagesStatusSize = 2 * common::Constants::MiB;
+    static const uint64_t kPageSizeBytes = 2 * Constants::MiB;
+    static const uint64_t kAllocStartAddress = 32 * Constants::MiB;
+    static const uint64_t kPageDirectoryStart = 26 * Constants::MiB;
+    static const uint64_t kStackStartAddress = 22 * Constants::MiB;
+    static const uint64_t kPagesStatusStartAddress = 24 * Constants::MiB;
+    static const uint64_t kPagesStatusSize = 2 * Constants::MiB;
 
     PagesStack stack_32_;
     PagesStack stack_64_;
     bool* pages_status_;
-    Locker alloc_locker_;
     uint64_t available_phys_memory_;
 
     void _insert_pages_range(uintptr_t start, uintptr_t end) {
@@ -297,7 +297,7 @@ public:
         stack_alloc_next_(kStacks) {}
 
     VirtualStack AllocStack() {
-        ScopedLock lock(stack_alloc_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(stack_alloc_locker_);
         void* top = reinterpret_cast<void*>(stack_alloc_next_);
         uint64_t page_size = PhysicalAllocator::chunk_size();
         stack_alloc_next_ += 2 * page_size; // reserve two pages (1 extra for guard page)
@@ -326,11 +326,11 @@ public:
         return kSpaceSize;
     }
 
-    static const uint64_t kSpacesBase = 256 * common::Constants::GiB;
-    static const uint64_t kSpaceSize = 256 * common::Constants::GiB;
-    static const uint64_t kStacks = 128 * common::Constants::GiB;
+    static const uint64_t kSpacesBase = 256 * Constants::GiB;
+    static const uint64_t kSpaceSize = 256 * Constants::GiB;
+    static const uint64_t kStacks = 128 * Constants::GiB;
 private:
-    Locker stack_alloc_locker_;
+    threadlib::spinlock_t stack_alloc_locker_;
     uint64_t stack_alloc_next_;
     DELETE_COPY_AND_ASSIGN(VirtualAllocator);
 };
@@ -351,13 +351,13 @@ public:
         // TODO: support for allocation of more than 512 tables
 
         void* addr = reinterpret_cast<uint8_t*>(page_directory_zone_.ptr()) +
-                tables_taken_ * 4 * common::Constants::KiB;
+                tables_taken_ * 4 * Constants::KiB;
 
         RT_ASSERT(reinterpret_cast<uintptr_t>(addr) -
                   reinterpret_cast<uintptr_t>(
                       page_directory_zone_.ptr()) < page_directory_zone_.size());
 
-        memset(addr, 0, 4 * common::Constants::KiB);
+        memset(addr, 0, 4 * Constants::KiB);
         ++tables_taken_;
 
         return reinterpret_cast<PageTable<EntryType>*>(addr);
@@ -386,7 +386,7 @@ public:
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
         void* result;
-        {   ScopedLock lock(default_mspace_locker_);
+        {   ScopedLock<threadlib::spinlock_t> lock(default_mspace_locker_);
             result = mspace_malloc(default_mspace_, size);
         }
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
@@ -400,7 +400,7 @@ public:
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
         void* result;
-        {	ScopedLock lock(default_mspace_locker_);
+        {	ScopedLock<threadlib::spinlock_t> lock(default_mspace_locker_);
             result =  mspace_memalign(default_mspace_, alignment, size);
         }
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
@@ -414,7 +414,7 @@ public:
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
         void* result;
-        {   ScopedLock lock(default_mspace_locker_);
+        {   ScopedLock<threadlib::spinlock_t> lock(default_mspace_locker_);
             result = mspace_calloc(default_mspace_, elements, element_size);
         }
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
@@ -428,7 +428,7 @@ public:
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
         void* result;
-        {   ScopedLock lock(default_mspace_locker_);
+        {   ScopedLock<threadlib::spinlock_t> lock(default_mspace_locker_);
             result = mspace_realloc(default_mspace_, ptr, new_size);
         }
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
@@ -441,7 +441,7 @@ public:
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
-        {   ScopedLock lock(default_mspace_locker_);
+        {   ScopedLock<threadlib::spinlock_t> lock(default_mspace_locker_);
             mspace_free(default_mspace_, ptr);
         }
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
@@ -467,7 +467,7 @@ public:
      */
     void InitOnce();
 private:
-    Locker default_mspace_locker_;
+    threadlib::spinlock_t default_mspace_locker_;
     mspace default_mspace_;
     AllocatorTraceCallback enter_callback_;
     AllocatorTraceCallback exit_callback_;
@@ -507,7 +507,7 @@ public:
      * paging)
      */
     void* AllocPage32() {
-        ScopedLock lock(page_alloc_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(page_alloc_locker_);
         return pmm_.alloc32();
     }
 
@@ -544,7 +544,7 @@ private:
     PageTableAllocator table_allocator_;
     AddressSpaceX64 addr_space_;
     bool malloc_available_;
-    Locker page_alloc_locker_;
+    threadlib::spinlock_t page_alloc_locker_;
     DELETE_COPY_AND_ASSIGN(MemManager);
 };
 

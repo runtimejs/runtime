@@ -205,10 +205,8 @@ bool Semaphore::WaitFor(const TimeDelta& rel_time) {
 
 #elif V8_OS_RUNTIMEJS
 
-// TODO: implement
-
-Semaphore::Semaphore(int count) {
-//    native_handle_.Set(count);
+Semaphore::Semaphore(int count) : native_handle_(count) {
+  DCHECK(count >= 0);
 }
 
 
@@ -217,20 +215,17 @@ Semaphore::~Semaphore() {
 
 
 void Semaphore::Signal() {
-//    native_handle_.AddFetch(1);
+  native_handle_.signal();
 }
 
 
 void Semaphore::Wait() {
-//    RT_ASSERT(0 == rt::Cpu::id() && "Only service process native thread can wait");
-//    native_handle_.SubFetch(1);
-//    RT_ASSERT(!"Need semapthore: wait");
+  native_handle_.wait();
 }
 
 
 bool Semaphore::WaitFor(const TimeDelta& rel_time) {
-//    RT_ASSERT(!"Need semapthore: waitfor");
-    return true;
+  return native_handle_.timed_wait(rel_time.InMicroseconds());
 }
 
 #endif  // V8_OS_MACOSX

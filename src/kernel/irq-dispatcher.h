@@ -63,7 +63,7 @@ public:
      */
     void Bind(uint8_t number, ResourceHandle<EngineThread> thread, size_t recv_index) {
         NoInterrupsScope no_interrupts;
-        ScopedLock lock(bindings_locker_);
+        ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
         RT_ASSERT(number < kIrqCount);
         bindings_[number].push_back(std::move(IRQBinding(thread, recv_index)));
     }
@@ -74,8 +74,8 @@ public:
     void Raise(SystemContextIRQ irq_context, uint8_t number);
 private:
     static const uint32_t kIrqCount = 225;
-    SharedSTLVector<IRQBinding> bindings_[kIrqCount];
-    Locker bindings_locker_;
+    std::vector<IRQBinding> bindings_[kIrqCount];
+    threadlib::spinlock_t bindings_locker_;
     DELETE_COPY_AND_ASSIGN(IrqDispatcher);
 };
 

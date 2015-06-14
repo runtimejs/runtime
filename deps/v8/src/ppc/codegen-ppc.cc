@@ -646,9 +646,9 @@ void Code::GetCodeAgeAndParity(Isolate* isolate, byte* sequence, Age* age,
     *age = kNoAgeCodeAge;
     *parity = NO_MARKING_PARITY;
   } else {
-    ConstantPoolArray* constant_pool = NULL;
-    Address target_address = Assembler::target_address_at(
-        sequence + kCodeAgingTargetDelta, constant_pool);
+    Code* code = NULL;
+    Address target_address =
+        Assembler::target_address_at(sequence + kCodeAgingTargetDelta, code);
     Code* stub = GetCodeFromTargetAddress(target_address);
     GetCodeAgeAndParity(stub, age, parity);
   }
@@ -677,7 +677,7 @@ void Code::PatchPlatformCodeAge(Isolate* isolate, byte* sequence, Code::Age age,
     }
   }
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_PPC

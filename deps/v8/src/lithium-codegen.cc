@@ -152,8 +152,8 @@ void LCodeGenBase::Comment(const char* format, ...) {
 }
 
 
-void LCodeGenBase::DeoptComment(const Deoptimizer::Reason& reason) {
-  masm()->RecordDeoptReason(reason.deopt_reason, reason.raw_position);
+void LCodeGenBase::DeoptComment(const Deoptimizer::DeoptInfo& deopt_info) {
+  masm()->RecordDeoptReason(deopt_info.deopt_reason, deopt_info.position);
 }
 
 
@@ -189,4 +189,14 @@ void LCodeGenBase::AddStabilityDependency(Handle<Map> map) {
   chunk_->AddStabilityDependency(map);
 }
 
-} }  // namespace v8::internal
+
+Deoptimizer::DeoptInfo LCodeGenBase::MakeDeoptInfo(
+    LInstruction* instr, Deoptimizer::DeoptReason deopt_reason) {
+  Deoptimizer::DeoptInfo deopt_info(instr->hydrogen_value()->position(),
+                                    instr->Mnemonic(), deopt_reason);
+  HEnterInlined* enter_inlined = instr->environment()->entry();
+  deopt_info.inlining_id = enter_inlined ? enter_inlined->inlining_id() : 0;
+  return deopt_info;
+}
+}  // namespace internal
+}  // namespace v8

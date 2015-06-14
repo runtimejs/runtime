@@ -9,7 +9,6 @@
 
 #include "src/allocation.h"
 #include "src/ast.h"
-#include "src/compiler.h"
 #include "src/effects.h"
 #include "src/scopes.h"
 #include "src/type-info.h"
@@ -24,9 +23,7 @@ class AstTyper: public AstVisitor {
  public:
   static void Run(CompilationInfo* info);
 
-  void* operator new(size_t size, Zone* zone) {
-    return zone->New(static_cast<int>(size));
-  }
+  void* operator new(size_t size, Zone* zone) { return zone->New(size); }
   void operator delete(void* pointer, Zone* zone) { }
   void operator delete(void* pointer) { }
 
@@ -72,10 +69,10 @@ class AstTyper: public AstVisitor {
            var->IsParameter() ? parameter_index(var->index()) : kNoVar;
   }
 
-  void VisitDeclarations(ZoneList<Declaration*>* declarations) OVERRIDE;
-  void VisitStatements(ZoneList<Statement*>* statements) OVERRIDE;
+  void VisitDeclarations(ZoneList<Declaration*>* declarations) override;
+  void VisitStatements(ZoneList<Statement*>* statements) override;
 
-#define DECLARE_VISIT(type) virtual void Visit##type(type* node) OVERRIDE;
+#define DECLARE_VISIT(type) virtual void Visit##type(type* node) override;
   AST_NODE_LIST(DECLARE_VISIT)
 #undef DECLARE_VISIT
 

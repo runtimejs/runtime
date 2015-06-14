@@ -18,13 +18,15 @@ class PlatformInterfaceDescriptor;
   V(Store)                                    \
   V(StoreTransition)                          \
   V(ElementTransitionAndStore)                \
+  V(VectorStoreICTrampoline)                  \
+  V(VectorStoreIC)                            \
   V(Instanceof)                               \
-  V(VectorLoadICTrampoline)                   \
-  V(VectorLoadIC)                             \
+  V(LoadWithVector)                           \
   V(FastNewClosure)                           \
   V(FastNewContext)                           \
   V(ToNumber)                                 \
   V(NumberToString)                           \
+  V(Typeof)                                   \
   V(FastCloneShallowArray)                    \
   V(FastCloneShallowObject)                   \
   V(CreateAllocationSite)                     \
@@ -40,6 +42,7 @@ class PlatformInterfaceDescriptor;
   V(ArrayConstructor)                         \
   V(InternalArrayConstructorConstantArgCount) \
   V(InternalArrayConstructor)                 \
+  V(Compare)                                  \
   V(CompareNil)                               \
   V(ToBoolean)                                \
   V(BinaryOp)                                 \
@@ -56,7 +59,9 @@ class PlatformInterfaceDescriptor;
   V(StoreArrayLiteralElement)                 \
   V(MathPowTagged)                            \
   V(MathPowInteger)                           \
-  V(ContextOnly)
+  V(MathRoundVariant)                         \
+  V(ContextOnly)                              \
+  V(GrowArrayElements)
 
 
 class CallInterfaceDescriptorData {
@@ -196,9 +201,10 @@ class LoadDescriptor : public CallInterfaceDescriptor {
  public:
   DECLARE_DESCRIPTOR(LoadDescriptor, CallInterfaceDescriptor)
 
-  enum ParameterIndices { kReceiverIndex, kNameIndex };
+  enum ParameterIndices { kReceiverIndex, kNameIndex, kSlotIndex };
   static const Register ReceiverRegister();
   static const Register NameRegister();
+  static const Register SlotRegister();
 };
 
 
@@ -252,19 +258,35 @@ class InstanceofDescriptor : public CallInterfaceDescriptor {
 };
 
 
-class VectorLoadICTrampolineDescriptor : public LoadDescriptor {
+class VectorStoreICTrampolineDescriptor : public StoreDescriptor {
  public:
-  DECLARE_DESCRIPTOR(VectorLoadICTrampolineDescriptor, LoadDescriptor)
+  DECLARE_DESCRIPTOR(VectorStoreICTrampolineDescriptor, StoreDescriptor)
 
-  enum ParameterIndices { kReceiverIndex, kNameIndex, kSlotIndex };
+  enum ParameterIndices { kReceiverIndex, kNameIndex, kValueIndex, kSlotIndex };
 
   static const Register SlotRegister();
 };
 
 
-class VectorLoadICDescriptor : public VectorLoadICTrampolineDescriptor {
+class VectorStoreICDescriptor : public VectorStoreICTrampolineDescriptor {
  public:
-  DECLARE_DESCRIPTOR(VectorLoadICDescriptor, VectorLoadICTrampolineDescriptor)
+  DECLARE_DESCRIPTOR(VectorStoreICDescriptor, VectorStoreICTrampolineDescriptor)
+
+  enum ParameterIndices {
+    kReceiverIndex,
+    kNameIndex,
+    kValueIndex,
+    kSlotIndex,
+    kVectorIndex
+  };
+
+  static const Register VectorRegister();
+};
+
+
+class LoadWithVectorDescriptor : public LoadDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(LoadWithVectorDescriptor, LoadDescriptor)
 
   enum ParameterIndices {
     kReceiverIndex,
@@ -298,6 +320,12 @@ class ToNumberDescriptor : public CallInterfaceDescriptor {
 class NumberToStringDescriptor : public CallInterfaceDescriptor {
  public:
   DECLARE_DESCRIPTOR(NumberToStringDescriptor, CallInterfaceDescriptor)
+};
+
+
+class TypeofDescriptor : public CallInterfaceDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(TypeofDescriptor, CallInterfaceDescriptor)
 };
 
 
@@ -403,6 +431,12 @@ class InternalArrayConstructorDescriptor : public CallInterfaceDescriptor {
  public:
   DECLARE_DESCRIPTOR(InternalArrayConstructorDescriptor,
                      CallInterfaceDescriptor)
+};
+
+
+class CompareDescriptor : public CallInterfaceDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(CompareDescriptor, CallInterfaceDescriptor)
 };
 
 
@@ -513,9 +547,25 @@ class MathPowIntegerDescriptor : public CallInterfaceDescriptor {
 };
 
 
+class MathRoundVariantDescriptor : public CallInterfaceDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(MathRoundVariantDescriptor, CallInterfaceDescriptor)
+};
+
+
 class ContextOnlyDescriptor : public CallInterfaceDescriptor {
  public:
   DECLARE_DESCRIPTOR(ContextOnlyDescriptor, CallInterfaceDescriptor)
+};
+
+
+class GrowArrayElementsDescriptor : public CallInterfaceDescriptor {
+ public:
+  DECLARE_DESCRIPTOR(GrowArrayElementsDescriptor, CallInterfaceDescriptor)
+
+  enum RegisterInfo { kObjectIndex, kKeyIndex };
+  static const Register ObjectRegister();
+  static const Register KeyRegister();
 };
 
 #undef DECLARE_DESCRIPTOR

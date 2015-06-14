@@ -7,7 +7,6 @@
 
 #include <iosfwd>
 
-#include "src/compiler.h"
 #include "src/hydrogen.h"
 #include "src/hydrogen-instructions.h"
 #include "src/zone.h"
@@ -19,7 +18,7 @@ namespace internal {
 // which can be used to represent side effects that cannot be expressed using
 // the GVNFlags of an HInstruction. These special side effects are tracked by a
 // SideEffectsTracker (see below).
-class SideEffects FINAL {
+class SideEffects final {
  public:
   static const int kNumberOfSpecials = 64 - kNumberOfFlags;
 
@@ -63,7 +62,7 @@ struct TrackedEffects;
 // SideEffects class (see above). This way unrelated global variable/inobject
 // field stores don't prevent hoisting and merging of global variable/inobject
 // field loads.
-class SideEffectsTracker FINAL BASE_EMBEDDED {
+class SideEffectsTracker final BASE_EMBEDDED {
  public:
   SideEffectsTracker() : num_global_vars_(0), num_inobject_fields_(0) {}
   SideEffects ComputeChanges(HInstruction* instr);
@@ -71,7 +70,7 @@ class SideEffectsTracker FINAL BASE_EMBEDDED {
 
  private:
   friend std::ostream& operator<<(std::ostream& os, const TrackedEffects& f);
-  bool ComputeGlobalVar(Unique<Cell> cell, int* index);
+  bool ComputeGlobalVar(Unique<PropertyCell> cell, int* index);
   bool ComputeInobjectField(HObjectAccess access, int* index);
 
   static int GlobalVar(int index) {
@@ -87,7 +86,7 @@ class SideEffectsTracker FINAL BASE_EMBEDDED {
 
   // Track up to four global vars.
   static const int kNumberOfGlobalVars = 4;
-  Unique<Cell> global_vars_[kNumberOfGlobalVars];
+  Unique<PropertyCell> global_vars_[kNumberOfGlobalVars];
   int num_global_vars_;
 
   // Track up to n inobject fields.
@@ -111,7 +110,7 @@ std::ostream& operator<<(std::ostream& os, const TrackedEffects& f);
 
 
 // Perform common subexpression elimination and loop-invariant code motion.
-class HGlobalValueNumberingPhase FINAL : public HPhase {
+class HGlobalValueNumberingPhase final : public HPhase {
  public:
   explicit HGlobalValueNumberingPhase(HGraph* graph);
 

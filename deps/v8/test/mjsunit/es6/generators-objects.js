@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --harmony-scoping --allow-natives-syntax --harmony-tostring
+// Flags: --allow-natives-syntax --harmony-tostring
 
 // Test instantations of generators.
 
@@ -84,7 +84,6 @@ function TestGeneratorObjectMethods() {
     assertThrows(function() { iter.next.call(non_generator); }, TypeError);
     assertThrows(function() { iter.next.call(non_generator, 1); }, TypeError);
     assertThrows(function() { iter.throw.call(non_generator, 1); }, TypeError);
-    assertThrows(function() { iter.close.call(non_generator); }, TypeError);
   }
 
   TestNonGenerator(1);

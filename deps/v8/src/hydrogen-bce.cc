@@ -56,7 +56,8 @@ class BoundsCheckKey : public ZoneObject {
       constant = HConstant::cast(check->index());
     }
 
-    if (constant != NULL && constant->HasInteger32Value()) {
+    if (constant != NULL && constant->HasInteger32Value() &&
+        constant->Integer32Value() != kMinInt) {
       *offset = is_sub ? - constant->Integer32Value()
                        : constant->Integer32Value();
     } else {
@@ -230,12 +231,15 @@ class BoundsCheckBbData: public ZoneObject {
           HArithmeticBinaryOperation::cast(index_raw);
       HValue* left_input = index->left();
       HValue* right_input = index->right();
+      HValue* context = index->context();
       bool must_move_index = false;
       bool must_move_left_input = false;
       bool must_move_right_input = false;
+      bool must_move_context = false;
       for (HInstruction* cursor = end_of_scan_range; cursor != insert_before;) {
         if (cursor == left_input) must_move_left_input = true;
         if (cursor == right_input) must_move_right_input = true;
+        if (cursor == context) must_move_context = true;
         if (cursor == index) must_move_index = true;
         if (cursor->previous() == NULL) {
           cursor = cursor->block()->dominator()->end();
@@ -256,6 +260,11 @@ class BoundsCheckBbData: public ZoneObject {
       if (must_move_right_input) {
         HConstant::cast(right_input)->Unlink();
         HConstant::cast(right_input)->InsertBefore(index);
+      }
+      if (must_move_context) {
+        // Contexts are always constants.
+        HConstant::cast(context)->Unlink();
+        HConstant::cast(context)->InsertBefore(index);
       }
     } else if (index_raw->IsConstant()) {
       HConstant* index = HConstant::cast(index_raw);
@@ -307,14 +316,16 @@ BoundsCheckTable::BoundsCheckTable(Zone* zone)
 BoundsCheckBbData** BoundsCheckTable::LookupOrInsert(BoundsCheckKey* key,
                                                      Zone* zone) {
   return reinterpret_cast<BoundsCheckBbData**>(
-      &(Lookup(key, key->Hash(), true, ZoneAllocationPolicy(zone))->value));
+      &(ZoneHashMap::LookupOrInsert(key, key->Hash(),
+                                    ZoneAllocationPolicy(zone))->value));
 }
 
 
 void BoundsCheckTable::Insert(BoundsCheckKey* key,
                               BoundsCheckBbData* data,
                               Zone* zone) {
-  Lookup(key, key->Hash(), true, ZoneAllocationPolicy(zone))->value = data;
+  ZoneHashMap::LookupOrInsert(key, key->Hash(), ZoneAllocationPolicy(zone))
+      ->value = data;
 }
 
 
@@ -379,7 +390,7 @@ BoundsCheckBbData* HBoundsCheckEliminationPhase::PreProcessBlock(
     if (!i->IsBoundsCheck()) continue;
 
     HBoundsCheck* check = HBoundsCheck::cast(i);
-    int32_t offset;
+    int32_t offset = 0;
     BoundsCheckKey* key =
         BoundsCheckKey::Create(zone(), check, &offset);
     if (key == NULL) continue;
@@ -462,4 +473,5 @@ void HBoundsCheckEliminationPhase::PostProcessBlock(
   }
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

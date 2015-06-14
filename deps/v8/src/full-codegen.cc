@@ -16,7 +16,7 @@
 #include "src/prettyprinter.h"
 #include "src/scopeinfo.h"
 #include "src/scopes.h"
-#include "src/snapshot.h"
+#include "src/snapshot/snapshot.h"
 
 namespace v8 {
 namespace internal {
@@ -41,11 +41,6 @@ void BreakableStatementChecker::VisitFunctionDeclaration(
 }
 
 
-void BreakableStatementChecker::VisitModuleDeclaration(
-    ModuleDeclaration* decl) {
-}
-
-
 void BreakableStatementChecker::VisitImportDeclaration(
     ImportDeclaration* decl) {
 }
@@ -53,26 +48,6 @@ void BreakableStatementChecker::VisitImportDeclaration(
 
 void BreakableStatementChecker::VisitExportDeclaration(
     ExportDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitModuleLiteral(ModuleLiteral* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleVariable(ModuleVariable* module) {
-}
-
-
-void BreakableStatementChecker::VisitModulePath(ModulePath* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleUrl(ModuleUrl* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleStatement(ModuleStatement* stmt) {
 }
 
 
@@ -292,11 +267,21 @@ void BreakableStatementChecker::VisitCompareOperation(CompareOperation* expr) {
 }
 
 
+void BreakableStatementChecker::VisitSpread(Spread* expr) {
+  Visit(expr->expression());
+}
+
+
 void BreakableStatementChecker::VisitThisFunction(ThisFunction* expr) {
 }
 
 
-void BreakableStatementChecker::VisitSuperReference(SuperReference* expr) {}
+void BreakableStatementChecker::VisitSuperPropertyReference(
+    SuperPropertyReference* expr) {}
+
+
+void BreakableStatementChecker::VisitSuperCallReference(
+    SuperCallReference* expr) {}
 
 
 #define __ ACCESS_MASM(masm())
@@ -332,9 +317,6 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
 
   Code::Flags flags = Code::ComputeFlags(Code::FUNCTION);
   Handle<Code> code = CodeGenerator::MakeCodeEpilogue(&masm, flags, info);
-  code->set_optimizable(info->IsOptimizable() &&
-                        !info->function()->dont_optimize() &&
-                        info->function()->scope()->AllowsLazyCompilation());
   cgen.PopulateDeoptimizationData(code);
   cgen.PopulateTypeFeedbackInfo(code);
   code->set_has_deoptimization_support(info->HasDeoptimizationSupport());
@@ -419,6 +401,28 @@ void FullCodeGenerator::PopulateTypeFeedbackInfo(Handle<Code> code) {
 }
 
 
+bool FullCodeGenerator::MustCreateObjectLiteralWithRuntime(
+    ObjectLiteral* expr) const {
+  int literal_flags = expr->ComputeFlags();
+  // FastCloneShallowObjectStub doesn't copy elements, and object literals don't
+  // support copy-on-write (COW) elements for now.
+  // TODO(mvstanton): make object literals support COW elements.
+  return masm()->serializer_enabled() ||
+         literal_flags != ObjectLiteral::kShallowProperties ||
+         literal_flags != ObjectLiteral::kFastElements ||
+         expr->properties_count() >
+             FastCloneShallowObjectStub::kMaximumClonedProperties;
+}
+
+
+bool FullCodeGenerator::MustCreateArrayLiteralWithRuntime(
+    ArrayLiteral* expr) const {
+  // TODO(rossberg): Teach strong mode to FastCloneShallowArrayStub.
+  return expr->depth() > 1 || expr->is_strong() ||
+         expr->values()->length() > JSObject::kInitialMaxFastElementArray;
+}
+
+
 void FullCodeGenerator::Initialize() {
   InitializeAstVisitor(info_->isolate(), info_->zone());
   // The generation of debug code must match between the snapshot code and the
@@ -426,9 +430,8 @@ void FullCodeGenerator::Initialize() {
   // calculating PC offsets after generating a debug version of code.  Therefore
   // we disable the production of debug code in the full compiler if we are
   // either generating a snapshot or we booted from a snapshot.
-  generate_debug_code_ = FLAG_debug_code &&
-                         !masm_->serializer_enabled() &&
-                         !Snapshot::HaveASnapshotToStartFrom();
+  generate_debug_code_ = FLAG_debug_code && !masm_->serializer_enabled() &&
+                         !info_->isolate()->snapshot_available();
   masm_->set_emit_debug_code(generate_debug_code_);
   masm_->set_predictable_code_size(true);
 }
@@ -443,6 +446,11 @@ void FullCodeGenerator::CallLoadIC(ContextualMode contextual_mode,
                                    TypeFeedbackId id) {
   Handle<Code> ic = CodeFactory::LoadIC(isolate(), contextual_mode).code();
   CallIC(ic, id);
+}
+
+
+void FullCodeGenerator::CallGlobalLoadIC(Handle<String> name) {
+  return CallLoadIC(CONTEXTUAL);
 }
 
 
@@ -604,138 +612,13 @@ void FullCodeGenerator::DoTest(const TestContext* context) {
 }
 
 
-void FullCodeGenerator::AllocateModules(ZoneList<Declaration*>* declarations) {
-  DCHECK(scope_->is_script_scope());
-
-  for (int i = 0; i < declarations->length(); i++) {
-    ModuleDeclaration* declaration = declarations->at(i)->AsModuleDeclaration();
-    if (declaration != NULL) {
-      ModuleLiteral* module = declaration->module()->AsModuleLiteral();
-      if (module != NULL) {
-        Comment cmnt(masm_, "[ Link nested modules");
-        Scope* scope = module->body()->scope();
-        Interface* interface = scope->interface();
-        DCHECK(interface->IsModule() && interface->IsFrozen());
-
-        interface->Allocate(scope->module_var()->index());
-
-        // Set up module context.
-        DCHECK(scope->interface()->Index() >= 0);
-        __ Push(Smi::FromInt(scope->interface()->Index()));
-        __ Push(scope->GetScopeInfo());
-        __ CallRuntime(Runtime::kPushModuleContext, 2);
-        StoreToFrameField(StandardFrameConstants::kContextOffset,
-                          context_register());
-
-        AllocateModules(scope->declarations());
-
-        // Pop module context.
-        LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-        // Update local stack frame context field.
-        StoreToFrameField(StandardFrameConstants::kContextOffset,
-                          context_register());
-      }
-    }
-  }
-}
-
-
-// Modules have their own local scope, represented by their own context.
-// Module instance objects have an accessor for every export that forwards
-// access to the respective slot from the module's context. (Exports that are
-// modules themselves, however, are simple data properties.)
-//
-// All modules have a _hosting_ scope/context, which (currently) is the
-// enclosing script scope. To deal with recursion, nested modules are hosted
-// by the same scope as global ones.
-//
-// For every (global or nested) module literal, the hosting context has an
-// internal slot that points directly to the respective module context. This
-// enables quick access to (statically resolved) module members by 2-dimensional
-// access through the hosting context. For example,
-//
-//   module A {
-//     let x;
-//     module B { let y; }
-//   }
-//   module C { let z; }
-//
-// allocates contexts as follows:
-//
-// [header| .A | .B | .C | A | C ]  (global)
-//           |    |    |
-//           |    |    +-- [header| z ]  (module)
-//           |    |
-//           |    +------- [header| y ]  (module)
-//           |
-//           +------------ [header| x | B ]  (module)
-//
-// Here, .A, .B, .C are the internal slots pointing to the hosted module
-// contexts, whereas A, B, C hold the actual instance objects (note that every
-// module context also points to the respective instance object through its
-// extension slot in the header).
-//
-// To deal with arbitrary recursion and aliases between modules,
-// they are created and initialized in several stages. Each stage applies to
-// all modules in the hosting script scope, including nested ones.
-//
-// 1. Allocate: for each module _literal_, allocate the module contexts and
-//    respective instance object and wire them up. This happens in the
-//    PushModuleContext runtime function, as generated by AllocateModules
-//    (invoked by VisitDeclarations in the hosting scope).
-//
-// 2. Bind: for each module _declaration_ (i.e. literals as well as aliases),
-//    assign the respective instance object to respective local variables. This
-//    happens in VisitModuleDeclaration, and uses the instance objects created
-//    in the previous stage.
-//    For each module _literal_, this phase also constructs a module descriptor
-//    for the next stage. This happens in VisitModuleLiteral.
-//
-// 3. Populate: invoke the DeclareModules runtime function to populate each
-//    _instance_ object with accessors for it exports. This is generated by
-//    DeclareModules (invoked by VisitDeclarations in the hosting scope again),
-//    and uses the descriptors generated in the previous stage.
-//
-// 4. Initialize: execute the module bodies (and other code) in sequence. This
-//    happens by the separate statements generated for module bodies. To reenter
-//    the module scopes properly, the parser inserted ModuleStatements.
-
 void FullCodeGenerator::VisitDeclarations(
     ZoneList<Declaration*>* declarations) {
-  Handle<FixedArray> saved_modules = modules_;
-  int saved_module_index = module_index_;
   ZoneList<Handle<Object> >* saved_globals = globals_;
   ZoneList<Handle<Object> > inner_globals(10, zone());
   globals_ = &inner_globals;
 
-  if (scope_->num_modules() != 0) {
-    // This is a scope hosting modules. Allocate a descriptor array to pass
-    // to the runtime for initialization.
-    Comment cmnt(masm_, "[ Allocate modules");
-    DCHECK(scope_->is_script_scope());
-    modules_ =
-        isolate()->factory()->NewFixedArray(scope_->num_modules(), TENURED);
-    module_index_ = 0;
-
-    // Generate code for allocating all modules, including nested ones.
-    // The allocated contexts are stored in internal variables in this scope.
-    AllocateModules(declarations);
-  }
-
   AstVisitor::VisitDeclarations(declarations);
-
-  if (scope_->num_modules() != 0) {
-    // TODO(ES6): This step, which creates module instance objects,
-    // can probably be delayed until an "import *" declaration
-    // reifies a module instance. Until imports are implemented,
-    // we skip it altogether.
-    //
-    // Initialize modules from descriptor array.
-    //  DCHECK(module_index_ == modules_->length());
-    //  DeclareModules(modules_);
-    modules_ = saved_modules;
-    module_index_ = saved_module_index;
-  }
 
   if (!globals_->is_empty()) {
     // Invoke the platform-dependent code generator to do the actual
@@ -748,73 +631,6 @@ void FullCodeGenerator::VisitDeclarations(
   }
 
   globals_ = saved_globals;
-}
-
-
-void FullCodeGenerator::VisitModuleLiteral(ModuleLiteral* module) {
-  Block* block = module->body();
-  Scope* saved_scope = scope();
-  scope_ = block->scope();
-  Interface* interface = scope_->interface();
-
-  Comment cmnt(masm_, "[ ModuleLiteral");
-  SetStatementPosition(block);
-
-  DCHECK(!modules_.is_null());
-  DCHECK(module_index_ < modules_->length());
-  int index = module_index_++;
-
-  // Set up module context.
-  DCHECK(interface->Index() >= 0);
-  __ Push(Smi::FromInt(interface->Index()));
-  __ Push(Smi::FromInt(0));
-  __ CallRuntime(Runtime::kPushModuleContext, 2);
-  StoreToFrameField(StandardFrameConstants::kContextOffset, context_register());
-
-  {
-    Comment cmnt(masm_, "[ Declarations");
-    VisitDeclarations(scope_->declarations());
-  }
-
-  // Populate the module description.
-  Handle<ModuleInfo> description =
-      ModuleInfo::Create(isolate(), interface, scope_);
-  modules_->set(index, *description);
-
-  scope_ = saved_scope;
-  // Pop module context.
-  LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-  // Update local stack frame context field.
-  StoreToFrameField(StandardFrameConstants::kContextOffset, context_register());
-}
-
-
-void FullCodeGenerator::VisitModuleVariable(ModuleVariable* module) {
-  // Nothing to do.
-  // The instance object is resolved statically through the module's interface.
-}
-
-
-void FullCodeGenerator::VisitModulePath(ModulePath* module) {
-  // Nothing to do.
-  // The instance object is resolved statically through the module's interface.
-}
-
-
-void FullCodeGenerator::VisitModuleUrl(ModuleUrl* module) {
-  // TODO(rossberg): dummy allocation for now.
-  Scope* scope = module->body()->scope();
-  Interface* interface = scope_->interface();
-
-  DCHECK(interface->IsModule() && interface->IsFrozen());
-  DCHECK(!modules_.is_null());
-  DCHECK(module_index_ < modules_->length());
-  interface->Allocate(scope->module_var()->index());
-  int index = module_index_++;
-
-  Handle<ModuleInfo> description =
-      ModuleInfo::Create(isolate(), interface, scope_);
-  modules_->set(index, *description);
 }
 
 
@@ -858,7 +674,13 @@ void FullCodeGenerator::SetStatementPosition(Statement* stmt) {
 }
 
 
-void FullCodeGenerator::VisitSuperReference(SuperReference* super) {
+void FullCodeGenerator::VisitSuperPropertyReference(
+    SuperPropertyReference* super) {
+  __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
+}
+
+
+void FullCodeGenerator::VisitSuperCallReference(SuperCallReference* super) {
   __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
 }
 
@@ -893,39 +715,6 @@ void FullCodeGenerator::SetSourcePosition(int pos) {
   if (pos != RelocInfo::kNoPosition) {
     masm_->positions_recorder()->RecordPosition(pos);
   }
-}
-
-
-// Lookup table for code generators for  special runtime calls which are
-// generated inline.
-#define INLINE_FUNCTION_GENERATOR_ADDRESS(Name, argc, ressize)          \
-    &FullCodeGenerator::Emit##Name,
-
-const FullCodeGenerator::InlineFunctionGenerator
-  FullCodeGenerator::kInlineFunctionGenerators[] = {
-    INLINE_FUNCTION_LIST(INLINE_FUNCTION_GENERATOR_ADDRESS)
-  };
-#undef INLINE_FUNCTION_GENERATOR_ADDRESS
-
-
-FullCodeGenerator::InlineFunctionGenerator
-  FullCodeGenerator::FindInlineFunctionGenerator(Runtime::FunctionId id) {
-    int lookup_index =
-        static_cast<int>(id) - static_cast<int>(Runtime::kFirstInlineFunction);
-    DCHECK(lookup_index >= 0);
-    DCHECK(static_cast<size_t>(lookup_index) <
-           arraysize(kInlineFunctionGenerators));
-    return kInlineFunctionGenerators[lookup_index];
-}
-
-
-void FullCodeGenerator::EmitInlineRuntimeCall(CallRuntime* expr) {
-  const Runtime::Function* function = expr->function();
-  DCHECK(function != NULL);
-  DCHECK(function->intrinsic_type == Runtime::INLINE);
-  InlineFunctionGenerator generator =
-      FindInlineFunctionGenerator(function->function_id);
-  ((*this).*(generator))(expr);
 }
 
 
@@ -1084,26 +873,6 @@ void FullCodeGenerator::VisitBlock(Block* stmt) {
 }
 
 
-void FullCodeGenerator::VisitModuleStatement(ModuleStatement* stmt) {
-  Comment cmnt(masm_, "[ Module context");
-
-  __ Push(Smi::FromInt(stmt->proxy()->interface()->Index()));
-  __ Push(Smi::FromInt(0));
-  __ CallRuntime(Runtime::kPushModuleContext, 2);
-  StoreToFrameField(
-      StandardFrameConstants::kContextOffset, context_register());
-
-  Scope* saved_scope = scope_;
-  scope_ = stmt->body()->scope();
-  VisitStatements(stmt->body()->statements());
-  scope_ = saved_scope;
-  LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-  // Update local stack frame context field.
-  StoreToFrameField(StandardFrameConstants::kContextOffset,
-                    context_register());
-}
-
-
 void FullCodeGenerator::VisitExpressionStatement(ExpressionStatement* stmt) {
   Comment cmnt(masm_, "[ ExpressionStatement");
   SetStatementPosition(stmt);
@@ -1218,6 +987,12 @@ void FullCodeGenerator::EmitPropertyKey(ObjectLiteralProperty* property,
   __ InvokeBuiltin(Builtins::TO_NAME, CALL_FUNCTION);
   PrepareForBailoutForId(bailout_id, NO_REGISTERS);
   __ Push(result_register());
+}
+
+
+void FullCodeGenerator::EmitLoadSuperConstructor(SuperCallReference* ref) {
+  VisitForStackValue(ref->this_function_var());
+  __ CallRuntime(Runtime::kGetPrototype, 1);
 }
 
 
@@ -1425,7 +1200,8 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
   Label try_entry, handler_entry, exit;
   __ jmp(&try_entry);
   __ bind(&handler_entry);
-  handler_table()->set(stmt->index(), Smi::FromInt(handler_entry.pos()));
+
+  ClearPendingMessage();
   // Exception handler code, the exception is in the result register.
   // Extend the context before executing the catch block.
   { Comment cmnt(masm_, "[ Extend catch context");
@@ -1451,11 +1227,14 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
 
   // Try block code. Sets up the exception handler chain.
   __ bind(&try_entry);
-  __ PushTryHandler(StackHandler::CATCH, stmt->index());
+
+  try_catch_depth_++;
+  EnterTryBlock(stmt->index(), &handler_entry);
   { TryCatch try_body(this);
     Visit(stmt->try_block());
   }
-  __ PopTryHandler();
+  ExitTryBlock(stmt->index());
+  try_catch_depth_--;
   __ bind(&exit);
 }
 
@@ -1489,7 +1268,6 @@ void FullCodeGenerator::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
   // Jump to try-handler setup and try-block code.
   __ jmp(&try_entry);
   __ bind(&handler_entry);
-  handler_table()->set(stmt->index(), Smi::FromInt(handler_entry.pos()));
   // Exception handler code.  This code is only executed when an exception
   // is thrown.  The exception is in the result register, and must be
   // preserved by the finally block.  Call the finally block and then
@@ -1508,11 +1286,11 @@ void FullCodeGenerator::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
 
   // Set up try handler.
   __ bind(&try_entry);
-  __ PushTryHandler(StackHandler::FINALLY, stmt->index());
+  EnterTryBlock(stmt->index(), &handler_entry);
   { TryFinally try_body(this, &finally_entry);
     Visit(stmt->try_block());
   }
-  __ PopTryHandler();
+  ExitTryBlock(stmt->index());
   // Execute the finally block on the way out.  Clobber the unpredictable
   // value in the result register with one that's safe for GC because the
   // finally block will unconditionally preserve the result register on the
@@ -1614,6 +1392,7 @@ void FullCodeGenerator::VisitClassLiteral(ClassLiteral* lit) {
     __ Push(Smi::FromInt(lit->end_position()));
 
     __ CallRuntime(Runtime::kDefineClass, 6);
+    PrepareForBailoutForId(lit->CreateLiteralId(), TOS_REG);
     EmitClassDefineProperties(lit);
 
     if (lit->scope() != NULL) {
@@ -1631,15 +1410,19 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
     NativeFunctionLiteral* expr) {
   Comment cmnt(masm_, "[ NativeFunctionLiteral");
 
+  v8::Isolate* v8_isolate = reinterpret_cast<v8::Isolate*>(isolate());
+
   // Compute the function template for the native function.
   Handle<String> name = expr->name();
   v8::Handle<v8::FunctionTemplate> fun_template =
-      expr->extension()->GetNativeFunctionTemplate(
-          reinterpret_cast<v8::Isolate*>(isolate()), v8::Utils::ToLocal(name));
+      expr->extension()->GetNativeFunctionTemplate(v8_isolate,
+                                                   v8::Utils::ToLocal(name));
   DCHECK(!fun_template.IsEmpty());
 
   // Instantiate the function and create a shared function info from it.
-  Handle<JSFunction> fun = Utils::OpenHandle(*fun_template->GetFunction());
+  Handle<JSFunction> fun = Utils::OpenHandle(
+      *fun_template->GetFunction(v8_isolate->GetCurrentContext())
+           .ToLocalChecked());
   const int literals = fun->NumberOfLiterals();
   Handle<Code> code = Handle<Code>(fun->shared()->code());
   Handle<Code> construct_stub = Handle<Code>(fun->shared()->construct_stub());
@@ -1652,8 +1435,8 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
 
   // Copy the function data to the shared function info.
   shared->set_function_data(fun->shared()->function_data());
-  int parameters = fun->shared()->formal_parameter_count();
-  shared->set_formal_parameter_count(parameters);
+  int parameters = fun->shared()->internal_formal_parameter_count();
+  shared->set_internal_formal_parameter_count(parameters);
 
   EmitNewClosure(shared, false);
 }
@@ -1662,18 +1445,65 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
 void FullCodeGenerator::VisitThrow(Throw* expr) {
   Comment cmnt(masm_, "[ Throw");
   VisitForStackValue(expr->exception());
+  SetSourcePosition(expr->position());
   __ CallRuntime(Runtime::kThrow, 1);
   // Never returns here.
 }
 
 
-FullCodeGenerator::NestedStatement* FullCodeGenerator::TryCatch::Exit(
-    int* stack_depth,
-    int* context_length) {
+void FullCodeGenerator::EnterTryBlock(int index, Label* handler) {
+  handler_table()->SetRangeStart(index, masm()->pc_offset());
+  HandlerTable::CatchPrediction prediction =
+      try_catch_depth_ > 0 ? HandlerTable::CAUGHT : HandlerTable::UNCAUGHT;
+  handler_table()->SetRangeHandler(index, handler->pos(), prediction);
+
+  // Determine expression stack depth of try statement.
+  int stack_depth = info_->scope()->num_stack_slots();  // Include stack locals.
+  for (NestedStatement* current = nesting_stack_; current != NULL; /*nop*/) {
+    current = current->AccumulateDepth(&stack_depth);
+  }
+  handler_table()->SetRangeDepth(index, stack_depth);
+
+  // Push context onto operand stack.
+  STATIC_ASSERT(TryBlockConstant::kElementCount == 1);
+  __ Push(context_register());
+}
+
+
+void FullCodeGenerator::ExitTryBlock(int index) {
+  handler_table()->SetRangeEnd(index, masm()->pc_offset());
+
+  // Drop context from operand stack.
+  __ Drop(TryBlockConstant::kElementCount);
+}
+
+
+void FullCodeGenerator::VisitSpread(Spread* expr) { UNREACHABLE(); }
+
+
+FullCodeGenerator::NestedStatement* FullCodeGenerator::TryFinally::Exit(
+    int* stack_depth, int* context_length) {
   // The macros used here must preserve the result register.
-  __ Drop(*stack_depth);
-  __ PopTryHandler();
+
+  // Because the handler block contains the context of the finally
+  // code, we can restore it directly from there for the finally code
+  // rather than iteratively unwinding contexts via their previous
+  // links.
+  if (*context_length > 0) {
+    __ Drop(*stack_depth);  // Down to the handler block.
+    // Restore the context to its dedicated register and the stack.
+    STATIC_ASSERT(TryFinally::kElementCount == 1);
+    __ Pop(codegen_->context_register());
+    codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
+                                codegen_->context_register());
+  } else {
+    // Down to the handler block and also drop context.
+    __ Drop(*stack_depth + kElementCount);
+  }
+  __ Call(finally_entry_);
+
   *stack_depth = 0;
+  *context_length = 0;
   return previous_;
 }
 
@@ -1792,22 +1622,27 @@ bool BackEdgeTable::Verify(Isolate* isolate, Code* unoptimized) {
 FullCodeGenerator::EnterBlockScopeIfNeeded::EnterBlockScopeIfNeeded(
     FullCodeGenerator* codegen, Scope* scope, BailoutId entry_id,
     BailoutId declarations_id, BailoutId exit_id)
-    : codegen_(codegen), scope_(scope), exit_id_(exit_id) {
+    : codegen_(codegen), exit_id_(exit_id) {
   saved_scope_ = codegen_->scope();
 
   if (scope == NULL) {
     codegen_->PrepareForBailoutForId(entry_id, NO_REGISTERS);
+    needs_block_context_ = false;
   } else {
+    needs_block_context_ = scope->ContextLocalCount() > 0;
     codegen_->scope_ = scope;
     {
-      Comment cmnt(masm(), "[ Extend block context");
-      __ Push(scope->GetScopeInfo());
-      codegen_->PushFunctionArgumentForContextAllocation();
-      __ CallRuntime(Runtime::kPushBlockContext, 2);
+      if (needs_block_context_) {
+        Comment cmnt(masm(), "[ Extend block context");
+        __ Push(scope->GetScopeInfo(codegen->isolate()));
+        codegen_->PushFunctionArgumentForContextAllocation();
+        __ CallRuntime(Runtime::kPushBlockContext, 2);
 
-      // Replace the context stored in the frame.
-      codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
-                                  codegen_->context_register());
+        // Replace the context stored in the frame.
+        codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
+                                    codegen_->context_register());
+      }
+      CHECK_EQ(0, scope->num_stack_slots());
       codegen_->PrepareForBailoutForId(entry_id, NO_REGISTERS);
     }
     {
@@ -1820,7 +1655,7 @@ FullCodeGenerator::EnterBlockScopeIfNeeded::EnterBlockScopeIfNeeded(
 
 
 FullCodeGenerator::EnterBlockScopeIfNeeded::~EnterBlockScopeIfNeeded() {
-  if (scope_ != NULL) {
+  if (needs_block_context_) {
     codegen_->LoadContextField(codegen_->context_register(),
                                Context::PREVIOUS_INDEX);
     // Update local stack frame context field.
@@ -1835,4 +1670,5 @@ FullCodeGenerator::EnterBlockScopeIfNeeded::~EnterBlockScopeIfNeeded() {
 #undef __
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

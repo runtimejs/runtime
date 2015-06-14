@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "logger.h"
-#include <common/utils.h>
+#include <kernel/utils.h>
 
 // TODO: remove arch header
 #include <kernel/x64/io-x64.h>
@@ -40,8 +40,8 @@ LogWriterVideo::LogWriterVideo()
 
     // Clean screen
     uint16_t blank = 0x20 | (kClearColor << 8);
-    common::Utils::Memset16(display_buf_, blank, kWidth * kHeight);
-    common::Utils::Memset16(reinterpret_cast<uint8_t*>(kVideo),
+    Utils::Memset16(display_buf_, blank, kWidth * kHeight);
+    Utils::Memset16(reinterpret_cast<uint8_t*>(kVideo),
                             blank, kWidth * kHeight);
 }
 
@@ -82,7 +82,7 @@ void LogWriterVideo::NewLine() {
     if (cursor_y_ >= kHeight) {
         uint16_t blank = 0x20 | (kClearColor << 8);
         memmove(display_buf_, display_buf_ + kWidth * 2, kWidth * (kHeight - 1) * 2);
-        common::Utils::Memset16(display_buf_ + kWidth * (kHeight - 1) * 2, blank, kWidth);
+        Utils::Memset16(display_buf_ + kWidth * (kHeight - 1) * 2, blank, kWidth);
         memcpy(reinterpret_cast<uint8_t*>(kVideo), display_buf_, kWidth * kHeight * 2);
         --cursor_y_;
     }

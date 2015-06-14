@@ -46,8 +46,10 @@ from git_recipes import GitRecipesMixin
 from git_recipes import GitFailedException
 
 CHANGELOG_FILE = "ChangeLog"
+DAY_IN_SECONDS = 24 * 60 * 60
 PUSH_MSG_GIT_RE = re.compile(r".* \(based on (?P<git_rev>[a-fA-F0-9]+)\)$")
-VERSION_FILE = os.path.join("src", "version.cc")
+PUSH_MSG_NEW_RE = re.compile(r"^Version \d+\.\d+\.\d+$")
+VERSION_FILE = os.path.join("include", "v8-version.h")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:\.\d+)?$")
 
 # V8 base directory.
@@ -331,9 +333,25 @@ class GitInterface(VCInterface):
     return "origin/candidates"
 
   def RemoteBranch(self, name):
+    # Assume that if someone "fully qualified" the ref, they know what they
+    # want.
+    if name.startswith('refs/'):
+      return name
     if name in ["candidates", "master"]:
-      return "origin/%s" % name
-    return "branch-heads/%s" % name
+      return "refs/remotes/origin/%s" % name
+    try:
+      # Check if branch is in heads.
+      if self.step.Git("show-ref refs/remotes/origin/%s" % name).strip():
+        return "refs/remotes/origin/%s" % name
+    except GitFailedException:
+      pass
+    try:
+      # Check if branch is in branch-heads.
+      if self.step.Git("show-ref refs/remotes/branch-heads/%s" % name).strip():
+        return "refs/remotes/branch-heads/%s" % name
+    except GitFailedException:
+      pass
+    self.Die("Can't find remote of %s" % name)
 
   def Tag(self, tag, remote, message):
     # Wait for the commit to appear. Assumes unique commit message titles (this
@@ -493,12 +511,12 @@ class Step(GitRecipesMixin):
     answer = self.ReadLine(default="Y")
     return answer == "" or answer == "Y" or answer == "y"
 
-  def DeleteBranch(self, name):
-    for line in self.GitBranch().splitlines():
+  def DeleteBranch(self, name, cwd=None):
+    for line in self.GitBranch(cwd=cwd).splitlines():
       if re.match(r"\*?\s*%s$" % re.escape(name), line):
         msg = "Branch %s exists, do you want to delete it?" % name
         if self.Confirm(msg):
-          self.GitDeleteBranch(name)
+          self.GitDeleteBranch(name, cwd=cwd)
           print "Branch %s deleted." % name
         else:
           msg = "Can't continue. Please delete branch %s and try again." % name
@@ -520,8 +538,8 @@ class Step(GitRecipesMixin):
     if not self.GitIsWorkdirClean():  # pragma: no cover
       self.Die("Workspace is not clean. Please commit or undo your changes.")
 
-    # Persist current branch.
-    self["current_branch"] = self.GitCurrentBranch()
+    # Checkout master in case the script was left on a work branch.
+    self.GitCheckout('origin/master')
 
     # Fetch unfetched revisions.
     self.vc.Fetch()
@@ -531,12 +549,8 @@ class Step(GitRecipesMixin):
     self.DeleteBranch(self._config["BRANCHNAME"])
 
   def CommonCleanup(self):
-    if ' ' in self["current_branch"]:
-      self.GitCheckout('master')
-    else:
-      self.GitCheckout(self["current_branch"])
-    if self._config["BRANCHNAME"] != self["current_branch"]:
-      self.GitDeleteBranch(self._config["BRANCHNAME"])
+    self.GitCheckout('origin/master')
+    self.GitDeleteBranch(self._config["BRANCHNAME"])
 
     # Clean up all temporary files.
     for f in glob.iglob("%s*" % self._config["PERSISTFILE_BASENAME"]):
@@ -552,10 +566,10 @@ class Step(GitRecipesMixin):
         value = match.group(1)
         self["%s%s" % (prefix, var_name)] = value
     for line in LinesInFile(os.path.join(self.default_cwd, VERSION_FILE)):
-      for (var_name, def_name) in [("major", "MAJOR_VERSION"),
-                                   ("minor", "MINOR_VERSION"),
-                                   ("build", "BUILD_NUMBER"),
-                                   ("patch", "PATCH_LEVEL")]:
+      for (var_name, def_name) in [("major", "V8_MAJOR_VERSION"),
+                                   ("minor", "V8_MINOR_VERSION"),
+                                   ("build", "V8_BUILD_NUMBER"),
+                                   ("patch", "V8_PATCH_LEVEL")]:
         ReadAndPersist(var_name, def_name)
 
   def WaitForLGTM(self):
@@ -591,6 +605,13 @@ class Step(GitRecipesMixin):
     except GitFailedException:
       self.WaitForResolvingConflicts(patch_file)
 
+  def GetVersionTag(self, revision):
+    tag = self.Git("describe --tags %s" % revision).strip()
+    if VERSION_RE.match(tag):
+      return tag
+    else:
+      return None
+
   def GetRecentReleases(self, max_age):
     # Make sure tags are fetched.
     self.Git("fetch origin +refs/tags/*:refs/tags/*")
@@ -602,12 +623,8 @@ class Step(GitRecipesMixin):
     revisions = self.Git("rev-list --max-age=%d --tags" %
                          int(time_now - max_age)).strip()
 
-    def IsTagged(revision):
-      return VERSION_RE.match(
-          self.Git("describe --tags %s" % revision).strip())
-
     # Filter out revisions who's tag is off by one or more commits.
-    return filter(IsTagged, revisions.splitlines())
+    return filter(lambda r: self.GetVersionTag(r), revisions.splitlines())
 
   def GetLatestVersion(self):
     # Use cached version if available.
@@ -633,11 +650,11 @@ class Step(GitRecipesMixin):
     assert latest_hash
     return latest_hash
 
-  def GetLatestReleaseBase(self):
+  def GetLatestReleaseBase(self, version=None):
     """The latest release base is the latest revision that is covered in the
     last change log file. It doesn't include cherry-picked patches.
     """
-    latest_version = self.GetLatestVersion()
+    latest_version = version or self.GetLatestVersion()
 
     # Strip patch level if it exists.
     latest_version = ".".join(latest_version.split(".")[:3])
@@ -646,14 +663,21 @@ class Step(GitRecipesMixin):
     latest_hash = self.GitLog(n=1, format="%H", branch=latest_version)
     assert latest_hash
 
-    match = PUSH_MSG_GIT_RE.match(
-        self.GitLog(n=1, format="%s", git_hash=latest_hash))
+    title = self.GitLog(n=1, format="%s", git_hash=latest_hash)
+    match = PUSH_MSG_GIT_RE.match(title)
     if match:
       # Legacy: In the old process there's one level of indirection. The
       # version is on the candidates branch and points to the real release
       # base on master through the commit message.
-      latest_hash = match.group("git_rev")
-    return latest_hash
+      return match.group("git_rev")
+    match = PUSH_MSG_NEW_RE.match(title)
+    if match:
+      # This is a new-style v8 version branched from master. The commit
+      # "latest_hash" is the version-file change. Its parent is the release
+      # base on master.
+      return self.GitLog(n=1, format="%H", git_hash="%s^" % latest_hash)
+
+    self.Die("Unknown latest release: %s" % latest_hash)
 
   def ArrayToVersion(self, prefix):
     return ".".join([self[prefix + "major"],
@@ -674,16 +698,16 @@ class Step(GitRecipesMixin):
   def SetVersion(self, version_file, prefix):
     output = ""
     for line in FileToText(version_file).splitlines():
-      if line.startswith("#define MAJOR_VERSION"):
+      if line.startswith("#define V8_MAJOR_VERSION"):
         line = re.sub("\d+$", self[prefix + "major"], line)
-      elif line.startswith("#define MINOR_VERSION"):
+      elif line.startswith("#define V8_MINOR_VERSION"):
         line = re.sub("\d+$", self[prefix + "minor"], line)
-      elif line.startswith("#define BUILD_NUMBER"):
+      elif line.startswith("#define V8_BUILD_NUMBER"):
         line = re.sub("\d+$", self[prefix + "build"], line)
-      elif line.startswith("#define PATCH_LEVEL"):
+      elif line.startswith("#define V8_PATCH_LEVEL"):
         line = re.sub("\d+$", self[prefix + "patch"], line)
       elif (self[prefix + "candidate"] and
-            line.startswith("#define IS_CANDIDATE_VERSION")):
+            line.startswith("#define V8_IS_CANDIDATE_VERSION")):
         line = re.sub("\d+$", self[prefix + "candidate"], line)
       output += "%s\n" % line
     TextToFile(output, version_file)
@@ -726,16 +750,6 @@ class DetermineV8Sheriff(Step):
     if not self._options.sheriff:  # pragma: no cover
       return
 
-    try:
-      # The googlers mapping maps @google.com accounts to @chromium.org
-      # accounts.
-      googlers = imp.load_source('googlers_mapping',
-                                 self._options.googlers_mapping)
-      googlers = googlers.list_to_dict(googlers.get_list())
-    except:  # pragma: no cover
-      print "Skip determining sheriff without googler mapping."
-      return
-
     # The sheriff determined by the rotation on the waterfall has a
     # @google.com account.
     url = "https://chromium-build.appspot.com/p/chromium/sheriff_v8.js"
@@ -744,9 +758,11 @@ class DetermineV8Sheriff(Step):
     # If "channel is sheriff", we can't match an account.
     if match:
       g_name = match.group(1)
-      self["sheriff"] = googlers.get(g_name + "@google.com",
-                                     g_name + "@chromium.org")
-      self._options.reviewer = self["sheriff"]
+      # Optimistically assume that google and chromium account name are the
+      # same.
+      self["sheriff"] = g_name + "@chromium.org"
+      self._options.reviewer = ("%s,%s" %
+                                (self["sheriff"], self._options.reviewer))
       print "Found active sheriff: %s" % self["sheriff"]
     else:
       print "No active sheriff found."
@@ -798,8 +814,6 @@ class ScriptsBase(object):
                         help="The author email used for rietveld.")
     parser.add_argument("--dry-run", default=False, action="store_true",
                         help="Perform only read-only actions.")
-    parser.add_argument("-g", "--googlers-mapping",
-                        help="Path to the script mapping google accounts.")
     parser.add_argument("-r", "--reviewer", default="",
                         help="The account name to be used for reviews.")
     parser.add_argument("--sheriff", default=False, action="store_true",
@@ -822,10 +836,6 @@ class ScriptsBase(object):
     # Process common options.
     if options.step < 0:  # pragma: no cover
       print "Bad step number %d" % options.step
-      parser.print_help()
-      return None
-    if options.sheriff and not options.googlers_mapping:  # pragma: no cover
-      print "To determine the current sheriff, requires the googler mapping"
       parser.print_help()
       return None
 

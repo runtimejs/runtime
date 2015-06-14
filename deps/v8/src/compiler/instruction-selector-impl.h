@@ -8,11 +8,23 @@
 #include "src/compiler/instruction.h"
 #include "src/compiler/instruction-selector.h"
 #include "src/compiler/linkage.h"
+#include "src/compiler/schedule.h"
 #include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
+
+// Helper struct containing data about a table or lookup switch.
+struct SwitchInfo {
+  int32_t min_value;           // minimum value of {case_values}
+  int32_t max_value;           // maximum value of {case_values}
+  size_t value_range;          // |max_value - min_value| + 1
+  size_t case_count;           // number of cases
+  int32_t* case_values;        // actual case values, unsorted
+  BasicBlock** case_branches;  // basic blocks corresponding to case values
+  BasicBlock* default_branch;  // default branch target
+};
 
 // A helper class for the instruction selector that simplifies construction of
 // Operands. This class implements a base for architecture-specific helpers.
@@ -74,6 +86,11 @@ class OperandGenerator {
                                         GetVReg(node)));
   }
 
+  InstructionOperand UseUniqueSlot(Node* node) {
+    return Use(node, UnallocatedOperand(UnallocatedOperand::MUST_HAVE_SLOT,
+                                        GetVReg(node)));
+  }
+
   // Use register or operand for the node. If a register is chosen, it won't
   // alias any temporary or output registers.
   InstructionOperand UseUnique(Node* node) {
@@ -102,8 +119,7 @@ class OperandGenerator {
   }
 
   InstructionOperand UseImmediate(Node* node) {
-    int index = sequence()->AddImmediate(ToConstant(node));
-    return ImmediateOperand(index);
+    return sequence()->AddImmediate(ToConstant(node));
   }
 
   InstructionOperand UseLocation(Node* node, LinkageLocation location,
@@ -121,7 +137,7 @@ class OperandGenerator {
     UnallocatedOperand op = UnallocatedOperand(
         UnallocatedOperand::MUST_HAVE_REGISTER,
         UnallocatedOperand::USED_AT_START, sequence()->NextVirtualRegister());
-    sequence()->MarkAsDouble(op.virtual_register());
+    sequence()->MarkAsRepresentation(kRepFloat64, op.virtual_register());
     return op;
   }
 
@@ -132,8 +148,7 @@ class OperandGenerator {
   }
 
   InstructionOperand TempImmediate(int32_t imm) {
-    int index = sequence()->AddImmediate(Constant(imm));
-    return ImmediateOperand(index);
+    return sequence()->AddImmediate(Constant(imm));
   }
 
   InstructionOperand TempLocation(LinkageLocation location, MachineType type) {
@@ -142,8 +157,8 @@ class OperandGenerator {
   }
 
   InstructionOperand Label(BasicBlock* block) {
-    int index = sequence()->AddImmediate(Constant(block->GetRpoNumber()));
-    return ImmediateOperand(index);
+    return sequence()->AddImmediate(
+        Constant(RpoNumber::FromInt(block->rpo_number())));
   }
 
  protected:
@@ -228,7 +243,7 @@ class OperandGenerator {
 // The whole instruction is treated as a unit by the register allocator, and
 // thus no spills or moves can be introduced between the flags-setting
 // instruction and the branch or set it should be combined with.
-class FlagsContinuation FINAL {
+class FlagsContinuation final {
  public:
   FlagsContinuation() : mode_(kFlags_none) {}
 

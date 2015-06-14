@@ -29,10 +29,12 @@ using ::testing::Matcher;
 class GraphTest : public TestWithContext, public TestWithIsolateAndZone {
  public:
   explicit GraphTest(int num_parameters = 1);
-  ~GraphTest() OVERRIDE;
+  ~GraphTest() override;
 
  protected:
   Node* start() { return graph()->start(); }
+  Node* end() { return graph()->end(); }
+
   Node* Parameter(int32_t index = 0);
   Node* Float32Constant(volatile float value);
   Node* Float64Constant(volatile double value);
@@ -47,6 +49,8 @@ class GraphTest : public TestWithContext, public TestWithIsolateAndZone {
   Node* FalseConstant();
   Node* TrueConstant();
   Node* UndefinedConstant();
+
+  Node* EmptyFrameState();
 
   Matcher<Node*> IsFalseConstant();
   Matcher<Node*> IsTrueConstant();
@@ -64,7 +68,7 @@ class GraphTest : public TestWithContext, public TestWithIsolateAndZone {
 class TypedGraphTest : public GraphTest {
  public:
   explicit TypedGraphTest(int num_parameters = 1);
-  ~TypedGraphTest() OVERRIDE;
+  ~TypedGraphTest() override;
 
  protected:
   Node* Parameter(int32_t index = 0) { return GraphTest::Parameter(index); }

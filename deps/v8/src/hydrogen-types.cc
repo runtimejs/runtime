@@ -15,14 +15,13 @@ namespace internal {
 template <class T>
 HType HType::FromType(typename T::TypeHandle type) {
   if (T::Any()->Is(type)) return HType::Any();
-  if (type->Is(T::None())) return HType::None();
+  if (!type->IsInhabited()) return HType::None();
   if (type->Is(T::SignedSmall())) return HType::Smi();
   if (type->Is(T::Number())) return HType::TaggedNumber();
   if (type->Is(T::Null())) return HType::Null();
   if (type->Is(T::String())) return HType::String();
   if (type->Is(T::Boolean())) return HType::Boolean();
   if (type->Is(T::Undefined())) return HType::Undefined();
-  if (type->Is(T::Array())) return HType::JSArray();
   if (type->Is(T::Object())) return HType::JSObject();
   if (type->Is(T::Receiver())) return HType::JSReceiver();
   return HType::Tagged();
@@ -71,4 +70,5 @@ std::ostream& operator<<(std::ostream& os, const HType& t) {
   return os;
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "src/compiler/ast-loop-assignment-analyzer.h"
+#include "src/compiler.h"
 #include "src/parser.h"
 
 namespace v8 {
@@ -54,12 +55,8 @@ void ALAA::Exit(IterationStatement* loop) {
 
 void ALAA::VisitVariableDeclaration(VariableDeclaration* leaf) {}
 void ALAA::VisitFunctionDeclaration(FunctionDeclaration* leaf) {}
-void ALAA::VisitModuleDeclaration(ModuleDeclaration* leaf) {}
 void ALAA::VisitImportDeclaration(ImportDeclaration* leaf) {}
 void ALAA::VisitExportDeclaration(ExportDeclaration* leaf) {}
-void ALAA::VisitModuleVariable(ModuleVariable* leaf) {}
-void ALAA::VisitModulePath(ModulePath* leaf) {}
-void ALAA::VisitModuleUrl(ModuleUrl* leaf) {}
 void ALAA::VisitEmptyStatement(EmptyStatement* leaf) {}
 void ALAA::VisitContinueStatement(ContinueStatement* leaf) {}
 void ALAA::VisitBreakStatement(BreakStatement* leaf) {}
@@ -70,15 +67,13 @@ void ALAA::VisitVariableProxy(VariableProxy* leaf) {}
 void ALAA::VisitLiteral(Literal* leaf) {}
 void ALAA::VisitRegExpLiteral(RegExpLiteral* leaf) {}
 void ALAA::VisitThisFunction(ThisFunction* leaf) {}
-void ALAA::VisitSuperReference(SuperReference* leaf) {}
+void ALAA::VisitSuperPropertyReference(SuperPropertyReference* leaf) {}
+void ALAA::VisitSuperCallReference(SuperCallReference* leaf) {}
 
 
 // ---------------------------------------------------------------------------
 // -- Pass-through nodes------------------------------------------------------
 // ---------------------------------------------------------------------------
-void ALAA::VisitModuleLiteral(ModuleLiteral* e) { Visit(e->body()); }
-
-
 void ALAA::VisitBlock(Block* stmt) { VisitStatements(stmt->statements()); }
 
 
@@ -195,6 +190,9 @@ void ALAA::VisitCompareOperation(CompareOperation* e) {
 }
 
 
+void ALAA::VisitSpread(Spread* e) { Visit(e->expression()); }
+
+
 void ALAA::VisitCaseClause(CaseClause* cc) {
   if (!cc->is_default()) Visit(cc->label());
   VisitStatements(cc->statements());
@@ -204,13 +202,6 @@ void ALAA::VisitCaseClause(CaseClause* cc) {
 // ---------------------------------------------------------------------------
 // -- Interesting nodes-------------------------------------------------------
 // ---------------------------------------------------------------------------
-void ALAA::VisitModuleStatement(ModuleStatement* stmt) {
-  Visit(stmt->body());
-  // TODO(turbofan): can a module appear in a loop?
-  AnalyzeAssignment(stmt->proxy()->var());
-}
-
-
 void ALAA::VisitTryCatchStatement(TryCatchStatement* stmt) {
   Visit(stmt->try_block());
   Visit(stmt->catch_block());
@@ -302,6 +293,6 @@ int LoopAssignmentAnalysis::GetAssignmentCountForTesting(Scope* scope,
   }
   return count;
 }
-}
-}
-}  // namespace v8::internal::compiler
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

@@ -15,7 +15,7 @@
 #elif V8_OS_POSIX
 #include <semaphore.h>  // NOLINT
 #elif V8_OS_RUNTIMEJS
-#include <kernel/atomic.h>
+#include <kernel/threadlib/semaphore.h>
 #endif
 
 namespace v8 {
@@ -33,7 +33,7 @@ class TimeDelta;
 // count reaches zero,  threads waiting for the semaphore blocks until the
 // count becomes non-zero.
 
-class Semaphore FINAL {
+class Semaphore final {
  public:
   explicit Semaphore(int count);
   ~Semaphore();
@@ -58,7 +58,7 @@ class Semaphore FINAL {
 #elif V8_OS_WIN
   typedef HANDLE NativeHandle;
 #elif V8_OS_RUNTIMEJS
-  typedef rt::Atomic<int32_t> NativeHandle;
+  typedef threadlib::semaphore_t NativeHandle;
 #endif
 
   NativeHandle& native_handle() {

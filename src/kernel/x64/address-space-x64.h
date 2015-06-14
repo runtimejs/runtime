@@ -15,7 +15,7 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <common/constants.h>
+#include <kernel/constants.h>
 #include <kernel/spinlock.h>
 
 namespace rt {
@@ -217,7 +217,6 @@ private:
     PageTableAllocator* table_allocator_;
     CR3Entry cr3_;
     PageTable<PML4Entry>* pml4_table_;
-    Locker map_page_locker_;
 };
 
 } // namespace rt

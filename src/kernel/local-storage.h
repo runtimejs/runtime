@@ -15,7 +15,6 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <kernel/allocator.h>
 #include <array>
 
 namespace rt {

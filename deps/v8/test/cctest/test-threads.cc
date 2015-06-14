@@ -32,12 +32,7 @@
 #include "src/isolate.h"
 
 
-enum Turn {
-  FILL_CACHE,
-  CLEAN_CACHE,
-  SECOND_TIME_FILL_CACHE,
-  DONE
-};
+enum Turn { FILL_CACHE, CLEAN_CACHE, SECOND_TIME_FILL_CACHE, CACHE_DONE };
 
 static Turn turn = FILL_CACHE;
 
@@ -70,14 +65,13 @@ class ThreadA : public v8::base::Thread {
     do {
       {
         v8::Unlocker unlocker(CcTest::isolate());
-        Thread::YieldCPU();
       }
     } while (turn != SECOND_TIME_FILL_CACHE);
 
     // Rerun the script.
     CHECK(script->Run()->IsTrue());
 
-    turn = DONE;
+    turn = CACHE_DONE;
   }
 };
 
@@ -97,13 +91,11 @@ class ThreadB : public v8::base::Thread {
           v8::Context::Scope context_scope(context);
 
           // Clear the caches by forcing major GC.
-          CcTest::heap()->CollectAllGarbage(v8::internal::Heap::kNoGCFlags);
+          CcTest::heap()->CollectAllGarbage();
           turn = SECOND_TIME_FILL_CACHE;
           break;
         }
       }
-
-      Thread::YieldCPU();
     } while (true);
   }
 };
@@ -119,7 +111,7 @@ TEST(JSFunctionResultCachesInTwoThreads) {
   threadA.Join();
   threadB.Join();
 
-  CHECK_EQ(DONE, turn);
+  CHECK_EQ(CACHE_DONE, turn);
 }
 
 class ThreadIdValidationThread : public v8::base::Thread {

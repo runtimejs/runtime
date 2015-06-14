@@ -45,9 +45,49 @@ FieldAccess AccessBuilder::ForJSArrayBufferBackingStore() {
 
 
 // static
+FieldAccess AccessBuilder::ForFixedArrayLength() {
+  // TODO(turbofan): 2^30 is a valid upper limit for the FixedArray::length
+  // field, although it's not the best. If we had a Zone we could create an
+  // appropriate range type instead.
+  STATIC_ASSERT(FixedArray::kMaxLength <= 1 << 30);
+  return {kTaggedBase, FixedArray::kLengthOffset, MaybeHandle<Name>(),
+          Type::Intersect(Type::Unsigned30(), Type::TaggedSigned()),
+          kMachAnyTagged};
+}
+
+
+// static
 FieldAccess AccessBuilder::ForExternalArrayPointer() {
   return {kTaggedBase, ExternalArray::kExternalPointerOffset,
           MaybeHandle<Name>(), Type::UntaggedPointer(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForDescriptorArrayEnumCache() {
+  return {kTaggedBase, DescriptorArray::kEnumCacheOffset, Handle<Name>(),
+          Type::TaggedPointer(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForDescriptorArrayEnumCacheBridgeCache() {
+  return {kTaggedBase, DescriptorArray::kEnumCacheBridgeCacheOffset,
+          Handle<Name>(), Type::TaggedPointer(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForMapBitField3() {
+  return {kTaggedBase, Map::kBitField3Offset, Handle<Name>(),
+          Type::UntaggedUnsigned32(), kMachUint32};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForMapDescriptors() {
+  return {kTaggedBase, Map::kDescriptorsOffset, Handle<Name>(),
+          Type::TaggedPointer(), kMachAnyTagged};
 }
 
 
@@ -59,9 +99,9 @@ FieldAccess AccessBuilder::ForMapInstanceType() {
 
 
 // static
-FieldAccess AccessBuilder::ForStringLength() {
+FieldAccess AccessBuilder::ForStringLength(Zone* zone) {
   return {kTaggedBase, String::kLengthOffset, Handle<Name>(),
-          Type::SignedSmall(), kMachAnyTagged};
+          Type::Range(0, String::kMaxLength, zone), kMachAnyTagged};
 }
 
 
@@ -78,6 +118,19 @@ FieldAccess AccessBuilder::ForContextSlot(size_t index) {
   DCHECK_EQ(offset,
             Context::SlotOffset(static_cast<int>(index)) + kHeapObjectTag);
   return {kTaggedBase, offset, Handle<Name>(), Type::Any(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForStatsCounter() {
+  return {kUntaggedBase, 0, MaybeHandle<Name>(), Type::Signed32(), kMachInt32};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForPropertyCellValue() {
+  return {kTaggedBase, PropertyCell::kValueOffset, Handle<Name>(), Type::Any(),
+          kMachAnyTagged};
 }
 
 
@@ -113,6 +166,49 @@ ElementAccess AccessBuilder::ForTypedArrayElement(ExternalArrayType type,
   }
   UNREACHABLE();
   return {kUntaggedBase, 0, Type::None(), kMachNone};
+}
+
+
+// static
+ElementAccess AccessBuilder::ForSeqStringChar(String::Encoding encoding) {
+  switch (encoding) {
+    case String::ONE_BYTE_ENCODING:
+      return {kTaggedBase, SeqString::kHeaderSize, Type::Unsigned32(),
+              kMachUint8};
+    case String::TWO_BYTE_ENCODING:
+      return {kTaggedBase, SeqString::kHeaderSize, Type::Unsigned32(),
+              kMachUint16};
+  }
+  UNREACHABLE();
+  return {kUntaggedBase, 0, Type::None(), kMachNone};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForJSFunctionSharedFunctionInfo() {
+  return {kTaggedBase, JSFunction::kSharedFunctionInfoOffset, Handle<Name>(),
+          Type::Any(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForSharedFunctionInfoTypeFeedbackVector() {
+  return {kTaggedBase, SharedFunctionInfo::kFeedbackVectorOffset,
+          Handle<Name>(), Type::Any(), kMachAnyTagged};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForFrameCallerFramePtr() {
+  return {kUntaggedBase, StandardFrameConstants::kCallerFPOffset,
+          MaybeHandle<Name>(), Type::Internal(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForFrameMarker() {
+  return {kUntaggedBase, StandardFrameConstants::kMarkerOffset,
+          MaybeHandle<Name>(), Type::Tagged(), kMachAnyTagged};
 }
 
 }  // namespace compiler

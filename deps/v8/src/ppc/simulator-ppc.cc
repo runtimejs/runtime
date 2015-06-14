@@ -11,6 +11,7 @@
 #if V8_TARGET_ARCH_PPC
 
 #include "src/assembler.h"
+#include "src/base/bits.h"
 #include "src/codegen.h"
 #include "src/disasm.h"
 #include "src/ppc/constants-ppc.h"
@@ -728,7 +729,7 @@ void Simulator::FlushICache(v8::internal::HashMap* i_cache, void* start_addr,
 
 CachePage* Simulator::GetCachePage(v8::internal::HashMap* i_cache, void* page) {
   v8::internal::HashMap::Entry* entry =
-      i_cache->Lookup(page, ICacheHash(page), true);
+      i_cache->LookupOrInsert(page, ICacheHash(page));
   if (entry->value == NULL) {
     CachePage* new_page = new CachePage();
     entry->value = new_page;
@@ -829,7 +830,7 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
 }
 
 
-Simulator::~Simulator() {}
+Simulator::~Simulator() { free(stack_); }
 
 
 // When the generated code calls an external reference we need to catch that in
@@ -887,12 +888,33 @@ class Redirection {
     return redirection->external_function();
   }
 
+  static void DeleteChain(Redirection* redirection) {
+    while (redirection != nullptr) {
+      Redirection* next = redirection->next_;
+      delete redirection;
+      redirection = next;
+    }
+  }
+
  private:
   void* external_function_;
   uint32_t swi_instruction_;
   ExternalReference::Type type_;
   Redirection* next_;
 };
+
+
+// static
+void Simulator::TearDown(HashMap* i_cache, Redirection* first) {
+  Redirection::DeleteChain(first);
+  if (i_cache != nullptr) {
+    for (HashMap::Entry* entry = i_cache->Start(); entry != nullptr;
+         entry = i_cache->Next(entry)) {
+      delete static_cast<CachePage*>(entry->value);
+    }
+    delete i_cache;
+  }
+}
 
 
 void* Simulator::RedirectExternalReference(void* external_function,
@@ -2998,8 +3020,7 @@ void Simulator::ExecuteExt5(Instruction* instr) {
       int mb = (instr->Bits(10, 6) | (instr->Bit(5) << 5));
       DCHECK(sh >= 0 && sh <= 63);
       DCHECK(mb >= 0 && mb <= 63);
-      // rotate left
-      uintptr_t result = (rs_val << sh) | (rs_val >> (64 - sh));
+      uintptr_t result = base::bits::RotateLeft64(rs_val, sh);
       uintptr_t mask = 0xffffffffffffffff >> mb;
       result &= mask;
       set_register(ra, result);
@@ -3016,8 +3037,7 @@ void Simulator::ExecuteExt5(Instruction* instr) {
       int me = (instr->Bits(10, 6) | (instr->Bit(5) << 5));
       DCHECK(sh >= 0 && sh <= 63);
       DCHECK(me >= 0 && me <= 63);
-      // rotate left
-      uintptr_t result = (rs_val << sh) | (rs_val >> (64 - sh));
+      uintptr_t result = base::bits::RotateLeft64(rs_val, sh);
       uintptr_t mask = 0xffffffffffffffff << (63 - me);
       result &= mask;
       set_register(ra, result);
@@ -3034,8 +3054,7 @@ void Simulator::ExecuteExt5(Instruction* instr) {
       int mb = (instr->Bits(10, 6) | (instr->Bit(5) << 5));
       DCHECK(sh >= 0 && sh <= 63);
       DCHECK(mb >= 0 && mb <= 63);
-      // rotate left
-      uintptr_t result = (rs_val << sh) | (rs_val >> (64 - sh));
+      uintptr_t result = base::bits::RotateLeft64(rs_val, sh);
       uintptr_t mask = (0xffffffffffffffff >> mb) & (0xffffffffffffffff << sh);
       result &= mask;
       set_register(ra, result);
@@ -3052,8 +3071,7 @@ void Simulator::ExecuteExt5(Instruction* instr) {
       int sh = (instr->Bits(15, 11) | (instr->Bit(1) << 5));
       int mb = (instr->Bits(10, 6) | (instr->Bit(5) << 5));
       int me = 63 - sh;
-      // rotate left
-      uintptr_t result = (rs_val << sh) | (rs_val >> (64 - sh));
+      uintptr_t result = base::bits::RotateLeft64(rs_val, sh);
       uintptr_t mask = 0;
       if (mb < me + 1) {
         uintptr_t bit = 0x8000000000000000 >> mb;
@@ -3092,8 +3110,7 @@ void Simulator::ExecuteExt5(Instruction* instr) {
       int mb = (instr->Bits(10, 6) | (instr->Bit(5) << 5));
       DCHECK(sh >= 0 && sh <= 63);
       DCHECK(mb >= 0 && mb <= 63);
-      // rotate left
-      uintptr_t result = (rs_val << sh) | (rs_val >> (64 - sh));
+      uintptr_t result = base::bits::RotateLeft64(rs_val, sh);
       uintptr_t mask = 0xffffffffffffffff >> mb;
       result &= mask;
       set_register(ra, result);
@@ -3268,8 +3285,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       int sh = instr->Bits(15, 11);
       int mb = instr->Bits(10, 6);
       int me = instr->Bits(5, 1);
-      // rotate left
-      uint32_t result = (rs_val << sh) | (rs_val >> (32 - sh));
+      uint32_t result = base::bits::RotateLeft32(rs_val, sh);
       int mask = 0;
       if (mb < me + 1) {
         int bit = 0x80000000 >> mb;
@@ -3311,8 +3327,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       }
       int mb = instr->Bits(10, 6);
       int me = instr->Bits(5, 1);
-      // rotate left
-      uint32_t result = (rs_val << sh) | (rs_val >> (32 - sh));
+      uint32_t result = base::bits::RotateLeft32(rs_val, sh);
       int mask = 0;
       if (mb < me + 1) {
         int bit = 0x80000000 >> mb;
@@ -3883,8 +3898,8 @@ uintptr_t Simulator::PopAddress() {
   set_register(sp, current_sp + sizeof(uintptr_t));
   return address;
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // USE_SIMULATOR
 #endif  // V8_TARGET_ARCH_PPC

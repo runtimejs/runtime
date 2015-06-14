@@ -15,7 +15,7 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <common/utils.h>
+#include <kernel/utils.h>
 
 namespace rt {
 
@@ -64,7 +64,7 @@ struct MultibootModuleEntry {
 class MultibootMemoryMapEnumerator {
 public:
     MultibootMemoryMapEnumerator(const Multiboot* multiboot);
-    common::MemoryZone NextAvailableMemory();
+    MemoryZone NextAvailableMemory();
 private:
     uint32_t mmap_start_;
     uint32_t mmap_current_;

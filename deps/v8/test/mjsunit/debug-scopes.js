@@ -167,6 +167,10 @@ function CheckScopeContent(content, number, exec_state) {
   if (!scope.scopeObject().property('arguments').isUndefined()) {
     scope_size--;
   }
+  // Ditto for 'this'.
+  if (!scope.scopeObject().property('this').isUndefined()) {
+    scope_size--;
+  }
   // Skip property with empty name.
   if (!scope.scopeObject().property('').isUndefined()) {
     scope_size--;
@@ -1046,6 +1050,29 @@ listener_delegate = function(exec_state) {
   CheckScopeContent({e:'Exception'}, 0, exec_state);
 };
 catch_block_7();
+EndTest();
+
+
+BeginTest("Classes and methods 1");
+
+listener_delegate = function(exec_state) {
+  "use strict"
+  CheckScopeChain([debug.ScopeType.Local,
+                   debug.ScopeType.Script,
+                   debug.ScopeType.Global], exec_state);
+  CheckScopeContent({}, 1, exec_state);
+};
+
+(function() {
+  "use strict";
+  class C1 {
+    m() {
+      debugger;
+    }
+  }
+  new C1().m();
+})();
+
 EndTest();
 
 
