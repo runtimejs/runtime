@@ -61,6 +61,7 @@ function connHash(ip, port) {
 
 class TCPSocket {
   constructor() {
+    this._serverSocket = null;
     this._intf = null;
     this._port = 0;
     this._viaIP = null;
@@ -163,6 +164,10 @@ class TCPSocket {
 
   _destroy() {
     tcpTimer.removeConnectionSocket(this);
+    if (this._serverSocket) {
+      var hash = connHash(this._destIP, this._destPort);
+      this._serverSocket._connections.delete(hash);
+    }
   }
 
   _transmit(seq, ack, flags, window, u8) {
@@ -512,6 +517,7 @@ class TCPSocket {
         } else {
           if (flags & tcpHeader.FLAG_SYN) {
             socket = new TCPSocket();
+            socket._serverSocket = this;
             socket._intf = this._intf;
             socket._viaIP = this._viaIP;
             socket._receiveWindowSlideTo(seqNumber);
