@@ -159,7 +159,7 @@ function setInputBox(text) {
 drawPrompt();
 drawCursor();
 
-runtime.keyboard.onKeydown.add(function(keyinfo) {
+runtime.keyboard.onkeydown.add(function(keyinfo) {
   if (!inputEnabled) {
     return;
   }
