@@ -400,9 +400,13 @@ bool Thread::Run() {
     }
 
     {   uint64_t time_now_end { GLOBAL_platform()->BootTimeMicroseconds() };
-        RT_ASSERT(time_now_end >= time_now);
-        uint64_t tick_runtime = time_now_end - time_now;
-        runtime_ += tick_runtime;
+        if (time_now_end < time_now) {
+            printf("[clock] warning: time goes backwards %lu -> %lu\n", time_now, time_now_end);
+        } else {
+            RT_ASSERT(time_now_end >= time_now);
+            uint64_t tick_runtime = time_now_end - time_now;
+            runtime_ += tick_runtime;
+        }
     }
 
     if (0 == ref_count_ || terminate_) {
