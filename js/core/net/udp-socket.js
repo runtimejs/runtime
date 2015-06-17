@@ -45,7 +45,8 @@ class UDPSocket {
     } else {
       var routingEntry = route.lookup(ip);
       if (!routingEntry) {
-        throw netError.E_NO_ROUTE_TO_HOST;
+        console.log('[UDP] no route to ' + ip);
+        return;
       }
 
       viaIP = routingEntry.gateway;
