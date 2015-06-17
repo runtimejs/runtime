@@ -136,7 +136,7 @@ exports.parseResponse = function(u8) {
         }
 
         results.push({hostname: host, record: 'A', address: [reader.readUint8(), reader.readUint8(),
-          reader.readUint8(), reader.readUint8()]});
+          reader.readUint8(), reader.readUint8()], ttl: ttl });
         break;
       case 5: // CNAME record
         results.push({hostname: host, record: 'CNAME', name: readHostname(reader).join('.')});
