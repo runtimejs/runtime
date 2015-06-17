@@ -92,6 +92,11 @@ DNSClient.prototype.resolve = function(domain, opts, cb) {
   assert(this instanceof DNSClient);
   assert(typeutils.isString(domain));
   assert(typeutils.isFunction(cb));
+  
+  // if domain contains http:// or ftp:// or https:// (etc...), remove it.
+  if (domain.indexOf("://") !== -1) {
+    domain = domain.match(/[a-z]\:\/\/([a-zA-Z\-\.1-9]+)\/[a-zA-Z\-\.1-9\_\/]+/)[1];
+  }
 
   this._sendQuery(domain);
   this._requests.push({
