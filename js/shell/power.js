@@ -1,5 +1,5 @@
 module.exports = function(runtime) {
-  runtime.shell.setCommand('shutdown', function(args, cb) {
+  runtime.shell.setCommand('poweroff', function(args, cb) {
     runtime.tty.print('Going down, now!');
     runtime.machine.shutdown();
     cb();
