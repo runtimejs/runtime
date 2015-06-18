@@ -1,0 +1,25 @@
+{
+  "name": "",
+  "version": "",
+  "description": "runtime.js test runner",
+  "main": "test.js",
+  "scripts": {
+    "start": "runtimeify index.js -o initrd && runtime-qemu ./initrd",
+    "postinstall": "npm link ../js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:runtimejs/runtime.git"
+  },
+  "author": "runtime.js project authors",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/runtimejs/runtime/issues"
+  },
+  "homepage": "http://runtimejs.org",
+  "dependencies": {
+    "runtime-tools": "*",
+    "runtimeify": "*",
+    "tape": "^4.0.0"
+  }
+}
