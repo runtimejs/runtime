@@ -43,6 +43,11 @@ runtime.shell.setCommand('1', function(args, cb) {
   });
 });
 
+// Builtin functions
+require('./shell/clear')(runtime);
+require('./shell/echo')(runtime);
+require('./shell/power')(runtime);
+
 // Start device drivers
 require('./driver/ps2');
 require('./driver/virtio');
