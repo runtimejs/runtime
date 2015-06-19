@@ -44,3 +44,12 @@ exports.setCommand = function(name, cb) {
   assert(typeutils.isFunction(cb));
   commands.set(name, cb);
 };
+
+exports.runCommand = function(name, args) {
+  assert(typeutils.isString(name));
+
+  args = args || "";
+
+  commands.get(name)(args, inputBox.done);
+  return;
+}

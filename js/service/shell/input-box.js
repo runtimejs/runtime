@@ -198,3 +198,9 @@ runtime.keyboard.onKeydown.add(function(keyinfo) {
 });
 
 exports.onInput = onInput;
+exports.done = function() {
+  tty.print('\n');
+  inputEnabled = true;
+  drawPrompt();
+  drawCursor();
+};
