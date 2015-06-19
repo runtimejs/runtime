@@ -32,6 +32,15 @@ sudo apt-get install qemu   # Ubuntu
 runtime-qemu ./initrd
 ```
 
+runtime.js does not come with shell commands. But, they can be added by installing `runtime-shell` from npm:
+```bash
+npm install runtime-shell
+```
+And in your **index.js**, simply add the following at the top:
+```javascript
+require('runtime-shell')();
+```
+
 WARNING: project is in development and not ready for production use. Contributions are welcome.
 
 ## How does it work?
