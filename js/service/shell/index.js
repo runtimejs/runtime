@@ -45,11 +45,18 @@ exports.setCommand = function(name, cb) {
   commands.set(name, cb);
 };
 
-exports.runCommand = function(name, args) {
+exports.runCommand = function(name, args, cb) {
+  var capture = require('./captureio.js');
+
   assert(typeutils.isString(name));
 
   args = args || "";
 
-  commands.get(name)(args, inputBox.done);
-  return;
+  commands.get(name)(args, capture.io, inputBox.done);
+
+  if (cb) {
+    cb(capture.events);
+  }
+
+  return capture.events;
 }
