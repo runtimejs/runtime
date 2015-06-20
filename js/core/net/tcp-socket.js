@@ -40,12 +40,7 @@ var STATE_LAST_ACK = tcpSocketState.STATE_LAST_ACK;
 var STATE_TIME_WAIT = tcpSocketState.STATE_TIME_WAIT;
 
 function SEQ_INC(seq, value) { return (seq + (value >>> 0)) >>> 0; }
-function SEQ_DIFF(a, b) { return Math.abs((a - b) | 0); }
 function SEQ_OFFSET(a, b) { return ((a - b) | 0); }
-function SEQ_LT(a, b) { return ((a - b) | 0) <  0; }
-function SEQ_LTE(a, b) { return ((a - b) | 0) <= 0; }
-function SEQ_GT(a, b) { return ((a - b) | 0) >  0; }
-function SEQ_GTE(a, b) { return ((a - b) | 0) >= 0; }
 
 var MSL_TIME = 15000;
 var bufferedLimitHint = 64 * 1024; /* 64 KiB */
@@ -88,6 +83,8 @@ class TCPSocket {
     this._transmitQueue = [];
     this._receiveQueue = [];
     this._connections = null;
+
+    this._ackRequired = false;
 
     // Events
     this.onopen = null;
@@ -135,7 +132,6 @@ class TCPSocket {
 
     this._destPort = port;
     this._destIP = ip;
-    this._transmitWindowSlideInc(); // SYN counts as 1 byte
     this._state = STATE_SYN_SENT;
     this._sendSYN(false);
     tcpTimer.addConnectionSocket(this);
@@ -219,7 +215,7 @@ class TCPSocket {
       return;
     }
 
-    this._sendTransmitQueue(false);
+    this._sendTransmitQueue();
   }
 
   _incTransmitPosition() {
@@ -239,28 +235,25 @@ class TCPSocket {
   }
 
   _receiveWindowSlideTo(seq) {
-    if (SEQ_GT(seq, this._receiveWindowEdge)) {
-      this._receiveWindowEdge = seq;
-    }
+    this._receiveWindowEdge = seq >>> 0;
   }
 
   _receiveWindowSlideInc() {
     this._receiveWindowEdge = SEQ_INC(this._receiveWindowEdge, 1);
   }
 
-  _transmitWindowSlideTo(seq) {
-    if (SEQ_GT(seq, this._transmitWindowEdge)) {
-      this._transmitWindowEdge = seq;
+  _receiveWindowIsWithin(seq, edge) {
+    if (0 === this._receiveWindowSize) {
+      return;
     }
-  }
 
-  _transmitWindowSlideInc() {
-    this._transmitWindowEdge = SEQ_INC(this._transmitWindowEdge, 1);
-  }
-
-  _receiveWindowIsWithin(seq) {
-    return SEQ_GTE(seq, this._receiveWindowEdge)
-      && SEQ_LT(seq, SEQ_INC(this._receiveWindowEdge, this._receiveWindowSize));
+    var leftEdge = edge;
+    var rightEdge = SEQ_INC(edge, this._receiveWindowSize);
+    if (leftEdge < rightEdge) {
+      return seq >= leftEdge && seq < rightEdge;
+    } else {
+      return seq >= leftEdge || seq < rightEdge;
+    }
   }
 
   _fillTransmitQueue() {
@@ -305,7 +298,7 @@ class TCPSocket {
       this._queueTx.shift();
     }
 
-    this._sendTransmitQueue(false);
+    this._sendTransmitQueue();
   }
 
   _timerTick() {
@@ -324,14 +317,13 @@ class TCPSocket {
         /* fall through */
       case STATE_ESTABLISHED:
       case STATE_FIN_WAIT_1:
-        this._sendTransmitQueue(false);
+        this._sendTransmitQueue();
         break;
     }
   }
 
-  _sendTransmitQueue(ackRequired) {
+  _sendTransmitQueue() {
     var now = Date.now();
-    var sent = false;
 
     if (this._transmitQueue.length > 0) {
       for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
@@ -344,14 +336,15 @@ class TCPSocket {
         var interval = retransmits * 2000; /* 2 seconds each time in ms */
 
         if (retransmits === 0 || now > timeAdded + interval) {
+          this._ackRequired = false;
           this._transmit(seq, this._receiveWindowEdge, flags, this._receiveWindowSize, u8);
-          sent = true;
           ++item[0];
         }
       }
     }
 
-    if (!sent && ackRequired) {
+    if (this._ackRequired) {
+      this._ackRequired = false;
       this._transmit(this._getTransmitPosition(), this._receiveWindowEdge,
                   tcpHeader.FLAG_ACK, this._receiveWindowSize, null);
     }
@@ -369,7 +362,8 @@ class TCPSocket {
       var seq = item[2];
       var len = item[3];
       var end = SEQ_INC(seq, len);
-      if (SEQ_GTE(ackNumber, end)) {
+
+      if (!this._isTransmittedUnacked(end)) {
         ++deleteCount;
       } else {
         break;
@@ -445,22 +439,51 @@ class TCPSocket {
   }
 
   _insertReceiveQueue(seq, len, u8) {
-    this._receiveQueue.push([seq, len, u8]);
-    this._receiveQueue.sort(sortFunction);
+    // Fast path for ordered data
+    if (seq === this._receiveWindowEdge) {
+      if (u8 && this.ondata) {
+        var self = this;
+        setImmediate(function() {
+          self.ondata(u8);
+        });
+      }
 
+      this._receiveWindowSlideTo(SEQ_INC(seq, len));
+      this._ackRequired = true;
+      this._sendTransmitQueue();
+
+      if (this._receiveQueue.length === 0) {
+        return;
+      }
+    } else {
+      this._receiveQueue.push([seq, len, u8]);
+    }
+
+    this._processReceiveQueue();
+  }
+
+  _processReceiveQueue() {
     var lastAck = this._receiveWindowEdge;
-    var remove = 0;
-    for (var i = 0, l = this._receiveQueue.length; i < l; ++i) {
-      var item = this._receiveQueue[i];
-      var seqNumber = item[0];
-      var length = item[1];
+    var removed = 0;
+    var queueLength = this._receiveQueue.length;
 
-      if (SEQ_LTE(seqNumber, lastAck)) {
-        var diff = SEQ_DIFF(seqNumber, lastAck);
+    for (var j = 0; j < queueLength; ++j) {
+      var iterRemoved = false;
+      for (var i = 0; i < queueLength - removed; ++i) {
+        var item = this._receiveQueue[i];
+        var seqNumber = item[0];
+        var length = item[1];
+        var removeItem = false;
+        if (length === 0) {
+          continue;
+        }
+
         if (lastAck === seqNumber) {
           lastAck = SEQ_INC(lastAck, length);
-          ++remove;
-        } else {
+          removeItem = true;
+        } else if (!this._receiveWindowIsWithin(seqNumber, lastAck)) {
+          // order [ seqNumber -- lastAck -- seqNumberEnd ]
+          var diff = ((lastAck - seqNumber) >>> 0);
           if (diff < length) {
             item[0] = SEQ_INC(seqNumber, diff);
             item[1] = length - diff;
@@ -469,26 +492,66 @@ class TCPSocket {
           } else {
             item[2] = null;
           }
-          ++remove;
+          removeItem = true;
         }
-      } else {
+
+        if (removeItem) {
+          ++removed;
+
+          if (i < queueLength - removed) {
+            var t = this._receiveQueue[i];
+            this._receiveQueue[i] = this._receiveQueue[queueLength - removed];
+            this._receiveQueue[queueLength - removed] = t;
+          }
+
+          iterRemoved = true;
+          break;
+        }
+      }
+
+      if (!iterRemoved) {
         break;
       }
     }
 
-    if (remove > 0) {
-      while (remove --> 0) {
-        var data = this._receiveQueue.shift();
-        length = item[1];
-        if (data[2]) {
-          if (this.ondata) {
-            this.ondata(data[2]);
-          }
+    if (removed > 0) {
+      var self = this;
+      while (removed --> 0) {
+        let item = this._receiveQueue.pop();
+        if (item[2] && this.ondata) {
+          setImmediate(function() {
+            self.ondata(item[2]);
+          });
         }
       }
 
       this._receiveWindowSlideTo(lastAck);
-      this._sendTransmitQueue(true);
+      this._ackRequired = true;
+      this._sendTransmitQueue();
+    }
+  }
+
+  _isTransmittedUnacked(seq) {
+    var leftEdge = this._transmitWindowEdge;
+    var rightEdge = this._transmitPosition;
+
+    if (leftEdge === rightEdge) {
+      return false;
+    }
+
+    if (leftEdge < rightEdge) {
+      return seq > leftEdge && seq <= rightEdge;
+    } else {
+      return seq > leftEdge || seq <= rightEdge;
+    }
+  }
+
+  _acceptACK(ackNumber, windowSize) {
+    this._transmitWindowSize = windowSize;
+    if (this._transmitWindowEdge !== ackNumber && this._isTransmittedUnacked(ackNumber)) {
+      this._transmitWindowEdge = ackNumber;
+      this._cleanupTransmitQueue(ackNumber);
+      this._fillTransmitQueue();
     }
   }
 
@@ -499,14 +562,6 @@ class TCPSocket {
     var ackNumber = tcpHeader.getAckNumber(u8, headerOffset);
     var windowSize = tcpHeader.getWindowSize(u8, headerOffset);
     var dataLength = u8.length - dataOffset;
-
-    this._transmitWindowSize = windowSize;
-    this._transmitWindowSlideTo(ackNumber);
-
-    this._cleanupTransmitQueue(ackNumber);
-    this._fillTransmitQueue();
-
-    debug('socket recv seq = ', seqNumber, ' ack = ', ackNumber);
 
     switch (this._state) {
       case STATE_LISTEN:
@@ -522,7 +577,6 @@ class TCPSocket {
             socket._viaIP = this._viaIP;
             socket._receiveWindowSlideTo(seqNumber);
             socket._receiveWindowSlideInc(); // SYN counts as 1 byte
-            socket._transmitWindowSlideInc(); // SYN counts as 1 byte
             socket._state = STATE_SYN_RECEIVED;
             socket._destIP = srcIP;
             socket._destPort = srcPort;
@@ -535,10 +589,12 @@ class TCPSocket {
         }
         break;
       case STATE_SYN_SENT:
+        this._acceptACK(ackNumber, windowSize);
         if (flags & (tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK)) {
           this._receiveWindowSlideTo(seqNumber);
           this._receiveWindowSlideInc(); // SYN counts as 1 byte
-          this._sendTransmitQueue(true);
+          this._ackRequired = true;
+          this._sendTransmitQueue();
           this._state = STATE_ESTABLISHED;
           if (this.onopen) {
             this.onopen();
@@ -546,6 +602,7 @@ class TCPSocket {
         }
         break;
       case STATE_SYN_RECEIVED:
+        this._acceptACK(ackNumber, windowSize);
         if (flags & tcpHeader.FLAG_ACK) {
           this._state = STATE_ESTABLISHED;
           if (this.onopen) {
@@ -554,6 +611,7 @@ class TCPSocket {
         }
         break;
       case STATE_LAST_ACK:
+        this._acceptACK(ackNumber, windowSize);
         if (this._getTransmitPosition() === ackNumber) {
           this._state = STATE_CLOSED;
           if (this.onclose) {
@@ -563,13 +621,15 @@ class TCPSocket {
         }
         break;
       case STATE_FIN_WAIT_1:
+        this._acceptACK(ackNumber, windowSize);
         if (this._getTransmitPosition() === ackNumber) {
           this._state = STATE_FIN_WAIT_2;
         }
         /* fall through */
       case STATE_FIN_WAIT_2:
       case STATE_ESTABLISHED:
-        if (dataLength > 0 && this._receiveWindowIsWithin(seqNumber)) {
+        this._acceptACK(ackNumber, windowSize);
+        if (dataLength > 0 && this._receiveWindowIsWithin(SEQ_INC(seqNumber, dataLength - 1), this._receiveWindowEdge)) {
           this._insertReceiveQueue(seqNumber, dataLength, u8.subarray(dataOffset));
         }
         break;

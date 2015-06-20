@@ -24,7 +24,7 @@ exports.getDestPort = function(u8, headerOffset) {
 };
 
 exports.getSeqNumber = function(u8, headerOffset) {
-  return u8view.getUint32BE(u8, headerOffset + 4);
+  return u8view.getUint32BE(u8, headerOffset + 4) >>> 0;
 };
 
 exports.getAckNumber = function(u8, headerOffset) {
