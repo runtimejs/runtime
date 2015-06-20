@@ -17,14 +17,10 @@
 var stdout = require('./stdout');
 var stdin = require('./stdin');
 
-var combined = {};
-
 for (var obj in stdin) {
-  combined[obj] = stdin[obj];
+  exports[obj] = stdin[obj];
 }
 
 for (var obj2 in stdout) {
-  combined[obj2] = stdout[obj2];
+  exports[obj2] = stdout[obj2];
 }
-
-exports = combined;
