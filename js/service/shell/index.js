@@ -52,9 +52,10 @@ exports.runCommand = function(name, args, cb) {
 
   args = args || "";
 
-  commands.get(name)(args, capture.io, inputBox.done);
+  commands.get(name)(args, capture.io, function() { capture.events.emit('end'); });
 
   if (cb) {
+    capture.events.redrawPrompt = inputBox.done;
     cb(capture.events);
   }
 
