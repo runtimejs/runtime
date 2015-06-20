@@ -324,6 +324,20 @@ uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
     return index;
 }
 
+NATIVE_FUNCTION(NativesObject, SetImmediate) {
+    PROLOGUE_NOTHIS;
+    USEARG(0);
+    VALIDATEARG(0, FUNCTION, "setImmediate: argument 0 is not a function");
+
+    uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
+
+    {   std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+            ThreadMessage::Type::IRQ_RAISE,
+            ResourceHandle<EngineThread>(), TransportData(), nullptr, index));
+        th->handle().getUnsafe()->PushMessage(std::move(msg));
+    }
+}
+
 NATIVE_FUNCTION(NativesObject, SetTimeout) {
     PROLOGUE_NOTHIS;
     USEARG(0);

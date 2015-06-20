@@ -58,6 +58,9 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     if (global_object_template_.IsEmpty()) {
         v8::Local<v8::ObjectTemplate> global { v8::ObjectTemplate::New() };
 
+        global->Set(iv8_, "setImmediate",
+                    v8::FunctionTemplate::New(iv8_, NativesObject::SetImmediate));
+
         global->Set(iv8_, "setTimeout",
                     v8::FunctionTemplate::New(iv8_, NativesObject::SetTimeout));
         global->Set(iv8_, "clearTimeout",
@@ -95,6 +98,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         kernel->Set(iv8_, "getCommandLine", v8::FunctionTemplate::New(iv8_, NativesObject::GetCommandLine));
         kernel->Set(iv8_, "startProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StartProfiling));
         kernel->Set(iv8_, "stopProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StopProfiling));
+        kernel->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
         global->Set(iv8_, "kernel", kernel);
 
         v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };

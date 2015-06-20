@@ -32,6 +32,7 @@ public:
     DECLARE_NATIVE(CallHandler);
     DECLARE_NATIVE(SyncRPC);
     DECLARE_NATIVE(SetTimeout);
+    DECLARE_NATIVE(SetImmediate);
     DECLARE_NATIVE(SetInterval);
     DECLARE_NATIVE(ClearTimer);
     DECLARE_NATIVE(KernelLog);
