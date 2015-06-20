@@ -25,3 +25,5 @@ function IO() {
   // stdin
   this.readline = stdin.readline;
 }
+
+module.exports = IO;
