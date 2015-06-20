@@ -56,7 +56,7 @@ exports.runCommand = function(name, args, cb) {
 
   if (cb) {
     capture.events.redrawPrompt = inputBox.done;
-    cb(capture.events);
+    cb(null, capture.events);
   }
 
   return capture.events;
