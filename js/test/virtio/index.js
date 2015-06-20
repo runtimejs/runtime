@@ -47,7 +47,6 @@ function getTwoPageBuffer() {
 
 test('ring place one physical page buffer', function(t) {
   var ring = new VRing(mem, 0, 16);
-  var deviceLastUsed = 0;
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.equal(ring.availableRing.readIdx(), 0);
   ring.placeBuffers([getOnePageBuffer()], true);
@@ -78,7 +77,6 @@ test('ring place one physical page buffer', function(t) {
 
 test('ring place two physical page buffer', function(t) {
   var ring = new VRing(mem, 0, 16);
-  var deviceLastUsed = 0;
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.equal(ring.availableRing.readIdx(), 0);
   ring.placeBuffers([getTwoPageBuffer()], false);

@@ -13,6 +13,8 @@
 // limitations under the License.
 
 'use strict';
+
+/* global isolate */
 var packagejson = require('./package.json');
 require('module-singleton')(packagejson);
 require('./version');
@@ -24,7 +26,7 @@ var isDebug = packagejson.runtimejs.debug;
 global.debug = isDebug ? isolate.log : function() {};
 
 // Load runtime.js core
-require('./core');
+var runtime = require('./core');
 
 // Start services
 require('./service/dhcp-client');
@@ -37,7 +39,9 @@ runtime.debug = isDebug;
 runtime.shell.setCommand('1', function(args, cb) {
   runtime.tty.print('OK.\n');
   runtime.dns.resolve('www.google.com', {}, function(err, data) {
-    if (err) return cb();
+    if (err) {
+      return cb();
+    }
     console.log(JSON.stringify(data));
     cb();
   });

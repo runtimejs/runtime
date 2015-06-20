@@ -244,7 +244,7 @@ class TCPSocket {
 
   _receiveWindowIsWithin(seq, edge) {
     if (0 === this._receiveWindowSize) {
-      return;
+      return false;
     }
 
     var leftEdge = edge;
@@ -294,7 +294,7 @@ class TCPSocket {
 
     }
 
-    while (remove --> 0) {
+    while (remove-- > 0) {
       this._queueTx.shift();
     }
 
@@ -370,7 +370,7 @@ class TCPSocket {
       }
     }
 
-    while (deleteCount --> 0) {
+    while (deleteCount-- > 0) {
       this._transmitQueue.shift();
     }
   }
@@ -516,11 +516,11 @@ class TCPSocket {
 
     if (removed > 0) {
       var self = this;
-      while (removed --> 0) {
-        let item = this._receiveQueue.pop();
-        if (item[2] && this.ondata) {
+      while (removed-- > 0) {
+        let removedItem = this._receiveQueue.pop();
+        if (removedItem[2] && this.ondata) {
           setImmediate(function() {
-            self.ondata(item[2]);
+            self.ondata(removedItem[2]);
           });
         }
       }

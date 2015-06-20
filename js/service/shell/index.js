@@ -16,6 +16,7 @@
 var typeutils = require('typeutils');
 var assert = require('assert');
 var inputBox = require('./input-box');
+var runtime = require('../../core');
 var tty = runtime.tty;
 var commands = new Map();
 

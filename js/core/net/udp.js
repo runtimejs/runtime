@@ -20,19 +20,6 @@ var IP4Address = require('./ip4-address');
 var interfaces = require('./interfaces');
 var netError = require('./net-error');
 
-var getSocket = (function() {
-  var sockets = new Map();
-  return function(handle) {
-    var socket = sockets.get(handle);
-    if (!socket) {
-      socket = new UDPSocket(handle);
-      sockets.set(handle, socket);
-    }
-
-    return socket;
-  };
-})();
-
 function receive(intf, srcIP, destIP, u8, headerOffset) {
   var srcPort = udpHeader.getSrcPort(u8, headerOffset);
   var destPort = udpHeader.getDestPort(u8, headerOffset);

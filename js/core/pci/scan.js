@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/* eslint-disable key-spacing */
 'use strict';
 var resources = require('../resources');
 var acpi = resources.acpi;
@@ -21,18 +22,18 @@ var memrange = resources.memoryRange;
 var allocator = resources.allocator;
 
 var acpiDevices = acpi.getPciDevices();
-var address_port = io.port(0xCF8);
-var data_port = io.port(0xCFC);
+var addressPortResource = io.port(0xCF8);
+var dataPortResource = io.port(0xCFC);
 
 var sizeof = {
   BYTE: 1,
   UINT8: 1,
   UINT16: 2,
   UINT32: 4,
-  UINT64: 8,
+  UINT64: 8
 };
 
-var pciAccessorFactory = (function(address_port, data_port) {
+var pciAccessorFactory = (function(addressPort, dataPort) {
   var accessorCache = new Map();
 
   /**
@@ -54,7 +55,7 @@ var pciAccessorFactory = (function(address_port, data_port) {
     CACHE_LINESIZE: {offset: 0x0c, shift: 0, mask: 0xff},
     LATENCY_TIMER:  {offset: 0x0c, shift: 1, mask: 0xff},
     HEADER_TYPE:    {offset: 0x0c, shift: 2, mask: 0xff},
-    BIST:           {offset: 0x0c, shift: 3, mask: 0xff},
+    BIST:           {offset: 0x0c, shift: 3, mask: 0xff}
   };
 
   /**
@@ -73,7 +74,7 @@ var pciAccessorFactory = (function(address_port, data_port) {
     SUBSYS_ID:      {offset: 0x2c, shift: 2, mask: 0xffff},
 
     INTERRUPT_LINE: {offset: 0x3c, shift: 0, mask: 0xff},
-    INTERRUPT_PIN:  {offset: 0x3c, shift: 1, mask: 0xff},
+    INTERRUPT_PIN:  {offset: 0x3c, shift: 1, mask: 0xff}
   };
 
   /**
@@ -83,13 +84,13 @@ var pciAccessorFactory = (function(address_port, data_port) {
   var bridgeFields = {
     PRIMARY_BUS:    {offset: 0x18, shift: 0, mask: 0xff},
     SECONDARY_BUS:  {offset: 0x18, shift: 1, mask: 0xff},
-    SUBORDINATE:    {offset: 0x18, shift: 2, mask: 0xff},
+    SUBORDINATE:    {offset: 0x18, shift: 2, mask: 0xff}
   };
 
   function setPort(bus, slot, func, offset) {
     var addr = (bus << 16) | (slot << 11) | (func << 8) |
       (offset & 0xfc) | 0x80000000;
-    address_port.write32(addr);
+    addressPort.write32(addr);
   }
 
   function readRaw32(bus, slot, func, offset) {
@@ -98,7 +99,7 @@ var pciAccessorFactory = (function(address_port, data_port) {
     }
 
     setPort(bus, slot, func, offset);
-    return data_port.read32();
+    return dataPort.read32();
   }
 
   function dwToFieldValue(value, field) {
@@ -108,7 +109,7 @@ var pciAccessorFactory = (function(address_port, data_port) {
 
   /**
    * Provides a way to read and write PCI Configuration space registers.
-   * Uses internal cache to speed up reads of the same field. Address 
+   * Uses internal cache to speed up reads of the same field. Address
    * includes bus, slot and func of a device.
    */
   function PciAccessor(address) {
@@ -136,7 +137,7 @@ var pciAccessorFactory = (function(address_port, data_port) {
       }
 
       setPort(bus, slot, func, offset);
-      return data_port.write32(value >>> 0);
+      return dataPort.write32(value >>> 0);
     }
 
     function writeRaw16(offset, value) {
@@ -145,12 +146,12 @@ var pciAccessorFactory = (function(address_port, data_port) {
       }
 
       setPort(bus, slot, func, offset);
-      return data_port.write16((value & 0xffff) >>> 0);
+      return dataPort.write16((value & 0xffff) >>> 0);
     }
 
     function writeRaw8(offset, value) {
       setPort(bus, slot, func, offset);
-      return data_port.write8((value & 0xff) >>> 0);
+      return dataPort.write8((value & 0xff) >>> 0);
     }
 
     /**
@@ -187,9 +188,9 @@ var pciAccessorFactory = (function(address_port, data_port) {
     /**
      * Set of methods to get available accessor fields
      */
-    this.fields = function __fields() { return fields; }
-    this.generalFields = function __generalFields() { return generalFields; }
-    this.bridgeFields = function __bridgeFields() { return bridgeFields; }
+    this.fields = function __fields() { return fields; };
+    this.generalFields = function __generalFields() { return generalFields; };
+    this.bridgeFields = function __bridgeFields() { return bridgeFields; };
   }
 
   return {
@@ -212,11 +213,11 @@ var pciAccessorFactory = (function(address_port, data_port) {
     exists: function __exists(bus, slot, func) {
       var field = fields.VENDOR_ID;
       var value = readRaw32(bus, slot, func, field.offset);
-      var vendor_id = dwToFieldValue(value, field);
-      return 0xffff !== vendor_id;
-    },
+      var vendorId = dwToFieldValue(value, field);
+      return 0xffff !== vendorId;
+    }
   };
-})(address_port, data_port);
+})(addressPortResource, dataPortResource);
 
 /**
  * Find ACPI PCI device bus, slot and function
@@ -229,14 +230,15 @@ function locateAcpiDevice(dev) {
   var addr = dev.address();
   var slotId = ((addr >>> 16) & 0xffff) >>> 0;
   var funcId = (addr & 0xffff) >>> 0;
+  var busId = 0;
 
   if (dev.isRootBridge()) {
-    var busId = dev.getRootBridgeBusNumber();
+    busId = dev.getRootBridgeBusNumber();
 
     return {
       bus: busId,
       slot: slotId,
-      func: funcId,
+      func: funcId
     };
   }
 
@@ -250,12 +252,12 @@ function locateAcpiDevice(dev) {
   }
 
   if (parentDev.isRootBridge()) {
-    var busId = parentDev.getRootBridgeBusNumber();
+    busId = parentDev.getRootBridgeBusNumber();
 
     return {
       bus: busId,
       slot: slotId,
-      func: funcId,
+      func: funcId
     };
   }
 
@@ -267,7 +269,7 @@ function locateAcpiDevice(dev) {
   var pciParent = pciAccessorFactory.get({
     bus: parentLocation.bus,
     slot: parentLocation.slot,
-    func: parentLocation.func,
+    func: parentLocation.func
   });
 
   var header = pciParent.read(pciParent.fields().HEADER_TYPE);
@@ -283,17 +285,17 @@ function locateAcpiDevice(dev) {
   return {
     bus: bridgeBus,
     slot: slotId,
-    func: funcId,
+    func: funcId
   };
 }
 
 /**
  * Provides enumeration services for the whole PCI configuration space
  */
-var pciSpace = (function(pciAccessorFactory) {
+var pciSpace = (function(pciAccessorFactoryArg) {
   function checkDevice(bus, slot, func, fn) {
     var addr = {bus: bus, slot:slot, func: func};
-    var pciAccessor = pciAccessorFactory.get(addr);
+    var pciAccessor = pciAccessorFactoryArg.get(addr);
     var vendorId = pciAccessor.read(pciAccessor.fields().VENDOR_ID);
 
     if (0xffff === vendorId) {
@@ -305,7 +307,7 @@ var pciSpace = (function(pciAccessorFactory) {
 
   function checkDeviceFunctions(bus, slot, fn) {
     var func = 0;
-    var pciAccessor = pciAccessorFactory.get({bus: bus, slot:slot, func: func});
+    var pciAccessor = pciAccessorFactoryArg.get({bus: bus, slot:slot, func: func});
     var headerType = pciAccessor.read(pciAccessor.fields().HEADER_TYPE);
     var isMultifunc = (headerType & 0x80) >>> 0;
     var funcCount = isMultifunc ? 8 : 1;
@@ -322,14 +324,14 @@ var pciSpace = (function(pciAccessorFactory) {
       for (var bus = 0; bus < 255; ++bus) {
         for (var slot = 0; slot < 32; ++slot) {
 
-          if (!pciAccessorFactory.exists(bus, slot, func)) {
+          if (!pciAccessorFactoryArg.exists(bus, slot, func)) {
             continue;
           }
 
           checkDeviceFunctions(bus, slot, fn);
         }
       }
-    },
+    }
   };
 })(pciAccessorFactory);
 
@@ -355,7 +357,7 @@ var codeNameResolver = (function() {
     'Intelligent I/O Controller',
     'Satellite Communication Controller',
     'Encryption/Decryption Controller',
-    'Data Acquisition and Signal Processing Controller',
+    'Data Acquisition and Signal Processing Controller'
   ];
 
   return {
@@ -368,7 +370,7 @@ var codeNameResolver = (function() {
       }
 
       return classCodes[code];
-    },
+    }
   };
 })();
 
@@ -381,14 +383,14 @@ function PciDevice(address, pciAccessor) {
   var deviceId = pciAccessor.read(pciAccessor.fields().DEVICE_ID);
   var header = pciAccessor.read(pciAccessor.fields().HEADER_TYPE);
   var isBridge = false;
-  
+
   var headerType = (header & 0x7f) >>> 0;
   if (0x01 === headerType || 0x02 === headerType) {
     isBridge = true;
   }
 
   var that = {
-    acpiDevice: null,
+    acpiDevice: null
   };
 
   var irqVector = null;
@@ -483,7 +485,7 @@ function PciDevice(address, pciAccessor) {
     return {
       classCode: classCode,
       className: className,
-      subclass: subclass,
+      subclass: subclass
     };
   };
 
@@ -494,7 +496,7 @@ function PciDevice(address, pciAccessor) {
 
     return {
       subsystemId: pciAccessor.read(pciAccessor.generalFields().SUBSYS_ID),
-      subsystemVendor: pciAccessor.read(pciAccessor.generalFields().SUBSYS_VENDOR),
+      subsystemVendor: pciAccessor.read(pciAccessor.generalFields().SUBSYS_VENDOR)
     };
   };
 
@@ -514,7 +516,7 @@ function PciDevice(address, pciAccessor) {
 
     var barFlag = {
       BAR_IO: 0x01,
-      BAR_64: 0x04,
+      BAR_64: 0x04
     };
 
     var barField = pciAccessor.generalFields().BAR[indexValue];
@@ -572,7 +574,7 @@ function PciDevice(address, pciAccessor) {
       type: barType,
       base: base,
       size: size,
-      resource: obj,
+      resource: obj
     };
   };
 }
@@ -590,7 +592,7 @@ PciDevice.commandFlags = {
   ParityError: 6,
   SERR: 8,
   BackToBack: 9,
-  InterruptDisable: 10,
+  InterruptDisable: 10
 };
 
 /**
@@ -615,7 +617,7 @@ var pciManager = (function() {
 
   return {
     /**
-     * Add new PCI device using its address (bus, slot and function) and 
+     * Add new PCI device using its address (bus, slot and function) and
      * PCI configuration space accessor
      */
     addDevice: function(address, pciAccessor) {
@@ -639,7 +641,7 @@ var pciManager = (function() {
       devicesMap.forEach(function(pciDevice) {
         fn(pciDevice);
       });
-    },
+    }
   };
 })();
 
@@ -652,9 +654,10 @@ pciSpace.eachDevice(function(address, pciAccessor) {
 var acpiDevicesBuses = [];
 acpiDevices.forEach(function(acpiDevice) {
   var address = locateAcpiDevice(acpiDevice);
+  var busId = 0;
 
   if (acpiDevice.isRootBridge()) {
-    var busId = acpiDevice.getRootBridgeBusNumber();
+    busId = acpiDevice.getRootBridgeBusNumber();
     acpiDevicesBuses[busId] = acpiDevice;
   }
 
@@ -673,7 +676,7 @@ acpiDevices.forEach(function(acpiDevice) {
   dev.attachAcpiDevice(acpiDevice);
 
   if (dev.isBridge()) {
-    var busId = dev.getSecondaryBus();
+    busId = dev.getSecondaryBus();
     acpiDevicesBuses[busId] = acpiDevice;
   }
 });
@@ -741,7 +744,7 @@ pciManager.each(function(pciDevice) {
 pciManager.each(function(pciDevice) {
   var vendorId = pciDevice.vendorId();
   var deviceId = pciDevice.deviceId();
-  var driverData = null;//pciDrivers.findDevice(vendorId, deviceId);
+  var driverData = null;
 
   if (null === driverData || 'undefined' === typeof driverData.driver ||
      !driverData.enabled) {
@@ -762,7 +765,7 @@ pciManager.each(function(pciDevice) {
     if (null !== bar) {
       barData = {
         type: bar.type,
-        resource: bar.resource,
+        resource: bar.resource
       };
     }
 
@@ -779,9 +782,9 @@ pciManager.each(function(pciDevice) {
       bars: argsBars,
       irq: irqObject,
       classData: pciDevice.classData(),
-      subsystemData: pciDevice.subsystemData(),
+      subsystemData: pciDevice.subsystemData()
     },
-    allocator: allocator,
+    allocator: allocator
   };
 
   require('driver/' + driverData.driver)(driverArgs);
@@ -849,7 +852,7 @@ function listPciDevices() {
       if (null !== bar) {
         barData = {
           type: bar.type,
-          resource: bar.resource,
+          resource: bar.resource
         };
       }
 

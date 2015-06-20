@@ -43,4 +43,4 @@ exports.findAll = function(options, id, minLength) {
   }
 
   return result;
-}
+};

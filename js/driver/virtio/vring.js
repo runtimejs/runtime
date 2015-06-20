@@ -15,6 +15,7 @@
 'use strict';
 
 var assert = require('assert');
+var runtime = require('../../core');
 
 function DescriptorTable(buffer, byteOffset, ringSize) {
   this.view = new DataView(buffer, byteOffset, ringSize * DescriptorTable.SIZE);
@@ -22,11 +23,13 @@ function DescriptorTable(buffer, byteOffset, ringSize) {
   this.descriptorsAvailable = ringSize;
 
   this.descriptorsBuffers = new Array(ringSize);
-  for (var i = 0; i < ringSize; ++i) {
+
+  var i;
+  for (i = 0; i < ringSize; ++i) {
     this.descriptorsBuffers[i] = null;
   }
 
-  for (var i = 0; i < ringSize - 1; ++i) {
+  for (i = 0; i < ringSize - 1; ++i) {
     this.setNext(i, i + 1);
   }
 }
@@ -49,7 +52,7 @@ DescriptorTable.prototype.get = function(descriptorId) {
   return {
     len: len,
     flags: flags,
-    next: next,
+    next: next
   };
 };
 
@@ -201,14 +204,14 @@ UsedRing.prototype.readElement = function(index) {
   var self = this;
   return {
     id: self.ringElements[index * 2],
-    len: self.ringElements[index * 2 + 1],
+    len: self.ringElements[index * 2 + 1]
   };
 };
 
 UsedRing.prototype.readIdx = function() {
   var self = this;
   return self.ringData[self.INDEX_IDX];
-}
+};
 
 UsedRing.prototype.placeDescriptorAsDevice = function(index, bufferLength) {
   var self = this;
@@ -216,12 +219,12 @@ UsedRing.prototype.placeDescriptorAsDevice = function(index, bufferLength) {
   self.ringElements[index * 2] = used;
   self.ringElements[index * 2 + 1] = bufferLength;
   ++self.ringData[self.INDEX_IDX];
-}
+};
 
 UsedRing.prototype.hasUnprocessedBuffers = function() {
   var self = this;
   return self.lastUsedIndex !== self.readIdx();
-}
+};
 
 UsedRing.prototype.getUsedDescriptor = function() {
   var self = this;
@@ -234,7 +237,7 @@ UsedRing.prototype.getUsedDescriptor = function() {
   var descriptorData = self.readElement(last);
   self.lastUsedIndex = (self.lastUsedIndex + 1) & 0xffff;
   return descriptorData;
-}
+};
 
 var SIZEOF_UINT16 = 2;
 
@@ -328,6 +331,6 @@ VRing.prototype.getBuffer = function() {
   }
 
   return buffer.subarray(0, len);
-}
+};
 
 module.exports = VRing;

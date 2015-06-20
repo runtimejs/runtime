@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = function(runtime) {
   runtime.shell.setCommand('clear', function(args, cb) {
     // TODO: print according to screen height.

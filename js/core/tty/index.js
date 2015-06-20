@@ -13,6 +13,9 @@
 // limitations under the License.
 
 'use strict';
+
+/* global kernel */
+/* eslint-disable quotes */
 var terminal = require('./terminal');
 var assert = require('assert');
 var typeutils = require('typeutils');

@@ -13,6 +13,8 @@
 // limitations under the License.
 
 'use strict';
+
+/* global isolate, runtime */
 console.log = isolate.log;
 var resources = require('./resources');
 require('./polyfill');

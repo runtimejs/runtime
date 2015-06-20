@@ -36,8 +36,8 @@ IP4Address.prototype.equals = function(that) {
 
 IP4Address.prototype.and = function(that) {
   return new IP4Address(this.a & that.a, this.b & that.b,
-                        this.c & that.c, this.d & that.d)
-}
+                        this.c & that.c, this.d & that.d);
+};
 
 IP4Address.prototype.hash = function() {
   return (this.a | (this.b << 8) | (this.c << 16) | (this.d << 24)) >>> 0;

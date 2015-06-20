@@ -14,6 +14,7 @@
 
 'use strict';
 var u8view = require('u8-view');
+var runtime = require('../../core');
 var IP4Address = runtime.net.IP4Address;
 
 var OPERATION_REQUEST = 1;

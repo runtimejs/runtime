@@ -15,6 +15,7 @@
 'use strict';
 var virtioNet = require('./net');
 var VIRTIO_SUBSYSTEM_NETWORK = 1;
+var runtime = require('../../core');
 
 var driver = {
   init: function(pciDevice) {

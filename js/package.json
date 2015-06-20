@@ -4,6 +4,7 @@
   "description": "Core runtime.js library",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint .",
     "test": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd",
     "test-build": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
   },
@@ -18,6 +19,7 @@
   },
   "homepage": "http://runtimejs.org",
   "devDependencies": {
+    "eslint": "^0.23.0",
     "runtime-tools": "*",
     "runtimeify": "*",
     "tape": "^4.0.0"

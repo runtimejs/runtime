@@ -16,6 +16,8 @@
 var assert = require('assert');
 var typeutils = require('typeutils');
 var dnsPacket = require('./dns-packet');
+var isint = require('isint');
+var runtime = require('../../core');
 var IP4Address = runtime.net.IP4Address;
 var UDPSocket = runtime.net.UDPSocket;
 

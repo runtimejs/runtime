@@ -14,6 +14,7 @@
 
 'use strict';
 
+ /* eslint-disable camelcase, no-new-func, new-cap */
 // V8 specific code
 var NATIVE_GetOptimizationStatus = new Function('f', 'return %GetOptimizationStatus(f)');
 var NATIVE_OptimizeFunctionOnNextCall = new Function('f', '%OptimizeFunctionOnNextCall(f)');
@@ -30,3 +31,4 @@ exports.getOptimizationStatus = function(fn) {
 };
 
 exports.optimizeFunctionOnNextCall = NATIVE_OptimizeFunctionOnNextCall;
+/* eslint-enable camelcase, no-new-func, new-cap */

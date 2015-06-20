@@ -14,7 +14,6 @@
 
 'use strict';
 var assert = require('assert');
-var typeutils = require('typeutils');
 var isDomain = require('./is-domain');
 var PacketReader = require('./packet-reader');
 var randomId = 0x3322;
@@ -23,11 +22,11 @@ exports.getQuery = function(domain) {
   assert(isDomain(domain));
 
   var bufferLength = 17;
-  var i,j;
+  var i, j, label;
 
   var labels = domain.split('.');
   for (i = 0; i < labels.length; ++i) {
-    var label = labels[i];
+    label = labels[i];
     bufferLength += label.length + 1;
   }
 
@@ -46,7 +45,7 @@ exports.getQuery = function(domain) {
   var offset = 12;
 
   for (i = 0; i < labels.length; ++i) {
-    var label = labels[i];
+    label = labels[i];
     view.setUint8(offset++, label.length);
     for (j = 0; j < label.length; ++j) {
       view.setUint8(offset++, label.charCodeAt(j));
@@ -97,7 +96,7 @@ exports.parseResponse = function(u8) {
   var reader = new PacketReader(u8.buffer, u8.byteLength, u8.byteOffset);
   var responseRandomId = reader.readUint16();
 
-  if (responseRandomId != randomId) {
+  if (responseRandomId !== randomId) {
     return null;
   }
 
@@ -151,6 +150,6 @@ exports.parseResponse = function(u8) {
 
   return {
     hostname: hostname,
-    results: results,
+    results: results
   };
 };

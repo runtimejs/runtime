@@ -14,6 +14,7 @@
 
 'use strict';
 var EventController = require('event-controller');
+var runtime = require('../../core');
 var tty = runtime.tty;
 var inputText = '';
 var inputPosition = 0;

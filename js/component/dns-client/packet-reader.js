@@ -22,20 +22,23 @@ function PacketReader(buf, len, offset) {
 }
 
 PacketReader.prototype.readUint8 = function() {
+  /* linter bug ? */
+  /* eslint-disable space-unary-ops */
   return this.view.getUint8(this.offset++);
-}
+  /* eslint-enable space-unary-ops */
+};
 
 PacketReader.prototype.readUint16 = function() {
   var value = this.view.getUint16(this.offset, false);
   this.offset += 2;
   return value;
-}
+};
 
 PacketReader.prototype.readUint32 = function() {
   var value = this.view.getUint32(this.offset, false);
   this.offset += 4;
   return value;
-}
+};
 
 PacketReader.prototype.getOffset = function() {
   return this.offset;

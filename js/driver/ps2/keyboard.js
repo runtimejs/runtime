@@ -14,6 +14,9 @@
 
 'use strict';
 
+var runtime = require('../../core');
+
+/* eslint-disable no-multi-spaces */
 var controlKeys = [
 /* 0x00 */  0, 'escape', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'backspace', 'tab',
 /* 0x10 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'leftctrl', 0, 0,
@@ -56,6 +59,7 @@ var keymapCaps = [
   'B', 'N', 'M', ',', '.', '/', '', '', '', ' ', '', '', '', '', '', '', '', '', '', '',
   '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
 ];
+/* eslint-enable no-multi-spaces */
 
 var statuses = {
   leftshift: false,
@@ -66,7 +70,7 @@ var statuses = {
   rightalt: false,
   capslock: false,
   numlock: false,
-  scrllock: false,
+  scrllock: false
 };
 
 function keyEvent(code, isPressed) {
@@ -110,13 +114,19 @@ function keyEvent(code, isPressed) {
       statuses.rightshift = isPressed;
       break;
     case 'capslock':
-      if (isPressed) statuses.capslock = !statuses.capslock;
+      if (isPressed) {
+        statuses.capslock = !statuses.capslock;
+      }
       break;
     case 'numlock':
-      if (isPressed) statuses.numlock = !statuses.numlock;
+      if (isPressed) {
+        statuses.numlock = !statuses.numlock;
+      }
       break;
     case 'scrllock':
-      if (isPressed) statuses.scrllock = !statuses.scrllock;
+      if (isPressed) {
+        statuses.scrllock = !statuses.scrllock;
+      }
       break;
     }
   }

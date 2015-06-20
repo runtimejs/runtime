@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = function(runtime) {
   runtime.shell.setCommand('poweroff', function(args, cb) {
     runtime.tty.print('Going down, now!');

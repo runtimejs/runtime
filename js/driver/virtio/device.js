@@ -17,7 +17,7 @@ var VRing = require('./vring');
 
 function VirtioDevice(deviceType, ioSpace, allocator) {
   this.mem = allocator.allocDMA();
-  this.io = (function(ioSpace) {
+  this.io = (function(ioSpaceResource) {
     var ioPorts = {
       // Common
       DEVICE_FEATURES: 0x00, // 32 bit r
@@ -27,7 +27,7 @@ function VirtioDevice(deviceType, ioSpace, allocator) {
       QUEUE_SELECT: 0x0e,    // 16 bit r+w
       QUEUE_NOTIFY: 0x10,    // 16 bit r+w
       DEVICE_STATUS: 0x12,   //  8 bit r+w
-      ISR_STATUS: 0x13,      //  8 bit r
+      ISR_STATUS: 0x13       //  8 bit r
     };
 
     if ('net' === deviceType) {
@@ -48,7 +48,7 @@ function VirtioDevice(deviceType, ioSpace, allocator) {
       }
 
       var portOffset = ioPorts[portName];
-      ports[portName] = ioSpace.offsetPort(portOffset);
+      ports[portName] = ioSpaceResource.offsetPort(portOffset);
     }
 
     return ports;
@@ -103,7 +103,7 @@ VirtioDevice.prototype.writeGuestFeatures = function(features, driverFeatures, d
 VirtioDevice.prototype.queueSetup = function(queueIndex) {
   this.io.QUEUE_SELECT.write16(queueIndex >>> 0);
   var size = this.io.QUEUE_SIZE.read16();
-  var ring = new VRing(this.mem, this.nextRingOffset, size)
+  var ring = new VRing(this.mem, this.nextRingOffset, size);
   this.nextRingOffset += ring.size;
   this.io.QUEUE_ADDRESS.write32(ring.address >>> 12);
   return ring;

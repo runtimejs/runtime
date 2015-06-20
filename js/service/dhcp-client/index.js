@@ -15,6 +15,7 @@
 'use strict';
 var dhcpPacket = require('./dhcp-packet');
 var dhcpOptions = require('./dhcp-options');
+var runtime = require('../../core');
 var IP4Address = runtime.net.IP4Address;
 
 var STATE_IDLE = 0;
@@ -124,11 +125,13 @@ function dhcpConfigure(intf, cb) {
 
     if (clientState === STATE_DISCOVER_SENT &&
         messageType === dhcpPacket.packetType.OFFER) {
-      return handleOffer(serverIP, yourIP, options);
+      handleOffer(serverIP, yourIP, options);
+      return;
     }
 
     if (messageType === dhcpPacket.packetType.ACK) {
-      return handleAck(serverIP, yourIP, options);
+      handleAck(serverIP, yourIP, options);
+      return;
     }
   }
 
@@ -148,7 +151,7 @@ function dhcpConfigure(intf, cb) {
 }
 
 runtime.net.onInterfaceAdded.add(function(intf) {
-  debug('intf add')
+  debug('intf add');
 
   dhcpConfigure(intf, function(config) {
     debug('configure dhcp ok', JSON.stringify(config));

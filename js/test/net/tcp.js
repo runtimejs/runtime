@@ -274,13 +274,14 @@ test('tcp send FIN', function(t) {
     t.on('end', done);
 
     function recvACKFIN(seq, ack, flags, window, u8) {
+      var packet;
       socket._transmit = recvACK;
       t.ok(flags & tcpHeader.FLAG_FIN);
       t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_1);
-      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
+      packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
       t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_2);
-      var packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_FIN);
+      packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_FIN);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
       t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
     }

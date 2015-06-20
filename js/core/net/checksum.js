@@ -50,4 +50,4 @@ module.exports.result = function(acc) {
   acc = (acc & 0xffff) + (acc >>> 16);
   acc += (acc >>> 16);
   return ((~acc) & 0xffff) >>> 0;
-}
+};

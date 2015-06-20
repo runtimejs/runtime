@@ -51,7 +51,7 @@ exports.color = color;
 
 function getColor(fg, bg) {
   return (((bg & 0xF) << 4) + (fg & 0xF)) >>> 0;
-};
+}
 
 function setCharXY(u8, x, y, char, fg, bg) {
   if (x < 0 || x >= w) {
@@ -122,9 +122,9 @@ VGABuffer.prototype.scrollUp = function(bg) {
   }
 };
 
-exports.draw = function(buf) {
-  testInstance(buf);
-  b.set(buf.b);
+exports.draw = function(drawbuf) {
+  testInstance(drawbuf);
+  b.set(drawbuf.b);
 };
 
 exports.allocBuffer = function() {

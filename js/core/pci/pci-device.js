@@ -40,7 +40,7 @@ function PciDevice(opts) {
 PciDevice.prototype.getBAR = function(index) {
   assert(Number.isInteger(index) && index >= 0 && index <= 6);
   return this.bars[index] || null;
-}
+};
 
 PciDevice.prototype.getIRQ = function() {
   return this.irq;
@@ -48,9 +48,9 @@ PciDevice.prototype.getIRQ = function() {
 
 PciDevice.prototype.setPciCommandFlag = function(flag) {
   assert(Number.isInteger(flag) && flag >= 0 && flag < 16);
-  var t = this.pciAccessor.read(pciAccessor.fields().COMMAND);
+  var t = this.pciAccessor.read(this.pciAccessor.fields().COMMAND);
   t |= (1 << flag) >>> 0;
-  this.pciAccessor.write(pciAccessor.fields().COMMAND, t);
+  this.pciAccessor.write(this.pciAccessor.fields().COMMAND, t);
 };
 
 PciDevice.prototype.setDriver = function(driver) {
@@ -62,7 +62,7 @@ PciDevice.prototype.setDriver = function(driver) {
 
 PciDevice.prototype.hasDriver = function() {
   return null !== this.driver;
-}
+};
 
 PciDevice.commandFlag = {
   IOSpace: 0,

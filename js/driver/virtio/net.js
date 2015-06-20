@@ -14,6 +14,7 @@
 
 'use strict';
 var VirtioDevice = require('./device');
+var runtime = require('../../core');
 var MACAddress = runtime.net.MACAddress;
 var Interface = runtime.net.Interface;
 
@@ -39,7 +40,7 @@ var virtioHeader = (function() {
 
   return {
     write: writeVirtioHeader,
-    length: 10,
+    length: 10
   };
 })();
 
@@ -68,7 +69,7 @@ function initializeNetworkDevice(pciDevice) {
     VIRTIO_NET_F_CTRL_VLAN: 19,
     VIRTIO_NET_F_GUEST_ANNOUNCE: 21,
 
-    VIRTIO_RING_F_EVENT_IDX: 29,
+    VIRTIO_RING_F_EVENT_IDX: 29
   };
 
   var dev = new VirtioDevice('net', ioSpace, allocator);
@@ -80,7 +81,7 @@ function initializeNetworkDevice(pciDevice) {
     // VIRTIO_NET_F_CSUM: true,   // checksum offload
     // VIRTIO_NET_F_GUEST_CSUM: true,   // ok without cksum
     // VIRTIO_NET_F_GSO: true,
-    VIRTIO_RING_F_EVENT_IDX: true, // able to suppress interrupts
+    VIRTIO_RING_F_EVENT_IDX: true // able to suppress interrupts
   };
 
   var deviceFeatures = dev.readDeviceFeatures(features);

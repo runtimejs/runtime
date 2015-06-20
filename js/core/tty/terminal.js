@@ -37,7 +37,7 @@ exports.color = vga.color;
 exports.print = function(text, repeat, fg, bg) {
   // fix issue #53 where non-strings (ints, etc...) would not get printed
   text = String(text);
-  
+
   repeat = repeat || 1;
 
   if (typeof fg === 'undefined') {

@@ -38,4 +38,4 @@ exports.write = function(u8, headerOffset, srcPort, destPort, dataLength) {
 
 exports.writeChecksum = function(u8, headerOffset, checksum) {
   u8view.setUint16BE(u8, headerOffset + 6, checksum);
-}
+};

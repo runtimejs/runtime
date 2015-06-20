@@ -51,13 +51,13 @@ ARPResolver.prototype.receive = function(u8, headerOffset) {
 ARPResolver.prototype.request = function(targetIP) {
   arpTransmit(this.intf, arpHeader.OPERATION_REQEUST,
     this.intf.macAddr, this.intf.ipAddr,
-    MACAddress.ZERO, targetIP)
+    MACAddress.ZERO, targetIP);
 };
 
 ARPResolver.prototype.reply = function(targetMAC, targetIP) {
   arpTransmit(this.intf, arpHeader.OPERATION_REPLY,
     this.intf.macAddr, this.intf.ipAddr,
-    targetMAC, targetIP)
+    targetMAC, targetIP);
 };
 
 ARPResolver.prototype.get = function(ip) {

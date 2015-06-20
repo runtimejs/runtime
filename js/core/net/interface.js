@@ -38,7 +38,7 @@ function Interface(macAddr) {
 
 Interface.prototype.disableArp = function() {
   this.arp = null;
-}
+};
 
 Interface.prototype.setNetworkEnabled = function(value) {
   assert(typeutils.isBoolean(value));
