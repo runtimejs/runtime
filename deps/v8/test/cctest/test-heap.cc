@@ -785,29 +785,27 @@ TEST(JSArray) {
   JSArray::Initialize(array, 0);
 
   // Set array length to 0.
-  JSArray::SetElementsLength(array, handle(Smi::FromInt(0), isolate)).Check();
+  JSArray::SetLength(array, 0);
   CHECK_EQ(Smi::FromInt(0), array->length());
   // Must be in fast mode.
   CHECK(array->HasFastSmiOrObjectElements());
 
   // array[length] = name.
-  JSReceiver::SetElement(array, 0, name, NONE, SLOPPY).Check();
+  JSReceiver::SetElement(array, 0, name, SLOPPY).Check();
   CHECK_EQ(Smi::FromInt(1), array->length());
   element = i::Object::GetElement(isolate, array, 0).ToHandleChecked();
   CHECK_EQ(*element, *name);
 
   // Set array length with larger than smi value.
-  Handle<Object> length =
-      factory->NewNumberFromUint(static_cast<uint32_t>(Smi::kMaxValue) + 1);
-  JSArray::SetElementsLength(array, length).Check();
+  JSArray::SetLength(array, static_cast<uint32_t>(Smi::kMaxValue) + 1);
 
   uint32_t int_length = 0;
-  CHECK(length->ToArrayIndex(&int_length));
-  CHECK_EQ(*length, array->length());
+  CHECK(array->length()->ToArrayIndex(&int_length));
+  CHECK_EQ(static_cast<uint32_t>(Smi::kMaxValue) + 1, int_length);
   CHECK(array->HasDictionaryElements());  // Must be in slow mode.
 
   // array[length] = name.
-  JSReceiver::SetElement(array, int_length, name, NONE, SLOPPY).Check();
+  JSReceiver::SetElement(array, int_length, name, SLOPPY).Check();
   uint32_t new_int_length = 0;
   CHECK(array->length()->ToArrayIndex(&new_int_length));
   CHECK_EQ(static_cast<double>(int_length), new_int_length - 1);
@@ -838,8 +836,8 @@ TEST(JSObjectCopy) {
   JSReceiver::SetProperty(obj, first, one, SLOPPY).Check();
   JSReceiver::SetProperty(obj, second, two, SLOPPY).Check();
 
-  JSReceiver::SetElement(obj, 0, first, NONE, SLOPPY).Check();
-  JSReceiver::SetElement(obj, 1, second, NONE, SLOPPY).Check();
+  JSReceiver::SetElement(obj, 0, first, SLOPPY).Check();
+  JSReceiver::SetElement(obj, 1, second, SLOPPY).Check();
 
   // Make the clone.
   Handle<Object> value1, value2;
@@ -864,8 +862,8 @@ TEST(JSObjectCopy) {
   JSReceiver::SetProperty(clone, first, two, SLOPPY).Check();
   JSReceiver::SetProperty(clone, second, one, SLOPPY).Check();
 
-  JSReceiver::SetElement(clone, 0, second, NONE, SLOPPY).Check();
-  JSReceiver::SetElement(clone, 1, first, NONE, SLOPPY).Check();
+  JSReceiver::SetElement(clone, 0, second, SLOPPY).Check();
+  JSReceiver::SetElement(clone, 1, first, SLOPPY).Check();
 
   value1 = Object::GetElement(isolate, obj, 1).ToHandleChecked();
   value2 = Object::GetElement(isolate, clone, 0).ToHandleChecked();
@@ -952,7 +950,7 @@ TEST(Iteration) {
   // Allocate a JS array to OLD_SPACE and NEW_SPACE
   objs[next_objs_index++] = factory->NewJSArray(10);
   objs[next_objs_index++] =
-      factory->NewJSArray(10, FAST_HOLEY_ELEMENTS, WEAK, TENURED);
+      factory->NewJSArray(10, FAST_HOLEY_ELEMENTS, Strength::WEAK, TENURED);
 
   // Allocate a small string to OLD_DATA_SPACE and NEW_SPACE
   objs[next_objs_index++] = factory->NewStringFromStaticChars("abcdefghij");
@@ -1382,8 +1380,10 @@ TEST(TestCodeFlushingIncrementalAbort) {
   // disabled.
   int position = 0;
   Handle<Object> breakpoint_object(Smi::FromInt(0), isolate);
+  EnableDebugger();
   isolate->debug()->SetBreakPoint(function, breakpoint_object, &position);
   isolate->debug()->ClearAllBreakPoints();
+  DisableDebugger();
 
   // Force optimization now that code flushing is disabled.
   { v8::HandleScope scope(CcTest::isolate());
@@ -1747,13 +1747,13 @@ TEST(TestSizeOfRegExpCode) {
 
   // Adjust source below and this check to match
   // RegExpImple::kRegExpTooLargeToOptimize.
-  DCHECK_EQ(i::RegExpImpl::kRegExpTooLargeToOptimize, 10 * KB);
+  DCHECK_EQ(i::RegExpImpl::kRegExpTooLargeToOptimize, 20 * KB);
 
   // Compile a regexp that is much larger if we are using regexp optimizations.
   CompileRun(
       "var reg_exp_source = '(?:a|bc|def|ghij|klmno|pqrstu)';"
       "var half_size_reg_exp;"
-      "while (reg_exp_source.length < 10 * 1024) {"
+      "while (reg_exp_source.length < 20 * 1024) {"
       "  half_size_reg_exp = reg_exp_source;"
       "  reg_exp_source = reg_exp_source + reg_exp_source;"
       "}"
@@ -1784,7 +1784,11 @@ TEST(TestSizeOfRegExpCode) {
 
   int size_of_regexp_code = size_with_regexp - initial_size;
 
-  CHECK_LE(size_of_regexp_code, 1 * MB);
+  // On some platforms the debug-code flag causes huge amounts of regexp code
+  // to be emitted, breaking this test.
+  if (!FLAG_debug_code) {
+    CHECK_LE(size_of_regexp_code, 1 * MB);
+  }
 
   // Small regexp is half the size, but compiles to more than twice the code
   // due to the optimization steps.
@@ -2521,7 +2525,8 @@ TEST(PrototypeTransitionClearing) {
       TransitionArray::GetPrototypeTransitions(baseObject->map());
   for (int i = initialTransitions; i < initialTransitions + transitions; i++) {
     int j = TransitionArray::kProtoTransitionHeaderSize + i;
-    CHECK(trans->get(j)->IsMap());
+    CHECK(trans->get(j)->IsWeakCell());
+    CHECK(WeakCell::cast(trans->get(j))->value()->IsMap());
   }
 
   // Make sure next prototype is placed on an old-space evacuation candidate.
@@ -2530,8 +2535,8 @@ TEST(PrototypeTransitionClearing) {
   {
     AlwaysAllocateScope always_allocate(isolate);
     SimulateFullSpace(space);
-    prototype =
-        factory->NewJSArray(32 * KB, FAST_HOLEY_ELEMENTS, WEAK, TENURED);
+    prototype = factory->NewJSArray(32 * KB, FAST_HOLEY_ELEMENTS,
+                                    Strength::WEAK, TENURED);
   }
 
   // Add a prototype on an evacuation candidate and verify that transition
@@ -3402,7 +3407,6 @@ TEST(TransitionArraySimpleToFull) {
 
 
 TEST(Regress2143a) {
-  i::FLAG_collect_maps = true;
   i::FLAG_incremental_marking = true;
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
@@ -3442,7 +3446,6 @@ TEST(Regress2143a) {
 
 
 TEST(Regress2143b) {
-  i::FLAG_collect_maps = true;
   i::FLAG_incremental_marking = true;
   i::FLAG_allow_natives_syntax = true;
   CcTest::InitializeVM();
@@ -5807,6 +5810,7 @@ TEST(OldSpaceAllocationCounter) {
   Heap* heap = isolate->heap();
   size_t counter1 = heap->OldGenerationAllocationCounter();
   heap->CollectGarbage(NEW_SPACE);
+  heap->CollectGarbage(NEW_SPACE);
   const size_t kSize = 1024;
   AllocateInSpace(isolate, kSize, OLD_SPACE);
   size_t counter2 = heap->OldGenerationAllocationCounter();
@@ -5867,12 +5871,13 @@ TEST(NewSpaceAllocationThroughput2) {
   int time2 = 200;
   size_t counter2 = 2000;
   tracer->SampleAllocation(time2, counter2, 0);
-  size_t throughput = tracer->AllocationThroughputInBytesPerMillisecond(100);
+  size_t throughput =
+      tracer->NewSpaceAllocationThroughputInBytesPerMillisecond(100);
   CHECK_EQ((counter2 - counter1) / (time2 - time1), throughput);
   int time3 = 1000;
   size_t counter3 = 30000;
   tracer->SampleAllocation(time3, counter3, 0);
-  throughput = tracer->AllocationThroughputInBytesPerMillisecond(100);
+  throughput = tracer->NewSpaceAllocationThroughputInBytesPerMillisecond(100);
   CHECK_EQ((counter3 - counter1) / (time3 - time1), throughput);
 }
 
@@ -5912,9 +5917,57 @@ TEST(MessageObjectLeak) {
   const char* flag = "--turbo-filter=*";
   FlagList::SetFlagsFromString(flag, StrLength(flag));
   FLAG_always_opt = true;
-  FLAG_turbo_exceptions = true;
+  FLAG_turbo_try_catch = true;
+  FLAG_turbo_try_finally = true;
 
   CompileRun(test);
+}
+
+
+static void CheckEqualSharedFunctionInfos(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  Handle<Object> obj1 = v8::Utils::OpenHandle(*args[0]);
+  Handle<Object> obj2 = v8::Utils::OpenHandle(*args[1]);
+  Handle<JSFunction> fun1 = Handle<JSFunction>::cast(obj1);
+  Handle<JSFunction> fun2 = Handle<JSFunction>::cast(obj2);
+  CHECK(fun1->shared() == fun2->shared());
+}
+
+
+static void RemoveCodeAndGC(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  Isolate* isolate = CcTest::i_isolate();
+  Handle<Object> obj = v8::Utils::OpenHandle(*args[0]);
+  Handle<JSFunction> fun = Handle<JSFunction>::cast(obj);
+  fun->ReplaceCode(*isolate->builtins()->CompileLazy());
+  fun->shared()->ReplaceCode(*isolate->builtins()->CompileLazy());
+  isolate->heap()->CollectAllAvailableGarbage("remove code and gc");
+}
+
+
+TEST(CanonicalSharedFunctionInfo) {
+  CcTest::InitializeVM();
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope scope(isolate);
+  v8::Handle<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
+  global->Set(isolate, "check", v8::FunctionTemplate::New(
+                                    isolate, CheckEqualSharedFunctionInfos));
+  global->Set(isolate, "remove",
+              v8::FunctionTemplate::New(isolate, RemoveCodeAndGC));
+  v8::Local<v8::Context> context = v8::Context::New(isolate, NULL, global);
+  v8::Context::Scope cscope(context);
+  CompileRun(
+      "function f() { return function g() {}; }"
+      "var g1 = f();"
+      "remove(f);"
+      "var g2 = f();"
+      "check(g1, g2);");
+
+  CompileRun(
+      "function f() { return (function() { return function g() {}; })(); }"
+      "var g1 = f();"
+      "remove(f);"
+      "var g2 = f();"
+      "check(g1, g2);");
 }
 
 
@@ -5930,12 +5983,14 @@ TEST(OldGenerationAllocationThroughput) {
   int time2 = 200;
   size_t counter2 = 2000;
   tracer->SampleAllocation(time2, 0, counter2);
-  size_t throughput = tracer->AllocationThroughputInBytesPerMillisecond(100);
+  size_t throughput =
+      tracer->OldGenerationAllocationThroughputInBytesPerMillisecond(100);
   CHECK_EQ((counter2 - counter1) / (time2 - time1), throughput);
   int time3 = 1000;
   size_t counter3 = 30000;
   tracer->SampleAllocation(time3, 0, counter3);
-  throughput = tracer->AllocationThroughputInBytesPerMillisecond(100);
+  throughput =
+      tracer->OldGenerationAllocationThroughputInBytesPerMillisecond(100);
   CHECK_EQ((counter3 - counter1) / (time3 - time1), throughput);
 }
 

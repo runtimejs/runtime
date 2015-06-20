@@ -110,7 +110,8 @@ PreParser::PreParseResult PreParser::PreParseLazyFunction(
   FunctionState top_state(&function_state_, &scope_, top_scope, kNormalFunction,
                           &top_factory);
   scope_->SetLanguageMode(language_mode);
-  Scope* function_scope = NewScope(scope_, FUNCTION_SCOPE, kind);
+  Scope* function_scope = NewScope(
+      scope_, IsArrowFunction(kind) ? ARROW_SCOPE : FUNCTION_SCOPE, kind);
   PreParserFactory function_factory(NULL);
   FunctionState function_state(&function_state_, &scope_, function_scope, kind,
                                &function_factory);
@@ -548,7 +549,7 @@ PreParser::Statement PreParser::ParseVariableDeclarations(
           ParsePrimaryExpression(&pattern_classifier, CHECK_OK);
       ValidateBindingPattern(&pattern_classifier, CHECK_OK);
 
-      if (!FLAG_harmony_destructuring && !pattern.IsIdentifier()) {
+      if (!allow_harmony_destructuring() && !pattern.IsIdentifier()) {
         ReportUnexpectedToken(next);
         *ok = false;
         return Statement::Default();
@@ -598,6 +599,8 @@ PreParser::Statement PreParser::ParseExpressionOrLabelledStatement(bool* ok) {
       return Statement::Default();
 
     case Token::THIS:
+      if (!FLAG_strong_this) break;
+      // Fall through.
     case Token::SUPER:
       if (is_strong(language_mode()) &&
           i::IsConstructor(function_state_->kind())) {
@@ -1032,18 +1035,15 @@ PreParser::Expression PreParser::ParseFunctionLiteral(
   PreParserFactory factory(NULL);
   FunctionState function_state(&function_state_, &scope_, function_scope, kind,
                                &factory);
-  ExpressionClassifier formals_classifier;
+  DuplicateFinder duplicate_finder(scanner()->unicode_cache());
+  ExpressionClassifier formals_classifier(&duplicate_finder);
 
   bool has_rest = false;
   Expect(Token::LPAREN, CHECK_OK);
   int start_position = scanner()->location().beg_pos;
   function_scope->set_start_position(start_position);
-  int num_parameters;
-  {
-    DuplicateFinder duplicate_finder(scanner()->unicode_cache());
-    num_parameters = ParseFormalParameterList(&duplicate_finder, &has_rest,
-                                              &formals_classifier, CHECK_OK);
-  }
+  int num_parameters = ParseFormalParameterList(nullptr, &has_rest,
+                                                &formals_classifier, CHECK_OK);
   Expect(Token::RPAREN, CHECK_OK);
   int formals_end_position = scanner()->location().end_pos;
 

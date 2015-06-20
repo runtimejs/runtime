@@ -211,13 +211,14 @@ Operand::Operand(Handle<Object> handle) {
 }
 
 
-MemOperand::MemOperand(Register rm, int64_t offset) : Operand(rm) {
+MemOperand::MemOperand(Register rm, int32_t offset) : Operand(rm) {
   offset_ = offset;
 }
 
 
-MemOperand::MemOperand(Register rm, int64_t unit, int64_t multiplier,
-                       OffsetAddend offset_addend) : Operand(rm) {
+MemOperand::MemOperand(Register rm, int32_t unit, int32_t multiplier,
+                       OffsetAddend offset_addend)
+    : Operand(rm) {
   offset_ = unit * multiplier + offset_addend;
 }
 
@@ -290,7 +291,8 @@ void Assembler::GetCode(CodeDesc* desc) {
   desc->buffer = buffer_;
   desc->buffer_size = buffer_size_;
   desc->instr_size = pc_offset();
-  desc->reloc_size = (buffer_ + buffer_size_) - reloc_info_writer.pos();
+  desc->reloc_size =
+      static_cast<int>((buffer_ + buffer_size_) - reloc_info_writer.pos());
   desc->origin = this;
 }
 
@@ -637,7 +639,7 @@ int Assembler::target_at(int pos, bool is_internal) {
      }
   }
   // Check we have a branch or jump instruction.
-  DCHECK(IsBranch(instr) || IsLui(instr));
+  DCHECK(IsBranch(instr) || IsJ(instr) || IsJal(instr) || IsLui(instr));
   // Do NOT change this to <<2. We rely on arithmetic shifts here, assuming
   // the compiler uses arithmetic shifts for signed integers.
   if (IsBranch(instr)) {
@@ -673,8 +675,18 @@ int Assembler::target_at(int pos, bool is_internal) {
       return pos - delta;
     }
   } else {
-    UNREACHABLE();
-    return 0;
+    DCHECK(IsJ(instr) || IsJal(instr));
+    int32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
+    if (imm28 == kEndOfJumpChain) {
+      // EndOfChain sentinel is returned directly, not relative to pc or pos.
+      return kEndOfChain;
+    } else {
+      uint64_t instr_address = reinterpret_cast<int64_t>(buffer_ + pos);
+      instr_address &= kImm28Mask;
+      int delta = static_cast<int>(instr_address - imm28);
+      DCHECK(pos > delta);
+      return pos - delta;
+    }
   }
 }
 
@@ -694,7 +706,7 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
     return;
   }
 
-  DCHECK(IsBranch(instr) || IsLui(instr));
+  DCHECK(IsBranch(instr) || IsJ(instr) || IsJal(instr) || IsLui(instr));
   if (IsBranch(instr)) {
     int32_t imm18 = target_pos - (pos + kBranchPCOffset);
     DCHECK((imm18 & 3) == 0);
@@ -725,7 +737,16 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
     instr_at_put(pos + 3 * Assembler::kInstrSize,
                  instr_ori2 | (imm & kImm16Mask));
   } else {
-    UNREACHABLE();
+    DCHECK(IsJ(instr) || IsJal(instr));
+    uint64_t imm28 = reinterpret_cast<uint64_t>(buffer_) + target_pos;
+    imm28 &= kImm28Mask;
+    DCHECK((imm28 & 3) == 0);
+
+    instr &= ~kImm26Mask;
+    uint32_t imm26 = static_cast<uint32_t>(imm28 >> 2);
+    DCHECK(is_uint26(imm26));
+
+    instr_at_put(pos, instr | (imm26 & kImm26Mask));
   }
 }
 
@@ -787,7 +808,8 @@ void Assembler::bind_to(Label* L, int pos) {
       }
       target_at_put(fixup_pos, pos, false);
     } else {
-      DCHECK(IsJ(instr) || IsLui(instr) || IsEmittedConstant(instr));
+      DCHECK(IsJ(instr) || IsJal(instr) || IsLui(instr) ||
+             IsEmittedConstant(instr));
       target_at_put(fixup_pos, pos, false);
     }
   }
@@ -945,6 +967,20 @@ void Assembler::GenInstrImmediate(Opcode opcode,
 }
 
 
+void Assembler::GenInstrImmediate(Opcode opcode, Register rs, int32_t j) {
+  DCHECK(rs.is_valid() && (is_uint21(j)));
+  Instr instr = opcode | (rs.code() << kRsShift) | (j & kImm21Mask);
+  emit(instr);
+}
+
+
+void Assembler::GenInstrImmediate(Opcode opcode, int32_t offset26) {
+  DCHECK(is_int26(offset26));
+  Instr instr = opcode | (offset26 & kImm26Mask);
+  emit(instr);
+}
+
+
 void Assembler::GenInstrJump(Opcode opcode,
                              uint32_t address) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
@@ -984,7 +1020,6 @@ uint64_t Assembler::jump_address(Label* L) {
       return kEndOfJumpChain;
     }
   }
-
   uint64_t imm = reinterpret_cast<uint64_t>(buffer_) + target_pos;
   DCHECK((imm & 3) == 0);
 
@@ -1090,7 +1125,7 @@ int32_t Assembler::branch_offset21_compact(Label* L,
     }
   }
 
-  int32_t offset = target_pos - pc_offset();
+  int32_t offset = target_pos - (pc_offset() + kBranchPCOffset);
   DCHECK((offset & 3) == 0);
   DCHECK(((offset >> 2) & 0xFFE00000) == 0);  // Offset is 21bit width.
 
@@ -1134,6 +1169,19 @@ void Assembler::b(int16_t offset) {
 void Assembler::bal(int16_t offset) {
   positions_recorder()->WriteRecordedPositions();
   bgezal(zero_reg, offset);
+}
+
+
+void Assembler::bc(int32_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  GenInstrImmediate(BC, offset);
+}
+
+
+void Assembler::balc(int32_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  positions_recorder()->WriteRecordedPositions();
+  GenInstrImmediate(BALC, offset);
 }
 
 
@@ -1336,7 +1384,7 @@ void Assembler::beqc(Register rs, Register rt, int16_t offset) {
 void Assembler::beqzc(Register rs, int32_t offset) {
   DCHECK(kArchVariant == kMips64r6);
   DCHECK(!(rs.is(zero_reg)));
-  Instr instr = BEQZC | (rs.code() << kRsShift) | offset;
+  Instr instr = POP66 | (rs.code() << kRsShift) | (offset & kImm21Mask);
   emit(instr);
 }
 
@@ -1351,7 +1399,7 @@ void Assembler::bnec(Register rs, Register rt, int16_t offset) {
 void Assembler::bnezc(Register rs, int32_t offset) {
   DCHECK(kArchVariant == kMips64r6);
   DCHECK(!(rs.is(zero_reg)));
-  Instr instr = BNEZC | (rs.code() << kRsShift) | offset;
+  Instr instr = POP76 | (rs.code() << kRsShift) | offset;
   emit(instr);
 }
 
@@ -1359,12 +1407,14 @@ void Assembler::bnezc(Register rs, int32_t offset) {
 void Assembler::j(int64_t target) {
 #if DEBUG
   // Get pc of delay slot.
-  uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint64_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
-  DCHECK(in_range && ((target & 3) == 0));
+  if (target != kEndOfJumpChain) {
+    uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
+    bool in_range = ((ipc ^ static_cast<uint64_t>(target)) >>
+                     (kImm26Bits + kImmFieldShift)) == 0;
+    DCHECK(in_range && ((target & 3) == 0));
+  }
 #endif
-  GenInstrJump(J, target >> 2);
+  GenInstrJump(J, static_cast<uint32_t>(target >> 2) & kImm26Mask);
 }
 
 
@@ -1385,13 +1435,15 @@ void Assembler::jr(Register rs) {
 void Assembler::jal(int64_t target) {
 #ifdef DEBUG
   // Get pc of delay slot.
-  uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint64_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
-  DCHECK(in_range && ((target & 3) == 0));
+  if (target != kEndOfJumpChain) {
+    uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
+    bool in_range = ((ipc ^ static_cast<uint64_t>(target)) >>
+                     (kImm26Bits + kImmFieldShift)) == 0;
+    DCHECK(in_range && ((target & 3) == 0));
+  }
 #endif
   positions_recorder()->WriteRecordedPositions();
-  GenInstrJump(JAL, target >> 2);
+  GenInstrJump(JAL, static_cast<uint32_t>(target >> 2) & kImm26Mask);
 }
 
 
@@ -1403,29 +1455,18 @@ void Assembler::jalr(Register rs, Register rd) {
 }
 
 
-void Assembler::j_or_jr(int64_t target, Register rs) {
-  // Get pc of delay slot.
-  uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint64_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
-  if (in_range) {
-      j(target);
-  } else {
-      jr(t9);
-  }
+void Assembler::jic(Register rt, int16_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  Instr instr = POP66 | (JIC << kRsShift) | (rt.code() << kRtShift) |
+                (offset & kImm16Mask);
+  emit(instr);
 }
 
 
-void Assembler::jal_or_jalr(int64_t target, Register rs) {
-  // Get pc of delay slot.
-  uint64_t ipc = reinterpret_cast<uint64_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint64_t>(target) >>
-                  (kImm26Bits+kImmFieldShift)) == 0;
-  if (in_range) {
-      jal(target);
-  } else {
-      jalr(t9);
-  }
+void Assembler::jialc(Register rt, int16_t offset) {
+  DCHECK(kArchVariant == kMips64r6);
+  positions_recorder()->WriteRecordedPositions();
+  GenInstrImmediate(POP76, zero_reg, rt, offset);
 }
 
 
@@ -1896,6 +1937,7 @@ void Assembler::lui(Register rd, int32_t j) {
 void Assembler::aui(Register rs, Register rt, int32_t j) {
   // This instruction uses same opcode as 'lui'. The difference in encoding is
   // 'lui' has zero reg. for rs field.
+  DCHECK(!(rs.is(zero_reg)));
   DCHECK(is_uint16(j));
   GenInstrImmediate(LUI, rs, rt, j);
 }
@@ -1956,6 +1998,56 @@ void Assembler::sd(Register rd, const MemOperand& rs) {
     LoadRegPlusOffsetToAt(rs);
     GenInstrImmediate(SD, at, rd, 0);  // Equiv to sw(rd, MemOperand(at, 0));
   }
+}
+
+
+// ---------PC-Relative instructions-----------
+
+void Assembler::addiupc(Register rs, int32_t imm19) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int19(imm19));
+  int32_t imm21 = ADDIUPC << kImm19Bits | (imm19 & kImm19Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
+}
+
+
+void Assembler::lwpc(Register rs, int32_t offset19) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int19(offset19));
+  int32_t imm21 = LWPC << kImm19Bits | (offset19 & kImm19Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
+}
+
+
+void Assembler::lwupc(Register rs, int32_t offset19) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int19(offset19));
+  int32_t imm21 = LWUPC << kImm19Bits | (offset19 & kImm19Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
+}
+
+
+void Assembler::ldpc(Register rs, int32_t offset18) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int18(offset18));
+  int32_t imm21 = LDPC << kImm18Bits | (offset18 & kImm18Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
+}
+
+
+void Assembler::auipc(Register rs, int16_t imm16) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int16(imm16));
+  int32_t imm21 = AUIPC << kImm16Bits | (imm16 & kImm16Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
+}
+
+
+void Assembler::aluipc(Register rs, int16_t imm16) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(rs.is_valid() && is_int16(imm16));
+  int32_t imm21 = ALUIPC << kImm16Bits | (imm16 & kImm16Mask);
+  GenInstrImmediate(PCREL, rs, imm21);
 }
 
 
@@ -2207,13 +2299,13 @@ void Assembler::dext_(Register rt, Register rs, uint16_t pos, uint16_t size) {
 
 void Assembler::bitswap(Register rd, Register rt) {
   DCHECK(kArchVariant == kMips64r6);
-  GenInstrRegister(SPECIAL3, zero_reg, rt, rd, 0, BITSWAP);
+  GenInstrRegister(SPECIAL3, zero_reg, rt, rd, 0, BSHFL);
 }
 
 
 void Assembler::dbitswap(Register rd, Register rt) {
   DCHECK(kArchVariant == kMips64r6);
-  GenInstrRegister(SPECIAL3, zero_reg, rt, rd, 0, DBITSWAP);
+  GenInstrRegister(SPECIAL3, zero_reg, rt, rd, 0, DBSHFL);
 }
 
 
@@ -2222,6 +2314,22 @@ void Assembler::pref(int32_t hint, const MemOperand& rs) {
   Instr instr = PREF | (rs.rm().code() << kRsShift) | (hint << kRtShift)
       | (rs.offset_);
   emit(instr);
+}
+
+
+void Assembler::align(Register rd, Register rs, Register rt, uint8_t bp) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(is_uint3(bp));
+  uint16_t sa = (ALIGN << kBp2Bits) | bp;
+  GenInstrRegister(SPECIAL3, rs, rt, rd, sa, BSHFL);
+}
+
+
+void Assembler::dalign(Register rd, Register rs, Register rt, uint8_t bp) {
+  DCHECK(kArchVariant == kMips64r6);
+  DCHECK(is_uint3(bp));
+  uint16_t sa = (DALIGN << kBp3Bits) | bp;
+  GenInstrRegister(SPECIAL3, rs, rt, rd, sa, DBSHFL);
 }
 
 
@@ -2811,6 +2919,7 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, byte* pc,
   }
   Instr instr = instr_at(pc);
   DCHECK(RelocInfo::IsInternalReferenceEncoded(rmode));
+  DCHECK(IsJ(instr) || IsLui(instr) || IsJal(instr));
   if (IsLui(instr)) {
     Instr instr_lui = instr_at(pc + 0 * Assembler::kInstrSize);
     Instr instr_ori = instr_at(pc + 1 * Assembler::kInstrSize);
@@ -2842,8 +2951,21 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, byte* pc,
                  instr_ori2 | (imm & kImm16Mask));
     return 4;  // Number of instructions patched.
   } else {
-    UNREACHABLE();
-    return 0;  // Number of instructions patched.
+    uint32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
+    if (static_cast<int32_t>(imm28) == kEndOfJumpChain) {
+      return 0;  // Number of instructions patched.
+    }
+
+    imm28 += pc_delta;
+    imm28 &= kImm28Mask;
+    DCHECK((imm28 & 3) == 0);
+
+    instr &= ~kImm26Mask;
+    uint32_t imm26 = imm28 >> 2;
+    DCHECK(is_uint26(imm26));
+
+    instr_at_put(pc, instr | (imm26 & kImm26Mask));
+    return 1;  // Number of instructions patched.
   }
 }
 
@@ -2864,7 +2986,8 @@ void Assembler::GrowBuffer() {
   desc.buffer = NewArray<byte>(desc.buffer_size);
 
   desc.instr_size = pc_offset();
-  desc.reloc_size = (buffer_ + buffer_size_) - reloc_info_writer.pos();
+  desc.reloc_size =
+      static_cast<int>((buffer_ + buffer_size_) - reloc_info_writer.pos());
 
   // Copy the data.
   intptr_t pc_delta = desc.buffer - buffer_;
@@ -3012,14 +3135,8 @@ void Assembler::CheckTrampolinePool() {
           // references until associated instructions are emitted and available
           // to be patched.
           RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE_ENCODED);
-          // TODO(plind): Verify this, presume I cannot use macro-assembler
-          // here.
-          lui(at, (imm64 >> 32) & kImm16Mask);
-          ori(at, at, (imm64 >> 16) & kImm16Mask);
-          dsll(at, at, 16);
-          ori(at, at, imm64 & kImm16Mask);
+          j(imm64);
         }
-        jr(at);
         nop();
       }
       bind(&after_pool);

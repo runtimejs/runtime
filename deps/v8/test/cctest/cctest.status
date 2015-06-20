@@ -64,10 +64,12 @@
   # are actually 13 * 38 * 5 * 128 = 316160 individual tests hidden here.
   'test-parsing/ParserSync': [PASS, NO_VARIANTS],
 
-  # This tests only the type system, so there is no point in running several
-  # variants.
+  # This tests only the type system, no point in running several variants.
   'test-hydrogen-types/*': [PASS, NO_VARIANTS],
   'test-types/*': [PASS, NO_VARIANTS],
+
+  # This tests API threading, no point in running several variants.
+  'test-api/Threading*': [PASS, NO_VARIANTS],
 
   # The cpu profiler tests are notoriously flaky.
   # BUG(2999). (test/cpu-profiler/CollectCpuProfile)
@@ -98,7 +100,6 @@
   # TurboFan compiler failures.
 
   # Some tests are just too slow to run for now.
-  'test-api/Threading*': [PASS, NO_VARIANTS],
   'test-heap/IncrementalMarkingStepMakesBigProgressWithLargeObjects': [PASS, NO_VARIANTS],
   'test-heap-profiler/ManyLocalsInSharedContext': [PASS, NO_VARIANTS],
   'test-serialize/SerializeToplevelLargeCodeObject': [PASS, NO_VARIANTS],
@@ -115,12 +116,6 @@
   'test-debug/BreakPointThroughJavaScript': [PASS, NO_VARIANTS],  # in no-snap mode.
   'test-debug/ScriptBreakPointByIdThroughJavaScript': [PASS, NO_VARIANTS],
   'test-debug/ScriptBreakPointByNameThroughJavaScript': [PASS, NO_VARIANTS],
-
-  # TODO(jarin): Cannot lazy-deoptimize from conversions before comparisons.
-  'test-js-typed-lowering/OrderCompareEffects': [SKIP],
-
-  # TODO(jochen): Reenable after we removed the CHECK() from the marking queue.
-  'test-mark-compact/MarkingDeque': [SKIP],
 
   ############################################################################
   # Slow tests.
@@ -159,6 +154,9 @@
 
   # BUG(v8:3434).
   ' test-api/LoadICFastApi_DirectCall_GCMoveStubWithProfiler': [SKIP],
+
+  # BUG(v8:4200).
+  'test-spaces/SizeOfFirstPageIsLargeEnough': [PASS, FAIL],
 }],  # 'arch == arm64'
 
 ['arch == arm64 and simulator_run == True', {
@@ -261,6 +259,9 @@
 ['arch == mipsel or arch == mips', {
   'test-cpu-profiler/CollectDeoptEvents': [PASS, FAIL],
 
+  # TODO(mips-team): Improve code-size on large RegExp's.
+  'test-heap/TestSizeOfRegExpCode':  [SKIP],
+
   # BUG(1075): Unresolved crashes on MIPS also.
   'test-serialize/Deserialize': [SKIP],
   'test-serialize/DeserializeFromSecondSerializationAndRunScript2': [SKIP],
@@ -298,12 +299,7 @@
 
 ##############################################################################
 ['arch == x87', {
-
-  # Test requires turbofan:
-  'codegen-tester/CompareWrapper': [SKIP],
-  'codegen-tester/ParametersEqual': [SKIP],
-  'test-simplified-lowering/LowerStringOps_to_call_and_compare': [SKIP],
-  'test-serialize/SerializeInternalReference': [FAIL],
+  'test-run-machops/RunFloat64InsertLowWord32': [SKIP]
 }],  # 'arch == x87'
 
 ##############################################################################

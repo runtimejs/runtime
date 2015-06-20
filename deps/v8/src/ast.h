@@ -127,9 +127,8 @@ AST_NODE_LIST(DEF_FORWARD_DECLARATION)
 
 
 // Typedef only introduced to avoid unreadable code.
-// Please do appreciate the required space in "> >".
-typedef ZoneList<Handle<String> > ZoneStringList;
-typedef ZoneList<Handle<Object> > ZoneObjectList;
+typedef ZoneList<Handle<String>> ZoneStringList;
+typedef ZoneList<Handle<Object>> ZoneObjectList;
 
 
 #define DECLARE_NODE_TYPE(type)                                          \
@@ -138,12 +137,7 @@ typedef ZoneList<Handle<Object> > ZoneObjectList;
   friend class AstNodeFactory;
 
 
-enum AstPropertiesFlag {
-  kDontSelfOptimize,
-  kDontSoftInline,
-  kDontCrankshaft,
-  kDontCache
-};
+enum AstPropertiesFlag { kDontSelfOptimize, kDontCrankshaft };
 
 
 class FeedbackVectorRequirements {
@@ -484,7 +478,7 @@ class Block final : public BreakableStatement {
   }
 
   ZoneList<Statement*>* statements() { return &statements_; }
-  bool is_initializer_block() const { return is_initializer_block_; }
+  bool ignore_completion_value() const { return ignore_completion_value_; }
 
   static int num_ids() { return parent_num_ids() + 1; }
   BailoutId DeclsId() const { return BailoutId(local_id(0)); }
@@ -499,10 +493,10 @@ class Block final : public BreakableStatement {
 
  protected:
   Block(Zone* zone, ZoneList<const AstRawString*>* labels, int capacity,
-        bool is_initializer_block, int pos)
+        bool ignore_completion_value, int pos)
       : BreakableStatement(zone, labels, TARGET_FOR_NAMED_ONLY, pos),
         statements_(capacity, zone),
-        is_initializer_block_(is_initializer_block),
+        ignore_completion_value_(ignore_completion_value),
         scope_(NULL) {}
   static int parent_num_ids() { return BreakableStatement::num_ids(); }
 
@@ -510,7 +504,7 @@ class Block final : public BreakableStatement {
   int local_id(int n) const { return base_id() + parent_num_ids() + n; }
 
   ZoneList<Statement*> statements_;
-  bool is_initializer_block_;
+  bool ignore_completion_value_;
   Scope* scope_;
 };
 
@@ -1161,18 +1155,29 @@ class IfStatement final : public Statement {
 
 class TryStatement : public Statement {
  public:
-  int index() const { return index_; }
   Block* try_block() const { return try_block_; }
 
+  void set_base_id(int id) { base_id_ = id; }
+  static int num_ids() { return parent_num_ids() + 1; }
+  BailoutId HandlerId() const { return BailoutId(local_id(0)); }
+
  protected:
-  TryStatement(Zone* zone, int index, Block* try_block, int pos)
-      : Statement(zone, pos), index_(index), try_block_(try_block) {}
+  TryStatement(Zone* zone, Block* try_block, int pos)
+      : Statement(zone, pos),
+        try_block_(try_block),
+        base_id_(BailoutId::None().ToInt()) {}
+  static int parent_num_ids() { return 0; }
+
+  int base_id() const {
+    DCHECK(!BailoutId(base_id_).IsNone());
+    return base_id_;
+  }
 
  private:
-  // Unique (per-function) index of this handler.  This is not an AST ID.
-  int index_;
+  int local_id(int n) const { return base_id() + parent_num_ids() + n; }
 
   Block* try_block_;
+  int base_id_;
 };
 
 
@@ -1185,18 +1190,12 @@ class TryCatchStatement final : public TryStatement {
   Block* catch_block() const { return catch_block_; }
 
  protected:
-  TryCatchStatement(Zone* zone,
-                    int index,
-                    Block* try_block,
-                    Scope* scope,
-                    Variable* variable,
-                    Block* catch_block,
-                    int pos)
-      : TryStatement(zone, index, try_block, pos),
+  TryCatchStatement(Zone* zone, Block* try_block, Scope* scope,
+                    Variable* variable, Block* catch_block, int pos)
+      : TryStatement(zone, try_block, pos),
         scope_(scope),
         variable_(variable),
-        catch_block_(catch_block) {
-  }
+        catch_block_(catch_block) {}
 
  private:
   Scope* scope_;
@@ -1212,10 +1211,9 @@ class TryFinallyStatement final : public TryStatement {
   Block* finally_block() const { return finally_block_; }
 
  protected:
-  TryFinallyStatement(
-      Zone* zone, int index, Block* try_block, Block* finally_block, int pos)
-      : TryStatement(zone, index, try_block, pos),
-        finally_block_(finally_block) { }
+  TryFinallyStatement(Zone* zone, Block* try_block, Block* finally_block,
+                      int pos)
+      : TryStatement(zone, try_block, pos), finally_block_(finally_block) {}
 
  private:
   Block* finally_block_;
@@ -2405,18 +2403,6 @@ class Yield final : public Expression {
   Expression* expression() const { return expression_; }
   Kind yield_kind() const { return yield_kind_; }
 
-  // Delegating yield surrounds the "yield" in a "try/catch".  This index
-  // locates the catch handler in the handler table, and is equivalent to
-  // TryCatchStatement::index().
-  int index() const {
-    DCHECK_EQ(kDelegating, yield_kind());
-    return index_;
-  }
-  void set_index(int index) {
-    DCHECK_EQ(kDelegating, yield_kind());
-    index_ = index;
-  }
-
   // Type feedback information.
   bool HasFeedbackSlots() const { return yield_kind() == kDelegating; }
   virtual FeedbackVectorRequirements ComputeFeedbackRequirements(
@@ -2449,14 +2435,12 @@ class Yield final : public Expression {
         generator_object_(generator_object),
         expression_(expression),
         yield_kind_(yield_kind),
-        index_(-1),
         yield_first_feedback_slot_(FeedbackVectorICSlot::Invalid()) {}
 
  private:
   Expression* generator_object_;
   Expression* expression_;
   Kind yield_kind_;
-  int index_;
   FeedbackVectorICSlot yield_first_feedback_slot_;
 };
 
@@ -2523,13 +2507,10 @@ class FunctionLiteral final : public Expression {
 
   int materialized_literal_count() { return materialized_literal_count_; }
   int expected_property_count() { return expected_property_count_; }
-  int handler_count() { return handler_count_; }
   int parameter_count() { return parameter_count_; }
 
   bool AllowsLazyCompilation();
   bool AllowsLazyCompilationWithoutContext();
-
-  void InitializeSharedInfo(Handle<Code> code);
 
   Handle<String> debug_name() const {
     if (raw_name_ != NULL && !raw_name_->IsEmpty()) {
@@ -2564,9 +2545,6 @@ class FunctionLiteral final : public Expression {
     DCHECK(inferred_name_.is_null());
     inferred_name_ = Handle<String>();
   }
-
-  // shared_info may be null if it's not cached in full code.
-  Handle<SharedFunctionInfo> shared_info() { return shared_info_; }
 
   bool pretenure() { return Pretenure::decode(bitfield_); }
   void set_pretenure() { bitfield_ |= Pretenure::encode(true); }
@@ -2618,8 +2596,8 @@ class FunctionLiteral final : public Expression {
   FunctionLiteral(Zone* zone, const AstRawString* name,
                   AstValueFactory* ast_value_factory, Scope* scope,
                   ZoneList<Statement*>* body, int materialized_literal_count,
-                  int expected_property_count, int handler_count,
-                  int parameter_count, FunctionType function_type,
+                  int expected_property_count, int parameter_count,
+                  FunctionType function_type,
                   ParameterFlag has_duplicate_parameters,
                   IsFunctionFlag is_function,
                   EagerCompileHint eager_compile_hint, FunctionKind kind,
@@ -2633,7 +2611,6 @@ class FunctionLiteral final : public Expression {
         dont_optimize_reason_(kNoReason),
         materialized_literal_count_(materialized_literal_count),
         expected_property_count_(expected_property_count),
-        handler_count_(handler_count),
         parameter_count_(parameter_count),
         function_token_position_(RelocInfo::kNoPosition) {
     bitfield_ = IsExpression::encode(function_type != DECLARATION) |
@@ -2650,7 +2627,6 @@ class FunctionLiteral final : public Expression {
  private:
   const AstRawString* raw_name_;
   Handle<String> name_;
-  Handle<SharedFunctionInfo> shared_info_;
   Scope* scope_;
   ZoneList<Statement*>* body_;
   const AstString* raw_inferred_name_;
@@ -2660,7 +2636,6 @@ class FunctionLiteral final : public Expression {
 
   int materialized_literal_count_;
   int expected_property_count_;
-  int handler_count_;
   int parameter_count_;
   int function_token_position_;
 
@@ -2705,6 +2680,28 @@ class ClassLiteral final : public Expression {
   // ClassLiteral can vary, so num_ids() is not a static method.
   int num_ids() const { return parent_num_ids() + 4 + properties()->length(); }
 
+  // Object literals need one feedback slot for each non-trivial value, as well
+  // as some slots for home objects.
+  FeedbackVectorRequirements ComputeFeedbackRequirements(
+      Isolate* isolate, const ICSlotCache* cache) override;
+  void SetFirstFeedbackICSlot(FeedbackVectorICSlot slot,
+                              ICSlotCache* cache) override {
+    slot_ = slot;
+  }
+  Code::Kind FeedbackICSlotKind(int index) override { return Code::STORE_IC; }
+  FeedbackVectorICSlot GetNthSlot(int n) const {
+    return FeedbackVectorICSlot(slot_.ToInt() + n);
+  }
+
+  // If value needs a home object, returns a valid feedback vector ic slot
+  // given by slot_index, and increments slot_index.
+  FeedbackVectorICSlot SlotForHomeObject(Expression* value,
+                                         int* slot_index) const;
+
+#ifdef DEBUG
+  int slot_count() const { return slot_count_; }
+#endif
+
  protected:
   ClassLiteral(Zone* zone, const AstRawString* name, Scope* scope,
                VariableProxy* class_variable_proxy, Expression* extends,
@@ -2717,7 +2714,13 @@ class ClassLiteral final : public Expression {
         extends_(extends),
         constructor_(constructor),
         properties_(properties),
-        end_position_(end_position) {}
+        end_position_(end_position),
+#ifdef DEBUG
+        slot_count_(0),
+#endif
+        slot_(FeedbackVectorICSlot::Invalid()) {
+  }
+
   static int parent_num_ids() { return Expression::num_ids(); }
 
  private:
@@ -2730,6 +2733,12 @@ class ClassLiteral final : public Expression {
   FunctionLiteral* constructor_;
   ZoneList<Property*>* properties_;
   int end_position_;
+#ifdef DEBUG
+  // slot_count_ helps validate that the logic to allocate ic slots and the
+  // logic to use them are in sync.
+  int slot_count_;
+#endif
+  FeedbackVectorICSlot slot_;
 };
 
 
@@ -2866,6 +2875,9 @@ class RegExpDisjunction final : public RegExpTree {
   int max_match() override { return max_match_; }
   ZoneList<RegExpTree*>* alternatives() { return alternatives_; }
  private:
+  bool SortConsecutiveAtoms(RegExpCompiler* compiler);
+  void RationalizeConsecutiveAtoms(RegExpCompiler* compiler);
+  void FixSingleCharacterDisjunctions(RegExpCompiler* compiler);
   ZoneList<RegExpTree*>* alternatives_;
   int min_match_;
   int max_match_;
@@ -3262,12 +3274,10 @@ class AstNodeFactory final BASE_EMBEDDED {
     return new (zone_) ExportDeclaration(zone_, proxy, scope, pos);
   }
 
-  Block* NewBlock(ZoneList<const AstRawString*>* labels,
-                  int capacity,
-                  bool is_initializer_block,
-                  int pos) {
+  Block* NewBlock(ZoneList<const AstRawString*>* labels, int capacity,
+                  bool ignore_completion_value, int pos) {
     return new (zone_)
-        Block(zone_, labels, capacity, is_initializer_block, pos);
+        Block(zone_, labels, capacity, ignore_completion_value, pos);
   }
 
 #define STATEMENT_WITH_LABELS(NodeType)                                     \
@@ -3326,22 +3336,17 @@ class AstNodeFactory final BASE_EMBEDDED {
         IfStatement(zone_, condition, then_statement, else_statement, pos);
   }
 
-  TryCatchStatement* NewTryCatchStatement(int index,
-                                          Block* try_block,
-                                          Scope* scope,
+  TryCatchStatement* NewTryCatchStatement(Block* try_block, Scope* scope,
                                           Variable* variable,
-                                          Block* catch_block,
-                                          int pos) {
-    return new (zone_) TryCatchStatement(zone_, index, try_block, scope,
-                                         variable, catch_block, pos);
+                                          Block* catch_block, int pos) {
+    return new (zone_)
+        TryCatchStatement(zone_, try_block, scope, variable, catch_block, pos);
   }
 
-  TryFinallyStatement* NewTryFinallyStatement(int index,
-                                              Block* try_block,
-                                              Block* finally_block,
-                                              int pos) {
+  TryFinallyStatement* NewTryFinallyStatement(Block* try_block,
+                                              Block* finally_block, int pos) {
     return new (zone_)
-        TryFinallyStatement(zone_, index, try_block, finally_block, pos);
+        TryFinallyStatement(zone_, try_block, finally_block, pos);
   }
 
   DebuggerStatement* NewDebuggerStatement(int pos) {
@@ -3543,7 +3548,7 @@ class AstNodeFactory final BASE_EMBEDDED {
   FunctionLiteral* NewFunctionLiteral(
       const AstRawString* name, AstValueFactory* ast_value_factory,
       Scope* scope, ZoneList<Statement*>* body, int materialized_literal_count,
-      int expected_property_count, int handler_count, int parameter_count,
+      int expected_property_count, int parameter_count,
       FunctionLiteral::ParameterFlag has_duplicate_parameters,
       FunctionLiteral::FunctionType function_type,
       FunctionLiteral::IsFunctionFlag is_function,
@@ -3551,7 +3556,7 @@ class AstNodeFactory final BASE_EMBEDDED {
       int position) {
     return new (zone_) FunctionLiteral(
         zone_, name, ast_value_factory, scope, body, materialized_literal_count,
-        expected_property_count, handler_count, parameter_count, function_type,
+        expected_property_count, parameter_count, function_type,
         has_duplicate_parameters, is_function, eager_compile_hint, kind,
         position);
   }

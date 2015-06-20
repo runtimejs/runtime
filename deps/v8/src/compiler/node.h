@@ -27,7 +27,7 @@ typedef uint32_t Mark;
 
 // NodeIds are identifying numbers for nodes that can be used to index auxiliary
 // out-of-line data associated with each node.
-typedef int32_t NodeId;
+typedef uint32_t NodeId;
 
 
 // A Node is the basic primitive of graphs. Nodes are chained together by
@@ -42,7 +42,8 @@ typedef int32_t NodeId;
 class Node final {
  public:
   static Node* New(Zone* zone, NodeId id, const Operator* op, int input_count,
-                   Node** inputs, bool has_extensible_inputs);
+                   Node* const* inputs, bool has_extensible_inputs);
+  static Node* Clone(Zone* zone, NodeId id, const Node* node);
 
   bool IsDead() const { return InputCount() > 0 && !InputAt(0); }
   void Kill();
@@ -284,7 +285,7 @@ class Node final {
   void* operator new(size_t, void* location) { return location; }
 
   // Only NodeProperties should manipulate the bounds.
-  Bounds bounds() { return bounds_; }
+  Bounds bounds() const { return bounds_; }
   void set_bounds(Bounds b) { bounds_ = b; }
 
   // Only NodeMarkers should manipulate the marks on nodes.

@@ -875,16 +875,23 @@ class AccessorPair;
 class AllocationSite;
 class AllocationSiteCreationContext;
 class AllocationSiteUsageContext;
+class Cell;
 class ConsString;
 class DictionaryElementsAccessor;
 class ElementsAccessor;
 class FixedArrayBase;
 class FunctionLiteral;
 class GlobalObject;
+class JSBuiltinsObject;
 class LayoutDescriptor;
 class LookupIterator;
+class ObjectHashTable;
 class ObjectVisitor;
+class PropertyCell;
+class SafepointEntry;
+class SharedFunctionInfo;
 class StringStream;
+class TypeFeedbackInfo;
 class TypeFeedbackVector;
 class WeakCell;
 
@@ -1176,9 +1183,6 @@ class Object {
   MUST_USE_RESULT static MaybeHandle<Object> WriteToReadOnlyProperty(
       Isolate* isolate, Handle<Object> reciever, Handle<Object> name,
       Handle<Object> value, LanguageMode language_mode);
-  MUST_USE_RESULT static MaybeHandle<Object> WriteToReadOnlyElement(
-      Isolate* isolate, Handle<Object> receiver, uint32_t index,
-      Handle<Object> value, LanguageMode language_mode);
   MUST_USE_RESULT static MaybeHandle<Object> RedefineNonconfigurableProperty(
       Isolate* isolate, Handle<Object> name, Handle<Object> value,
       LanguageMode language_mode);
@@ -1199,9 +1203,7 @@ class Object {
   MUST_USE_RESULT static MaybeHandle<Object> GetPropertyWithAccessor(
       LookupIterator* it);
   MUST_USE_RESULT static MaybeHandle<Object> SetPropertyWithAccessor(
-      Handle<Object> receiver, Handle<Name> name, Handle<Object> value,
-      Handle<JSObject> holder, Handle<Object> structure,
-      LanguageMode language_mode);
+      LookupIterator* it, Handle<Object> value, LanguageMode language_mode);
 
   MUST_USE_RESULT static MaybeHandle<Object> GetPropertyWithDefinedGetter(
       Handle<Object> receiver,
@@ -1215,10 +1217,6 @@ class Object {
       Isolate* isolate,
       Handle<Object> object,
       uint32_t index);
-
-  MUST_USE_RESULT static MaybeHandle<Object> SetElementWithReceiver(
-      Isolate* isolate, Handle<Object> object, Handle<Object> receiver,
-      uint32_t index, Handle<Object> value, LanguageMode language_mode);
 
   static inline Handle<Object> GetPrototypeSkipHiddenPrototypes(
       Isolate* isolate, Handle<Object> receiver);
@@ -1399,6 +1397,13 @@ class MapWord BASE_EMBEDDED {
 };
 
 
+// The content of an heap object (except for the map pointer). kTaggedValues
+// objects can contain both heap pointers and Smis, kMixedValues can contain
+// heap pointers, Smis, and raw values (e.g. doubles or strings), and kRawValues
+// objects can contain raw values and Smis.
+enum class HeapObjectContents { kTaggedValues, kMixedValues, kRawValues };
+
+
 // HeapObject is the superclass for all classes describing heap allocated
 // objects.
 class HeapObject: public Object {
@@ -1450,9 +1455,8 @@ class HeapObject: public Object {
   // Returns the heap object's size in bytes
   inline int Size();
 
-  // Returns true if this heap object may contain raw values, i.e., values that
-  // look like pointers to heap objects.
-  inline bool MayContainRawValues();
+  // Indicates what type of values this heap object may contain.
+  inline HeapObjectContents ContentType();
 
   // Given a heap object's map pointer, returns the heap size in bytes
   // Useful when the map pointer field is used for other purposes.
@@ -1643,16 +1647,6 @@ enum EnsureElementsMode {
 };
 
 
-// Indicates whether a property should be set or (re)defined.  Setting of a
-// property causes attributes to remain unchanged, writability to be checked
-// and callbacks to be called.  Defining of a property causes attributes to
-// be updated and callbacks to be overridden.
-enum SetPropertyMode {
-  SET_PROPERTY,
-  DEFINE_PROPERTY
-};
-
-
 // Indicator for one component of an AccessorPair.
 enum AccessorComponent {
   ACCESSOR_GETTER,
@@ -1668,7 +1662,7 @@ class JSReceiver: public HeapObject {
 
   MUST_USE_RESULT static MaybeHandle<Object> SetElement(
       Handle<JSReceiver> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode);
+      LanguageMode language_mode);
 
   // Implementation of [[HasProperty]], ECMA-262 5th edition, section 8.12.6.
   MUST_USE_RESULT static inline Maybe<bool> HasProperty(
@@ -1739,9 +1733,6 @@ class JSReceiver: public HeapObject {
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSReceiver);
 };
-
-// Forward declaration for JSObject::GetOrCreateHiddenPropertiesHashTable.
-class ObjectHashTable;
 
 
 // The JSObject describes real heap allocated JavaScript objects with
@@ -1853,18 +1844,41 @@ class JSObject: public JSReceiver {
 
   // SetLocalPropertyIgnoreAttributes converts callbacks to fields. We need to
   // grant an exemption to ExecutableAccessor callbacks in some cases.
-  enum ExecutableAccessorInfoHandling {
-    DEFAULT_HANDLING,
-    DONT_FORCE_FIELD
-  };
+  enum ExecutableAccessorInfoHandling { DEFAULT_HANDLING, DONT_FORCE_FIELD };
+
+  MUST_USE_RESULT static MaybeHandle<Object> DefineOwnPropertyIgnoreAttributes(
+      LookupIterator* it, Handle<Object> value, PropertyAttributes attributes,
+      ExecutableAccessorInfoHandling handling = DEFAULT_HANDLING);
 
   MUST_USE_RESULT static MaybeHandle<Object> SetOwnPropertyIgnoreAttributes(
       Handle<JSObject> object, Handle<Name> name, Handle<Object> value,
       PropertyAttributes attributes,
       ExecutableAccessorInfoHandling handling = DEFAULT_HANDLING);
 
+  MUST_USE_RESULT static MaybeHandle<Object> SetOwnElementIgnoreAttributes(
+      Handle<JSObject> object, uint32_t index, Handle<Object> value,
+      PropertyAttributes attributes,
+      ExecutableAccessorInfoHandling handling = DEFAULT_HANDLING);
+
+  // Equivalent to one of the above depending on whether |name| can be converted
+  // to an array index.
+  MUST_USE_RESULT static MaybeHandle<Object>
+  DefinePropertyOrElementIgnoreAttributes(
+      Handle<JSObject> object, Handle<Name> name, Handle<Object> value,
+      PropertyAttributes attributes = NONE,
+      ExecutableAccessorInfoHandling handling = DEFAULT_HANDLING);
+
+  // Adds or reconfigures a property to attributes NONE. It will fail when it
+  // cannot.
+  MUST_USE_RESULT static Maybe<bool> CreateDataProperty(LookupIterator* it,
+                                                        Handle<Object> value);
+
   static void AddProperty(Handle<JSObject> object, Handle<Name> name,
                           Handle<Object> value, PropertyAttributes attributes);
+
+  MUST_USE_RESULT static MaybeHandle<Object> AddDataElement(
+      Handle<JSObject> receiver, uint32_t index, Handle<Object> value,
+      PropertyAttributes attributes);
 
   // Extend the receiver with a single fast property appeared first in the
   // passed map. This also extends the property backing store if necessary.
@@ -1883,6 +1897,24 @@ class JSObject: public JSReceiver {
   static void SetNormalizedProperty(Handle<JSObject> object, Handle<Name> name,
                                     Handle<Object> value,
                                     PropertyDetails details);
+  static void AddDictionaryElement(Handle<JSObject> object, uint32_t index,
+                                   Handle<Object> value,
+                                   PropertyAttributes attributes);
+  static void AddSloppyArgumentsElement(Handle<JSObject> object, uint32_t index,
+                                        Handle<Object> value,
+                                        PropertyAttributes attributes);
+  static void SetDictionaryElement(Handle<JSObject> object, uint32_t index,
+                                   Handle<Object> value,
+                                   PropertyAttributes attributes);
+  static void SetDictionaryArgumentsElement(Handle<JSObject> object,
+                                            uint32_t index,
+                                            Handle<Object> value,
+                                            PropertyAttributes attributes);
+
+  static void AddFastElement(Handle<JSObject> object, uint32_t index,
+                             Handle<Object> value);
+  static void AddFastDoubleElement(Handle<JSObject> object, uint32_t index,
+                                   Handle<Object> value);
 
   static void OptimizeAsPrototype(Handle<JSObject> object,
                                   PrototypeOptimizationMode mode);
@@ -1925,8 +1957,11 @@ class JSObject: public JSReceiver {
       Handle<JSObject> object,
       Handle<AccessorInfo> info);
 
+  // The result must be checked first for exceptions. If there's no exception,
+  // the output parameter |done| indicates whether the interceptor has a result
+  // or not.
   MUST_USE_RESULT static MaybeHandle<Object> GetPropertyWithInterceptor(
-      LookupIterator* it);
+      LookupIterator* it, bool* done);
 
   // Accessors for hidden properties object.
   //
@@ -1996,32 +2031,14 @@ class JSObject: public JSReceiver {
   bool ShouldConvertToFastDoubleElements(bool* has_smi_only_elements);
 
   // Computes the new capacity when expanding the elements of a JSObject.
-  static int NewElementsCapacity(int old_capacity) {
+  static uint32_t NewElementsCapacity(uint32_t old_capacity) {
     // (old_capacity + 50%) + 16
     return old_capacity + (old_capacity >> 1) + 16;
   }
 
   // These methods do not perform access checks!
-  MUST_USE_RESULT static MaybeHandle<AccessorPair> GetOwnElementAccessorPair(
-      Handle<JSObject> object, uint32_t index);
-
-  MUST_USE_RESULT static MaybeHandle<Object> SetFastElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      LanguageMode language_mode, bool check_prototype);
-
-  MUST_USE_RESULT static inline MaybeHandle<Object> SetOwnElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      LanguageMode language_mode);
-
-  MUST_USE_RESULT static MaybeHandle<Object> SetOwnElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode);
-
-  // Empty handle is returned if the element cannot be set to the given value.
-  MUST_USE_RESULT static MaybeHandle<Object> SetElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode,
-      bool check_prototype = true, SetPropertyMode set_mode = SET_PROPERTY);
+  static void UpdateAllocationSite(Handle<JSObject> object,
+                                   ElementsKind to_kind);
 
   enum SetFastElementsCapacitySmiMode {
     kAllowSmiElements,
@@ -2313,39 +2330,12 @@ class JSObject: public JSReceiver {
                                 Handle<Map> new_map,
                                 int expected_additional_properties);
 
-  static void UpdateAllocationSite(Handle<JSObject> object,
-                                   ElementsKind to_kind);
-
   // Used from Object::GetProperty().
   MUST_USE_RESULT static MaybeHandle<Object> GetPropertyWithFailedAccessCheck(
       LookupIterator* it);
 
-  MUST_USE_RESULT static MaybeHandle<Object> SetElementWithCallback(
-      Handle<Object> object, Handle<Object> structure, uint32_t index,
-      Handle<Object> value, Handle<JSObject> holder,
-      LanguageMode language_mode);
-  MUST_USE_RESULT static MaybeHandle<Object> SetElementWithInterceptor(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode,
-      bool check_prototype, SetPropertyMode set_mode);
-  MUST_USE_RESULT static MaybeHandle<Object> SetElementWithoutInterceptor(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode,
-      bool check_prototype, SetPropertyMode set_mode);
-  MUST_USE_RESULT
-  static MaybeHandle<Object> SetElementWithCallbackSetterInPrototypes(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      bool* found, LanguageMode language_mode);
-  MUST_USE_RESULT static MaybeHandle<Object> SetDictionaryElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      PropertyAttributes attributes, LanguageMode language_mode,
-      bool check_prototype, SetPropertyMode set_mode = SET_PROPERTY);
-  MUST_USE_RESULT static MaybeHandle<Object> SetFastDoubleElement(
-      Handle<JSObject> object, uint32_t index, Handle<Object> value,
-      LanguageMode language_mode, bool check_prototype = true);
-
   MUST_USE_RESULT static MaybeHandle<Object> SetPropertyWithFailedAccessCheck(
-      LookupIterator* it, Handle<Object> value, LanguageMode language_mode);
+      LookupIterator* it, Handle<Object> value);
 
   // Add a property to a slow-case object.
   static void AddSlowProperty(Handle<JSObject> object,
@@ -2447,6 +2437,7 @@ class FixedArray: public FixedArrayBase {
  public:
   // Setter and getter for elements.
   inline Object* get(int index) const;
+  void SetValue(uint32_t index, Object* value);
   static inline Handle<Object> get(Handle<FixedArray> array, int index);
   // Setter that uses write barrier.
   inline void set(int index, Object* value);
@@ -2568,6 +2559,8 @@ class FixedDoubleArray: public FixedArrayBase {
   inline double get_scalar(int index);
   inline uint64_t get_representation(int index);
   static inline Handle<Object> get(Handle<FixedDoubleArray> array, int index);
+  // This accessor has to get a Number as |value|.
+  void SetValue(uint32_t index, Object* value);
   inline void set(int index, double value);
   inline void set_the_hole(int index);
 
@@ -4076,12 +4069,13 @@ class ScopeInfo : public FixedArray {
   FunctionKind function_kind();
 
   // Copies all the context locals into an object used to materialize a scope.
-  static bool CopyContextLocalsToScopeObject(Handle<ScopeInfo> scope_info,
+  static void CopyContextLocalsToScopeObject(Handle<ScopeInfo> scope_info,
                                              Handle<Context> context,
                                              Handle<JSObject> scope_object);
 
 
   static Handle<ScopeInfo> Create(Isolate* isolate, Zone* zone, Scope* scope);
+  static Handle<ScopeInfo> CreateGlobalThisBinding(Isolate* isolate);
 
   // Serializes empty scope info.
   static ScopeInfo* Empty(Isolate* isolate);
@@ -4401,9 +4395,7 @@ class ExternalUint8ClampedArray: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined and clamps the converted value between 0 and 255.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalUint8ClampedArray> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalUint8ClampedArray)
 
@@ -4425,9 +4417,7 @@ class ExternalInt8Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalInt8Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalInt8Array)
 
@@ -4449,9 +4439,7 @@ class ExternalUint8Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalUint8Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalUint8Array)
 
@@ -4473,9 +4461,7 @@ class ExternalInt16Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalInt16Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalInt16Array)
 
@@ -4498,9 +4484,7 @@ class ExternalUint16Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalUint16Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalUint16Array)
 
@@ -4522,9 +4506,7 @@ class ExternalInt32Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalInt32Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalInt32Array)
 
@@ -4547,9 +4529,7 @@ class ExternalUint32Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalUint32Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalUint32Array)
 
@@ -4572,9 +4552,7 @@ class ExternalFloat32Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalFloat32Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalFloat32Array)
 
@@ -4597,9 +4575,7 @@ class ExternalFloat64Array: public ExternalArray {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<ExternalFloat64Array> array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_CAST(ExternalFloat64Array)
 
@@ -4614,7 +4590,20 @@ class ExternalFloat64Array: public ExternalArray {
 
 class FixedTypedArrayBase: public FixedArrayBase {
  public:
+  // [base_pointer]: For now, points to the FixedTypedArrayBase itself.
+  DECL_ACCESSORS(base_pointer, Object)
+
+  // Dispatched behavior.
+  inline void FixedTypedArrayBaseIterateBody(ObjectVisitor* v);
+
+  template <typename StaticVisitor>
+  inline void FixedTypedArrayBaseIterateBody();
+
   DECLARE_CAST(FixedTypedArrayBase)
+
+  static const int kBasePointerOffset =
+      FixedArrayBase::kHeaderSize + kPointerSize;
+  static const int kHeaderSize = kBasePointerOffset + kPointerSize;
 
   static const int kDataOffset = DOUBLE_POINTER_ALIGN(kHeaderSize);
 
@@ -4654,9 +4643,7 @@ class FixedTypedArray: public FixedTypedArrayBase {
 
   // This accessor applies the correct conversion from Smi, HeapNumber
   // and undefined.
-  static Handle<Object> SetValue(Handle<JSObject> holder,
-                                 Handle<FixedTypedArray<Traits> > array,
-                                 uint32_t index, Handle<Object> value);
+  void SetValue(uint32_t index, Object* value);
 
   DECLARE_PRINTER(FixedTypedArray)
   DECLARE_VERIFIER(FixedTypedArray)
@@ -4893,12 +4880,6 @@ class HandlerTable : public FixedArray {
   class HandlerOffsetField : public BitField<int, 1, 30> {};
 };
 
-
-// Forward declaration.
-class Cell;
-class PropertyCell;
-class SafepointEntry;
-class TypeFeedbackInfo;
 
 // Code describes objects with on-the-fly generated machine code.
 class Code: public HeapObject {
@@ -5848,6 +5829,8 @@ class Map: public HeapObject {
   static Handle<Map> PrepareForDataProperty(Handle<Map> old_map,
                                             int descriptor_number,
                                             Handle<Object> value);
+  static Handle<Map> PrepareForDataElement(Handle<Map> old_map,
+                                           Handle<Object> value);
 
   static Handle<Map> Normalize(Handle<Map> map, PropertyNormalizationMode mode,
                                const char* reason);
@@ -6465,6 +6448,10 @@ class Script: public Struct {
   // function from which eval was called where eval was called.
   DECL_ACCESSORS(eval_from_instructions_offset, Smi)
 
+  // [shared_function_infos]: weak fixed array containing all shared
+  // function infos created from this script.
+  DECL_ACCESSORS(shared_function_infos, Object)
+
   // [flags]: Holds an exciting bitfield.
   DECL_ACCESSORS(flags, Smi)
 
@@ -6512,6 +6499,10 @@ class Script: public Struct {
   // Get the JS object wrapping the given script; create it if none exists.
   static Handle<JSObject> GetWrapper(Handle<Script> script);
 
+  // Look through the list of existing shared function infos to find one
+  // that matches the function literal.  Return empty handle if not found.
+  MaybeHandle<SharedFunctionInfo> FindSharedFunctionInfo(FunctionLiteral* fun);
+
   // Dispatched behavior.
   DECLARE_PRINTER(Script)
   DECLARE_VERIFIER(Script)
@@ -6528,8 +6519,9 @@ class Script: public Struct {
   static const int kEvalFromSharedOffset = kIdOffset + kPointerSize;
   static const int kEvalFrominstructionsOffsetOffset =
       kEvalFromSharedOffset + kPointerSize;
-  static const int kFlagsOffset =
+  static const int kSharedFunctionInfosOffset =
       kEvalFrominstructionsOffsetOffset + kPointerSize;
+  static const int kFlagsOffset = kSharedFunctionInfosOffset + kPointerSize;
   static const int kSourceUrlOffset = kFlagsOffset + kPointerSize;
   static const int kSourceMappingUrlOffset = kSourceUrlOffset + kPointerSize;
   static const int kSize = kSourceMappingUrlOffset + kPointerSize;
@@ -6659,6 +6651,11 @@ class SharedFunctionInfo: public HeapObject {
                                     Handle<Code> code,
                                     Handle<FixedArray> literals,
                                     BailoutId osr_ast_id);
+
+  // Set up the link between shared function info and the script. The shared
+  // function info is added to the list on the script.
+  static void SetScript(Handle<SharedFunctionInfo> shared,
+                        Handle<Object> script_object);
 
   // Layout description of the optimized code map.
   static const int kNextMapIndex = 0;
@@ -6848,9 +6845,6 @@ class SharedFunctionInfo: public HeapObject {
 
   // Indicates that code for this function cannot be compiled with Crankshaft.
   DECL_BOOLEAN_ACCESSORS(dont_crankshaft)
-
-  // Indicates that code for this function cannot be cached.
-  DECL_BOOLEAN_ACCESSORS(dont_cache)
 
   // Indicates that code for this function cannot be flushed.
   DECL_BOOLEAN_ACCESSORS(dont_flush)
@@ -7114,7 +7108,6 @@ class SharedFunctionInfo: public HeapObject {
     kNameShouldPrintAsAnonymous,
     kIsFunction,
     kDontCrankshaft,
-    kDontCache,
     kDontFlush,
     kIsArrow,
     kIsGenerator,
@@ -7542,9 +7535,6 @@ class JSGlobalProxy : public JSObject {
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSGlobalProxy);
 };
 
-
-// Forward declaration.
-class JSBuiltinsObject;
 
 // Common super class for JavaScript global objects and the special
 // builtins global objects.
@@ -8587,8 +8577,13 @@ class Name: public HeapObject {
   // Conversion.
   inline bool AsArrayIndex(uint32_t* index);
 
-  // Whether name can only name own properties.
-  inline bool IsOwn();
+  // If the name is private, it can only name own properties.
+  inline bool IsPrivate();
+
+  // If the name is a non-flat string, this method returns a flat version of the
+  // string. Otherwise it'll just return the input.
+  static inline Handle<Name> Flatten(Handle<Name> name,
+                                     PretenureFlag pretenure = NOT_TENURED);
 
   DECLARE_CAST(Name)
 
@@ -8666,17 +8661,14 @@ class Name: public HeapObject {
 // ES6 symbols.
 class Symbol: public Name {
  public:
-  // [name]: the print name of a symbol, or undefined if none.
+  // [name]: The print name of a symbol, or undefined if none.
   DECL_ACCESSORS(name, Object)
 
   DECL_ACCESSORS(flags, Smi)
 
-  // [is_private]: whether this is a private symbol.
+  // [is_private]: Whether this is a private symbol.  Private symbols can only
+  // be used to designate own properties of objects.
   DECL_BOOLEAN_ACCESSORS(is_private)
-
-  // [is_own]: whether this is an own symbol, that is, only used to designate
-  // own properties of objects.
-  DECL_BOOLEAN_ACCESSORS(is_own)
 
   DECLARE_CAST(Symbol)
 
@@ -8695,7 +8687,6 @@ class Symbol: public Name {
 
  private:
   static const int kPrivateBit = 0;
-  static const int kOwnBit = 1;
 
   const char* PrivateSymbolToName() const;
 
@@ -9751,10 +9742,6 @@ class JSProxy: public JSReceiver {
  private:
   friend class JSReceiver;
 
-  MUST_USE_RESULT static inline MaybeHandle<Object> SetElementWithHandler(
-      Handle<JSProxy> proxy, Handle<JSReceiver> receiver, uint32_t index,
-      Handle<Object> value, LanguageMode language_mode);
-
   MUST_USE_RESULT static Maybe<bool> HasPropertyWithHandler(
       Handle<JSProxy> proxy, Handle<Name> name);
 
@@ -10196,15 +10183,15 @@ class JSArray: public JSObject {
 
   // If the JSArray has fast elements, and new_length would result in
   // normalization, returns true.
-  static inline bool SetElementsLengthWouldNormalize(
-      Heap* heap, Handle<Object> new_length_handle);
+  static inline bool SetLengthWouldNormalize(Heap* heap, uint32_t new_length);
 
   // Initializes the array to a certain length.
-  inline bool AllowsSetElementsLength();
-  // Can cause GC.
-  MUST_USE_RESULT static MaybeHandle<Object> SetElementsLength(
-      Handle<JSArray> array,
-      Handle<Object> length);
+  inline bool AllowsSetLength();
+
+  static void SetLength(Handle<JSArray> array, uint32_t length);
+  // Same as above but will also queue splice records if |array| is observed.
+  static MaybeHandle<Object> ObservableSetLength(Handle<JSArray> array,
+                                                 uint32_t length);
 
   // Set the content of the array to the content of storage.
   static inline void SetContent(Handle<JSArray> array,
@@ -10342,7 +10329,7 @@ class ExecutableAccessorInfo: public AccessorInfo {
   static const int kDataOffset = kSetterOffset + kPointerSize;
   static const int kSize = kDataOffset + kPointerSize;
 
-  static inline void ClearSetter(Handle<ExecutableAccessorInfo> info);
+  static void ClearSetter(Handle<ExecutableAccessorInfo> info);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ExecutableAccessorInfo);

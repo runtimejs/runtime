@@ -118,6 +118,7 @@
   'regress/regress-crbug-107996': [PASS, NO_VARIANTS],
   'regress/regress-crbug-171715': [PASS, NO_VARIANTS],
   'regress/regress-crbug-222893': [PASS, NO_VARIANTS],
+  'regress/regress-crbug-323936': [PASS, NO_VARIANTS],
   'regress/regress-crbug-491943': [PASS, NO_VARIANTS],
   'regress/regress-325676': [PASS, NO_VARIANTS],
   'debug-evaluate-closure': [PASS, NO_VARIANTS],
@@ -169,11 +170,12 @@
   ##############################################################################
   # Only RegExp stuff tested, no need for extensive optimizing compiler tests.
   'regexp-global': [PASS, NO_VARIANTS],
-  'third_party/regexp-pcre': [PASS, NO_VARIANTS],
+  'third_party/regexp-pcre/regexp-pcre': [PASS, NO_VARIANTS],
 
   ##############################################################################
   # No need to waste time for this test.
   'd8-performance-now': [PASS, NO_VARIANTS],
+  'regress/regress-crbug-491062': [PASS, NO_VARIANTS],
 
   # Issue 488: this test sometimes times out.
   'array-constructor': [PASS, TIMEOUT],
@@ -636,12 +638,6 @@
   'harmony/private': [SKIP],
   'harmony/symbols': [SKIP],
 }],  # 'arch == nacl_ia32 or arch == nacl_x64'
-
-##############################################################################
-['arch == x87', {
-  # Currently Turbofan is not supported by x87.
-  'compiler/opt-next-call-turbo': [SKIP],
-}],  # 'arch == x87'
 
 ##############################################################################
 ['deopt_fuzzer == True', {

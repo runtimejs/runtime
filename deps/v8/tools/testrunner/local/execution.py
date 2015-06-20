@@ -73,15 +73,19 @@ class Runner(object):
       for t in self.tests:
         t.duration = self.perfdata.FetchPerfData(t) or 1.0
       self.tests.sort(key=lambda t: t.duration, reverse=True)
-    self._CommonInit(len(self.tests), progress_indicator, context)
+    self._CommonInit(suites, progress_indicator, context)
 
-  def _CommonInit(self, num_tests, progress_indicator, context):
+  def _CommonInit(self, suites, progress_indicator, context):
+    self.total = 0
+    for s in suites:
+      for t in s.tests:
+        t.id = self.total
+        self.total += 1
     self.indicator = progress_indicator
-    progress_indicator.runner = self
+    progress_indicator.SetRunner(self)
     self.context = context
     self.succeeded = 0
-    self.total = num_tests
-    self.remaining = num_tests
+    self.remaining = self.total
     self.failed = []
     self.crashed = 0
     self.reran_tests = 0
@@ -132,6 +136,7 @@ class Runner(object):
       test.run += 1
       pool.add([self._GetJob(test)])
       self.remaining += 1
+      self.total += 1
 
   def _ProcessTestNormal(self, test, result, pool):
     self.indicator.AboutToRun(test)
@@ -214,23 +219,20 @@ class Runner(object):
   def _RunInternal(self, jobs):
     pool = Pool(jobs)
     test_map = {}
-    # TODO(machenbach): Instead of filling the queue completely before
-    # pool.imap_unordered, make this a generator that already starts testing
-    # while the queue is filled.
-    queue = []
-    queued_exception = None
-    for test in self.tests:
-      assert test.id >= 0
-      test_map[test.id] = test
-      try:
-        queue.append([self._GetJob(test)])
-      except Exception, e:
-        # If this failed, save the exception and re-raise it later (after
-        # all other tests have had a chance to run).
-        queued_exception = e
-        continue
+    queued_exception = [None]
+    def gen_tests():
+      for test in self.tests:
+        assert test.id >= 0
+        test_map[test.id] = test
+        try:
+          yield [self._GetJob(test)]
+        except Exception, e:
+          # If this failed, save the exception and re-raise it later (after
+          # all other tests have had a chance to run).
+          queued_exception[0] = e
+          continue
     try:
-      it = pool.imap_unordered(RunTest, queue)
+      it = pool.imap_unordered(RunTest, gen_tests())
       for result in it:
         if result.heartbeat:
           self.indicator.Heartbeat()
@@ -252,8 +254,8 @@ class Runner(object):
         # some files might still be open.
         print "Deleting perf test data due to db corruption."
         shutil.rmtree(self.datapath)
-    if queued_exception:
-      raise queued_exception
+    if queued_exception[0]:
+      raise queued_exception[0]
 
     # Make sure that any allocations were printed in predictable mode (if we
     # ran any tests).
@@ -275,10 +277,11 @@ class Runner(object):
       d8testflag = ["--test"]
     if utils.IsWindows():
       shell += ".exe"
+    if self.context.random_seed:
+      d8testflag += ["--random-seed=%s" % self.context.random_seed]
     cmd = (self.context.command_prefix +
            [os.path.abspath(os.path.join(self.context.shell_dir, shell))] +
            d8testflag +
-           ["--random-seed=%s" % self.context.random_seed] +
            test.suite.GetFlagsForTestCase(test, self.context) +
            self.context.extra_flags)
     return cmd

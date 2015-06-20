@@ -67,7 +67,7 @@ MaybeHandle<Object> DefineAccessorProperty(
 
 MaybeHandle<Object> DefineDataProperty(Isolate* isolate,
                                        Handle<JSObject> object,
-                                       Handle<Name> key,
+                                       Handle<Name> name,
                                        Handle<Object> prop_data,
                                        Smi* unchecked_attributes) {
   DCHECK((unchecked_attributes->value() &
@@ -78,34 +78,24 @@ MaybeHandle<Object> DefineDataProperty(Isolate* isolate,
 
   Handle<Object> value;
   ASSIGN_RETURN_ON_EXCEPTION(isolate, value,
-                             Instantiate(isolate, prop_data, key), Object);
+                             Instantiate(isolate, prop_data, name), Object);
+
+  LookupIterator it = LookupIterator::PropertyOrElement(
+      isolate, object, name, LookupIterator::OWN_SKIP_INTERCEPTOR);
 
 #ifdef DEBUG
-  bool duplicate;
-  if (key->IsName()) {
-    LookupIterator it(object, Handle<Name>::cast(key),
-                      LookupIterator::OWN_SKIP_INTERCEPTOR);
-    Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-    DCHECK(maybe.IsJust());
-    duplicate = it.IsFound();
-  } else {
-    uint32_t index = 0;
-    key->ToArrayIndex(&index);
-    Maybe<bool> maybe = JSReceiver::HasOwnElement(object, index);
-    if (!maybe.IsJust()) return MaybeHandle<Object>();
-    duplicate = maybe.FromJust();
-  }
-  if (duplicate) {
+  Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
+  DCHECK(maybe.IsJust());
+  if (it.IsFound()) {
     THROW_NEW_ERROR(
-        isolate, NewTypeError(MessageTemplate::kDuplicateTemplateProperty, key),
+        isolate,
+        NewTypeError(MessageTemplate::kDuplicateTemplateProperty, name),
         Object);
   }
 #endif
 
-  RETURN_ON_EXCEPTION(
-      isolate, Runtime::DefineObjectProperty(object, key, value, attributes),
-      Object);
-  return object;
+  return Object::AddDataProperty(&it, value, attributes, STRICT,
+                                 Object::CERTAINLY_NOT_STORE_FROM_KEYED);
 }
 
 

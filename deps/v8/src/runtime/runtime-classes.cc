@@ -200,16 +200,9 @@ RUNTIME_FUNCTION(Runtime_DefineClassMethod) {
   CONVERT_ARG_HANDLE_CHECKED(Name, name, 1);
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 2);
 
-  uint32_t index;
-  if (name->AsArrayIndex(&index)) {
-    RETURN_FAILURE_ON_EXCEPTION(
-        isolate,
-        JSObject::SetOwnElement(object, index, function, DONT_ENUM, STRICT));
-  } else {
-    RETURN_FAILURE_ON_EXCEPTION(
-        isolate, JSObject::SetOwnPropertyIgnoreAttributes(object, name,
-                                                          function, DONT_ENUM));
-  }
+  RETURN_FAILURE_ON_EXCEPTION(isolate,
+                              JSObject::DefinePropertyOrElementIgnoreAttributes(
+                                  object, name, function, DONT_ENUM));
   return isolate->heap()->undefined_value();
 }
 
@@ -306,7 +299,7 @@ RUNTIME_FUNCTION(Runtime_LoadKeyedFromSuper) {
   CONVERT_ARG_HANDLE_CHECKED(JSObject, home_object, 1);
   CONVERT_ARG_HANDLE_CHECKED(Object, key, 2);
 
-  uint32_t index;
+  uint32_t index = 0;
   if (key->ToArrayIndex(&index)) {
     return LoadElementFromSuper(isolate, receiver, home_object, index);
   }
@@ -314,6 +307,7 @@ RUNTIME_FUNCTION(Runtime_LoadKeyedFromSuper) {
   Handle<Name> name;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, name,
                                      Runtime::ToName(isolate, key));
+  // TODO(verwaest): Unify using LookupIterator.
   if (name->AsArrayIndex(&index)) {
     return LoadElementFromSuper(isolate, receiver, home_object, index);
   }
@@ -357,11 +351,12 @@ static Object* StoreElementToSuper(Isolate* isolate,
   Handle<Object> proto = PrototypeIterator::GetCurrent(iter);
   if (!proto->IsJSReceiver()) return isolate->heap()->undefined_value();
 
+  LookupIterator it(isolate, receiver, index, Handle<JSReceiver>::cast(proto));
   Handle<Object> result;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result,
-      Object::SetElementWithReceiver(isolate, proto, receiver, index, value,
-                                     language_mode));
+      Object::SetSuperProperty(&it, value, language_mode,
+                               Object::MAY_BE_STORE_FROM_KEYED));
   return *result;
 }
 
@@ -394,7 +389,7 @@ static Object* StoreKeyedToSuper(Isolate* isolate, Handle<JSObject> home_object,
                                  Handle<Object> receiver, Handle<Object> key,
                                  Handle<Object> value,
                                  LanguageMode language_mode) {
-  uint32_t index;
+  uint32_t index = 0;
 
   if (key->ToArrayIndex(&index)) {
     return StoreElementToSuper(isolate, home_object, receiver, index, value,
@@ -403,6 +398,7 @@ static Object* StoreKeyedToSuper(Isolate* isolate, Handle<JSObject> home_object,
   Handle<Name> name;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, name,
                                      Runtime::ToName(isolate, key));
+  // TODO(verwaest): Unify using LookupIterator.
   if (name->AsArrayIndex(&index)) {
     return StoreElementToSuper(isolate, home_object, receiver, index, value,
                                language_mode);

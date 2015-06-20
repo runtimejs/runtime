@@ -1386,6 +1386,7 @@ enum ParserFlag {
   kAllowHarmonySpreadCalls,
   kAllowHarmonyDestructuring,
   kAllowHarmonySpreadArrays,
+  kAllowHarmonyNewTarget,
   kAllowStrongMode
 };
 
@@ -1419,6 +1420,7 @@ void SetParserFlags(i::ParserBase<Traits>* parser,
       flags.Contains(kAllowHarmonyDestructuring));
   parser->set_allow_harmony_spread_arrays(
       flags.Contains(kAllowHarmonySpreadArrays));
+  parser->set_allow_harmony_new_target(flags.Contains(kAllowHarmonyNewTarget));
   parser->set_allow_strong_mode(flags.Contains(kAllowStrongMode));
 }
 
@@ -6378,11 +6380,17 @@ TEST(StrongModeFreeVariablesNotDeclared) {
 
 TEST(DestructuringPositiveTests) {
   i::FLAG_harmony_destructuring = true;
+  i::FLAG_harmony_arrow_functions = true;
   i::FLAG_harmony_computed_property_names = true;
 
   const char* context_data[][2] = {{"'use strict'; let ", " = {};"},
                                    {"var ", " = {};"},
                                    {"'use strict'; const ", " = {};"},
+                                   {"function f(", ") {}"},
+                                   {"function f(argument1, ", ") {}"},
+                                   {"var f = (", ") => {};"},
+                                   {"var f = ", " => {};"},
+                                   {"var f = (argument1,", ") => {};"},
                                    {NULL, NULL}};
 
   // clang-format off
@@ -6422,9 +6430,9 @@ TEST(DestructuringPositiveTests) {
     "[a,,...rest]",
     NULL};
   // clang-format on
-  static const ParserFlag always_flags[] = {kAllowHarmonyObjectLiterals,
-                                            kAllowHarmonyComputedPropertyNames,
-                                            kAllowHarmonyDestructuring};
+  static const ParserFlag always_flags[] = {
+      kAllowHarmonyObjectLiterals, kAllowHarmonyComputedPropertyNames,
+      kAllowHarmonyArrowFunctions, kAllowHarmonyDestructuring};
   RunParserSyncTest(context_data, data, kSuccess, NULL, 0, always_flags,
                     arraysize(always_flags));
 }
@@ -6432,15 +6440,21 @@ TEST(DestructuringPositiveTests) {
 
 TEST(DestructuringNegativeTests) {
   i::FLAG_harmony_destructuring = true;
+  i::FLAG_harmony_arrow_functions = true;
   i::FLAG_harmony_computed_property_names = true;
-  static const ParserFlag always_flags[] = {kAllowHarmonyObjectLiterals,
-                                            kAllowHarmonyComputedPropertyNames,
-                                            kAllowHarmonyDestructuring};
+  static const ParserFlag always_flags[] = {
+      kAllowHarmonyObjectLiterals, kAllowHarmonyComputedPropertyNames,
+      kAllowHarmonyArrowFunctions, kAllowHarmonyDestructuring};
 
   {  // All modes.
     const char* context_data[][2] = {{"'use strict'; let ", " = {};"},
                                      {"var ", " = {};"},
                                      {"'use strict'; const ", " = {};"},
+                                     {"function f(", ") {}"},
+                                     {"function f(argument1, ", ") {}"},
+                                     {"var f = (", ") => {};"},
+                                     {"var f = ", " => {};"},
+                                     {"var f = (argument1,", ") => {};"},
                                      {NULL, NULL}};
 
     // clang-format off
@@ -6473,7 +6487,6 @@ TEST(DestructuringNegativeTests) {
         "a >>> a",
         "function a() {}",
         "a`bcd`",
-        "x => x",
         "this",
         "null",
         "true",
@@ -6481,7 +6494,6 @@ TEST(DestructuringNegativeTests) {
         "1",
         "'abc'",
         "class {}",
-        "() => x",
         "{+2 : x}",
         "{-2 : x}",
         "var",
@@ -6507,10 +6519,33 @@ TEST(DestructuringNegativeTests) {
                       arraysize(always_flags));
   }
 
-  {  // Strict mode.
+  {  // All modes.
     const char* context_data[][2] = {{"'use strict'; let ", " = {};"},
+                                     {"var ", " = {};"},
                                      {"'use strict'; const ", " = {};"},
+                                     {"function f(", ") {}"},
+                                     {"function f(argument1, ", ") {}"},
+                                     {"var f = (", ") => {};"},
+                                     {"var f = (argument1,", ") => {};"},
                                      {NULL, NULL}};
+
+    // clang-format off
+    const char* data[] = {
+        "x => x",
+        "() => x",
+        NULL};
+    // clang-format on
+    RunParserSyncTest(context_data, data, kError, NULL, 0, always_flags,
+                      arraysize(always_flags));
+  }
+
+  {  // Strict mode.
+    const char* context_data[][2] = {
+        {"'use strict'; let ", " = {};"},
+        {"'use strict'; const ", " = {};"},
+        {"'use strict'; function f(", ") {}"},
+        {"'use strict'; function f(argument1, ", ") {}"},
+        {NULL, NULL}};
 
     // clang-format off
     const char* data[] = {
@@ -6613,5 +6648,60 @@ TEST(SpreadArrayError) {
   // clang-format on
   static const ParserFlag always_flags[] = {kAllowHarmonySpreadArrays};
   RunParserSyncTest(context_data, data, kError, NULL, 0, always_flags,
+                    arraysize(always_flags));
+}
+
+
+TEST(NewTarget) {
+  // clang-format off
+  const char* good_context_data[][2] = {
+    {"function f() {", "}"},
+    {"'use strict'; function f() {", "}"},
+    {"var f = function() {", "}"},
+    {"'use strict'; var f = function() {", "}"},
+    {"({m: function() {", "}})"},
+    {"'use strict'; ({m: function() {", "}})"},
+    {"({m() {", "}})"},
+    {"'use strict'; ({m() {", "}})"},
+    {"({get x() {", "}})"},
+    {"'use strict'; ({get x() {", "}})"},
+    {"({set x(_) {", "}})"},
+    {"'use strict'; ({set x(_) {", "}})"},
+    {"class C {m() {", "}}"},
+    {"class C {get x() {", "}}"},
+    {"class C {set x(_) {", "}}"},
+    {NULL}
+  };
+
+  const char* bad_context_data[][2] = {
+    {"", ""},
+    {"'use strict';", ""},
+    {NULL}
+  };
+
+  const char* data[] = {
+    "new.target",
+    "{ new.target }",
+    "() => { new.target }",
+    "() => new.target",
+    "if (1) { new.target }",
+    "if (1) {} else { new.target }",
+    "while (0) { new.target }",
+    "do { new.target } while (0)",
+    NULL
+  };
+
+  static const ParserFlag always_flags[] = {
+    kAllowHarmonyArrowFunctions,
+    kAllowHarmonyClasses,
+    kAllowHarmonyNewTarget,
+    kAllowHarmonyObjectLiterals,
+    kAllowHarmonySloppy,
+  };
+  // clang-format on
+
+  RunParserSyncTest(good_context_data, data, kSuccess, NULL, 0, always_flags,
+                    arraysize(always_flags));
+  RunParserSyncTest(bad_context_data, data, kError, NULL, 0, always_flags,
                     arraysize(always_flags));
 }

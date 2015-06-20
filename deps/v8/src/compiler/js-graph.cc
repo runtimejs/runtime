@@ -203,8 +203,8 @@ Node* JSGraph::EmptyFrameState() {
 }
 
 
-Node* JSGraph::DeadControl() {
-  return CACHED(kDeadControl, graph()->NewNode(common()->Dead()));
+Node* JSGraph::Dead() {
+  return CACHED(kDead, graph()->NewNode(common()->Dead()));
 }
 
 

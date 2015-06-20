@@ -7,6 +7,7 @@
 #include "src/compiler/code-generator-impl.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/pipeline.h"
+#include "src/snapshot/serialize.h"  // TODO(turbofan): RootIndexMap
 
 namespace v8 {
 namespace internal {
@@ -76,10 +77,8 @@ Handle<Code> CodeGenerator::GenerateCode() {
 
   // Define deoptimization literals for all inlined functions.
   DCHECK_EQ(0u, deoptimization_literals_.size());
-  for (auto frame_state_descriptor : code()->frame_state_descriptors()) {
-    Handle<SharedFunctionInfo> shared_info;
-    if (frame_state_descriptor->shared_info().ToHandle(&shared_info) &&
-        !shared_info.is_identical_to(info->shared_info())) {
+  for (auto shared_info : info->inlined_functions()) {
+    if (!shared_info.is_identical_to(info->shared_info())) {
       DefineDeoptimizationLiteral(shared_info);
     }
   }
@@ -93,17 +92,36 @@ Handle<Code> CodeGenerator::GenerateCode() {
       }
       // Align loop headers on 16-byte boundaries.
       if (block->IsLoopHeader()) masm()->Align(16);
+      // Ensure lazy deopt doesn't patch handler entry points.
+      if (block->IsHandler()) EnsureSpaceForLazyDeopt();
       // Bind a label for a block.
       current_block_ = block->rpo_number();
       if (FLAG_code_comments) {
         // TODO(titzer): these code comments are a giant memory leak.
         Vector<char> buffer = Vector<char>::New(200);
-        SNPrintF(buffer, "-- B%d start%s%s%s%s --", block->rpo_number().ToInt(),
-                 block->IsDeferred() ? " (deferred)" : "",
-                 block->needs_frame() ? "" : " (no frame)",
-                 block->must_construct_frame() ? " (construct frame)" : "",
-                 block->must_deconstruct_frame() ? " (deconstruct frame)" : "");
-        masm()->RecordComment(buffer.start());
+        char* buffer_start = buffer.start();
+
+        int next = SNPrintF(
+            buffer, "-- B%d start%s%s%s%s", block->rpo_number().ToInt(),
+            block->IsDeferred() ? " (deferred)" : "",
+            block->needs_frame() ? "" : " (no frame)",
+            block->must_construct_frame() ? " (construct frame)" : "",
+            block->must_deconstruct_frame() ? " (deconstruct frame)" : "");
+
+        buffer = buffer.SubVector(next, buffer.length());
+
+        if (block->IsLoopHeader()) {
+          next =
+              SNPrintF(buffer, " (loop up to %d)", block->loop_end().ToInt());
+          buffer = buffer.SubVector(next, buffer.length());
+        }
+        if (block->loop_header().IsValid()) {
+          next =
+              SNPrintF(buffer, " (in loop %d)", block->loop_header().ToInt());
+          buffer = buffer.SubVector(next, buffer.length());
+        }
+        SNPrintF(buffer, " --");
+        masm()->RecordComment(buffer_start);
       }
       masm()->bind(GetLabel(current_block_));
       for (int i = block->code_start(); i < block->code_end(); ++i) {
@@ -223,7 +241,12 @@ bool CodeGenerator::IsMaterializableFromFrame(Handle<HeapObject> object,
 bool CodeGenerator::IsMaterializableFromRoot(
     Handle<HeapObject> object, Heap::RootListIndex* index_return) {
   if (linkage()->GetIncomingDescriptor()->IsJSFunctionCall()) {
-    return isolate()->heap()->GetRootListIndex(object, index_return);
+    RootIndexMap map(isolate());
+    int root_index = map.Lookup(*object);
+    if (root_index != RootIndexMap::kInvalidRootIndex) {
+      *index_return = static_cast<Heap::RootListIndex>(root_index);
+      return true;
+    }
   }
   return false;
 }
@@ -498,28 +521,27 @@ void CodeGenerator::BuildTranslationForFrameStateDescriptor(
   }
   frame_state_offset += descriptor->outer_state()->GetTotalSize();
 
-  // TODO(bmeurer): Fix this special case here.
-  int id = Translation::kSelfLiteralId;
-  if (descriptor->outer_state() != nullptr) {
-    InstructionOperandConverter converter(this, instr);
-    Handle<HeapObject> function(converter.InputHeapObject(frame_state_offset));
-    id = DefineDeoptimizationLiteral(function);
+  Handle<SharedFunctionInfo> shared_info;
+  if (!descriptor->shared_info().ToHandle(&shared_info)) {
+    shared_info = info()->shared_info();
   }
+  int shared_info_id = DefineDeoptimizationLiteral(shared_info);
 
   switch (descriptor->type()) {
     case JS_FRAME:
       translation->BeginJSFrame(
-          descriptor->bailout_id(), id,
+          descriptor->bailout_id(), shared_info_id,
           static_cast<unsigned int>(descriptor->GetSize(state_combine) -
                                     (1 + descriptor->parameters_count())));
       break;
     case ARGUMENTS_ADAPTOR:
       translation->BeginArgumentsAdaptorFrame(
-          id, static_cast<unsigned int>(descriptor->parameters_count()));
+          shared_info_id,
+          static_cast<unsigned int>(descriptor->parameters_count()));
       break;
   }
 
-  for (size_t i = 1; i < descriptor->GetSize(state_combine); i++) {
+  for (size_t i = 0; i < descriptor->GetSize(state_combine); i++) {
     OperandAndType op = TypedOperandForFrameState(
         descriptor, instr, frame_state_offset, i, state_combine);
     AddTranslationForOperand(translation, instr, op.operand, op.type);
@@ -609,8 +631,12 @@ void CodeGenerator::AddTranslationForOperand(Translation* translation,
       default:
         CHECK(false);
     }
-    int literal_id = DefineDeoptimizationLiteral(constant_object);
-    translation->StoreLiteral(literal_id);
+    if (constant_object.is_identical_to(info()->closure())) {
+      translation->StoreJSFrameFunction();
+    } else {
+      int literal_id = DefineDeoptimizationLiteral(constant_object);
+      translation->StoreLiteral(literal_id);
+    }
   } else {
     CHECK(false);
   }

@@ -596,52 +596,17 @@ void LCodeGen::WriteTranslation(LEnvironment* environment,
 
   // The translation includes one command per value in the environment.
   int translation_size = environment->translation_size();
-  // The output frame height does not include the parameters.
-  int height = translation_size - environment->parameter_count();
 
   WriteTranslation(environment->outer(), translation);
-  bool has_closure_id = !info()->closure().is_null() &&
-      !info()->closure().is_identical_to(environment->closure());
-  int closure_id = has_closure_id
-      ? DefineDeoptimizationLiteral(environment->closure())
-      : Translation::kSelfLiteralId;
-
-  switch (environment->frame_type()) {
-    case JS_FUNCTION:
-      translation->BeginJSFrame(environment->ast_id(), closure_id, height);
-      break;
-    case JS_CONSTRUCT:
-      translation->BeginConstructStubFrame(closure_id, translation_size);
-      break;
-    case JS_GETTER:
-      DCHECK(translation_size == 1);
-      DCHECK(height == 0);
-      translation->BeginGetterStubFrame(closure_id);
-      break;
-    case JS_SETTER:
-      DCHECK(translation_size == 2);
-      DCHECK(height == 0);
-      translation->BeginSetterStubFrame(closure_id);
-      break;
-    case STUB:
-      translation->BeginCompiledStubFrame();
-      break;
-    case ARGUMENTS_ADAPTOR:
-      translation->BeginArgumentsAdaptorFrame(closure_id, translation_size);
-      break;
-  }
+  WriteTranslationFrame(environment, translation);
 
   int object_index = 0;
   int dematerialized_index = 0;
   for (int i = 0; i < translation_size; ++i) {
     LOperand* value = environment->values()->at(i);
-    AddToTranslation(environment,
-                     translation,
-                     value,
-                     environment->HasTaggedValueAt(i),
-                     environment->HasUint32ValueAt(i),
-                     &object_index,
-                     &dematerialized_index);
+    AddToTranslation(
+        environment, translation, value, environment->HasTaggedValueAt(i),
+        environment->HasUint32ValueAt(i), &object_index, &dematerialized_index);
   }
 }
 
@@ -958,16 +923,6 @@ void LCodeGen::PopulateDeoptimizationData(Handle<Code> code) {
     data->SetPc(i, Smi::FromInt(env->pc_offset()));
   }
   code->set_deoptimization_data(*data);
-}
-
-
-int LCodeGen::DefineDeoptimizationLiteral(Handle<Object> literal) {
-  int result = deoptimization_literals_.length();
-  for (int i = 0; i < deoptimization_literals_.length(); ++i) {
-    if (deoptimization_literals_[i].is_identical_to(literal)) return i;
-  }
-  deoptimization_literals_.Add(literal, zone());
-  return result;
 }
 
 
@@ -2159,8 +2114,8 @@ void LCodeGen::DoArithmeticT(LArithmeticT* instr) {
   DCHECK(ToRegister(instr->right()).is(r0));
   DCHECK(ToRegister(instr->result()).is(r0));
 
-  Handle<Code> code = CodeFactory::BinaryOpIC(
-      isolate(), instr->op(), instr->language_mode()).code();
+  Handle<Code> code =
+      CodeFactory::BinaryOpIC(isolate(), instr->op(), instr->strength()).code();
   // Block literal pool emission to ensure nop indicating no inlined smi code
   // is in the correct position.
   Assembler::BlockConstPoolScope block_const_pool(masm());
@@ -2596,7 +2551,8 @@ void LCodeGen::DoStringCompareAndBranch(LStringCompareAndBranch* instr) {
   DCHECK(ToRegister(instr->context()).is(cp));
   Token::Value op = instr->op();
 
-  Handle<Code> ic = CodeFactory::CompareIC(isolate(), op, SLOPPY).code();
+  Handle<Code> ic =
+      CodeFactory::CompareIC(isolate(), op, Strength::WEAK).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
   // This instruction also signals no smi code inlined.
   __ cmp(r0, Operand::Zero());
@@ -2870,37 +2826,41 @@ void LCodeGen::DoDeferredInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr,
 
   int call_size = CallCodeSize(stub.GetCode(), RelocInfo::CODE_TARGET);
   int additional_delta = (call_size / Assembler::kInstrSize) + 4;
-  // Make sure that code size is predicable, since we use specific constants
-  // offsets in the code to find embedded values..
-  PredictableCodeSizeScope predictable(
-      masm_, (additional_delta + 1) * Assembler::kInstrSize);
-  // Make sure we don't emit any additional entries in the constant pool before
-  // the call to ensure that the CallCodeSize() calculated the correct number of
-  // instructions for the constant pool load.
   {
-    ConstantPoolUnavailableScope constant_pool_unavailable(masm_);
-    int map_check_delta =
-        masm_->InstructionsGeneratedSince(map_check) + additional_delta;
-    int bool_load_delta =
-        masm_->InstructionsGeneratedSince(bool_load) + additional_delta;
-    Label before_push_delta;
-    __ bind(&before_push_delta);
-    __ BlockConstPoolFor(additional_delta);
-    // r5 is used to communicate the offset to the location of the map check.
-    __ mov(r5, Operand(map_check_delta * kPointerSize));
-    // r6 is used to communicate the offset to the location of the bool load.
-    __ mov(r6, Operand(bool_load_delta * kPointerSize));
-    // The mov above can generate one or two instructions. The delta was
-    // computed for two instructions, so we need to pad here in case of one
-    // instruction.
-    while (masm_->InstructionsGeneratedSince(&before_push_delta) != 4) {
-      __ nop();
+    // Make sure that code size is predicable, since we use specific constants
+    // offsets in the code to find embedded values..
+    PredictableCodeSizeScope predictable(
+        masm_, additional_delta * Assembler::kInstrSize);
+    // The labels must be already bound since the code has predictabel size up
+    // to the call instruction.
+    DCHECK(map_check->is_bound());
+    DCHECK(bool_load->is_bound());
+    // Make sure we don't emit any additional entries in the constant pool
+    // before the call to ensure that the CallCodeSize() calculated the
+    // correct number of instructions for the constant pool load.
+    {
+      ConstantPoolUnavailableScope constant_pool_unavailable(masm_);
+      int map_check_delta =
+          masm_->InstructionsGeneratedSince(map_check) + additional_delta;
+      int bool_load_delta =
+          masm_->InstructionsGeneratedSince(bool_load) + additional_delta;
+      Label before_push_delta;
+      __ bind(&before_push_delta);
+      __ BlockConstPoolFor(additional_delta);
+      // r5 is used to communicate the offset to the location of the map check.
+      __ mov(r5, Operand(map_check_delta * kPointerSize));
+      // r6 is used to communicate the offset to the location of the bool load.
+      __ mov(r6, Operand(bool_load_delta * kPointerSize));
+      // The mov above can generate one or two instructions. The delta was
+      // computed for two instructions, so we need to pad here in case of one
+      // instruction.
+      while (masm_->InstructionsGeneratedSince(&before_push_delta) != 4) {
+        __ nop();
+      }
     }
+    CallCodeGeneric(stub.GetCode(), RelocInfo::CODE_TARGET, instr,
+                    RECORD_SAFEPOINT_WITH_REGISTERS_AND_NO_ARGUMENTS);
   }
-  CallCodeGeneric(stub.GetCode(),
-                  RelocInfo::CODE_TARGET,
-                  instr,
-                  RECORD_SAFEPOINT_WITH_REGISTERS_AND_NO_ARGUMENTS);
   LEnvironment* env = instr->GetDeferredLazyDeoptimizationEnvironment();
   safepoints_.RecordLazyDeoptimizationIndex(env->deoptimization_index());
   // Put the result value (r0) into the result register slot and
@@ -2914,7 +2874,7 @@ void LCodeGen::DoCmpT(LCmpT* instr) {
   Token::Value op = instr->op();
 
   Handle<Code> ic =
-      CodeFactory::CompareIC(isolate(), op, instr->language_mode()).code();
+      CodeFactory::CompareIC(isolate(), op, instr->strength()).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
   // This instruction also signals no smi code inlined.
   __ cmp(r0, Operand::Zero());

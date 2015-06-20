@@ -446,7 +446,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       // initial map and properties and elements are set to empty fixed array.
       // r1: constructor function
       // r2: initial map
-      // r3: object size (not including memento if create_memento)
+      // r3: object size (including memento if create_memento)
       // r4: JSObject (not tagged)
       __ LoadRoot(r6, Heap::kEmptyFixedArrayRootIndex);
       __ mov(r5, r4);
@@ -520,7 +520,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       __ add(r4, r4, Operand(kHeapObjectTag));
 
       // Check if a non-empty properties array is needed. Continue with
-      // allocated object if not fall through to runtime call if it is.
+      // allocated object if not; allocate and initialize a FixedArray if yes.
       // r1: constructor function
       // r4: JSObject
       // r5: start of next object (not tagged)
@@ -575,15 +575,8 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       // r5: FixedArray (not tagged)
       __ add(r6, r2, Operand(r3, LSL, kPointerSizeLog2));  // End of object.
       DCHECK_EQ(2 * kPointerSize, FixedArray::kHeaderSize);
-      { Label loop, entry;
-        __ LoadRoot(r0, Heap::kUndefinedValueRootIndex);
-        __ b(&entry);
-        __ bind(&loop);
-        __ str(r0, MemOperand(r2, kPointerSize, PostIndex));
-        __ bind(&entry);
-        __ cmp(r2, r6);
-        __ b(lt, &loop);
-      }
+      __ LoadRoot(r0, Heap::kUndefinedValueRootIndex);
+      __ InitializeFieldsWithFiller(r2, r6, r0);
 
       // Store the initialized FixedArray into the properties field of
       // the JSObject
@@ -1166,6 +1159,8 @@ void Builtins::Generate_OnStackReplacement(MacroAssembler* masm) {
   __ ldr(r1, FieldMemOperand(r0, Code::kDeoptimizationDataOffset));
 
   { ConstantPoolUnavailableScope constant_pool_unavailable(masm);
+    __ add(r0, r0, Operand(Code::kHeaderSize - kHeapObjectTag));  // Code start
+
     if (FLAG_enable_embedded_constant_pool) {
       __ LoadConstantPoolPointerRegisterFromCodeTargetAddress(r0);
     }
@@ -1175,10 +1170,8 @@ void Builtins::Generate_OnStackReplacement(MacroAssembler* masm) {
     __ ldr(r1, FieldMemOperand(r1, FixedArray::OffsetOfElementAt(
         DeoptimizationInputData::kOsrPcOffsetIndex)));
 
-    // Compute the target address = code_obj + header_size + osr_offset
-    // <entry_addr> = <code_obj> + #header_size + <osr_offset>
-    __ add(r0, r0, Operand::SmiUntag(r1));
-    __ add(lr, r0, Operand(Code::kHeaderSize - kHeapObjectTag));
+    // Compute the target address = code start + osr_offset
+    __ add(lr, r0, Operand::SmiUntag(r1));
 
     // And "return" to the OSR entry point of the function.
     __ Ret();

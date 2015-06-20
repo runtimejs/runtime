@@ -26,6 +26,10 @@ namespace compiler {
   V(Float64)
 
 enum LazyCachedType {
+  kAnyFunc0,
+  kAnyFunc1,
+  kAnyFunc2,
+  kAnyFunc3,
   kNumberFunc0,
   kNumberFunc1,
   kNumberFunc2,
@@ -78,6 +82,15 @@ class LazyTypeCache final : public ZoneObject {
         return CreateNative(Type::Number(), Type::UntaggedFloat64());
       case kUint8Clamped:
         return Get(kUint8);
+      case kAnyFunc0:
+        return Type::Function(Type::Any(), zone());
+      case kAnyFunc1:
+        return Type::Function(Type::Any(), Type::Any(), zone());
+      case kAnyFunc2:
+        return Type::Function(Type::Any(), Type::Any(), Type::Any(), zone());
+      case kAnyFunc3:
+        return Type::Function(Type::Any(), Type::Any(), Type::Any(),
+                              Type::Any(), zone());
       case kNumberFunc0:
         return Type::Function(Type::Number(), zone());
       case kNumberFunc1:
@@ -144,7 +157,7 @@ class LazyTypeCache final : public ZoneObject {
 class Typer::Decorator final : public GraphDecorator {
  public:
   explicit Decorator(Typer* typer) : typer_(typer) {}
-  void Decorate(Node* node, bool incomplete) final;
+  void Decorate(Node* node) final;
 
  private:
   Typer* typer_;
@@ -240,7 +253,6 @@ class Typer::Visitor : public Reducer {
 #undef DECLARE_CASE
 
 #define DECLARE_CASE(x) case IrOpcode::k##x:
-      DECLARE_CASE(Dead)
       DECLARE_CASE(Loop)
       DECLARE_CASE(Branch)
       DECLARE_CASE(IfTrue)
@@ -285,7 +297,6 @@ class Typer::Visitor : public Reducer {
 #undef DECLARE_CASE
 
 #define DECLARE_CASE(x) case IrOpcode::k##x:
-      DECLARE_CASE(Dead)
       DECLARE_CASE(Loop)
       DECLARE_CASE(Branch)
       DECLARE_CASE(IfTrue)
@@ -416,37 +427,19 @@ class Typer::Visitor : public Reducer {
 };
 
 
-void Typer::Run() {
-  {
-    // TODO(titzer): this is a hack. Reset types for interior nodes first.
-    NodeDeque deque(zone());
-    NodeMarker<bool> marked(graph(), 2);
-    deque.push_front(graph()->end());
-    marked.Set(graph()->end(), true);
-    while (!deque.empty()) {
-      Node* node = deque.front();
-      deque.pop_front();
-      // TODO(titzer): there shouldn't be a need to retype constants.
-      if (node->op()->ValueOutputCount() > 0)
-        NodeProperties::RemoveBounds(node);
-      for (Node* input : node->inputs()) {
-        if (!marked.Get(input)) {
-          marked.Set(input, true);
-          deque.push_back(input);
-        }
-      }
-    }
-  }
+void Typer::Run() { Run(NodeVector(zone())); }
 
+
+void Typer::Run(const NodeVector& roots) {
   Visitor visitor(this);
   GraphReducer graph_reducer(zone(), graph());
   graph_reducer.AddReducer(&visitor);
+  for (Node* const root : roots) graph_reducer.ReduceNode(root);
   graph_reducer.ReduceGraph();
 }
 
 
-void Typer::Decorator::Decorate(Node* node, bool incomplete) {
-  if (incomplete) return;
+void Typer::Decorator::Decorate(Node* node) {
   if (node->op()->ValueOutputCount() > 0) {
     // Only eagerly type-decorate nodes with known input types.
     // Other cases will generally require a proper fixpoint iteration with Run.
@@ -770,6 +763,11 @@ Bounds Typer::Visitor::TypeCall(Node* node) {
 
 Bounds Typer::Visitor::TypeProjection(Node* node) {
   // TODO(titzer): use the output type of the input to determine the bounds.
+  return Bounds::Unbounded(zone());
+}
+
+
+Bounds Typer::Visitor::TypeDead(Node* node) {
   return Bounds::Unbounded(zone());
 }
 
@@ -1586,6 +1584,7 @@ Bounds Typer::Visitor::TypeJSCallRuntime(Node* node) {
     case Runtime::kInlineIsSmi:
     case Runtime::kInlineIsNonNegativeSmi:
     case Runtime::kInlineIsArray:
+    case Runtime::kInlineIsTypedArray:
     case Runtime::kInlineIsMinusZero:
     case Runtime::kInlineIsFunction:
     case Runtime::kInlineIsRegExp:
@@ -1594,6 +1593,7 @@ Bounds Typer::Visitor::TypeJSCallRuntime(Node* node) {
     case Runtime::kInlineDoubleHi:
       return Bounds(Type::None(zone()), Type::Signed32());
     case Runtime::kInlineConstructDouble:
+    case Runtime::kInlineDateField:
     case Runtime::kInlineMathFloor:
     case Runtime::kInlineMathSqrt:
     case Runtime::kInlineMathAcos:
@@ -2390,6 +2390,27 @@ Type* Typer::Visitor::TypeConstant(Handle<Object> value) {
         return typer_->cache_->Get(kFloat32ArrayFunc);
       } else if (*value == native->float64_array_fun()) {
         return typer_->cache_->Get(kFloat64ArrayFunc);
+      }
+    }
+    int const arity =
+        JSFunction::cast(*value)->shared()->internal_formal_parameter_count();
+    switch (arity) {
+      case SharedFunctionInfo::kDontAdaptArgumentsSentinel:
+        // Some smart optimization at work... &%$!&@+$!
+        return Type::Any(zone());
+      case 0:
+        return typer_->cache_->Get(kAnyFunc0);
+      case 1:
+        return typer_->cache_->Get(kAnyFunc1);
+      case 2:
+        return typer_->cache_->Get(kAnyFunc2);
+      case 3:
+        return typer_->cache_->Get(kAnyFunc3);
+      default: {
+        DCHECK_LT(3, arity);
+        Type** const params = zone()->NewArray<Type*>(arity);
+        std::fill(&params[0], &params[arity], Type::Any(zone()));
+        return Type::Function(Type::Any(zone()), arity, params, zone());
       }
     }
   } else if (value->IsJSTypedArray()) {

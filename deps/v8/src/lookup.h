@@ -26,7 +26,8 @@ class LookupIterator final BASE_EMBEDDED {
     HIDDEN_SKIP_INTERCEPTOR = kHidden,
     HIDDEN = kHidden | kInterceptor,
     PROTOTYPE_CHAIN_SKIP_INTERCEPTOR = kHidden | kPrototypeChain,
-    PROTOTYPE_CHAIN = kHidden | kPrototypeChain | kInterceptor
+    PROTOTYPE_CHAIN = kHidden | kPrototypeChain | kInterceptor,
+    DEFAULT = PROTOTYPE_CHAIN
   };
 
   enum State {
@@ -44,14 +45,14 @@ class LookupIterator final BASE_EMBEDDED {
   };
 
   LookupIterator(Handle<Object> receiver, Handle<Name> name,
-                 Configuration configuration = PROTOTYPE_CHAIN)
+                 Configuration configuration = DEFAULT)
       : configuration_(ComputeConfiguration(configuration, name)),
         state_(NOT_FOUND),
         exotic_index_state_(ExoticIndexState::kUninitialized),
         interceptor_state_(InterceptorState::kUninitialized),
         property_details_(PropertyDetails::Empty()),
         isolate_(name->GetIsolate()),
-        name_(name),
+        name_(Name::Flatten(name)),
         // kMaxUInt32 isn't a valid index.
         index_(kMaxUInt32),
         receiver_(receiver),
@@ -59,25 +60,23 @@ class LookupIterator final BASE_EMBEDDED {
         holder_map_(holder_->map(), isolate_),
         initial_holder_(holder_),
         number_(DescriptorArray::kNotFound) {
-#if 0  // TODO(verwaest): Enable once blocking hacks are removed.
 #ifdef DEBUG
     uint32_t index;  // Assert that the name is not an array index.
     DCHECK(!name->AsArrayIndex(&index));
 #endif  // DEBUG
-#endif
     Next();
   }
 
   LookupIterator(Handle<Object> receiver, Handle<Name> name,
                  Handle<JSReceiver> holder,
-                 Configuration configuration = PROTOTYPE_CHAIN)
+                 Configuration configuration = DEFAULT)
       : configuration_(ComputeConfiguration(configuration, name)),
         state_(NOT_FOUND),
         exotic_index_state_(ExoticIndexState::kUninitialized),
         interceptor_state_(InterceptorState::kUninitialized),
         property_details_(PropertyDetails::Empty()),
         isolate_(name->GetIsolate()),
-        name_(name),
+        name_(Name::Flatten(name)),
         // kMaxUInt32 isn't a valid index.
         index_(kMaxUInt32),
         receiver_(receiver),
@@ -85,17 +84,15 @@ class LookupIterator final BASE_EMBEDDED {
         holder_map_(holder_->map(), isolate_),
         initial_holder_(holder_),
         number_(DescriptorArray::kNotFound) {
-#if 0  // TODO(verwaest): Enable once blocking hacks are removed.
 #ifdef DEBUG
     uint32_t index;  // Assert that the name is not an array index.
     DCHECK(!name->AsArrayIndex(&index));
 #endif  // DEBUG
-#endif
     Next();
   }
 
   LookupIterator(Isolate* isolate, Handle<Object> receiver, uint32_t index,
-                 Configuration configuration = PROTOTYPE_CHAIN)
+                 Configuration configuration = DEFAULT)
       : configuration_(configuration),
         state_(NOT_FOUND),
         exotic_index_state_(ExoticIndexState::kUninitialized),
@@ -116,7 +113,7 @@ class LookupIterator final BASE_EMBEDDED {
 
   LookupIterator(Isolate* isolate, Handle<Object> receiver, uint32_t index,
                  Handle<JSReceiver> holder,
-                 Configuration configuration = PROTOTYPE_CHAIN)
+                 Configuration configuration = DEFAULT)
       : configuration_(configuration),
         state_(NOT_FOUND),
         exotic_index_state_(ExoticIndexState::kUninitialized),
@@ -133,6 +130,32 @@ class LookupIterator final BASE_EMBEDDED {
     // kMaxUInt32 isn't a valid index.
     DCHECK_NE(kMaxUInt32, index_);
     Next();
+  }
+
+  static LookupIterator PropertyOrElement(
+      Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
+      Configuration configuration = DEFAULT) {
+    name = Name::Flatten(name);
+    uint32_t index;
+    LookupIterator it =
+        name->AsArrayIndex(&index)
+            ? LookupIterator(isolate, receiver, index, configuration)
+            : LookupIterator(receiver, name, configuration);
+    it.name_ = name;
+    return it;
+  }
+
+  static LookupIterator PropertyOrElement(
+      Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
+      Handle<JSReceiver> holder, Configuration configuration = DEFAULT) {
+    name = Name::Flatten(name);
+    uint32_t index;
+    LookupIterator it =
+        name->AsArrayIndex(&index)
+            ? LookupIterator(isolate, receiver, index, holder, configuration)
+            : LookupIterator(receiver, name, holder, configuration);
+    it.name_ = name;
+    return it;
   }
 
   Isolate* isolate() const { return isolate_; }
@@ -187,7 +210,8 @@ class LookupIterator final BASE_EMBEDDED {
   bool IsCacheableTransition() {
     if (state_ != TRANSITION) return false;
     return transition_->IsPropertyCell() ||
-           transition_map()->GetBackPointer()->IsMap();
+           (!transition_map()->is_dictionary_map() &&
+            transition_map()->GetBackPointer()->IsMap());
   }
   void ApplyTransitionToDataProperty();
   void ReconfigureDataProperty(Handle<Object> value,
@@ -212,8 +236,6 @@ class LookupIterator final BASE_EMBEDDED {
   Handle<Object> GetAccessors() const;
   Handle<InterceptorInfo> GetInterceptor() const;
   Handle<Object> GetDataValue() const;
-  // Usually returns the value that was passed in, but may perform
-  // non-observable modifications on it, such as internalize strings.
   void WriteDataValue(Handle<Object> value);
   void InternalizeName();
 
@@ -259,7 +281,7 @@ class LookupIterator final BASE_EMBEDDED {
 
   static Configuration ComputeConfiguration(
       Configuration configuration, Handle<Name> name) {
-    if (name->IsOwn()) {
+    if (name->IsPrivate()) {
       return static_cast<Configuration>(configuration &
                                         HIDDEN_SKIP_INTERCEPTOR);
     } else {

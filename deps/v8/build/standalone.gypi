@@ -175,7 +175,7 @@
         'v8_enable_gdbjit%': 0,
       }],
       ['(OS=="linux" or OS=="mac") and (target_arch=="ia32" or target_arch=="x64") and \
-        (v8_target_arch!="x87")', {
+        (v8_target_arch!="x87" and v8_target_arch!="x32")', {
         'clang%': 1,
       }, {
         'clang%': 0,
@@ -200,6 +200,11 @@
         # libstdc++. This is required to avoid false positive reports whenever
         # the C++ standard library is used.
         'use_custom_libcxx%': 1,
+      }],
+      ['OS=="linux" and v8_target_arch==host_arch', {
+        # Gradually roll out v8_use_external_startup_data.
+        # Should eventually be default enabled on all platforms.
+        'v8_use_external_startup_data%': 1,
       }],
     ],
     # Default ARM variable settings.
@@ -473,7 +478,8 @@
         ],
         'ldflags': [ '-pthread', ],
         'conditions': [
-          [ 'clang==1 and (v8_target_arch=="x64" or v8_target_arch=="arm64")', {
+          [ 'clang==1 and (v8_target_arch=="x64" or v8_target_arch=="arm64" \
+            or v8_target_arch=="mips64el")', {
             'cflags': [ '-Wshorten-64-to-32' ],
           }],
           [ 'host_arch=="ppc64" and OS!="aix"', {

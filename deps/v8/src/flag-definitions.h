@@ -174,6 +174,7 @@ DEFINE_IMPLICATION(use_strong, use_strict)
 
 DEFINE_BOOL(strong_mode, false, "experimental strong language mode")
 DEFINE_IMPLICATION(use_strong, strong_mode)
+DEFINE_BOOL(strong_this, true, "don't allow 'this' to escape from constructors")
 
 DEFINE_BOOL(es_staging, false, "enable all completed harmony features")
 DEFINE_BOOL(harmony, false, "enable all completed harmony features")
@@ -186,30 +187,31 @@ DEFINE_IMPLICATION(es_staging, harmony)
   V(harmony_modules, "harmony modules")                         \
   V(harmony_array_includes, "harmony Array.prototype.includes") \
   V(harmony_regexps, "harmony regular expression extensions")   \
-  V(harmony_arrow_functions, "harmony arrow functions")         \
   V(harmony_proxies, "harmony proxies")                         \
   V(harmony_sloppy, "harmony features in sloppy mode")          \
   V(harmony_unicode_regexps, "harmony unicode regexps")         \
   V(harmony_reflect, "harmony Reflect API")                     \
   V(harmony_destructuring, "harmony destructuring")             \
   V(harmony_sharedarraybuffer, "harmony sharedarraybuffer")     \
-  V(harmony_atomics, "harmony atomics")
+  V(harmony_atomics, "harmony atomics")                         \
+  V(harmony_new_target, "harmony new.target")
 
 // Features that are complete (but still behind --harmony/es-staging flag).
 #define HARMONY_STAGED(V)                                      \
-  V(harmony_arrays, "harmony array methods")                   \
   V(harmony_rest_parameters, "harmony rest parameters")        \
-  V(harmony_spreadcalls, "harmony spread-calls")               \
-  V(harmony_object, "harmony Object methods")                  \
-  V(harmony_spread_arrays, "harmony spread in array literals") \
   V(harmony_tostring, "harmony toString")
 
 // Features that are shipping (turned on by default, but internal flag remains).
 #define HARMONY_SHIPPING(V)                                                \
+  V(harmony_arrays, "harmony array methods")                               \
+  V(harmony_arrow_functions, "harmony arrow functions")                    \
   V(harmony_classes, "harmony classes (implies object literal extension)") \
   V(harmony_computed_property_names, "harmony computed property names")    \
   V(harmony_object_literals, "harmony object literal extensions")          \
+  V(harmony_spreadcalls, "harmony spread-calls")                           \
+  V(harmony_spread_arrays, "harmony spread in array literals")             \
   V(harmony_unicode, "harmony unicode escapes")                            \
+  V(harmony_object, "harmony Object methods")
 
 // Once a shipping feature has proved stable in the wild, it will be dropped
 // from HARMONY_SHIPPING, all occurrences of the FLAG_ variable are removed,
@@ -422,7 +424,8 @@ DEFINE_BOOL(turbo_verify_allocation, DEBUG_BOOL,
 DEFINE_BOOL(turbo_move_optimization, true, "optimize gap moves in TurboFan")
 DEFINE_BOOL(turbo_jt, true, "enable jump threading in TurboFan")
 DEFINE_BOOL(turbo_osr, true, "enable OSR in TurboFan")
-DEFINE_BOOL(turbo_exceptions, false, "enable exception handling in TurboFan")
+DEFINE_BOOL(turbo_try_catch, true, "enable try-catch support in TurboFan")
+DEFINE_BOOL(turbo_try_finally, false, "enable try-finally support in TurboFan")
 DEFINE_BOOL(turbo_stress_loop_peeling, false,
             "stress loop peeling optimization")
 DEFINE_BOOL(turbo_cf_optimization, true, "optimize control flow in TurboFan")
@@ -610,8 +613,6 @@ DEFINE_INT(trace_allocation_stack_interval, -1,
 DEFINE_BOOL(trace_fragmentation, false, "report fragmentation for old space")
 DEFINE_BOOL(trace_fragmentation_verbose, false,
             "report fragmentation for old space (detailed)")
-DEFINE_BOOL(collect_maps, true,
-            "garbage collect maps from which no objects can be reached")
 DEFINE_BOOL(weak_embedded_maps_in_optimized_code, true,
             "make maps embedded in optimized code weak")
 DEFINE_BOOL(weak_embedded_objects_in_optimized_code, true,
@@ -726,7 +727,7 @@ DEFINE_INT(sim_stack_alignment, 8,
            "Stack alingment in bytes in simulator (4 or 8, 8 is default)")
 #endif
 DEFINE_INT(sim_stack_size, 2 * MB / KB,
-           "Stack size of the ARM64 and MIPS64 simulator "
+           "Stack size of the ARM64, MIPS64 and PPC64 simulator "
            "in kBytes (default is 2 MB)")
 DEFINE_BOOL(log_regs_modified, true,
             "When logging register values, only print modified registers.")

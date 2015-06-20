@@ -489,8 +489,8 @@ int32_t LCodeGen::ToInteger32(LConstantOperand* op) const {
 }
 
 
-int32_t LCodeGen::ToRepresentation_donotuse(LConstantOperand* op,
-                                   const Representation& r) const {
+int64_t LCodeGen::ToRepresentation_donotuse(LConstantOperand* op,
+                                            const Representation& r) const {
   HConstant* constant = chunk_->LookupConstant(op);
   int32_t value = constant->Integer32Value();
   if (r.IsInteger32()) return value;
@@ -582,52 +582,17 @@ void LCodeGen::WriteTranslation(LEnvironment* environment,
 
   // The translation includes one command per value in the environment.
   int translation_size = environment->translation_size();
-  // The output frame height does not include the parameters.
-  int height = translation_size - environment->parameter_count();
 
   WriteTranslation(environment->outer(), translation);
-  bool has_closure_id = !info()->closure().is_null() &&
-      !info()->closure().is_identical_to(environment->closure());
-  int closure_id = has_closure_id
-      ? DefineDeoptimizationLiteral(environment->closure())
-      : Translation::kSelfLiteralId;
-
-  switch (environment->frame_type()) {
-    case JS_FUNCTION:
-      translation->BeginJSFrame(environment->ast_id(), closure_id, height);
-      break;
-    case JS_CONSTRUCT:
-      translation->BeginConstructStubFrame(closure_id, translation_size);
-      break;
-    case JS_GETTER:
-      DCHECK(translation_size == 1);
-      DCHECK(height == 0);
-      translation->BeginGetterStubFrame(closure_id);
-      break;
-    case JS_SETTER:
-      DCHECK(translation_size == 2);
-      DCHECK(height == 0);
-      translation->BeginSetterStubFrame(closure_id);
-      break;
-    case STUB:
-      translation->BeginCompiledStubFrame();
-      break;
-    case ARGUMENTS_ADAPTOR:
-      translation->BeginArgumentsAdaptorFrame(closure_id, translation_size);
-      break;
-  }
+  WriteTranslationFrame(environment, translation);
 
   int object_index = 0;
   int dematerialized_index = 0;
   for (int i = 0; i < translation_size; ++i) {
     LOperand* value = environment->values()->at(i);
-    AddToTranslation(environment,
-                     translation,
-                     value,
-                     environment->HasTaggedValueAt(i),
-                     environment->HasUint32ValueAt(i),
-                     &object_index,
-                     &dematerialized_index);
+    AddToTranslation(
+        environment, translation, value, environment->HasTaggedValueAt(i),
+        environment->HasUint32ValueAt(i), &object_index, &dematerialized_index);
   }
 }
 
@@ -914,16 +879,6 @@ void LCodeGen::PopulateDeoptimizationData(Handle<Code> code) {
     data->SetPc(i, Smi::FromInt(env->pc_offset()));
   }
   code->set_deoptimization_data(*data);
-}
-
-
-int LCodeGen::DefineDeoptimizationLiteral(Handle<Object> literal) {
-  int result = deoptimization_literals_.length();
-  for (int i = 0; i < deoptimization_literals_.length(); ++i) {
-    if (deoptimization_literals_[i].is_identical_to(literal)) return i;
-  }
-  deoptimization_literals_.Add(literal, zone());
-  return result;
 }
 
 
@@ -1464,7 +1419,7 @@ void LCodeGen::DoFlooringDivI(LFlooringDivI* instr) {
 }
 
 
-void LCodeGen::DoMulI(LMulI* instr) {
+void LCodeGen::DoMulS(LMulS* instr) {
   Register scratch = scratch0();
   Register result = ToRegister(instr->result());
   // Note that result may alias left.
@@ -1487,9 +1442,9 @@ void LCodeGen::DoMulI(LMulI* instr) {
     switch (constant) {
       case -1:
         if (overflow) {
-          __ SubuAndCheckForOverflow(result, zero_reg, left, scratch);
-          DeoptimizeIf(gt, instr, Deoptimizer::kOverflow, scratch,
-                       Operand(kMaxInt));
+          __ DsubuAndCheckForOverflow(result, zero_reg, left, scratch);
+          DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, scratch,
+                       Operand(zero_reg));
         } else {
           __ Dsubu(result, zero_reg, left);
         }
@@ -1524,17 +1479,119 @@ void LCodeGen::DoMulI(LMulI* instr) {
           __ dsll(scratch, left, shift);
           __ Daddu(result, scratch, left);
           // Correct the sign of the result if the constant is negative.
-          if (constant < 0)  __ Dsubu(result, zero_reg, result);
+          if (constant < 0) __ Dsubu(result, zero_reg, result);
         } else if (base::bits::IsPowerOfTwo32(constant_abs + 1)) {
           int32_t shift = WhichPowerOf2(constant_abs + 1);
           __ dsll(scratch, left, shift);
           __ Dsubu(result, scratch, left);
           // Correct the sign of the result if the constant is negative.
-          if (constant < 0)  __ Dsubu(result, zero_reg, result);
+          if (constant < 0) __ Dsubu(result, zero_reg, result);
         } else {
           // Generate standard code.
           __ li(at, constant);
           __ Dmul(result, left, at);
+        }
+    }
+  } else {
+    DCHECK(right_op->IsRegister());
+    Register right = ToRegister(right_op);
+
+    if (overflow) {
+      // hi:lo = left * right.
+      __ Dmulh(result, left, right);
+      __ dsra32(scratch, result, 0);
+      __ sra(at, result, 31);
+      __ SmiTag(result);
+      DeoptimizeIf(ne, instr, Deoptimizer::kOverflow, scratch, Operand(at));
+    } else {
+      __ SmiUntag(result, left);
+      __ dmul(result, result, right);
+    }
+
+    if (bailout_on_minus_zero) {
+      Label done;
+      __ Xor(at, left, right);
+      __ Branch(&done, ge, at, Operand(zero_reg));
+      // Bail out if the result is minus zero.
+      DeoptimizeIf(eq, instr, Deoptimizer::kMinusZero, result,
+                   Operand(zero_reg));
+      __ bind(&done);
+    }
+  }
+}
+
+
+void LCodeGen::DoMulI(LMulI* instr) {
+  Register scratch = scratch0();
+  Register result = ToRegister(instr->result());
+  // Note that result may alias left.
+  Register left = ToRegister(instr->left());
+  LOperand* right_op = instr->right();
+
+  bool bailout_on_minus_zero =
+      instr->hydrogen()->CheckFlag(HValue::kBailoutOnMinusZero);
+  bool overflow = instr->hydrogen()->CheckFlag(HValue::kCanOverflow);
+
+  if (right_op->IsConstantOperand()) {
+    int32_t constant = ToInteger32(LConstantOperand::cast(right_op));
+
+    if (bailout_on_minus_zero && (constant < 0)) {
+      // The case of a null constant will be handled separately.
+      // If constant is negative and left is null, the result should be -0.
+      DeoptimizeIf(eq, instr, Deoptimizer::kMinusZero, left, Operand(zero_reg));
+    }
+
+    switch (constant) {
+      case -1:
+        if (overflow) {
+          __ SubuAndCheckForOverflow(result, zero_reg, left, scratch);
+          DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, scratch,
+                       Operand(zero_reg));
+        } else {
+          __ Subu(result, zero_reg, left);
+        }
+        break;
+      case 0:
+        if (bailout_on_minus_zero) {
+          // If left is strictly negative and the constant is null, the
+          // result is -0. Deoptimize if required, otherwise return 0.
+          DeoptimizeIf(lt, instr, Deoptimizer::kMinusZero, left,
+                       Operand(zero_reg));
+        }
+        __ mov(result, zero_reg);
+        break;
+      case 1:
+        // Nothing to do.
+        __ Move(result, left);
+        break;
+      default:
+        // Multiplying by powers of two and powers of two plus or minus
+        // one can be done faster with shifted operands.
+        // For other constants we emit standard code.
+        int32_t mask = constant >> 31;
+        uint32_t constant_abs = (constant + mask) ^ mask;
+
+        if (base::bits::IsPowerOfTwo32(constant_abs)) {
+          int32_t shift = WhichPowerOf2(constant_abs);
+          __ sll(result, left, shift);
+          // Correct the sign of the result if the constant is negative.
+          if (constant < 0) __ Subu(result, zero_reg, result);
+        } else if (base::bits::IsPowerOfTwo32(constant_abs - 1)) {
+          int32_t shift = WhichPowerOf2(constant_abs - 1);
+          __ sll(scratch, left, shift);
+          __ addu(result, scratch, left);
+          // Correct the sign of the result if the constant is negative.
+          if (constant < 0) __ Subu(result, zero_reg, result);
+        } else if (base::bits::IsPowerOfTwo32(constant_abs + 1)) {
+          int32_t shift = WhichPowerOf2(constant_abs + 1);
+          __ sll(scratch, left, shift);
+          __ Subu(result, scratch, left);
+          // Correct the sign of the result if the constant is negative.
+          if (constant < 0) __ Subu(result, zero_reg, result);
+        } else {
+          // Generate standard code.
+          __ li(at, constant);
+          __ Mul(result, left, at);
         }
     }
 
@@ -1544,24 +1601,13 @@ void LCodeGen::DoMulI(LMulI* instr) {
 
     if (overflow) {
       // hi:lo = left * right.
-      if (instr->hydrogen()->representation().IsSmi()) {
-        __ Dmulh(result, left, right);
-      } else {
-        __ Dmul(result, left, right);
-      }
+      __ Dmul(result, left, right);
       __ dsra32(scratch, result, 0);
       __ sra(at, result, 31);
-      if (instr->hydrogen()->representation().IsSmi()) {
-        __ SmiTag(result);
-      }
+
       DeoptimizeIf(ne, instr, Deoptimizer::kOverflow, scratch, Operand(at));
     } else {
-      if (instr->hydrogen()->representation().IsSmi()) {
-        __ SmiUntag(result, left);
-        __ Dmul(result, result, right);
-      } else {
-        __ Dmul(result, left, right);
-      }
+      __ mul(result, left, right);
     }
 
     if (bailout_on_minus_zero) {
@@ -1697,6 +1743,27 @@ void LCodeGen::DoShiftI(LShiftI* instr) {
 }
 
 
+void LCodeGen::DoSubS(LSubS* instr) {
+  LOperand* left = instr->left();
+  LOperand* right = instr->right();
+  LOperand* result = instr->result();
+  bool can_overflow = instr->hydrogen()->CheckFlag(HValue::kCanOverflow);
+
+  if (!can_overflow) {
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ Dsubu(ToRegister(result), ToRegister(left), ToOperand(right));
+  } else {  // can_overflow.
+    Register overflow = scratch0();
+    Register scratch = scratch1();
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ DsubuAndCheckForOverflow(ToRegister(result), ToRegister(left),
+                                ToOperand(right), overflow, scratch);
+    DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, overflow,
+                 Operand(zero_reg));
+  }
+}
+
+
 void LCodeGen::DoSubI(LSubI* instr) {
   LOperand* left = instr->left();
   LOperand* right = instr->right();
@@ -1704,39 +1771,16 @@ void LCodeGen::DoSubI(LSubI* instr) {
   bool can_overflow = instr->hydrogen()->CheckFlag(HValue::kCanOverflow);
 
   if (!can_overflow) {
-    if (right->IsStackSlot()) {
-      Register right_reg = EmitLoadRegister(right, at);
-      __ Dsubu(ToRegister(result), ToRegister(left), Operand(right_reg));
-    } else {
-      DCHECK(right->IsRegister() || right->IsConstantOperand());
-      __ Dsubu(ToRegister(result), ToRegister(left), ToOperand(right));
-    }
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ Subu(ToRegister(result), ToRegister(left), ToOperand(right));
   } else {  // can_overflow.
     Register overflow = scratch0();
     Register scratch = scratch1();
-    if (right->IsStackSlot() || right->IsConstantOperand()) {
-      Register right_reg = EmitLoadRegister(right, scratch);
-      __ SubuAndCheckForOverflow(ToRegister(result),
-                                 ToRegister(left),
-                                 right_reg,
-                                 overflow);  // Reg at also used as scratch.
-    } else {
-      DCHECK(right->IsRegister());
-      // Due to overflow check macros not supporting constant operands,
-      // handling the IsConstantOperand case was moved to prev if clause.
-      __ SubuAndCheckForOverflow(ToRegister(result),
-                                 ToRegister(left),
-                                 ToRegister(right),
-                                 overflow);  // Reg at also used as scratch.
-    }
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ SubuAndCheckForOverflow(ToRegister(result), ToRegister(left),
+                               ToOperand(right), overflow, scratch);
     DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, overflow,
                  Operand(zero_reg));
-    if (!instr->hydrogen()->representation().IsSmi()) {
-      DeoptimizeIf(gt, instr, Deoptimizer::kOverflow, ToRegister(result),
-                   Operand(kMaxInt));
-      DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, ToRegister(result),
-                   Operand(kMinInt));
-    }
   }
 }
 
@@ -1889,6 +1933,38 @@ void LCodeGen::DoSeqStringSetChar(LSeqStringSetChar* instr) {
 }
 
 
+void LCodeGen::DoAddE(LAddE* instr) {
+  LOperand* result = instr->result();
+  LOperand* left = instr->left();
+  LOperand* right = instr->right();
+
+  DCHECK(!instr->hydrogen()->CheckFlag(HValue::kCanOverflow));
+  DCHECK(right->IsRegister() || right->IsConstantOperand());
+  __ Daddu(ToRegister(result), ToRegister(left), ToOperand(right));
+}
+
+
+void LCodeGen::DoAddS(LAddS* instr) {
+  LOperand* left = instr->left();
+  LOperand* right = instr->right();
+  LOperand* result = instr->result();
+  bool can_overflow = instr->hydrogen()->CheckFlag(HValue::kCanOverflow);
+
+  if (!can_overflow) {
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ Daddu(ToRegister(result), ToRegister(left), ToOperand(right));
+  } else {  // can_overflow.
+    Register overflow = scratch0();
+    Register scratch = scratch1();
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ DadduAndCheckForOverflow(ToRegister(result), ToRegister(left),
+                                ToOperand(right), overflow, scratch);
+    DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, overflow,
+                 Operand(zero_reg));
+  }
+}
+
+
 void LCodeGen::DoAddI(LAddI* instr) {
   LOperand* left = instr->left();
   LOperand* right = instr->right();
@@ -1896,41 +1972,16 @@ void LCodeGen::DoAddI(LAddI* instr) {
   bool can_overflow = instr->hydrogen()->CheckFlag(HValue::kCanOverflow);
 
   if (!can_overflow) {
-    if (right->IsStackSlot()) {
-      Register right_reg = EmitLoadRegister(right, at);
-      __ Daddu(ToRegister(result), ToRegister(left), Operand(right_reg));
-    } else {
-      DCHECK(right->IsRegister() || right->IsConstantOperand());
-      __ Daddu(ToRegister(result), ToRegister(left), ToOperand(right));
-    }
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ Addu(ToRegister(result), ToRegister(left), ToOperand(right));
   } else {  // can_overflow.
     Register overflow = scratch0();
     Register scratch = scratch1();
-    if (right->IsStackSlot() ||
-        right->IsConstantOperand()) {
-      Register right_reg = EmitLoadRegister(right, scratch);
-      __ AdduAndCheckForOverflow(ToRegister(result),
-                                 ToRegister(left),
-                                 right_reg,
-                                 overflow);  // Reg at also used as scratch.
-    } else {
-      DCHECK(right->IsRegister());
-      // Due to overflow check macros not supporting constant operands,
-      // handling the IsConstantOperand case was moved to prev if clause.
-      __ AdduAndCheckForOverflow(ToRegister(result),
-                                 ToRegister(left),
-                                 ToRegister(right),
-                                 overflow);  // Reg at also used as scratch.
-    }
+    DCHECK(right->IsRegister() || right->IsConstantOperand());
+    __ AdduAndCheckForOverflow(ToRegister(result), ToRegister(left),
+                               ToOperand(right), overflow, scratch);
     DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, overflow,
                  Operand(zero_reg));
-    // if not smi, it must int32.
-    if (!instr->hydrogen()->representation().IsSmi()) {
-      DeoptimizeIf(gt, instr, Deoptimizer::kOverflow, ToRegister(result),
-                   Operand(kMaxInt));
-      DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, ToRegister(result),
-                   Operand(kMinInt));
-    }
   }
 }
 
@@ -2043,8 +2094,8 @@ void LCodeGen::DoArithmeticT(LArithmeticT* instr) {
   DCHECK(ToRegister(instr->right()).is(a0));
   DCHECK(ToRegister(instr->result()).is(v0));
 
-  Handle<Code> code = CodeFactory::BinaryOpIC(
-      isolate(), instr->op(), instr->language_mode()).code();
+  Handle<Code> code =
+      CodeFactory::BinaryOpIC(isolate(), instr->op(), instr->strength()).code();
   CallCode(code, RelocInfo::CODE_TARGET, instr);
   // Other arch use a nop here, to signal that there is no inlined
   // patchable code. Mips does not need the nop, since our marker
@@ -2529,7 +2580,8 @@ void LCodeGen::DoStringCompareAndBranch(LStringCompareAndBranch* instr) {
   DCHECK(ToRegister(instr->context()).is(cp));
   Token::Value op = instr->op();
 
-  Handle<Code> ic = CodeFactory::CompareIC(isolate(), op, SLOPPY).code();
+  Handle<Code> ic =
+      CodeFactory::CompareIC(isolate(), op, Strength::WEAK).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
 
   Condition condition = ComputeCompareCondition(op);
@@ -2832,7 +2884,7 @@ void LCodeGen::DoCmpT(LCmpT* instr) {
   Token::Value op = instr->op();
 
   Handle<Code> ic =
-      CodeFactory::CompareIC(isolate(), op, instr->language_mode()).code();
+      CodeFactory::CompareIC(isolate(), op, instr->strength()).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
   // On MIPS there is no need for a "no inlined smi code" marker (nop).
 
@@ -3721,8 +3773,22 @@ void LCodeGen::EmitIntegerMathAbs(LMathAbs* instr) {
   Label done;
   __ Branch(USE_DELAY_SLOT, &done, ge, input, Operand(zero_reg));
   __ mov(result, input);
-  __ dsubu(result, zero_reg, input);
+  __ subu(result, zero_reg, input);
   // Overflow if result is still negative, i.e. 0x80000000.
+  DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, result, Operand(zero_reg));
+  __ bind(&done);
+}
+
+
+void LCodeGen::EmitSmiMathAbs(LMathAbs* instr) {
+  Register input = ToRegister(instr->value());
+  Register result = ToRegister(instr->result());
+  Assembler::BlockTrampolinePoolScope block_trampoline_pool(masm_);
+  Label done;
+  __ Branch(USE_DELAY_SLOT, &done, ge, input, Operand(zero_reg));
+  __ mov(result, input);
+  __ dsubu(result, zero_reg, input);
+  // Overflow if result is still negative, i.e. 0x80000000 00000000.
   DeoptimizeIf(lt, instr, Deoptimizer::kOverflow, result, Operand(zero_reg));
   __ bind(&done);
 }
@@ -3748,8 +3814,10 @@ void LCodeGen::DoMathAbs(LMathAbs* instr) {
     FPURegister input = ToDoubleRegister(instr->value());
     FPURegister result = ToDoubleRegister(instr->result());
     __ abs_d(result, input);
-  } else if (r.IsSmiOrInteger32()) {
+  } else if (r.IsInteger32()) {
     EmitIntegerMathAbs(instr);
+  } else if (r.IsSmi()) {
+    EmitSmiMathAbs(instr);
   } else {
     // Representation is tagged.
     DeferredMathAbsTaggedHeapNumber* deferred =
@@ -3758,7 +3826,7 @@ void LCodeGen::DoMathAbs(LMathAbs* instr) {
     // Smi check.
     __ JumpIfNotSmi(input, deferred->entry());
     // If smi, handle it directly.
-    EmitIntegerMathAbs(instr);
+    EmitSmiMathAbs(instr);
     __ bind(deferred->exit());
   }
 }

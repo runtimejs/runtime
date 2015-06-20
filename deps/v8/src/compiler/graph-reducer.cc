@@ -14,9 +14,6 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-bool Reducer::Finish() { return true; }
-
-
 enum class GraphReducer::State : uint8_t {
   kUnvisited,
   kRevisit,
@@ -70,23 +67,7 @@ void GraphReducer::ReduceNode(Node* node) {
 }
 
 
-void GraphReducer::ReduceGraph() {
-  for (;;) {
-    ReduceNode(graph()->end());
-    // TODO(turbofan): Remove this once the dead node trimming is in the
-    // GraphReducer.
-    bool done = true;
-    for (Reducer* const reducer : reducers_) {
-      if (!reducer->Finish()) {
-        done = false;
-        break;
-      }
-    }
-    if (done) break;
-    // Reset all marks on the graph in preparation to re-reduce the graph.
-    state_.Reset(graph());
-  }
-}
+void GraphReducer::ReduceGraph() { ReduceNode(graph()->end()); }
 
 
 Reduction GraphReducer::Reduce(Node* const node) {
@@ -140,7 +121,7 @@ void GraphReducer::ReduceTop() {
   }
 
   // Remember the max node id before reduction.
-  NodeId const max_id = graph()->NodeCount() - 1;
+  NodeId const max_id = static_cast<NodeId>(graph()->NodeCount() - 1);
 
   // All inputs should be visited or on stack. Apply reductions to node.
   Reduction reduction = Reduce(node);
@@ -231,9 +212,10 @@ void GraphReducer::ReplaceWithValue(Node* node, Node* value, Node* effect,
       } else if (user->opcode() == IrOpcode::kIfException) {
         for (Edge e : user->use_edges()) {
           if (NodeProperties::IsValueEdge(e)) e.UpdateTo(dead_value_);
+          if (NodeProperties::IsEffectEdge(e)) e.UpdateTo(graph()->start());
           if (NodeProperties::IsControlEdge(e)) e.UpdateTo(dead_control_);
         }
-        user->Kill();
+        edge.UpdateTo(user);
       } else {
         UNREACHABLE();
       }
@@ -242,6 +224,7 @@ void GraphReducer::ReplaceWithValue(Node* node, Node* value, Node* effect,
       edge.UpdateTo(effect);
       Revisit(user);
     } else {
+      DCHECK_NOT_NULL(value);
       edge.UpdateTo(value);
       Revisit(user);
     }

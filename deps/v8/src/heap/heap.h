@@ -955,6 +955,9 @@ class Heap {
   bool InSpace(Address addr, AllocationSpace space);
   bool InSpace(HeapObject* value, AllocationSpace space);
 
+  // Checks whether the space is valid.
+  static bool IsValidAllocationSpace(AllocationSpace space);
+
   // Checks whether the given object is allowed to be migrated from it's
   // current space into the given destination space. Used for debugging.
   inline bool AllowedToBeMigrated(HeapObject* object, AllocationSpace dest);
@@ -1157,14 +1160,28 @@ class Heap {
   static const int kTraceRingBufferSize = 512;
   static const int kStacktraceBufferSize = 512;
 
+  static const double kMinHeapGrowingFactor;
+  static const double kMaxHeapGrowingFactor;
+  static const double kMaxHeapGrowingFactorMemoryConstrained;
+  static const double kMaxHeapGrowingFactorIdle;
+  static const double kTargetMutatorUtilization;
+
+  static double HeapGrowingFactor(double gc_speed, double mutator_speed);
+
   // Calculates the allocation limit based on a given growing factor and a
   // given old generation size.
   intptr_t CalculateOldGenerationAllocationLimit(double factor,
                                                  intptr_t old_gen_size);
 
   // Sets the allocation limit to trigger the next full garbage collection.
-  void SetOldGenerationAllocationLimit(intptr_t old_gen_size,
-                                       size_t current_allocation_throughput);
+  void SetOldGenerationAllocationLimit(intptr_t old_gen_size, double gc_speed,
+                                       double mutator_speed);
+
+  // Decrease the allocation limit if the new limit based on the given
+  // parameters is lower than the current limit.
+  void DampenOldGenerationAllocationLimit(intptr_t old_gen_size,
+                                          double gc_speed,
+                                          double mutator_speed);
 
   // Indicates whether inline bump-pointer allocation has been disabled.
   bool inline_allocation_disabled() { return inline_allocation_disabled_; }
@@ -1210,10 +1227,6 @@ class Heap {
     kStrongRootListLength = kStringTableRootIndex,
     kSmiRootsStart = kStringTableRootIndex + 1
   };
-
-  // Get the root list index for {object} if such a root list index exists.
-  bool GetRootListIndex(Handle<HeapObject> object,
-                        Heap::RootListIndex* index_return);
 
   Object* root(RootListIndex index) { return roots_[index]; }
 
@@ -1262,6 +1275,10 @@ class Heap {
   inline void IncrementSemiSpaceCopiedObjectSize(int object_size) {
     DCHECK(object_size > 0);
     semi_space_copied_object_size_ += object_size;
+  }
+
+  inline intptr_t SurvivedNewSpaceObjectSize() {
+    return promoted_objects_size_ + semi_space_copied_object_size_;
   }
 
   inline void IncrementNodesDiedInNewSpace() { nodes_died_in_new_space_++; }
@@ -1571,10 +1588,28 @@ class Heap {
 
   bool deserialization_complete() const { return deserialization_complete_; }
 
-  void RegisterNewArrayBuffer(void* data, size_t length);
-  void UnregisterArrayBuffer(void* data);
-  void RegisterLiveArrayBuffer(void* data);
-  void FreeDeadArrayBuffers();
+  // The following methods are used to track raw C++ pointers to externally
+  // allocated memory used as backing store in live array buffers.
+
+  // A new ArrayBuffer was created with |data| as backing store.
+  void RegisterNewArrayBuffer(bool in_new_space, void* data, size_t length);
+
+  // The backing store |data| is no longer owned by V8.
+  void UnregisterArrayBuffer(bool in_new_space, void* data);
+
+  // A live ArrayBuffer was discovered during marking/scavenge.
+  void RegisterLiveArrayBuffer(bool in_new_space, void* data);
+
+  // Frees all backing store pointers that weren't discovered in the previous
+  // marking or scavenge phase.
+  void FreeDeadArrayBuffers(bool in_new_space);
+
+  // Prepare for a new scavenge phase. A new marking phase is implicitly
+  // prepared by finishing the previous one.
+  void PrepareArrayBufferDiscoveryInNewSpace();
+
+  // An ArrayBuffer moved from new space to old space.
+  void PromoteArrayBuffer(Object* buffer);
 
  protected:
   // Methods made available to tests.
@@ -1840,7 +1875,7 @@ class Heap {
   // space evacuation. Note that between feedback collection and calling this
   // method object in old space must not move.
   // Right now we only process pretenuring feedback in high promotion mode.
-  void ProcessPretenuringFeedback();
+  bool ProcessPretenuringFeedback();
 
   // Checks whether a global GC is necessary
   GarbageCollector SelectGarbageCollector(AllocationSpace space,
@@ -2078,8 +2113,23 @@ class Heap {
   // the old space.
   void EvaluateOldSpaceLocalPretenuring(uint64_t size_of_objects_before_gc);
 
-  // Called on heap tear-down.
+  // Called on heap tear-down. Frees all remaining ArrayBuffer backing stores.
   void TearDownArrayBuffers();
+
+  // These correspond to the non-Helper versions.
+  void RegisterNewArrayBufferHelper(std::map<void*, size_t>& live_buffers,
+                                    void* data, size_t length);
+  void UnregisterArrayBufferHelper(
+      std::map<void*, size_t>& live_buffers,
+      std::map<void*, size_t>& not_yet_discovered_buffers, void* data);
+  void RegisterLiveArrayBufferHelper(
+      std::map<void*, size_t>& not_yet_discovered_buffers, void* data);
+  size_t FreeDeadArrayBuffersHelper(
+      Isolate* isolate, std::map<void*, size_t>& live_buffers,
+      std::map<void*, size_t>& not_yet_discovered_buffers);
+  void TearDownArrayBuffersHelper(
+      Isolate* isolate, std::map<void*, size_t>& live_buffers,
+      std::map<void*, size_t>& not_yet_discovered_buffers);
 
   // Record statistics before and after garbage collection.
   void ReportStatisticsBeforeGC();
@@ -2112,13 +2162,19 @@ class Heap {
 
   void UpdateSurvivalStatistics(int start_new_space_size);
 
+  enum SurvivalRateTrend { INCREASING, STABLE, DECREASING, FLUCTUATING };
+
   static const int kYoungSurvivalRateHighThreshold = 90;
+  static const int kYoungSurvivalRateLowThreshold = 10;
   static const int kYoungSurvivalRateAllowedDeviation = 15;
 
   static const int kOldSurvivalRateLowThreshold = 10;
 
+  bool new_space_high_promotion_mode_active_;
   int high_survival_rate_period_length_;
   intptr_t promoted_objects_size_;
+  int low_survival_rate_period_length_;
+  double survival_rate_;
   double promotion_ratio_;
   double promotion_rate_;
   intptr_t semi_space_copied_object_size_;
@@ -2134,17 +2190,68 @@ class Heap {
   // of the allocation site.
   unsigned int maximum_size_scavenges_;
 
+  SurvivalRateTrend previous_survival_rate_trend_;
+  SurvivalRateTrend survival_rate_trend_;
+
+  void set_survival_rate_trend(SurvivalRateTrend survival_rate_trend) {
+    DCHECK(survival_rate_trend != FLUCTUATING);
+    previous_survival_rate_trend_ = survival_rate_trend_;
+    survival_rate_trend_ = survival_rate_trend;
+  }
+
+  SurvivalRateTrend survival_rate_trend() {
+    if (survival_rate_trend_ == STABLE) {
+      return STABLE;
+    } else if (previous_survival_rate_trend_ == STABLE) {
+      return survival_rate_trend_;
+    } else if (survival_rate_trend_ != previous_survival_rate_trend_) {
+      return FLUCTUATING;
+    } else {
+      return survival_rate_trend_;
+    }
+  }
+
+  bool IsStableOrIncreasingSurvivalTrend() {
+    switch (survival_rate_trend()) {
+      case STABLE:
+      case INCREASING:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool IsStableOrDecreasingSurvivalTrend() {
+    switch (survival_rate_trend()) {
+      case STABLE:
+      case DECREASING:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool IsIncreasingSurvivalTrend() {
+    return survival_rate_trend() == INCREASING;
+  }
+
+  bool IsLowSurvivalRate() { return low_survival_rate_period_length_ > 0; }
+
   // TODO(hpayer): Allocation site pretenuring may make this method obsolete.
   // Re-visit incremental marking heuristics.
   bool IsHighSurvivalRate() { return high_survival_rate_period_length_ > 0; }
 
   void ConfigureInitialOldGenerationSize();
 
+  void ConfigureNewGenerationSize();
+
   void SelectScavengingVisitorsTable();
 
-  bool HasLowAllocationRate(size_t allocaion_rate);
+  bool HasLowYoungGenerationAllocationRate();
+  bool HasLowOldGenerationAllocationRate();
+  bool HasLowAllocationRate();
 
-  void ReduceNewSpaceSize(size_t allocaion_rate);
+  void ReduceNewSpaceSize();
 
   bool TryFinalizeIdleIncrementalMarking(
       double idle_time_in_ms, size_t size_of_objects,
@@ -2154,13 +2261,11 @@ class Heap {
 
   bool PerformIdleTimeAction(GCIdleTimeAction action,
                              GCIdleTimeHandler::HeapState heap_state,
-                             double deadline_in_ms,
-                             bool is_long_idle_notification);
+                             double deadline_in_ms);
 
   void IdleNotificationEpilogue(GCIdleTimeAction action,
                                 GCIdleTimeHandler::HeapState heap_state,
-                                double start_ms, double deadline_in_ms,
-                                bool is_long_idle_notification);
+                                double start_ms, double deadline_in_ms);
 
   void ClearObjectStats(bool clear_last_time_stats = false);
 
@@ -2210,8 +2315,6 @@ class Heap {
   IncrementalMarking incremental_marking_;
 
   GCIdleTimeHandler gc_idle_time_handler_;
-
-  unsigned int gc_count_at_last_idle_gc_;
 
   // These two counters are monotomically increasing and never reset.
   size_t full_codegen_bytes_generated_;
@@ -2270,7 +2373,9 @@ class Heap {
   bool concurrent_sweeping_enabled_;
 
   std::map<void*, size_t> live_array_buffers_;
+  std::map<void*, size_t> live_new_array_buffers_;
   std::map<void*, size_t> not_yet_discovered_array_buffers_;
+  std::map<void*, size_t> not_yet_discovered_new_array_buffers_;
 
   struct StrongRootsList;
   StrongRootsList* strong_roots_list_;

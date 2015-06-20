@@ -1429,15 +1429,11 @@ class HGraphBuilder {
                         HValue** operand,
                         HValue** shift_amount);
 
-  HValue* BuildBinaryOperation(Token::Value op,
-                               HValue* left,
-                               HValue* right,
-                               Type* left_type,
-                               Type* right_type,
-                               Type* result_type,
-                               Maybe<int> fixed_right_arg,
+  HValue* BuildBinaryOperation(Token::Value op, HValue* left, HValue* right,
+                               Type* left_type, Type* right_type,
+                               Type* result_type, Maybe<int> fixed_right_arg,
                                HAllocationMode allocation_mode,
-                               LanguageMode language_mode);
+                               Strength strength);
 
   HLoadNamedField* AddLoadFixedArrayLength(HValue *object,
                                            HValue *dependency = NULL);
@@ -2175,6 +2171,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 #define FOR_EACH_HYDROGEN_INTRINSIC(F) \
   F(IsSmi)                             \
   F(IsArray)                           \
+  F(IsTypedArray)                      \
   F(IsRegExp)                          \
   F(IsJSProxy)                         \
   F(IsConstructCall)                   \
@@ -2507,6 +2504,9 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   bool IsCallArrayInlineable(int argument_count, Handle<AllocationSite> site);
   void BuildInlinedCallArray(Expression* expression, int argument_count,
                              Handle<AllocationSite> site);
+
+  void BuildInitializeInobjectProperties(HValue* receiver,
+                                         Handle<Map> initial_map);
 
   class PropertyAccessInfo {
    public:

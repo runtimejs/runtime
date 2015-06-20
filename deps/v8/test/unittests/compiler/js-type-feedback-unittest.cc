@@ -77,15 +77,15 @@ class JSTypeFeedbackTest : public TypedGraphTest {
   Node* ReturnLoadNamedFromGlobal(
       const char* string, Node* effect, Node* control,
       JSTypeFeedbackSpecializer::DeoptimizationMode mode) {
-    VectorSlotPair feedback(Handle<TypeFeedbackVector>::null(),
-                            FeedbackVectorICSlot::Invalid());
+    ResolvedFeedbackSlot feedback;
     Node* global = Parameter(Type::GlobalObject());
+    Node* vector = UndefinedConstant();
     Node* context = UndefinedConstant();
 
     Unique<Name> name = Unique<Name>::CreateUninitialized(
-        isolate()->factory()->NewStringFromAsciiChecked(string));
+        isolate()->factory()->InternalizeUtf8String(string));
     const Operator* op = javascript()->LoadNamed(name, feedback);
-    Node* load = graph()->NewNode(op, global, context);
+    Node* load = graph()->NewNode(op, global, vector, context);
     if (mode == JSTypeFeedbackSpecializer::kDeoptimizationEnabled) {
       for (int i = 0; i < OperatorProperties::GetFrameStateInputCount(op);
            i++) {
@@ -275,7 +275,7 @@ TEST_F(JSTypeFeedbackTest, JSLoadNamedGlobalPropertyCellSmiWithDeoptimization) {
       access, CaptureEq(&cell_capture), graph()->start(), graph()->start());
   EXPECT_THAT(r.replacement(), load_field_match);
 
-  HeapObjectMatcher<PropertyCell> cell(cell_capture.value());
+  HeapObjectMatcher cell(cell_capture.value());
   EXPECT_TRUE(cell.HasValue());
   EXPECT_TRUE(cell.Value().handle()->IsPropertyCell());
 
@@ -327,7 +327,7 @@ TEST_F(JSTypeFeedbackTest,
       access, CaptureEq(&cell_capture), graph()->start(), graph()->start());
   EXPECT_THAT(r.replacement(), load_field_match);
 
-  HeapObjectMatcher<PropertyCell> cell(cell_capture.value());
+  HeapObjectMatcher cell(cell_capture.value());
   EXPECT_TRUE(cell.HasValue());
   EXPECT_TRUE(cell.Value().handle()->IsPropertyCell());
 

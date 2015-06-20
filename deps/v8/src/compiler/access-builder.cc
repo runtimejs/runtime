@@ -38,9 +38,23 @@ FieldAccess AccessBuilder::ForJSFunctionContext() {
 
 
 // static
+FieldAccess AccessBuilder::ForJSFunctionSharedFunctionInfo() {
+  return {kTaggedBase, JSFunction::kSharedFunctionInfoOffset, Handle<Name>(),
+          Type::Any(), kMachAnyTagged};
+}
+
+
+// static
 FieldAccess AccessBuilder::ForJSArrayBufferBackingStore() {
   return {kTaggedBase, JSArrayBuffer::kBackingStoreOffset, MaybeHandle<Name>(),
           Type::UntaggedPointer(), kMachPtr};
+}
+
+
+// static
+FieldAccess AccessBuilder::ForJSDateField(JSDate::FieldIndex index) {
+  return {kTaggedBase, JSDate::kValueOffset + index * kPointerSize,
+          MaybeHandle<Name>(), Type::Number(), kMachAnyTagged};
 }
 
 
@@ -122,15 +136,16 @@ FieldAccess AccessBuilder::ForContextSlot(size_t index) {
 
 
 // static
-FieldAccess AccessBuilder::ForStatsCounter() {
-  return {kUntaggedBase, 0, MaybeHandle<Name>(), Type::Signed32(), kMachInt32};
+FieldAccess AccessBuilder::ForPropertyCellValue() {
+  return {kTaggedBase, PropertyCell::kValueOffset, Handle<Name>(), Type::Any(),
+          kMachAnyTagged};
 }
 
 
 // static
-FieldAccess AccessBuilder::ForPropertyCellValue() {
-  return {kTaggedBase, PropertyCell::kValueOffset, Handle<Name>(), Type::Any(),
-          kMachAnyTagged};
+FieldAccess AccessBuilder::ForSharedFunctionInfoTypeFeedbackVector() {
+  return {kTaggedBase, SharedFunctionInfo::kFeedbackVectorOffset,
+          Handle<Name>(), Type::Any(), kMachAnyTagged};
 }
 
 
@@ -185,16 +200,8 @@ ElementAccess AccessBuilder::ForSeqStringChar(String::Encoding encoding) {
 
 
 // static
-FieldAccess AccessBuilder::ForJSFunctionSharedFunctionInfo() {
-  return {kTaggedBase, JSFunction::kSharedFunctionInfoOffset, Handle<Name>(),
-          Type::Any(), kMachAnyTagged};
-}
-
-
-// static
-FieldAccess AccessBuilder::ForSharedFunctionInfoTypeFeedbackVector() {
-  return {kTaggedBase, SharedFunctionInfo::kFeedbackVectorOffset,
-          Handle<Name>(), Type::Any(), kMachAnyTagged};
+FieldAccess AccessBuilder::ForStatsCounter() {
+  return {kUntaggedBase, 0, MaybeHandle<Name>(), Type::Signed32(), kMachInt32};
 }
 
 

@@ -744,7 +744,6 @@ static bool Renumber(ParseInfo* parse_info) {
     shared_info->set_ast_node_count(lit->ast_node_count());
     MaybeDisableOptimization(shared_info, lit->dont_optimize_reason());
     shared_info->set_dont_crankshaft(lit->flags()->Contains(kDontCrankshaft));
-    shared_info->set_dont_cache(lit->flags()->Contains(kDontCache));
   }
   return true;
 }
@@ -1013,6 +1012,9 @@ void Compiler::CompileForLiveEdit(Handle<Script> script) {
   PostponeInterruptsScope postpone(info.isolate());
   VMState<COMPILER> state(info.isolate());
 
+  // Get rid of old list of shared function infos.
+  script->set_shared_function_infos(Smi::FromInt(0));
+
   info.parse_info()->set_global();
   if (!Parser::ParseStatic(info.parse_info())) return;
 
@@ -1099,7 +1101,7 @@ static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
 
     DCHECK_EQ(RelocInfo::kNoPosition, lit->function_token_position());
     SharedFunctionInfo::InitFromFunctionLiteral(result, lit);
-    result->set_script(*script);
+    SharedFunctionInfo::SetScript(result, script);
     result->set_is_toplevel(true);
 
     Handle<String> script_name = script->name()->IsString()
@@ -1172,10 +1174,8 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
       // If caller is strict mode, the result must be in strict mode as well.
       DCHECK(is_sloppy(language_mode) ||
              is_strict(shared_info->language_mode()));
-      if (!shared_info->dont_cache()) {
-        compilation_cache->PutEval(source, outer_info, context, shared_info,
-                                   scope_position);
-      }
+      compilation_cache->PutEval(source, outer_info, context, shared_info,
+                                 scope_position);
     }
   } else if (shared_info->ic_age() != isolate->heap()->global_ic_age()) {
     shared_info->ResetForNewContext(isolate->heap()->global_ic_age());
@@ -1236,7 +1236,6 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
       if (CodeSerializer::Deserialize(isolate, *cached_data, source)
               .ToHandle(&result)) {
         // Promote to per-isolate compilation cache.
-        DCHECK(!result->dont_cache());
         compilation_cache->PutScript(source, context, language_mode, result);
         return result;
       }
@@ -1291,7 +1290,7 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
     parse_info.set_language_mode(
         static_cast<LanguageMode>(info.language_mode() | language_mode));
     result = CompileToplevel(&info);
-    if (extension == NULL && !result.is_null() && !result->dont_cache()) {
+    if (extension == NULL && !result.is_null()) {
       compilation_cache->PutScript(source, context, language_mode, result);
       if (FLAG_serialize_toplevel &&
           compile_options == ScriptCompiler::kProduceCodeCache) {
@@ -1332,10 +1331,20 @@ Handle<SharedFunctionInfo> Compiler::CompileStreamedScript(
 }
 
 
-Handle<SharedFunctionInfo> Compiler::BuildFunctionInfo(
+Handle<SharedFunctionInfo> Compiler::GetSharedFunctionInfo(
     FunctionLiteral* literal, Handle<Script> script,
     CompilationInfo* outer_info) {
   // Precondition: code has been parsed and scopes have been analyzed.
+  MaybeHandle<SharedFunctionInfo> maybe_existing =
+      script->FindSharedFunctionInfo(literal);
+  // We found an existing shared function info. If it's already compiled,
+  // don't worry about compiling it, and simply return it. If it's not yet
+  // compiled, continue to decide whether to eagerly compile.
+  Handle<SharedFunctionInfo> existing;
+  if (maybe_existing.ToHandle(&existing) && existing->is_compiled()) {
+    return existing;
+  }
+
   Zone zone;
   ParseInfo parse_info(&zone, script);
   CompilationInfo info(&parse_info);
@@ -1396,25 +1405,34 @@ Handle<SharedFunctionInfo> Compiler::BuildFunctionInfo(
     return Handle<SharedFunctionInfo>::null();
   }
 
-  // Create a shared function info object.
-  Handle<SharedFunctionInfo> result = factory->NewSharedFunctionInfo(
-      literal->name(), literal->materialized_literal_count(), literal->kind(),
-      info.code(), scope_info, info.feedback_vector());
+  if (maybe_existing.is_null()) {
+    // Create a shared function info object.
+    Handle<SharedFunctionInfo> result = factory->NewSharedFunctionInfo(
+        literal->name(), literal->materialized_literal_count(), literal->kind(),
+        info.code(), scope_info, info.feedback_vector());
 
-  SharedFunctionInfo::InitFromFunctionLiteral(result, literal);
-  result->set_script(*script);
-  result->set_is_toplevel(false);
+    SharedFunctionInfo::InitFromFunctionLiteral(result, literal);
+    SharedFunctionInfo::SetScript(result, script);
+    result->set_is_toplevel(false);
 
-  RecordFunctionCompilation(Logger::FUNCTION_TAG, &info, result);
-  result->set_allows_lazy_compilation(literal->AllowsLazyCompilation());
-  result->set_allows_lazy_compilation_without_context(allow_lazy_without_ctx);
+    RecordFunctionCompilation(Logger::FUNCTION_TAG, &info, result);
+    result->set_allows_lazy_compilation(literal->AllowsLazyCompilation());
+    result->set_allows_lazy_compilation_without_context(allow_lazy_without_ctx);
 
-  // Set the expected number of properties for instances and return
-  // the resulting function.
-  SetExpectedNofPropertiesFromEstimate(result,
-                                       literal->expected_property_count());
-  live_edit_tracker.RecordFunctionInfo(result, literal, info.zone());
-  return result;
+    // Set the expected number of properties for instances and return
+    // the resulting function.
+    SetExpectedNofPropertiesFromEstimate(result,
+                                         literal->expected_property_count());
+    live_edit_tracker.RecordFunctionInfo(result, literal, info.zone());
+    return result;
+  } else {
+    // We may have additional data from compilation now.
+    DCHECK(!existing->is_compiled());
+    existing->ReplaceCode(*info.code());
+    existing->set_scope_info(*scope_info);
+    existing->set_feedback_vector(*info.feedback_vector());
+    return existing;
+  }
 }
 
 
