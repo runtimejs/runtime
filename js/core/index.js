@@ -15,6 +15,8 @@
 'use strict';
 console.log = isolate.log;
 var resources = require('./resources');
+require('./polyfill');
+
 var tty = require('./tty');
 var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
