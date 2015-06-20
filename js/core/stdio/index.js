@@ -17,10 +17,11 @@
 var stdout = require('./stdout');
 var stdin = require('./stdin');
 
-for (var obj in stdin) {
-  exports[obj] = stdin[obj];
-}
+function IO() {
+  // stdout
+  this.write = stdout.write;
+  this.writeline = stdout.write;
 
-for (var obj2 in stdout) {
-  exports[obj2] = stdout[obj2];
+  // stdin
+  this.readline = stdin.readline;
 }

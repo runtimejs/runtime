@@ -37,7 +37,7 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
-  this.stdio = stdio;
+  this.stdio = new stdio();
 }
 
 global.runtime = module.exports = new Runtime();
