@@ -13,63 +13,8 @@
 // limitations under the License.
 
 'use strict';
-var vga = require('./vga');
-var EventController = require('event-controller');
-var buffer = vga.allocBuffer();
-buffer.clear(vga.color.BLACK);
 
-var posCurrent = 0;
-var w = vga.WIDTH;
-var h = vga.HEIGHT;
-
-function refresh() {
-  vga.draw(buffer);
-}
-
-function scrollUp() {
-  buffer.scrollUp(vga.color.BLACK);
-  posCurrent -= w;
-}
-
-refresh();
-
-exports.color = vga.color;
-
-exports.print = function(text, repeat, fg, bg) {
-  // fix issue #53 where non-strings (ints, etc...) would not get printed
-  text = String(text);
-
-  repeat = repeat || 1;
-
-  if (typeof fg === 'undefined') {
-    fg = vga.color.WHITE;
-  }
-
-  if (typeof bg === 'undefined') {
-    bg = vga.color.BLACK;
-  }
-
-  for (var j = 0; j < repeat; ++j) {
-    for (var i = 0, l = text.length; i < l; ++i) {
-      var c = text.charAt(i);
-      if ('\n' === c) {
-        posCurrent -= posCurrent % w - w;
-        if (posCurrent >= w * h) {
-          scrollUp();
-        }
-      } else {
-        if (posCurrent >= w * h) {
-          scrollUp();
-        }
-        buffer.setOffset(posCurrent++, c, fg, bg);
-      }
-    }
-  }
-
-  refresh();
-};
-
-exports.get = function() {
+exports.get = function(cb) {
   var tty = runtime.tty;
   var inputText = '';
   var inputPosition = 0;
@@ -78,7 +23,6 @@ exports.get = function() {
   var done = false;
   var inputEnabled = true;
   var endresult = '';
-  var controller = new EventController();
 
   function drawCursor() {
     var char = ' ';
@@ -158,10 +102,14 @@ exports.get = function() {
       history.splice(1, 0, result);
 
       runtime.keyboard.onKeydown.remove(addinput);
-      controller.dispatch(result);
+      if (cb) {
+        cb(result);
+      }
     } else {
       runtime.keyboard.onKeydown.remove(addinput);
-      controller.dispatch(result);
+      if (cb) {
+        cb(result);
+      }
     }
   }
 
@@ -206,28 +154,4 @@ exports.get = function() {
   runtime.keyboard.onKeydown.add(addinput);
 
   drawCursor();
-
-  return controller;
 }
-
-exports.moveOffset = function(offset) {
-  offset = offset | 0;
-  var newPos = posCurrent + offset;
-  if (newPos < 0) {
-    newPos = 0;
-  }
-
-  if (newPos >= w * h) {
-    newPos = w * h - 1;
-  }
-
-  posCurrent = newPos;
-};
-
-exports.moveTo = function(x, y) {
-  if (x < 0) { x = 0; }
-  if (x >= w) { x = w - 1; }
-  if (y < 0) { y = 0; }
-  if (y >= h) { y = h - 1; }
-  posCurrent = y * w + x;
-};

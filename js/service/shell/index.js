@@ -32,7 +32,7 @@ inputBox.onInput.add(function(text, done) {
   }
 
   if (commands.has(name)) {
-    return commands.get(name)(args, done);
+    return commands.get(name)(args, runtime.stdio, done);
   }
 
   tty.print('Command "' + name + '" not found.\n', 1, tty.color.LIGHTRED);
