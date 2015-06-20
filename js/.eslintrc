@@ -2,6 +2,9 @@ env:
   node: true
   es6: true
 
+plugins:
+  - runtime-internal
+
 globals:
   debug: true
 
