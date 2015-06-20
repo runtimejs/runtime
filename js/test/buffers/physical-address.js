@@ -1,6 +1,6 @@
 'use strict';
 var test = require('tape');
-var resources = require('runtimejs/core/resources');
+var resources = require('../../core/resources');
 
 test('buffer crosses page boundary', function(t) {
   // allocate on page boundary

@@ -1,7 +1,8 @@
 'use strict';
+var runtime = require('../');
 var test = require('tape');
 var stream = test.createStream();
-var shutdown = require('runtimejs').machine.shutdown;
+var shutdown = runtime.machine.shutdown;
 
 stream.on('data', function (v) {
   if (v[v.length - 1] === '\n') {

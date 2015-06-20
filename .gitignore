@@ -25,4 +25,5 @@ disk/boot/initrd-downloaded
 disk/boot/runtime-downloaded
 netdump.txt
 /js/node_modules
+/js/initrd
 /build/system/kernel.js

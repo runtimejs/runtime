@@ -2,11 +2,11 @@
 
 var test = require('tape');
 var assert = require('assert');
-var TCPSocket = require('runtimejs/core/net/tcp-socket');
-var TCPServerSocket = require('runtimejs/core/net/tcp-server-socket');
-var IP4Address = require('runtimejs/core/net/ip4-address');
-var tcpHeader = require('runtimejs/core/net/tcp-header');
-var tcpSocketState = require('runtimejs/core/net/tcp-socket-state');
+var TCPSocket = require('../../core/net/tcp-socket');
+var TCPServerSocket = require('../../core/net/tcp-server-socket');
+var IP4Address = require('../../core/net/ip4-address');
+var tcpHeader = require('../../core/net/tcp-header');
+var tcpSocketState = require('../../core/net/tcp-socket-state');
 
 function createTcpPacket(seq, ack, flags, window, u8data) {
   window = window || 8192;
@@ -57,8 +57,8 @@ test('tcp connect', function(t) {
   var serverSeq = 1;
 
   function testSYN(seq, ack, flags, window, u8) {
-    t.equal(flags, tcpHeader.FLAG_SYN);
-    t.equal(u8, null);
+    t.equal(flags, tcpHeader.FLAG_SYN, 'SYN flag set');
+    t.equal(u8, null, 'no buffer in SYN packet');
     socket._transmit = testACK;
 
     var synack = createTcpPacket(serverSeq, seq + 1, tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK);
@@ -66,13 +66,13 @@ test('tcp connect', function(t) {
   }
 
   function testACK(seq, ack, flags, window, u8) {
-    t.equal(flags, tcpHeader.FLAG_ACK);
-    t.equal(u8, null);
-    t.equal(ack, serverSeq + 1);
+    t.equal(flags, tcpHeader.FLAG_ACK, 'ACK flag set');
+    t.equal(u8, null, 'no buffer in ACK packet');
+    t.equal(ack, serverSeq + 1, 'seq number is valid');
     socket._destroy();
   }
 
-  t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+  t.equal(socket._state, tcpSocketState.STATE_CLOSED, 'initial state is closed');
   socket._transmit = testSYN;
   socket.open('127.0.0.1', 80);
 });
@@ -97,9 +97,7 @@ test('tcp transmit queue', function(t) {
   t.equal(transmitQueueItemLength(socket._transmitQueue[1]), 19);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[0]).length, 1);
   t.equal(transmitQueueItemBuffer(socket._transmitQueue[1]).length, 19);
-  socket._transmitWindowSlideTo(socket._getTransmitPosition());
-  socket._transmitQueue = [];
-  socket._fillTransmitQueue(false);
+  socket._acceptACK(socket._getTransmitPosition(), 20);
   t.equal(socket._transmitQueue.length, 1);
   t.end();
 });
@@ -222,6 +220,36 @@ test('tcp receive partial duplicates', function(t) {
     socket._receive(packet1, IP4Address.ANY, 45001, 0);
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
+    t.equal(lastAck, 8);
+  });
+});
+
+test('tcp receive partial duplicate with acked data and small window', function(t) {
+  t.plan(9);
+  getEstablished(function(socket, txSeq, rxSeq, done) {
+    t.on('end', done);
+    var data1 = new Uint8Array([1, 2, 3]);
+    var data2 = new Uint8Array([1, 2, 3, 4, 5, 6]);
+
+    var lastAck = 0;
+    socket._transmit = function(seq, ack, flags, window, u8) {
+      lastAck = ack;
+    };
+
+    var index = 0;
+    socket.ondata = function(u8) {
+      t.ok(u8 instanceof Uint8Array);
+      t.equal(u8[0], ++index);
+      t.equal(u8[1], ++index);
+      t.equal(u8[2], ++index);
+    };
+
+    var packet1 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data1);
+    var packet2 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data2);
+    socket._receiveWindowSize = 6;
+    socket._receive(packet1, IP4Address.ANY, 45001, 0);
+    socket._receiveWindowSize = 3;
+    socket._receive(packet2, IP4Address.ANY, 45001, 0);
     t.equal(lastAck, 8);
   });
 });
@@ -366,12 +394,17 @@ test('server socket can listen to random port', function(t) {
 });
 
 test('localhost echo server', function(t) {
-  t.plan(7);
+  t.plan(8);
   var server = new TCPServerSocket();
   server.listen(71);
   server.onconnect = function(socket) {
     socket.ondata = function(u8) {
       socket.send(u8);
+    };
+    socket.onend = function() {
+      socket.close();
+      server.close();
+      t.ok(true);
     };
   };
 
@@ -388,9 +421,68 @@ test('localhost echo server', function(t) {
 
     if (6 === recvIndex) {
       client.close();
-      server.close();
       t.ok(true);
     }
   };
+  client.open('127.0.0.1', 71);
+});
+
+test('small sequence numbers', function(t) {
+  t.plan(4);
+
+  var server = new TCPServerSocket();
+  t.on('end', server.close.bind(server));
+
+  var next = 0;
+  server.onconnect = function(socket) {
+    socket.ondata = function(u8) {
+      for (var i = 0; i < u8.length; ++i) {
+        t.equal(u8[i], ++next);
+      }
+    };
+  };
+
+  server.listen(71);
+
+  var client = new TCPSocket();
+  client._transmitWindowEdge = 1;
+  client._transmitPosition = 1;
+
+  client.onopen = function() {
+    client.send(new Uint8Array([1, 2, 3]));
+    client.close();
+    t.ok(true);
+  };
+
+  client.open('127.0.0.1', 71);
+});
+
+test('large sequence numbers and wrap around', function(t) {
+  t.plan(4);
+
+  var server = new TCPServerSocket();
+  t.on('end', server.close.bind(server));
+
+  var next = 0;
+  server.onconnect = function(socket) {
+    socket.ondata = function(u8) {
+      for (var i = 0; i < u8.length; ++i) {
+        t.equal(u8[i], ++next);
+      }
+    };
+  };
+
+  server.listen(71);
+
+  var client = new TCPSocket();
+  client._transmitWindowEdge = Math.pow(2, 32) - 1;
+  client._transmitPosition = Math.pow(2, 32) - 1;
+
+  client.onopen = function() {
+    client.send(new Uint8Array([1, 2, 3]));
+    client.close();
+    t.ok(true);
+  };
+
   client.open('127.0.0.1', 71);
 });

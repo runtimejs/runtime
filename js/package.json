@@ -4,7 +4,8 @@
   "description": "Core runtime.js library",
   "main": "index.js",
   "scripts": {
-    "test": "tape test.js"
+    "test": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd",
+    "test-build": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
   },
   "repository": {
     "type": "git",
@@ -17,6 +18,8 @@
   },
   "homepage": "http://runtimejs.org",
   "devDependencies": {
+    "runtime-tools": "*",
+    "runtimeify": "*",
     "tape": "^4.0.0"
   },
   "runtimejs": {

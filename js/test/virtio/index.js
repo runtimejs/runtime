@@ -1,9 +1,9 @@
 'use strict';
 var test = require('tape');
-var resources = require('runtimejs/core/resources');
+var resources = require('../../core/resources');
 var allocator = resources.allocator;
 var mem = allocator.allocDMA();
-var VRing = require('runtimejs/driver/virtio/vring');
+var VRing = require('../../driver/virtio/vring');
 
 function clearBuffer(u8) {
   for (var i = 0; i < u8.length; ++i) {
