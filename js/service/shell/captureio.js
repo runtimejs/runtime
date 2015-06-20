@@ -17,13 +17,23 @@
 var events = require('events');
 exports.events = new events.EventEmitter();
 exports.io = {};
+exports.io.acceptInput = false;
+
+exports.events.on('stdin', function(text) {
+  if (exports.io.acceptInput) {
+    exports.events.callback(text);
+    exports.io.acceptInput = false;
+  }
+});
 
 exports.io.readline = function(cb) {
-  runtime.tty.get(cb);
+  exports.events.acceptInput = true;
+  exports.events.callback = cb;
+  exports.events.emit('feed');
 }
 
 exports.io.write = function(text, fg, bg) {
-  exports.events.emit('data', {
+  exports.events.emit('stdout', {
     text: text,
     color: {
       fg: fg,
@@ -33,7 +43,7 @@ exports.io.write = function(text, fg, bg) {
 }
 
 exports.io.writeline = function(text, fg, bg) {
-  exports.events.emit('data', {
+  exports.events.emit('stdout', {
     text: text + '\n',
     color: {
       fg: fg,
