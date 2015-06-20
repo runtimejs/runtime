@@ -13,4 +13,13 @@
 // limitations under the License.
 
 'use strict';
-require('./physical-address');
+
+var test = require('tape');
+
+test('setTimeout', function(t) {
+  setTimeout(t.end.bind(t), 0);
+});
+
+test('setImmediate', function(t) {
+  setImmediate(t.end.bind(t), 0);
+});
