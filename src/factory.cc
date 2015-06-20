@@ -676,17 +676,9 @@ Handle<Symbol> Factory::NewSymbol() {
 }
 
 
-Handle<Symbol> Factory::NewPrivateSymbol() {
+Handle<Symbol> Factory::NewPrivateSymbol(Handle<Object> name) {
   Handle<Symbol> symbol = NewSymbol();
   symbol->set_is_private(true);
-  return symbol;
-}
-
-
-Handle<Symbol> Factory::NewPrivateOwnSymbol(Handle<Object> name) {
-  Handle<Symbol> symbol = NewSymbol();
-  symbol->set_is_private(true);
-  symbol->set_is_own(true);
   if (name->IsString()) {
     symbol->set_name(*name);
   } else {
@@ -852,6 +844,7 @@ Handle<Script> Factory::NewScript(Handle<String> source) {
   script->set_line_ends(heap->undefined_value());
   script->set_eval_from_shared(heap->undefined_value());
   script->set_eval_from_instructions_offset(Smi::FromInt(0));
+  script->set_shared_function_infos(Smi::FromInt(0));
   script->set_flags(Smi::FromInt(0));
 
   return script;
@@ -1061,6 +1054,13 @@ Handle<Object> Factory::NewError(const char* maker,
                                  Handle<Object> arg2) {
   HandleScope scope(isolate());
   Handle<String> error_maker = InternalizeUtf8String(maker);
+  if (isolate()->bootstrapper()->IsActive()) {
+    // If this exception is being thrown during bootstrapping,
+    // js_builtins_object is unavailable. We return the error maker
+    // name's string as the exception since we have nothing better
+    // to do.
+    return scope.CloseAndEscape(error_maker);
+  }
   Handle<Object> fun_obj = Object::GetProperty(isolate()->js_builtins_object(),
                                                error_maker).ToHandleChecked();
 
@@ -1436,9 +1436,9 @@ Handle<Code> Factory::NewCode(const CodeDesc& desc,
   int obj_size = Code::SizeFor(body_size);
 
   Handle<Code> code = NewCodeRaw(obj_size, immovable);
-  DCHECK(isolate()->code_range() == NULL ||
-         !isolate()->code_range()->valid() ||
-         isolate()->code_range()->contains(code->address()));
+  DCHECK(isolate()->code_range() == NULL || !isolate()->code_range()->valid() ||
+         isolate()->code_range()->contains(code->address()) ||
+         obj_size <= isolate()->heap()->code_space()->AreaSize());
 
   // The code object has not been fully initialized yet.  We rely on the
   // fact that no allocation will happen from this point on.
@@ -1609,11 +1609,11 @@ Handle<JSObject> Factory::NewJSObjectFromMap(
 
 
 Handle<JSArray> Factory::NewJSArray(ElementsKind elements_kind,
-                                    ObjectStrength strength,
+                                    Strength strength,
                                     PretenureFlag pretenure) {
   Map* map = isolate()->get_initial_js_array_map(elements_kind, strength);
   if (map == nullptr) {
-    DCHECK(strength == WEAK);
+    DCHECK(strength == Strength::WEAK);
     Context* native_context = isolate()->context()->native_context();
     JSFunction* array_function = native_context->array_function();
     map = array_function->initial_map();
@@ -1623,7 +1623,7 @@ Handle<JSArray> Factory::NewJSArray(ElementsKind elements_kind,
 
 
 Handle<JSArray> Factory::NewJSArray(ElementsKind elements_kind, int length,
-                                    int capacity, ObjectStrength strength,
+                                    int capacity, Strength strength,
                                     ArrayStorageAllocationMode mode,
                                     PretenureFlag pretenure) {
   Handle<JSArray> array = NewJSArray(elements_kind, strength, pretenure);
@@ -1634,8 +1634,7 @@ Handle<JSArray> Factory::NewJSArray(ElementsKind elements_kind, int length,
 
 Handle<JSArray> Factory::NewJSArrayWithElements(Handle<FixedArrayBase> elements,
                                                 ElementsKind elements_kind,
-                                                int length,
-                                                ObjectStrength strength,
+                                                int length, Strength strength,
                                                 PretenureFlag pretenure) {
   DCHECK(length <= elements->length());
   Handle<JSArray> array = NewJSArray(elements_kind, strength, pretenure);

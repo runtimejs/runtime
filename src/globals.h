@@ -32,7 +32,7 @@
 
 #if V8_TARGET_ARCH_IA32 || (V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_32_BIT) || \
     V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS ||     \
-    V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_PPC
+    V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_X87
 #define V8_TURBOFAN_BACKEND 1
 #else
 #define V8_TURBOFAN_BACKEND 0
@@ -148,7 +148,14 @@ const int kPointerSizeLog2 = 3;
 const intptr_t kIntptrSignBit = V8_INT64_C(0x8000000000000000);
 const uintptr_t kUintptrAllBitsSet = V8_UINT64_C(0xFFFFFFFFFFFFFFFF);
 const bool kRequiresCodeRange = true;
+#if V8_TARGET_ARCH_MIPS64
+// To use pseudo-relative jumps such as j/jal instructions which have 28-bit
+// encoded immediate, the addresses have to be in range of 256MB aligned
+// region. Used only for large object space.
+const size_t kMaximalCodeRangeSize = 256 * MB;
+#else
 const size_t kMaximalCodeRangeSize = 512 * MB;
+#endif
 #if V8_OS_WIN
 const size_t kMinimumCodeRangeSize = 4 * MB;
 const size_t kReservedCodeRangePages = 1;
@@ -233,11 +240,6 @@ template <typename T, class P = FreeStoreAllocationPolicy> class List;
 // -----------------------------------------------------------------------------
 // Declarations for use in both the preparser and the rest of V8.
 
-enum ObjectStrength {
-  WEAK,
-  FIRM  // strong object
-};
-
 // The Strict Mode (ECMA-262 5th edition, 4.2.2).
 
 enum LanguageMode {
@@ -297,8 +299,32 @@ inline LanguageMode construct_language_mode(bool strict_bit, bool strong_bit) {
 }
 
 
-inline ObjectStrength strength(LanguageMode language_mode) {
-  return is_strong(language_mode) ? FIRM : WEAK;
+// Strong mode behaviour must sometimes be signalled by a two valued enum where
+// caching is involved, to prevent sloppy and strict mode from being incorrectly
+// differentiated.
+enum class Strength : bool {
+  WEAK,   // sloppy, strict behaviour
+  STRONG  // strong behaviour
+};
+
+
+inline bool is_strong(Strength strength) {
+  return strength == Strength::STRONG;
+}
+
+
+inline std::ostream& operator<<(std::ostream& os, const Strength& strength) {
+  return os << (is_strong(strength) ? "strong" : "weak");
+}
+
+
+inline Strength strength(LanguageMode language_mode) {
+  return is_strong(language_mode) ? Strength::STRONG : Strength::WEAK;
+}
+
+
+inline size_t hash_value(Strength strength) {
+  return static_cast<size_t>(strength);
 }
 
 

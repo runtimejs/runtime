@@ -113,10 +113,6 @@ class JumpPatchSite BASE_EMBEDDED {
 // frames-mips.h for its layout.
 void FullCodeGenerator::Generate() {
   CompilationInfo* info = info_;
-  handler_table_ =
-      Handle<HandlerTable>::cast(isolate()->factory()->NewFixedArray(
-          HandlerTable::LengthForRange(function()->handler_count()), TENURED));
-
   profiling_counter_ = isolate()->factory()->NewCell(
       Handle<Smi>(Smi::FromInt(FLAG_interrupt_budget), isolate()));
   SetFunctionPosition(function());
@@ -924,7 +920,7 @@ void FullCodeGenerator::VisitFunctionDeclaration(
     case Variable::UNALLOCATED: {
       globals_->Add(variable->name(), zone());
       Handle<SharedFunctionInfo> function =
-          Compiler::BuildFunctionInfo(declaration->fun(), script(), info_);
+          Compiler::GetSharedFunctionInfo(declaration->fun(), script(), info_);
       // Check for stack-overflow exception.
       if (function.is_null()) return SetStackOverflow();
       globals_->Add(function, zone());
@@ -1070,7 +1066,7 @@ void FullCodeGenerator::VisitSwitchStatement(SwitchStatement* stmt) {
     // Record position before stub call for type feedback.
     SetSourcePosition(clause->position());
     Handle<Code> ic = CodeFactory::CompareIC(isolate(), Token::EQ_STRICT,
-                                             language_mode()).code();
+                                             strength(language_mode())).code();
     CallIC(ic, clause->CompareId());
     patch_site.EmitPatchInfo();
 
@@ -1663,9 +1659,9 @@ void FullCodeGenerator::VisitObjectLiteral(ObjectLiteral* expr) {
 
   AccessorTable accessor_table(zone());
   int property_index = 0;
-  // store_slot_index points to the vector ic slot for the next store ic used.
+  // store_slot_index points to the vector IC slot for the next store IC used.
   // ObjectLiteral::ComputeFeedbackRequirements controls the allocation of slots
-  // and must be updated if the number of store ics emitted here changes.
+  // and must be updated if the number of store ICs emitted here changes.
   int store_slot_index = 0;
   for (; property_index < expr->properties()->length(); property_index++) {
     ObjectLiteral::Property* property = expr->properties()->at(property_index);
@@ -2190,7 +2186,8 @@ void FullCodeGenerator::VisitYield(Yield* expr) {
       // re-boxing.
       __ bind(&l_try);
       __ pop(a0);                                        // result
-      EnterTryBlock(expr->index(), &l_catch);
+      int handler_index = NewHandlerTableEntry();
+      EnterTryBlock(handler_index, &l_catch);
       const int try_block_size = TryCatch::kElementCount * kPointerSize;
       __ push(a0);                                       // result
       __ jmp(&l_suspend);
@@ -2201,7 +2198,7 @@ void FullCodeGenerator::VisitYield(Yield* expr) {
       const int generator_object_depth = kPointerSize + try_block_size;
       __ ld(a0, MemOperand(sp, generator_object_depth));
       __ push(a0);                                       // g
-      __ Push(Smi::FromInt(expr->index()));              // handler-index
+      __ Push(Smi::FromInt(handler_index));              // handler-index
       DCHECK(l_continuation.pos() > 0 && Smi::IsValid(l_continuation.pos()));
       __ li(a1, Operand(Smi::FromInt(l_continuation.pos())));
       __ sd(a1, FieldMemOperand(a0, JSGeneratorObject::kContinuationOffset));
@@ -2215,7 +2212,7 @@ void FullCodeGenerator::VisitYield(Yield* expr) {
       EmitReturnSequence();
       __ mov(a0, v0);
       __ bind(&l_resume);                              // received in a0
-      ExitTryBlock(expr->index());
+      ExitTryBlock(handler_index);
 
       // receiver = iter; f = 'next'; arg = received;
       __ bind(&l_next);
@@ -2458,8 +2455,8 @@ void FullCodeGenerator::EmitInlineSmiBinaryOp(BinaryOperation* expr,
   patch_site.EmitJumpIfSmi(scratch1, &smi_case);
 
   __ bind(&stub_call);
-  Handle<Code> code = CodeFactory::BinaryOpIC(
-      isolate(), op, language_mode()).code();
+  Handle<Code> code =
+      CodeFactory::BinaryOpIC(isolate(), op, strength(language_mode())).code();
   CallIC(code, expr->BinaryOperationFeedbackId());
   patch_site.EmitPatchInfo();
   __ jmp(&done);
@@ -2490,11 +2487,11 @@ void FullCodeGenerator::EmitInlineSmiBinaryOp(BinaryOperation* expr,
       break;
     }
     case Token::ADD:
-      __ AdduAndCheckForOverflow(v0, left, right, scratch1);
+      __ DadduAndCheckForOverflow(v0, left, right, scratch1);
       __ BranchOnOverflow(&stub_call, scratch1);
       break;
     case Token::SUB:
-      __ SubuAndCheckForOverflow(v0, left, right, scratch1);
+      __ DsubuAndCheckForOverflow(v0, left, right, scratch1);
       __ BranchOnOverflow(&stub_call, scratch1);
       break;
     case Token::MUL: {
@@ -2540,6 +2537,10 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
         FieldMemOperand(v0, JSFunction::kPrototypeOrInitialMapOffset));
   __ push(scratch);
 
+  // store_slot_index points to the vector IC slot for the next store IC used.
+  // ClassLiteral::ComputeFeedbackRequirements controls the allocation of slots
+  // and must be updated if the number of store ICs emitted here changes.
+  int store_slot_index = 0;
   for (int i = 0; i < lit->properties()->length(); i++) {
     ObjectLiteral::Property* property = lit->properties()->at(i);
     Expression* value = property->value();
@@ -2562,7 +2563,8 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
     }
 
     VisitForStackValue(value);
-    EmitSetHomeObjectIfNeeded(value, 2);
+    EmitSetHomeObjectIfNeeded(value, 2,
+                              lit->SlotForHomeObject(value, &store_slot_index));
 
     switch (property->kind()) {
       case ObjectLiteral::Property::CONSTANT:
@@ -2595,14 +2597,18 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
 
   // constructor
   __ CallRuntime(Runtime::kToFastProperties, 1);
+
+  // Verify that compilation exactly consumed the number of store ic slots that
+  // the ClassLiteral node had to offer.
+  DCHECK(!FLAG_vector_stores || store_slot_index == lit->slot_count());
 }
 
 
 void FullCodeGenerator::EmitBinaryOp(BinaryOperation* expr, Token::Value op) {
   __ mov(a0, result_register());
   __ pop(a1);
-  Handle<Code> code = CodeFactory::BinaryOpIC(
-      isolate(), op, language_mode()).code();
+  Handle<Code> code =
+      CodeFactory::BinaryOpIC(isolate(), op, strength(language_mode())).code();
   JumpPatchSite patch_site(masm_);    // unbound, signals no inlined smi code.
   CallIC(code, expr->BinaryOperationFeedbackId());
   patch_site.EmitPatchInfo();
@@ -3075,20 +3081,15 @@ void FullCodeGenerator::EmitCall(Call* expr, CallICState::CallType call_type) {
 
 
 void FullCodeGenerator::EmitResolvePossiblyDirectEval(int arg_count) {
-  // a7: copy of the first argument or undefined if it doesn't exist.
+  // a6: copy of the first argument or undefined if it doesn't exist.
   if (arg_count > 0) {
-    __ ld(a7, MemOperand(sp, arg_count * kPointerSize));
+    __ ld(a6, MemOperand(sp, arg_count * kPointerSize));
   } else {
-    __ LoadRoot(a7, Heap::kUndefinedValueRootIndex);
+    __ LoadRoot(a6, Heap::kUndefinedValueRootIndex);
   }
 
-  // a6: the receiver of the enclosing function.
-  __ ld(a6, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-
   // a5: the receiver of the enclosing function.
-  Variable* this_var = scope()->LookupThis();
-  DCHECK_NOT_NULL(this_var);
-  __ ld(a5, VarOperand(this_var, a5));
+  __ ld(a5, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
 
   // a4: the language mode.
   __ li(a4, Operand(Smi::FromInt(language_mode())));
@@ -3097,9 +3098,8 @@ void FullCodeGenerator::EmitResolvePossiblyDirectEval(int arg_count) {
   __ li(a1, Operand(Smi::FromInt(scope()->start_position())));
 
   // Do the runtime call.
-  __ Push(a7);
   __ Push(a6, a5, a4, a1);
-  __ CallRuntime(Runtime::kResolvePossiblyDirectEval, 6);
+  __ CallRuntime(Runtime::kResolvePossiblyDirectEval, 5);
 }
 
 
@@ -3132,9 +3132,8 @@ void FullCodeGenerator::VisitCall(Call* expr) {
 
   if (call_type == Call::POSSIBLY_EVAL_CALL) {
     // In a call to eval, we first call RuntimeHidden_ResolvePossiblyDirectEval
-    // to resolve the function we need to call and the receiver of the
-    // call.  Then we call the resolved function using the given
-    // arguments.
+    // to resolve the function we need to call.  Then we call the resolved
+    // function using the given arguments.
     ZoneList<Expression*>* args = expr->arguments();
     int arg_count = args->length();
 
@@ -3154,10 +3153,8 @@ void FullCodeGenerator::VisitCall(Call* expr) {
       __ push(a1);
       EmitResolvePossiblyDirectEval(arg_count);
 
-      // The runtime call returns a pair of values in v0 (function) and
-      // v1 (receiver). Touch up the stack with the right values.
+      // Touch up the stack with the resolved function.
       __ sd(v0, MemOperand(sp, (arg_count + 1) * kPointerSize));
-      __ sd(v1, MemOperand(sp, arg_count * kPointerSize));
 
       PrepareForBailoutForId(expr->EvalOrLookupId(), NO_REGISTERS);
     }
@@ -3628,6 +3625,28 @@ void FullCodeGenerator::EmitIsArray(CallRuntime* expr) {
   PrepareForBailoutBeforeSplit(expr, true, if_true, if_false);
   Split(eq, a1, Operand(JS_ARRAY_TYPE),
         if_true, if_false, fall_through);
+
+  context()->Plug(if_true, if_false);
+}
+
+
+void FullCodeGenerator::EmitIsTypedArray(CallRuntime* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  DCHECK(args->length() == 1);
+
+  VisitForAccumulatorValue(args->at(0));
+
+  Label materialize_true, materialize_false;
+  Label* if_true = NULL;
+  Label* if_false = NULL;
+  Label* fall_through = NULL;
+  context()->PrepareTest(&materialize_true, &materialize_false, &if_true,
+                         &if_false, &fall_through);
+
+  __ JumpIfSmi(v0, if_false);
+  __ GetObjectType(v0, a1, a1);
+  PrepareForBailoutBeforeSplit(expr, true, if_true, if_false);
+  Split(eq, a1, Operand(JS_TYPED_ARRAY_TYPE), if_true, if_false, fall_through);
 
   context()->Plug(if_true, if_false);
 }
@@ -4487,7 +4506,7 @@ void FullCodeGenerator::EmitFastOneByteArrayJoin(CallRuntime* expr) {
   __ lbu(scratch1, FieldMemOperand(scratch1, Map::kInstanceTypeOffset));
   __ JumpIfInstanceTypeIsNotSequentialOneByte(scratch1, scratch2, &bailout);
   __ ld(scratch1, FieldMemOperand(string, SeqOneByteString::kLengthOffset));
-  __ AdduAndCheckForOverflow(string_length, string_length, scratch1, scratch3);
+  __ DadduAndCheckForOverflow(string_length, string_length, scratch1, scratch3);
   __ BranchOnOverflow(&bailout, scratch3);
   __ Branch(&loop, lt, element, Operand(elements_end));
 
@@ -4787,9 +4806,10 @@ void FullCodeGenerator::VisitUnaryOperation(UnaryOperation* expr) {
         context()->Plug(v0);
       } else if (proxy != NULL) {
         Variable* var = proxy->var();
-        // Delete of an unqualified identifier is disallowed in strict mode
-        // but "delete this" is allowed.
-        DCHECK(is_sloppy(language_mode()) || var->is_this());
+        // Delete of an unqualified identifier is disallowed in strict mode but
+        // "delete this" is allowed.
+        bool is_this = var->HasThisName(isolate());
+        DCHECK(is_sloppy(language_mode()) || is_this);
         if (var->IsUnallocated()) {
           __ ld(a2, GlobalObjectOperand());
           __ li(a1, Operand(var->name()));
@@ -4800,7 +4820,7 @@ void FullCodeGenerator::VisitUnaryOperation(UnaryOperation* expr) {
         } else if (var->IsStackAllocated() || var->IsContextSlot()) {
           // Result of deleting non-global, non-dynamic variables is false.
           // The subexpression does not have side effects.
-          context()->Plug(var->is_this());
+          context()->Plug(is_this);
         } else {
           // Non-global variable.  Call the runtime to try to delete from the
           // context where the variable was introduced.
@@ -5002,7 +5022,7 @@ void FullCodeGenerator::VisitCountOperation(CountOperation* expr) {
     Register scratch1 = a1;
     Register scratch2 = a4;
     __ li(scratch1, Operand(Smi::FromInt(count_value)));
-    __ AdduAndCheckForOverflow(v0, v0, scratch1, scratch2);
+    __ DadduAndCheckForOverflow(v0, v0, scratch1, scratch2);
     __ BranchOnNoOverflow(&done, scratch2);
     // Call stub. Undo operation first.
     __ Move(v0, a0);
@@ -5046,8 +5066,8 @@ void FullCodeGenerator::VisitCountOperation(CountOperation* expr) {
   // Record position before stub call.
   SetSourcePosition(expr->position());
 
-  Handle<Code> code = CodeFactory::BinaryOpIC(
-      isolate(), Token::ADD, language_mode()).code();
+  Handle<Code> code = CodeFactory::BinaryOpIC(isolate(), Token::ADD,
+                                              strength(language_mode())).code();
   CallIC(code, expr->CountBinOpFeedbackId());
   patch_site.EmitPatchInfo();
   __ bind(&done);
@@ -5310,8 +5330,8 @@ void FullCodeGenerator::VisitCompareOperation(CompareOperation* expr) {
       }
       // Record position and call the compare IC.
       SetSourcePosition(expr->position());
-      Handle<Code> ic =
-          CodeFactory::CompareIC(isolate(), op, language_mode()).code();
+      Handle<Code> ic = CodeFactory::CompareIC(
+                            isolate(), op, strength(language_mode())).code();
       CallIC(ic, expr->CompareOperationFeedbackId());
       patch_site.EmitPatchInfo();
       PrepareForBailoutBeforeSplit(expr, true, if_true, if_false);

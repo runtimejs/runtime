@@ -52,7 +52,7 @@ config("internal_config") {
 
   include_dirs = [ "." ]
 
-  if (component_mode == "shared_library") {
+  if (is_component_build) {
     defines = [
       "V8_SHARED",
       "BUILDING_V8_SHARED",
@@ -627,8 +627,8 @@ source_set("v8_base") {
     "src/compiler/control-equivalence.h",
     "src/compiler/control-flow-optimizer.cc",
     "src/compiler/control-flow-optimizer.h",
-    "src/compiler/control-reducer.cc",
-    "src/compiler/control-reducer.h",
+    "src/compiler/dead-code-elimination.cc",
+    "src/compiler/dead-code-elimination.h",
     "src/compiler/diamond.h",
     "src/compiler/frame.h",
     "src/compiler/frame-elider.cc",
@@ -642,10 +642,14 @@ source_set("v8_base") {
     "src/compiler/graph-reducer.h",
     "src/compiler/graph-replay.cc",
     "src/compiler/graph-replay.h",
+    "src/compiler/graph-trimmer.cc",
+    "src/compiler/graph-trimmer.h",
     "src/compiler/graph-visualizer.cc",
     "src/compiler/graph-visualizer.h",
     "src/compiler/graph.cc",
     "src/compiler/graph.h",
+    "src/compiler/greedy-allocator.cc",
+    "src/compiler/greedy-allocator.h",
     "src/compiler/instruction-codes.h",
     "src/compiler/instruction-selector-impl.h",
     "src/compiler/instruction-selector.cc",
@@ -713,8 +717,6 @@ source_set("v8_base") {
     "src/compiler/pipeline.h",
     "src/compiler/pipeline-statistics.cc",
     "src/compiler/pipeline-statistics.h",
-    "src/compiler/raw-machine-assembler.cc",
-    "src/compiler/raw-machine-assembler.h",
     "src/compiler/register-allocator.cc",
     "src/compiler/register-allocator.h",
     "src/compiler/register-allocator-verifier.cc",
@@ -782,6 +784,7 @@ source_set("v8_base") {
     "src/elements.h",
     "src/execution.cc",
     "src/execution.h",
+    "src/expression-classifier.h",
     "src/extensions/externalize-string-extension.cc",
     "src/extensions/externalize-string-extension.h",
     "src/extensions/free-buffer-extension.cc",
@@ -1567,7 +1570,7 @@ if (current_toolchain == snapshot_toolchain) {
 # Public targets
 #
 
-if (component_mode == "shared_library") {
+if (is_component_build) {
   component("v8") {
     sources = [
       "src/v8dll-main.cc",
@@ -1576,6 +1579,8 @@ if (component_mode == "shared_library") {
     if (v8_use_snapshot && v8_use_external_startup_data) {
       deps = [
         ":v8_base",
+      ]
+      public_deps = [
         ":v8_external_snapshot",
       ]
     } else if (v8_use_snapshot) {
@@ -1672,7 +1677,7 @@ if ((current_toolchain == host_toolchain && v8_toolset_for_d8 == "host") ||
       sources += [ "src/d8-windows.cc" ]
     }
 
-    if (component_mode != "shared_library") {
+    if (!is_component_build) {
       sources += [
         "src/d8-debug.cc",
         "$target_gen_dir/d8-js.cc",

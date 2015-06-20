@@ -4,8 +4,8 @@
 
 #include "src/code-factory.h"
 #include "src/compiler/pipeline.h"
-#include "src/compiler/raw-machine-assembler.h"
 #include "src/compiler/scheduler.h"
+#include "test/unittests/compiler/raw-machine-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -23,7 +23,6 @@ RawMachineAssembler::RawMachineAssembler(Isolate* isolate, Graph* graph,
       call_descriptor_(
           Linkage::GetSimplifiedCDescriptor(graph->zone(), machine_sig)),
       parameters_(NULL),
-      exit_label_(schedule()->end()),
       current_block_(schedule()->start()) {
   int param_count = static_cast<int>(parameter_count());
   Node* s = graph->NewNode(common_.Start(param_count));
@@ -51,12 +50,6 @@ Schedule* RawMachineAssembler::Export() {
 Node* RawMachineAssembler::Parameter(size_t index) {
   DCHECK(index < parameter_count());
   return parameters_[index];
-}
-
-
-RawMachineAssembler::Label* RawMachineAssembler::Exit() {
-  exit_label_.used_ = true;
-  return &exit_label_;
 }
 
 

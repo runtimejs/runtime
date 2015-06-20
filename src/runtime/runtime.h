@@ -127,7 +127,8 @@ namespace internal {
   F(NotifyDeoptimized, 1, 1)            \
   F(CompileForOnStackReplacement, 1, 1) \
   F(TryInstallOptimizedCode, 1, 1)      \
-  F(CompileString, 2, 1)
+  F(CompileString, 2, 1)                \
+  F(ResolvePossiblyDirectEval, 5, 1)
 
 
 #define FOR_EACH_INTRINSIC_DATE(F) \
@@ -434,7 +435,7 @@ namespace internal {
   F(KeyedGetProperty, 2, 1)                          \
   F(AddNamedProperty, 4, 1)                          \
   F(SetProperty, 4, 1)                               \
-  F(AddElement, 4, 1)                                \
+  F(AddElement, 3, 1)                                \
   F(AppendElement, 2, 1)                             \
   F(DeleteProperty, 3, 1)                            \
   F(HasOwnProperty, 2, 1)                            \
@@ -585,14 +586,13 @@ namespace internal {
   F(StringGetLength, 1, 1)
 
 
-#define FOR_EACH_INTRINSIC_SYMBOL(F)    \
-  F(CreateSymbol, 1, 1)                 \
-  F(CreatePrivateSymbol, 1, 1)          \
-  F(CreatePrivateOwnSymbol, 1, 1)       \
-  F(CreateGlobalPrivateOwnSymbol, 1, 1) \
-  F(NewSymbolWrapper, 1, 1)             \
-  F(SymbolDescription, 1, 1)            \
-  F(SymbolRegistry, 0, 1)               \
+#define FOR_EACH_INTRINSIC_SYMBOL(F) \
+  F(CreateSymbol, 1, 1)              \
+  F(CreatePrivateSymbol, 1, 1)       \
+  F(CreateGlobalPrivateSymbol, 1, 1) \
+  F(NewSymbolWrapper, 1, 1)          \
+  F(SymbolDescription, 1, 1)         \
+  F(SymbolRegistry, 0, 1)            \
   F(SymbolIsPrivate, 1, 1)
 
 
@@ -697,8 +697,7 @@ namespace internal {
 
 #define FOR_EACH_INTRINSIC_RETURN_PAIR(F) \
   F(LoadLookupSlot, 2, 2)                 \
-  F(LoadLookupSlotNoReferenceError, 2, 2) \
-  F(ResolvePossiblyDirectEval, 6, 2)
+  F(LoadLookupSlotNoReferenceError, 2, 2)
 
 
 #define FOR_EACH_INTRINSIC_RETURN_OBJECT(F) \
@@ -821,10 +820,6 @@ class Runtime : public AllStatic {
   MUST_USE_RESULT static MaybeHandle<Object> SetObjectProperty(
       Isolate* isolate, Handle<Object> object, Handle<Object> key,
       Handle<Object> value, LanguageMode language_mode);
-
-  MUST_USE_RESULT static MaybeHandle<Object> DefineObjectProperty(
-      Handle<JSObject> object, Handle<Object> key, Handle<Object> value,
-      PropertyAttributes attr);
 
   MUST_USE_RESULT static MaybeHandle<Object> GetObjectProperty(
       Isolate* isolate, Handle<Object> object, Handle<Object> key);

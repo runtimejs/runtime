@@ -3485,8 +3485,8 @@ Maybe<bool> v8::Object::Set(v8::Local<v8::Context> context, uint32_t index,
   PREPARE_FOR_EXECUTION_PRIMITIVE(context, "v8::Object::Set()", bool);
   auto self = Utils::OpenHandle(this);
   auto value_obj = Utils::OpenHandle(*value);
-  has_pending_exception = i::JSObject::SetElement(
-      self, index, value_obj, NONE, i::SLOPPY).is_null();
+  has_pending_exception =
+      i::JSReceiver::SetElement(self, index, value_obj, i::SLOPPY).is_null();
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
   return Just(true);
 }
@@ -3503,53 +3503,16 @@ Maybe<bool> v8::Object::CreateDataProperty(v8::Local<v8::Context> context,
                                            v8::Local<Value> value) {
   PREPARE_FOR_EXECUTION_PRIMITIVE(context, "v8::Object::CreateDataProperty()",
                                   bool);
-  auto self = Utils::OpenHandle(this);
-  auto key_obj = Utils::OpenHandle(*key);
-  auto value_obj = Utils::OpenHandle(*value);
+  i::Handle<i::JSObject> self = Utils::OpenHandle(this);
+  i::Handle<i::Name> key_obj = Utils::OpenHandle(*key);
+  i::Handle<i::Object> value_obj = Utils::OpenHandle(*value);
 
-  if (self->IsAccessCheckNeeded() && !isolate->MayAccess(self)) {
-    isolate->ReportFailedAccessCheck(self);
-    return Nothing<bool>();
-  }
-
-  if (!self->IsExtensible()) return Just(false);
-
-  uint32_t index = 0;
-  if (key_obj->AsArrayIndex(&index)) {
-    return CreateDataProperty(context, index, value);
-  }
-
-  // Special case for Array.length.
-  if (self->IsJSArray() &&
-      key->StrictEquals(Utils::ToLocal(isolate->factory()->length_string()))) {
-    // Length is not configurable, however, CreateDataProperty always attempts
-    // to create a configurable property, so we just fail here.
-    return Just(false);
-  }
-
-  i::LookupIterator it(self, key_obj, i::LookupIterator::OWN_SKIP_INTERCEPTOR);
-  if (it.IsFound() && it.state() == i::LookupIterator::ACCESS_CHECK) {
-    DCHECK(isolate->MayAccess(self));
-    it.Next();
-  }
-
-  if (it.state() == i::LookupIterator::DATA ||
-      it.state() == i::LookupIterator::ACCESSOR) {
-    if (!it.IsConfigurable()) return Just(false);
-
-    if (it.state() == i::LookupIterator::ACCESSOR) {
-      has_pending_exception = i::JSObject::SetOwnPropertyIgnoreAttributes(
-                                  self, key_obj, value_obj, NONE,
-                                  i::JSObject::DONT_FORCE_FIELD).is_null();
-      RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
-      return Just(true);
-    }
-  }
-
-  has_pending_exception = i::Runtime::DefineObjectProperty(
-                              self, key_obj, value_obj, NONE).is_null();
+  i::LookupIterator it = i::LookupIterator::PropertyOrElement(
+      isolate, self, key_obj, i::LookupIterator::OWN);
+  Maybe<bool> result = i::JSObject::CreateDataProperty(&it, value_obj);
+  has_pending_exception = result.IsNothing();
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
-  return Just(true);
+  return result;
 }
 
 
@@ -3558,37 +3521,14 @@ Maybe<bool> v8::Object::CreateDataProperty(v8::Local<v8::Context> context,
                                            v8::Local<Value> value) {
   PREPARE_FOR_EXECUTION_PRIMITIVE(context, "v8::Object::CreateDataProperty()",
                                   bool);
-  auto self = Utils::OpenHandle(this);
-  auto value_obj = Utils::OpenHandle(*value);
+  i::Handle<i::JSObject> self = Utils::OpenHandle(this);
+  i::Handle<i::Object> value_obj = Utils::OpenHandle(*value);
 
-  if (self->IsAccessCheckNeeded() && !isolate->MayAccess(self)) {
-    isolate->ReportFailedAccessCheck(self);
-    return Nothing<bool>();
-  }
-
-  if (!self->IsExtensible()) return Just(false);
-
-  if (self->IsJSArray()) {
-    size_t length =
-        i::NumberToSize(isolate, i::Handle<i::JSArray>::cast(self)->length());
-    if (index >= length) {
-      return DefineOwnProperty(
-          context, Utils::ToLocal(isolate->factory()->Uint32ToString(index)),
-          value, v8::None);
-    }
-  }
-
-  Maybe<PropertyAttributes> attributes =
-      i::JSReceiver::GetOwnElementAttributes(self, index);
-  if (attributes.IsJust() && attributes.FromJust() & DONT_DELETE) {
-    return Just(false);
-  }
-
-  has_pending_exception = i::Runtime::DefineObjectProperty(
-                              self, isolate->factory()->Uint32ToString(index),
-                              value_obj, NONE).is_null();
+  i::LookupIterator it(isolate, self, index, i::LookupIterator::OWN);
+  Maybe<bool> result = i::JSObject::CreateDataProperty(&it, value_obj);
+  has_pending_exception = result.IsNothing();
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
-  return Just(true);
+  return result;
 }
 
 
@@ -3624,6 +3564,35 @@ Maybe<bool> v8::Object::DefineOwnProperty(v8::Local<v8::Context> context,
 }
 
 
+MUST_USE_RESULT
+static i::MaybeHandle<i::Object> DefineObjectProperty(
+    i::Handle<i::JSObject> js_object, i::Handle<i::Object> key,
+    i::Handle<i::Object> value, PropertyAttributes attrs) {
+  i::Isolate* isolate = js_object->GetIsolate();
+  // Check if the given key is an array index.
+  uint32_t index = 0;
+  if (key->ToArrayIndex(&index)) {
+    return i::JSObject::SetOwnElementIgnoreAttributes(js_object, index, value,
+                                                      attrs);
+  }
+
+  i::Handle<i::Name> name;
+  if (key->IsName()) {
+    name = i::Handle<i::Name>::cast(key);
+  } else {
+    // Call-back into JavaScript to convert the key to a string.
+    i::Handle<i::Object> converted;
+    ASSIGN_RETURN_ON_EXCEPTION_VALUE(isolate, converted,
+                                     i::Execution::ToString(isolate, key),
+                                     i::MaybeHandle<i::Object>());
+    name = i::Handle<i::String>::cast(converted);
+  }
+
+  return i::JSObject::DefinePropertyOrElementIgnoreAttributes(js_object, name,
+                                                              value, attrs);
+}
+
+
 Maybe<bool> v8::Object::ForceSet(v8::Local<v8::Context> context,
                                  v8::Local<Value> key, v8::Local<Value> value,
                                  v8::PropertyAttribute attribs) {
@@ -3631,11 +3600,9 @@ Maybe<bool> v8::Object::ForceSet(v8::Local<v8::Context> context,
   auto self = Utils::OpenHandle(this);
   auto key_obj = Utils::OpenHandle(*key);
   auto value_obj = Utils::OpenHandle(*value);
-  has_pending_exception = i::Runtime::DefineObjectProperty(
-      self,
-      key_obj,
-      value_obj,
-      static_cast<PropertyAttributes>(attribs)).is_null();
+  has_pending_exception =
+      DefineObjectProperty(self, key_obj, value_obj,
+                           static_cast<PropertyAttributes>(attribs)).is_null();
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
   return Just(true);
 }
@@ -3651,9 +3618,8 @@ bool v8::Object::ForceSet(v8::Handle<Value> key, v8::Handle<Value> value,
   i::Handle<i::Object> key_obj = Utils::OpenHandle(*key);
   i::Handle<i::Object> value_obj = Utils::OpenHandle(*value);
   has_pending_exception =
-      i::Runtime::DefineObjectProperty(self, key_obj, value_obj,
-                                       static_cast<PropertyAttributes>(attribs))
-          .is_null();
+      DefineObjectProperty(self, key_obj, value_obj,
+                           static_cast<PropertyAttributes>(attribs)).is_null();
   EXCEPTION_BAILOUT_CHECK_SCOPED(isolate, false);
   return true;
 }
@@ -3665,7 +3631,7 @@ i::MaybeHandle<i::Object> DeleteObjectProperty(
     i::Isolate* isolate, i::Handle<i::JSReceiver> receiver,
     i::Handle<i::Object> key, i::LanguageMode language_mode) {
   // Check if the given key is an array index.
-  uint32_t index;
+  uint32_t index = 0;
   if (key->ToArrayIndex(&index)) {
     // In Firefox/SpiderMonkey, Safari and Opera you can access the
     // characters of a string using [] notation.  In the case of a
@@ -3692,9 +3658,6 @@ i::MaybeHandle<i::Object> DeleteObjectProperty(
     name = i::Handle<i::String>::cast(converted);
   }
 
-  if (name->IsString()) {
-    name = i::String::Flatten(i::Handle<i::String>::cast(name));
-  }
   return i::JSReceiver::DeleteProperty(receiver, name, language_mode);
 }
 
@@ -3976,7 +3939,7 @@ Maybe<bool> v8::Object::Has(Local<Context> context, Local<Value> key) {
   auto key_obj = Utils::OpenHandle(*key);
   Maybe<bool> maybe = Nothing<bool>();
   // Check if the given key is an array index.
-  uint32_t index;
+  uint32_t index = 0;
   if (key_obj->ToArrayIndex(&index)) {
     maybe = i::JSReceiver::HasElement(self, index);
   } else {
@@ -4207,8 +4170,9 @@ MaybeLocal<Value> v8::Object::GetRealNamedPropertyInPrototypeChain(
   i::PrototypeIterator iter(isolate, self);
   if (iter.IsAtEnd()) return MaybeLocal<Value>();
   auto proto = i::PrototypeIterator::GetCurrent(iter);
-  i::LookupIterator it(self, key_obj, i::Handle<i::JSReceiver>::cast(proto),
-                       i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
+  i::LookupIterator it = i::LookupIterator::PropertyOrElement(
+      isolate, self, key_obj, i::Handle<i::JSReceiver>::cast(proto),
+      i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(i::Object::GetProperty(&it), &result);
   RETURN_ON_FAILED_EXECUTION(Value);
@@ -4236,8 +4200,9 @@ v8::Object::GetRealNamedPropertyAttributesInPrototypeChain(
   i::PrototypeIterator iter(isolate, self);
   if (iter.IsAtEnd()) return Nothing<PropertyAttribute>();
   auto proto = i::PrototypeIterator::GetCurrent(iter);
-  i::LookupIterator it(self, key_obj, i::Handle<i::JSReceiver>::cast(proto),
-                       i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
+  i::LookupIterator it = i::LookupIterator::PropertyOrElement(
+      isolate, self, key_obj, i::Handle<i::JSReceiver>::cast(proto),
+      i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   auto result = i::JSReceiver::GetPropertyAttributes(&it);
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(PropertyAttribute);
   if (!it.IsFound()) return Nothing<PropertyAttribute>();
@@ -4261,8 +4226,9 @@ MaybeLocal<Value> v8::Object::GetRealNamedProperty(Local<Context> context,
   PREPARE_FOR_EXECUTION(context, "v8::Object::GetRealNamedProperty()", Value);
   auto self = Utils::OpenHandle(this);
   auto key_obj = Utils::OpenHandle(*key);
-  i::LookupIterator it(self, key_obj,
-                       i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
+  i::LookupIterator it = i::LookupIterator::PropertyOrElement(
+      isolate, self, key_obj,
+      i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(i::Object::GetProperty(&it), &result);
   RETURN_ON_FAILED_EXECUTION(Value);
@@ -4284,8 +4250,9 @@ Maybe<PropertyAttribute> v8::Object::GetRealNamedPropertyAttributes(
       PropertyAttribute);
   auto self = Utils::OpenHandle(this);
   auto key_obj = Utils::OpenHandle(*key);
-  i::LookupIterator it(self, key_obj,
-                       i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
+  i::LookupIterator it = i::LookupIterator::PropertyOrElement(
+      isolate, self, key_obj,
+      i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   auto result = i::JSReceiver::GetPropertyAttributes(&it);
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(PropertyAttribute);
   if (!it.IsFound()) return Nothing<PropertyAttribute>();
@@ -6540,7 +6507,8 @@ v8::ArrayBuffer::Contents v8::ArrayBuffer::Externalize() {
   Utils::ApiCheck(!self->is_external(), "v8::ArrayBuffer::Externalize",
                   "ArrayBuffer already externalized");
   self->set_is_external(true);
-  isolate->heap()->UnregisterArrayBuffer(self->backing_store());
+  isolate->heap()->UnregisterArrayBuffer(isolate->heap()->InNewSpace(*self),
+                                         self->backing_store());
 
   return GetContents();
 }
@@ -6665,23 +6633,45 @@ size_t v8::TypedArray::Length() {
 }
 
 
-#define TYPED_ARRAY_NEW(Type, type, TYPE, ctype, size)                       \
-  Local<Type##Array> Type##Array::New(Handle<ArrayBuffer> array_buffer,      \
-                                      size_t byte_offset, size_t length) {   \
-    i::Isolate* isolate = Utils::OpenHandle(*array_buffer)->GetIsolate();    \
-    LOG_API(isolate,                                                         \
-            "v8::" #Type "Array::New(Handle<ArrayBuffer>, size_t, size_t)"); \
-    ENTER_V8(isolate);                                                       \
-    if (!Utils::ApiCheck(length <= static_cast<size_t>(i::Smi::kMaxValue),   \
-                         "v8::" #Type                                        \
-                         "Array::New(Handle<ArrayBuffer>, size_t, size_t)",  \
-                         "length exceeds max allowed value")) {              \
-      return Local<Type##Array>();                                           \
-    }                                                                        \
-    i::Handle<i::JSArrayBuffer> buffer = Utils::OpenHandle(*array_buffer);   \
-    i::Handle<i::JSTypedArray> obj = isolate->factory()->NewJSTypedArray(    \
-        i::kExternal##Type##Array, buffer, byte_offset, length);             \
-    return Utils::ToLocal##Type##Array(obj);                                 \
+#define TYPED_ARRAY_NEW(Type, type, TYPE, ctype, size)                         \
+  Local<Type##Array> Type##Array::New(Handle<ArrayBuffer> array_buffer,        \
+                                      size_t byte_offset, size_t length) {     \
+    i::Isolate* isolate = Utils::OpenHandle(*array_buffer)->GetIsolate();      \
+    LOG_API(isolate,                                                           \
+            "v8::" #Type "Array::New(Handle<ArrayBuffer>, size_t, size_t)");   \
+    ENTER_V8(isolate);                                                         \
+    if (!Utils::ApiCheck(length <= static_cast<size_t>(i::Smi::kMaxValue),     \
+                         "v8::" #Type                                          \
+                         "Array::New(Handle<ArrayBuffer>, size_t, size_t)",    \
+                         "length exceeds max allowed value")) {                \
+      return Local<Type##Array>();                                             \
+    }                                                                          \
+    i::Handle<i::JSArrayBuffer> buffer = Utils::OpenHandle(*array_buffer);     \
+    i::Handle<i::JSTypedArray> obj = isolate->factory()->NewJSTypedArray(      \
+        i::kExternal##Type##Array, buffer, byte_offset, length);               \
+    return Utils::ToLocal##Type##Array(obj);                                   \
+  }                                                                            \
+  Local<Type##Array> Type##Array::New(                                         \
+      Handle<SharedArrayBuffer> shared_array_buffer, size_t byte_offset,       \
+      size_t length) {                                                         \
+    CHECK(i::FLAG_harmony_sharedarraybuffer);                                  \
+    i::Isolate* isolate =                                                      \
+        Utils::OpenHandle(*shared_array_buffer)->GetIsolate();                 \
+    LOG_API(isolate, "v8::" #Type                                              \
+                     "Array::New(Handle<SharedArrayBuffer>, size_t, size_t)"); \
+    ENTER_V8(isolate);                                                         \
+    if (!Utils::ApiCheck(                                                      \
+            length <= static_cast<size_t>(i::Smi::kMaxValue),                  \
+            "v8::" #Type                                                       \
+            "Array::New(Handle<SharedArrayBuffer>, size_t, size_t)",           \
+            "length exceeds max allowed value")) {                             \
+      return Local<Type##Array>();                                             \
+    }                                                                          \
+    i::Handle<i::JSArrayBuffer> buffer =                                       \
+        Utils::OpenHandle(*shared_array_buffer);                               \
+    i::Handle<i::JSTypedArray> obj = isolate->factory()->NewJSTypedArray(      \
+        i::kExternal##Type##Array, buffer, byte_offset, length);               \
+    return Utils::ToLocal##Type##Array(obj);                                   \
   }
 
 
@@ -6692,7 +6682,21 @@ Local<DataView> DataView::New(Handle<ArrayBuffer> array_buffer,
                               size_t byte_offset, size_t byte_length) {
   i::Handle<i::JSArrayBuffer> buffer = Utils::OpenHandle(*array_buffer);
   i::Isolate* isolate = buffer->GetIsolate();
-  LOG_API(isolate, "v8::DataView::New(void*, size_t, size_t)");
+  LOG_API(isolate, "v8::DataView::New(Handle<ArrayBuffer>, size_t, size_t)");
+  ENTER_V8(isolate);
+  i::Handle<i::JSDataView> obj =
+      isolate->factory()->NewJSDataView(buffer, byte_offset, byte_length);
+  return Utils::ToLocal(obj);
+}
+
+
+Local<DataView> DataView::New(Handle<SharedArrayBuffer> shared_array_buffer,
+                              size_t byte_offset, size_t byte_length) {
+  CHECK(i::FLAG_harmony_sharedarraybuffer);
+  i::Handle<i::JSArrayBuffer> buffer = Utils::OpenHandle(*shared_array_buffer);
+  i::Isolate* isolate = buffer->GetIsolate();
+  LOG_API(isolate,
+          "v8::DataView::New(Handle<SharedArrayBuffer>, size_t, size_t)");
   ENTER_V8(isolate);
   i::Handle<i::JSDataView> obj =
       isolate->factory()->NewJSDataView(buffer, byte_offset, byte_length);
@@ -6711,7 +6715,8 @@ v8::SharedArrayBuffer::Contents v8::SharedArrayBuffer::Externalize() {
   Utils::ApiCheck(!self->is_external(), "v8::SharedArrayBuffer::Externalize",
                   "SharedArrayBuffer already externalized");
   self->set_is_external(true);
-  isolate->heap()->UnregisterArrayBuffer(self->backing_store());
+  isolate->heap()->UnregisterArrayBuffer(isolate->heap()->InNewSpace(*self),
+                                         self->backing_store());
   return GetContents();
 }
 
@@ -6734,6 +6739,7 @@ size_t v8::SharedArrayBuffer::ByteLength() const {
 
 Local<SharedArrayBuffer> v8::SharedArrayBuffer::New(Isolate* isolate,
                                                     size_t byte_length) {
+  CHECK(i::FLAG_harmony_sharedarraybuffer);
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   LOG_API(i_isolate, "v8::SharedArrayBuffer::New(size_t)");
   ENTER_V8(i_isolate);
@@ -6748,6 +6754,7 @@ Local<SharedArrayBuffer> v8::SharedArrayBuffer::New(Isolate* isolate,
 Local<SharedArrayBuffer> v8::SharedArrayBuffer::New(
     Isolate* isolate, void* data, size_t byte_length,
     ArrayBufferCreationMode mode) {
+  CHECK(i::FLAG_harmony_sharedarraybuffer);
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   LOG_API(i_isolate, "v8::SharedArrayBuffer::New(void*, size_t)");
   ENTER_V8(i_isolate);
@@ -7213,9 +7220,8 @@ size_t Isolate::NumberOfHeapSpaces() {
 
 bool Isolate::GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
                                      size_t index) {
-  if (!space_statistics)
-    return false;
-  if (index > i::LAST_SPACE || index < i::FIRST_SPACE)
+  if (!space_statistics) return false;
+  if (!i::Heap::IsValidAllocationSpace(static_cast<i::AllocationSpace>(index)))
     return false;
 
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);

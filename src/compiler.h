@@ -384,6 +384,14 @@ class CompilationInfo {
 
   Handle<Code> GenerateCodeStub();
 
+  typedef std::vector<Handle<SharedFunctionInfo>> InlinedFunctionList;
+  InlinedFunctionList const& inlined_functions() const {
+    return inlined_functions_;
+  }
+  void AddInlinedFunction(Handle<SharedFunctionInfo> inlined_function) {
+    inlined_functions_.push_back(inlined_function);
+  }
+
  protected:
   ParseInfo* parse_info_;
 
@@ -457,6 +465,8 @@ class CompilationInfo {
   List<OffsetRange>* no_frame_ranges_;
   std::vector<InlinedFunctionInfo> inlined_function_infos_;
   bool track_positions_;
+
+  InlinedFunctionList inlined_functions_;
 
   // A copy of shared_info()->opt_count() to avoid handle deref
   // during graph optimization.
@@ -628,9 +638,8 @@ class Compiler : public AllStatic {
                                                           int source_length);
 
   // Create a shared function info object (the code may be lazily compiled).
-  static Handle<SharedFunctionInfo> BuildFunctionInfo(FunctionLiteral* node,
-                                                      Handle<Script> script,
-                                                      CompilationInfo* outer);
+  static Handle<SharedFunctionInfo> GetSharedFunctionInfo(
+      FunctionLiteral* node, Handle<Script> script, CompilationInfo* outer);
 
   enum ConcurrencyMode { NOT_CONCURRENT, CONCURRENT };
 

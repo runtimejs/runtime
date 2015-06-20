@@ -340,10 +340,11 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse1) {
 TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse2) {
   CommonOperatorBuilder common(zone());
   Node* start = graph()->NewNode(common.Start(1));
+  Node* effect = graph()->NewNode(&kMockOperator);
   Node* dead = graph()->NewNode(&kMockOperator);
   Node* node = graph()->NewNode(&kMockOpControl, start);
   Node* success = graph()->NewNode(common.IfSuccess(), node);
-  Node* exception = graph()->NewNode(common.IfException(kNoHint), node);
+  Node* exception = graph()->NewNode(common.IfException(kNoHint), effect, node);
   Node* use_control = graph()->NewNode(common.Merge(1), success);
   Node* use_exception_control = graph()->NewNode(common.Merge(1), exception);
   Node* replacement = graph()->NewNode(&kMockOperator);
@@ -364,10 +365,11 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse2) {
 TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse3) {
   CommonOperatorBuilder common(zone());
   Node* start = graph()->NewNode(common.Start(1));
+  Node* effect = graph()->NewNode(&kMockOperator);
   Node* dead = graph()->NewNode(&kMockOperator);
   Node* node = graph()->NewNode(&kMockOpControl, start);
   Node* success = graph()->NewNode(common.IfSuccess(), node);
-  Node* exception = graph()->NewNode(common.IfException(kNoHint), node);
+  Node* exception = graph()->NewNode(common.IfException(kNoHint), effect, node);
   Node* use_control = graph()->NewNode(common.Merge(1), success);
   Node* use_exception_value = graph()->NewNode(common.Return(), exception);
   Node* replacement = graph()->NewNode(&kMockOperator);
@@ -522,7 +524,7 @@ TEST_F(GraphReducerTest, ReduceInPlace1) {
   // Tests A* => B* with in-place updates.
   InPlaceABReducer r;
   for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpB0, n1->op());
@@ -542,7 +544,7 @@ TEST_F(GraphReducerTest, ReduceInPlace2) {
   // Tests A* => B* with in-place updates.
   InPlaceABReducer r;
   for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpB0, n1->op());
@@ -567,7 +569,7 @@ TEST_F(GraphReducerTest, ReduceNew1) {
   NewABReducer r(graph());
   // Tests A* => B* while creating new nodes.
   for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     if (i == 0) {
       EXPECT_NE(before, graph()->NodeCount());
@@ -594,12 +596,12 @@ TEST_F(GraphReducerTest, ReduceNew1) {
 TEST_F(GraphReducerTest, Wrapping1) {
   Node* end = graph()->NewNode(&kOpA0);
   graph()->SetEnd(end);
-  EXPECT_EQ(1, graph()->NodeCount());
+  EXPECT_EQ(1U, graph()->NodeCount());
 
   A0Wrapper r(graph());
 
   ReduceGraph(&r);
-  EXPECT_EQ(2, graph()->NodeCount());
+  EXPECT_EQ(2U, graph()->NodeCount());
 
   Node* nend = graph()->end();
   EXPECT_NE(end, nend);
@@ -612,12 +614,12 @@ TEST_F(GraphReducerTest, Wrapping1) {
 TEST_F(GraphReducerTest, Wrapping2) {
   Node* end = graph()->NewNode(&kOpB0);
   graph()->SetEnd(end);
-  EXPECT_EQ(1, graph()->NodeCount());
+  EXPECT_EQ(1U, graph()->NodeCount());
 
   B0Wrapper r(graph());
 
   ReduceGraph(&r);
-  EXPECT_EQ(3, graph()->NodeCount());
+  EXPECT_EQ(3U, graph()->NodeCount());
 
   Node* nend = graph()->end();
   EXPECT_NE(end, nend);
@@ -641,7 +643,7 @@ TEST_F(GraphReducerTest, Forwarding1) {
 
   // Tests A1(x) => x
   for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpA0, n1->op());
@@ -661,7 +663,7 @@ TEST_F(GraphReducerTest, Forwarding2) {
 
   // Tests reducing A2(A1(x), A1(y)) => A2(x, y).
   for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpA0, n1->op());
@@ -686,8 +688,8 @@ TEST_F(GraphReducerTest, Forwarding3) {
 
     A1Forwarder r;
 
-    for (int i = 0; i < 3; i++) {
-      int before = graph()->NodeCount();
+    for (size_t i = 0; i < 3; i++) {
+      size_t before = graph()->NodeCount();
       ReduceGraph(&r);
       EXPECT_EQ(before, graph()->NodeCount());
       EXPECT_EQ(&kOpA0, n1->op());
@@ -708,8 +710,8 @@ TEST_F(GraphReducerTest, ReduceForward1) {
   B1Forwarder f;
 
   // Tests first reducing A => B, then B1(x) => x.
-  for (int i = 0; i < 3; i++) {
-    int before = graph()->NodeCount();
+  for (size_t i = 0; i < 3; i++) {
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r, &f);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpB0, n1->op());
@@ -741,7 +743,7 @@ TEST_F(GraphReducerTest, Sorter1) {
 
     graph()->SetEnd(end);
 
-    int before = graph()->NodeCount();
+    size_t before = graph()->NodeCount();
     ReduceGraph(&r);
     EXPECT_EQ(before, graph()->NodeCount());
     EXPECT_EQ(&kOpA0, n1->op());
@@ -836,8 +838,8 @@ TEST_F(GraphReducerTest, Order) {
     InPlaceBCReducer bcr;
 
     // Tests A* => C* with in-place updates.
-    for (int j = 0; j < 3; j++) {
-      int before = graph()->NodeCount();
+    for (size_t j = 0; j < 3; j++) {
+      size_t before = graph()->NodeCount();
       if (i == 0) {
         ReduceGraph(&abr, &bcr);
       } else {

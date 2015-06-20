@@ -32,6 +32,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
   switch (f->function_id) {
     case Runtime::kInlineConstructDouble:
       return ReduceConstructDouble(node);
+    case Runtime::kInlineDateField:
+      return ReduceDateField(node);
     case Runtime::kInlineDeoptimizeNow:
       return ReduceDeoptimizeNow(node);
     case Runtime::kInlineDoubleHi:
@@ -44,6 +46,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceIncrementStatsCounter(node);
     case Runtime::kInlineIsArray:
       return ReduceIsInstanceType(node, JS_ARRAY_TYPE);
+    case Runtime::kInlineIsTypedArray:
+      return ReduceIsInstanceType(node, JS_TYPED_ARRAY_TYPE);
     case Runtime::kInlineIsFunction:
       return ReduceIsInstanceType(node, JS_FUNCTION_TYPE);
     case Runtime::kInlineIsNonNegativeSmi:
@@ -106,6 +110,24 @@ Reduction JSIntrinsicLowering::ReduceConstructDouble(Node* node) {
 }
 
 
+Reduction JSIntrinsicLowering::ReduceDateField(Node* node) {
+  Node* const value = NodeProperties::GetValueInput(node, 0);
+  Node* const index = NodeProperties::GetValueInput(node, 1);
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+  NumberMatcher mindex(index);
+  if (mindex.Is(JSDate::kDateValue)) {
+    return Change(
+        node,
+        simplified()->LoadField(AccessBuilder::ForJSDateField(
+            static_cast<JSDate::FieldIndex>(static_cast<int>(mindex.Value())))),
+        value, effect, control);
+  }
+  // TODO(turbofan): Optimize more patterns.
+  return NoChange();
+}
+
+
 Reduction JSIntrinsicLowering::ReduceDeoptimizeNow(Node* node) {
   if (mode() != kDeoptimizationEnabled) return NoChange();
   Node* frame_state = NodeProperties::GetFrameStateInput(node, 0);
@@ -157,11 +179,12 @@ Reduction JSIntrinsicLowering::ReduceHeapObjectGetMap(Node* node) {
 
 Reduction JSIntrinsicLowering::ReduceIncrementStatsCounter(Node* node) {
   if (!FLAG_native_code_counters) return ChangeToUndefined(node);
-  HeapObjectMatcher<String> m(NodeProperties::GetValueInput(node, 0));
+  HeapObjectMatcher m(NodeProperties::GetValueInput(node, 0));
   if (!m.HasValue() || !m.Value().handle()->IsString()) {
     return ChangeToUndefined(node);
   }
-  SmartArrayPointer<char> name = m.Value().handle()->ToCString();
+  SmartArrayPointer<char> name =
+      Handle<String>::cast(m.Value().handle())->ToCString();
   StatsCounter counter(jsgraph()->isolate(), name.get());
   if (!counter.Enabled()) return ChangeToUndefined(node);
 

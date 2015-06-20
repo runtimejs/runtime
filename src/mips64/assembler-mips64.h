@@ -404,8 +404,8 @@ class MemOperand : public Operand {
     offset_zero = 0
   };
 
-  explicit MemOperand(Register rn, int64_t offset = 0);
-  explicit MemOperand(Register rn, int64_t unit, int64_t multiplier,
+  explicit MemOperand(Register rn, int32_t offset = 0);
+  explicit MemOperand(Register rn, int32_t unit, int32_t multiplier,
                       OffsetAddend offset_addend = offset_zero);
   int32_t offset() const { return offset_; }
 
@@ -521,6 +521,8 @@ class Assembler : public AssemblerBase {
   // Return the code target address of the patch debug break slot
   inline static Address break_address_from_return_address(Address pc);
 
+  static void JumpLabelToJumpRegister(Address pc);
+
   static void QuietNaN(HeapObject* nan);
 
   // This sets the branch destination (which gets loaded at the call address).
@@ -595,6 +597,9 @@ class Assembler : public AssemblerBase {
   // possible to align the pc offset to a multiple
   // of m. m must be a power of 2 (>= 4).
   void Align(int m);
+  // Insert the smallest number of zero bytes possible to align the pc offset
+  // to a mulitple of m. m must be a power of 2 (>= 2).
+  void DataAlign(int m);
   // Aligns code to something that's optimal for a jump target for the platform.
   void CodeTargetAlign();
 
@@ -631,6 +636,10 @@ class Assembler : public AssemblerBase {
   void b(Label* L) { b(branch_offset(L, false)>>2); }
   void bal(int16_t offset);
   void bal(Label* L) { bal(branch_offset(L, false)>>2); }
+  void bc(int32_t offset);
+  void bc(Label* L) { bc(branch_offset(L, false) >> 2); }
+  void balc(int32_t offset);
+  void balc(Label* L) { balc(branch_offset(L, false) >> 2); }
 
   void beq(Register rs, Register rt, int16_t offset);
   void beq(Register rs, Register rt, Label* L) {
@@ -740,8 +749,8 @@ class Assembler : public AssemblerBase {
   void jal(int64_t target);
   void jalr(Register rs, Register rd = ra);
   void jr(Register target);
-  void j_or_jr(int64_t target, Register rs);
-  void jal_or_jalr(int64_t target, Register rs);
+  void jic(Register rt, int16_t offset);
+  void jialc(Register rt, int16_t offset);
 
 
   // -------Data-processing-instructions---------
@@ -844,6 +853,16 @@ class Assembler : public AssemblerBase {
   void sd(Register rd, const MemOperand& rs);
 
 
+  // ---------PC-Relative-instructions-----------
+
+  void addiupc(Register rs, int32_t imm19);
+  void lwpc(Register rs, int32_t offset19);
+  void lwupc(Register rs, int32_t offset19);
+  void ldpc(Register rs, int32_t offset18);
+  void auipc(Register rs, int16_t imm16);
+  void aluipc(Register rs, int16_t imm16);
+
+
   // ----------------Prefetch--------------------
 
   void pref(int32_t hint, const MemOperand& rs);
@@ -906,6 +925,8 @@ class Assembler : public AssemblerBase {
   void dext_(Register rt, Register rs, uint16_t pos, uint16_t size);
   void bitswap(Register rd, Register rt);
   void dbitswap(Register rd, Register rt);
+  void align(Register rd, Register rs, Register rt, uint8_t bp);
+  void dalign(Register rd, Register rs, Register rt, uint8_t bp);
 
   // --------Coprocessor-instructions----------------
 
@@ -1133,7 +1154,9 @@ class Assembler : public AssemblerBase {
   inline bool overflow() const { return pc_ >= reloc_info_writer.pos() - kGap; }
 
   // Get the number of bytes available in the buffer.
-  inline int available_space() const { return reloc_info_writer.pos() - pc_; }
+  inline intptr_t available_space() const {
+    return reloc_info_writer.pos() - pc_;
+  }
 
   // Read/patch instructions.
   static Instr instr_at(byte* pc) { return *reinterpret_cast<Instr*>(pc); }
@@ -1381,6 +1404,8 @@ class Assembler : public AssemblerBase {
                          Register r1,
                          FPURegister r2,
                          int32_t  j);
+  void GenInstrImmediate(Opcode opcode, Register rs, int32_t j);
+  void GenInstrImmediate(Opcode opcode, int32_t offset26);
 
 
   void GenInstrJump(Opcode opcode,
@@ -1447,13 +1472,13 @@ class Assembler : public AssemblerBase {
 
   int32_t get_trampoline_entry(int32_t pos);
   int unbound_labels_count_;
-  // If trampoline is emitted, generated code is becoming large. As this is
-  // already a slow case which can possibly break our code generation for the
-  // extreme case, we use this information to trigger different mode of
+  // After trampoline is emitted, long branches are used in generated code for
+  // the forward branches whose target offsets could be beyond reach of branch
+  // instruction. We use this information to trigger different mode of
   // branch instruction generation, where we use jump instructions rather
   // than regular branch instructions.
   bool trampoline_emitted_;
-  static const int kTrampolineSlotsSize = 6 * kInstrSize;
+  static const int kTrampolineSlotsSize = 2 * kInstrSize;
   static const int kMaxBranchOffset = (1 << (18 - 1)) - 1;
   static const int kInvalidSlotPos = -1;
 

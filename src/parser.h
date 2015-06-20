@@ -730,6 +730,8 @@ class ParserTraits {
                                      int pos);
   Expression* SuperCallReference(Scope* scope, AstNodeFactory* factory,
                                  int pos);
+  Expression* NewTargetExpression(Scope* scope, AstNodeFactory* factory,
+                                  int pos);
   Expression* DefaultConstructor(bool call_super, Scope* scope, int pos,
                                  int end_pos);
   Literal* ExpressionFromLiteral(Token::Value token, int pos, Scanner* scanner,
@@ -752,26 +754,12 @@ class ParserTraits {
   V8_INLINE Scope* NewScope(Scope* parent_scope, ScopeType scope_type,
                             FunctionKind kind = kNormalFunction);
 
-  bool DeclareFormalParameter(Scope* scope, const AstRawString* name,
-                              bool is_rest) {
-    bool is_duplicate = false;
-    Variable* var = scope->DeclareParameter(name, VAR, is_rest, &is_duplicate);
-    if (is_sloppy(scope->language_mode())) {
-      // TODO(sigurds) Mark every parameter as maybe assigned. This is a
-      // conservative approximation necessary to account for parameters
-      // that are assigned via the arguments array.
-      var->set_maybe_assigned();
-    }
-    return is_duplicate;
-  }
-
-  void DeclareArrowFunctionParameters(Scope* scope, Expression* expr,
-                                      const Scanner::Location& params_loc,
-                                      Scanner::Location* duplicate_loc,
-                                      bool* ok);
+  V8_INLINE void DeclareFormalParameter(Scope* scope, Expression* name,
+                                        ExpressionClassifier* classifier,
+                                        bool is_rest);
   void ParseArrowFunctionFormalParameters(Scope* scope, Expression* params,
                                           const Scanner::Location& params_loc,
-                                          bool* is_rest,
+                                          bool* has_rest,
                                           Scanner::Location* duplicate_loc,
                                           bool* ok);
 
@@ -1279,6 +1267,30 @@ Expression* ParserTraits::SpreadCall(Expression* function,
 Expression* ParserTraits::SpreadCallNew(
     Expression* function, ZoneList<v8::internal::Expression*>* args, int pos) {
   return parser_->SpreadCallNew(function, args, pos);
+}
+
+
+void ParserTraits::DeclareFormalParameter(Scope* scope, Expression* pattern,
+                                          ExpressionClassifier* classifier,
+                                          bool is_rest) {
+  bool is_duplicate = false;
+  if (!pattern->IsVariableProxy()) {
+    // TODO(dslomov): implement.
+    DCHECK(parser_->allow_harmony_destructuring());
+    return;
+  }
+  auto name = pattern->AsVariableProxy()->raw_name();
+  Variable* var = scope->DeclareParameter(name, VAR, is_rest, &is_duplicate);
+  if (is_sloppy(scope->language_mode())) {
+    // TODO(sigurds) Mark every parameter as maybe assigned. This is a
+    // conservative approximation necessary to account for parameters
+    // that are assigned via the arguments array.
+    var->set_maybe_assigned();
+  }
+  if (is_duplicate) {
+    classifier->RecordDuplicateFormalParameterError(
+        parser_->scanner()->location());
+  }
 }
 } }  // namespace v8::internal
 

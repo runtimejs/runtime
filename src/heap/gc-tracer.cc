@@ -105,6 +105,7 @@ GCTracer::GCTracer(Heap* heap)
       allocation_duration_since_gc_(0.0),
       new_space_allocation_in_bytes_since_gc_(0),
       old_generation_allocation_in_bytes_since_gc_(0),
+      combined_mark_compact_speed_cache_(0.0),
       start_counter_(0) {
   current_ = Event(Event::START, NULL, NULL);
   current_.end_time = base::OS::TimeCurrentMillis();
@@ -183,6 +184,7 @@ void GCTracer::Stop(GarbageCollector collector) {
   current_.end_object_size = heap_->SizeOfObjects();
   current_.end_memory_size = heap_->isolate()->memory_allocator()->Size();
   current_.end_holes_size = CountTotalHolesSize(heap_);
+  current_.survived_new_space_object_size = heap_->SurvivedNewSpaceObjectSize();
 
   AddAllocation(current_.end_time);
 
@@ -226,12 +228,14 @@ void GCTracer::Stop(GarbageCollector collector) {
             .cumulative_pure_incremental_marking_duration;
     longest_incremental_marking_step_ = 0.0;
     incremental_mark_compactor_events_.push_front(current_);
+    combined_mark_compact_speed_cache_ = 0.0;
   } else {
     DCHECK(current_.incremental_marking_bytes == 0);
     DCHECK(current_.incremental_marking_duration == 0);
     DCHECK(current_.pure_incremental_marking_duration == 0);
     longest_incremental_marking_step_ = 0.0;
     mark_compactor_events_.push_front(current_);
+    combined_mark_compact_speed_cache_ = 0.0;
   }
 
   // TODO(ernstm): move the code below out of GCTracer.
@@ -273,7 +277,7 @@ void GCTracer::SampleAllocation(double current_ms,
   size_t old_generation_allocated_bytes =
       old_generation_counter_bytes - old_generation_allocation_counter_bytes_;
   double duration = current_ms - allocation_time_ms_;
-  const double kMinDurationMs = 1;
+  const double kMinDurationMs = 100;
   if (duration < kMinDurationMs) {
     // Do not sample small durations to avoid precision errors.
     return;
@@ -292,10 +296,9 @@ void GCTracer::AddAllocation(double current_ms) {
   allocation_time_ms_ = current_ms;
   new_space_allocation_events_.push_front(AllocationEvent(
       allocation_duration_since_gc_, new_space_allocation_in_bytes_since_gc_));
-  allocation_events_.push_front(
+  old_generation_allocation_events_.push_front(
       AllocationEvent(allocation_duration_since_gc_,
-                      new_space_allocation_in_bytes_since_gc_ +
-                          old_generation_allocation_in_bytes_since_gc_));
+                      old_generation_allocation_in_bytes_since_gc_));
   allocation_duration_since_gc_ = 0;
   new_space_allocation_in_bytes_since_gc_ = 0;
   old_generation_allocation_in_bytes_since_gc_ = 0;
@@ -358,10 +361,9 @@ void GCTracer::Print() const {
          static_cast<double>(current_.end_memory_size) / MB);
 
   int external_time = static_cast<int>(current_.scopes[Scope::EXTERNAL]);
-  if (external_time > 0) Output("%d / ", external_time);
-
   double duration = current_.end_time - current_.start_time;
-  Output("%.1f ms", duration);
+  Output("%.1f / %d ms", duration, external_time);
+
   if (current_.type == Event::SCAVENGER) {
     if (current_.incremental_marking_steps > 0) {
       Output(" (+ %.1f ms in %d steps since last GC)",
@@ -560,24 +562,26 @@ intptr_t GCTracer::IncrementalMarkingSpeedInBytesPerMillisecond() const {
   }
 
   if (durations == 0.0) return 0;
-
-  return static_cast<intptr_t>(bytes / durations);
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
 }
 
 
-intptr_t GCTracer::ScavengeSpeedInBytesPerMillisecond() const {
+intptr_t GCTracer::ScavengeSpeedInBytesPerMillisecond(
+    ScavengeSpeedMode mode) const {
   intptr_t bytes = 0;
   double durations = 0.0;
   EventBuffer::const_iterator iter = scavenger_events_.begin();
   while (iter != scavenger_events_.end()) {
-    bytes += iter->new_space_object_size;
+    bytes += mode == kForAllObjects ? iter->new_space_object_size
+                                    : iter->survived_new_space_object_size;
     durations += iter->end_time - iter->start_time;
     ++iter;
   }
 
   if (durations == 0.0) return 0;
-
-  return static_cast<intptr_t>(bytes / durations);
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
 }
 
 
@@ -592,8 +596,8 @@ intptr_t GCTracer::MarkCompactSpeedInBytesPerMillisecond() const {
   }
 
   if (durations == 0.0) return 0;
-
-  return static_cast<intptr_t>(bytes / durations);
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
 }
 
 
@@ -609,53 +613,85 @@ intptr_t GCTracer::FinalIncrementalMarkCompactSpeedInBytesPerMillisecond()
   }
 
   if (durations == 0.0) return 0;
-
-  return static_cast<intptr_t>(bytes / durations);
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
 }
 
 
-size_t GCTracer::NewSpaceAllocationThroughputInBytesPerMillisecond() const {
+double GCTracer::CombinedMarkCompactSpeedInBytesPerMillisecond() {
+  if (combined_mark_compact_speed_cache_ > 0)
+    return combined_mark_compact_speed_cache_;
+  const double kMinimumMarkingSpeed = 0.5;
+  double speed1 =
+      static_cast<double>(IncrementalMarkingSpeedInBytesPerMillisecond());
+  double speed2 = static_cast<double>(
+      FinalIncrementalMarkCompactSpeedInBytesPerMillisecond());
+  if (speed1 < kMinimumMarkingSpeed || speed2 < kMinimumMarkingSpeed) {
+    // No data for the incremental marking speed.
+    // Return the non-incremental mark-compact speed.
+    combined_mark_compact_speed_cache_ =
+        static_cast<double>(MarkCompactSpeedInBytesPerMillisecond());
+  } else {
+    // Combine the speed of incremental step and the speed of the final step.
+    // 1 / (1 / speed1 + 1 / speed2) = speed1 * speed2 / (speed1 + speed2).
+    combined_mark_compact_speed_cache_ = speed1 * speed2 / (speed1 + speed2);
+  }
+  return combined_mark_compact_speed_cache_;
+}
+
+
+size_t GCTracer::NewSpaceAllocationThroughputInBytesPerMillisecond(
+    double time_ms) const {
   size_t bytes = new_space_allocation_in_bytes_since_gc_;
   double durations = allocation_duration_since_gc_;
   AllocationEventBuffer::const_iterator iter =
       new_space_allocation_events_.begin();
   const size_t max_bytes = static_cast<size_t>(-1);
   while (iter != new_space_allocation_events_.end() &&
-         bytes < max_bytes - bytes) {
+         bytes < max_bytes - bytes && (time_ms == 0 || durations < time_ms)) {
     bytes += iter->allocation_in_bytes_;
     durations += iter->duration_;
     ++iter;
   }
 
   if (durations == 0.0) return 0;
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
+}
 
-  return static_cast<size_t>(bytes / durations + 0.5);
+
+size_t GCTracer::OldGenerationAllocationThroughputInBytesPerMillisecond(
+    double time_ms) const {
+  size_t bytes = old_generation_allocation_in_bytes_since_gc_;
+  double durations = allocation_duration_since_gc_;
+  AllocationEventBuffer::const_iterator iter =
+      old_generation_allocation_events_.begin();
+  const size_t max_bytes = static_cast<size_t>(-1);
+  while (iter != old_generation_allocation_events_.end() &&
+         bytes < max_bytes - bytes && (time_ms == 0 || durations < time_ms)) {
+    bytes += iter->allocation_in_bytes_;
+    durations += iter->duration_;
+    ++iter;
+  }
+
+  if (durations == 0.0) return 0;
+  // Make sure the result is at least 1.
+  return Max<size_t>(static_cast<size_t>(bytes / durations + 0.5), 1);
 }
 
 
 size_t GCTracer::AllocationThroughputInBytesPerMillisecond(
     double time_ms) const {
-  size_t bytes = new_space_allocation_in_bytes_since_gc_ +
-                 old_generation_allocation_in_bytes_since_gc_;
-  double durations = allocation_duration_since_gc_;
-  AllocationEventBuffer::const_iterator iter = allocation_events_.begin();
-  const size_t max_bytes = static_cast<size_t>(-1);
-  while (iter != allocation_events_.end() && bytes < max_bytes - bytes &&
-         durations < time_ms) {
-    bytes += iter->allocation_in_bytes_;
-    durations += iter->duration_;
-    ++iter;
-  }
-
-  if (durations == 0.0) return 0;
-
-  return static_cast<size_t>(bytes / durations + 0.5);
+  return NewSpaceAllocationThroughputInBytesPerMillisecond(time_ms) +
+         OldGenerationAllocationThroughputInBytesPerMillisecond(time_ms);
 }
 
 
-size_t GCTracer::CurrentAllocationThroughputInBytesPerMillisecond() const {
+size_t GCTracer::CurrentOldGenerationAllocationThroughputInBytesPerMillisecond()
+    const {
   static const double kThroughputTimeFrame = 5000;
-  return AllocationThroughputInBytesPerMillisecond(kThroughputTimeFrame);
+  return OldGenerationAllocationThroughputInBytesPerMillisecond(
+      kThroughputTimeFrame);
 }
 
 

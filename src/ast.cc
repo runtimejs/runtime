@@ -241,25 +241,6 @@ bool FunctionLiteral::NeedsHomeObject(Expression* expr) {
 }
 
 
-// Helper to find an existing shared function info in the baseline code for the
-// given function literal. Used to canonicalize SharedFunctionInfo objects.
-void FunctionLiteral::InitializeSharedInfo(
-    Handle<Code> unoptimized_code) {
-  for (RelocIterator it(*unoptimized_code); !it.done(); it.next()) {
-    RelocInfo* rinfo = it.rinfo();
-    if (rinfo->rmode() != RelocInfo::EMBEDDED_OBJECT) continue;
-    Object* obj = rinfo->target_object();
-    if (obj->IsSharedFunctionInfo()) {
-      SharedFunctionInfo* shared = SharedFunctionInfo::cast(obj);
-      if (shared->start_position() == start_position()) {
-        shared_info_ = Handle<SharedFunctionInfo>(shared);
-        break;
-      }
-    }
-  }
-}
-
-
 ObjectLiteralProperty::ObjectLiteralProperty(Expression* key, Expression* value,
                                              Kind kind, bool is_static,
                                              bool is_computed_name)
@@ -291,6 +272,41 @@ ObjectLiteralProperty::ObjectLiteralProperty(AstValueFactory* ast_value_factory,
   } else {
     kind_ = COMPUTED;
   }
+}
+
+
+FeedbackVectorRequirements ClassLiteral::ComputeFeedbackRequirements(
+    Isolate* isolate, const ICSlotCache* cache) {
+  if (!FLAG_vector_stores) return FeedbackVectorRequirements(0, 0);
+
+  // This logic that computes the number of slots needed for vector store
+  // ICs must mirror FullCodeGenerator::VisitClassLiteral.
+  int ic_slots = 0;
+  for (int i = 0; i < properties()->length(); i++) {
+    ObjectLiteral::Property* property = properties()->at(i);
+
+    Expression* value = property->value();
+    if (FunctionLiteral::NeedsHomeObject(value)) ic_slots++;
+  }
+
+#ifdef DEBUG
+  // FullCodeGenerator::VisitClassLiteral verifies that it consumes slot_count_
+  // slots.
+  slot_count_ = ic_slots;
+#endif
+  return FeedbackVectorRequirements(0, ic_slots);
+}
+
+
+FeedbackVectorICSlot ClassLiteral::SlotForHomeObject(Expression* value,
+                                                     int* slot_index) const {
+  if (FLAG_vector_stores && FunctionLiteral::NeedsHomeObject(value)) {
+    DCHECK(slot_index != NULL && *slot_index >= 0 && *slot_index < slot_count_);
+    FeedbackVectorICSlot slot = GetNthSlot(*slot_index);
+    *slot_index += 1;
+    return slot;
+  }
+  return FeedbackVectorICSlot::Invalid();
 }
 
 
@@ -506,22 +522,23 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
       }
     }
     Handle<Object> boilerplate_value = GetBoilerplateValue(element, isolate);
+
     if (boilerplate_value->IsTheHole()) {
       is_holey = true;
-    } else if (boilerplate_value->IsUninitialized()) {
-      is_simple = false;
-      JSObject::SetOwnElement(array, array_index,
-                              handle(Smi::FromInt(0), isolate),
-                              SLOPPY).Assert();
-    } else {
-      JSObject::SetOwnElement(array, array_index, boilerplate_value, SLOPPY)
-          .Assert();
+      continue;
     }
+
+    if (boilerplate_value->IsUninitialized()) {
+      boilerplate_value = handle(Smi::FromInt(0), isolate);
+      is_simple = false;
+    }
+
+    JSObject::AddDataElement(array, array_index, boilerplate_value, NONE)
+        .Assert();
   }
 
   if (array_index != values()->length()) {
-    JSArray::SetElementsLength(
-        array, handle(Smi::FromInt(array_index), isolate)).Assert();
+    JSArray::SetLength(array, array_index);
   }
   Handle<FixedArrayBase> element_values(array->elements());
 

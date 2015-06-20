@@ -211,11 +211,12 @@ Reduction JSInliner::InlineCall(Node* call, Node* frame_state, Node* start,
 }
 
 
-Node* JSInliner::CreateArgumentsAdaptorFrameState(JSCallFunctionAccessor* call,
-                                                  Zone* temp_zone) {
+Node* JSInliner::CreateArgumentsAdaptorFrameState(
+    JSCallFunctionAccessor* call, Handle<SharedFunctionInfo> shared_info,
+    Zone* temp_zone) {
   const Operator* op = jsgraph_->common()->FrameState(
       FrameStateType::ARGUMENTS_ADAPTOR, BailoutId(-1),
-      OutputFrameStateCombine::Ignore());
+      OutputFrameStateCombine::Ignore(), shared_info);
   const Operator* op0 = jsgraph_->common()->StateValues(0);
   Node* node0 = jsgraph_->graph()->NewNode(op0);
   NodeVector params(temp_zone);
@@ -237,11 +238,12 @@ Reduction JSInliner::Reduce(Node* node) {
   if (node->opcode() != IrOpcode::kJSCallFunction) return NoChange();
 
   JSCallFunctionAccessor call(node);
-  HeapObjectMatcher<JSFunction> match(call.jsfunction());
+  HeapObjectMatcher match(call.jsfunction());
   if (!match.HasValue()) return NoChange();
 
-  Handle<JSFunction> function = match.Value().handle();
-  if (!function->IsJSFunction()) return NoChange();
+  if (!match.Value().handle()->IsJSFunction()) return NoChange();
+  Handle<JSFunction> function =
+      Handle<JSFunction>::cast(match.Value().handle());
   if (mode_ == kRestrictedInlining && !function->shared()->force_inline()) {
     return NoChange();
   }
@@ -276,8 +278,8 @@ Reduction JSInliner::Reduce(Node* node) {
   // type feedback in the compiler.
   AstGraphBuilder graph_builder(local_zone_, &info, &jsgraph);
   graph_builder.CreateGraph(true, false);
-  JSContextSpecializer context_specializer(&jsgraph);
   GraphReducer graph_reducer(local_zone_, &graph);
+  JSContextSpecializer context_specializer(&graph_reducer, &jsgraph);
   graph_reducer.AddReducer(&context_specializer);
   graph_reducer.ReduceGraph();
 
@@ -297,8 +299,12 @@ Reduction JSInliner::Reduce(Node* node) {
         call.formal_arguments() < inlinee_formal_parameters) {
       return NoChange();
     }
-    frame_state = CreateArgumentsAdaptorFrameState(&call, info.zone());
+    frame_state = CreateArgumentsAdaptorFrameState(&call, info.shared_info(),
+                                                   info.zone());
   }
+
+  // Remember that we inlined this function.
+  info_->AddInlinedFunction(info.shared_info());
 
   return InlineCall(node, frame_state, start, end);
 }

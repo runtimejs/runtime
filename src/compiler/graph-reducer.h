@@ -19,7 +19,7 @@ class Node;
 
 // NodeIds are identifying numbers for nodes that can be used to index auxiliary
 // out-of-line data associated with each node.
-typedef int32_t NodeId;
+typedef uint32_t NodeId;
 
 
 // Represents the result of trying to reduce a node in the graph.
@@ -46,13 +46,6 @@ class Reducer {
 
   // Try to reduce a node if possible.
   virtual Reduction Reduce(Node* node) = 0;
-
-  // Ask this reducer to finish operation, returns {true} if the reducer is
-  // done, while {false} indicates that the graph might need to be reduced
-  // again.
-  // TODO(turbofan): Remove this once the dead node trimming is in the
-  // GraphReducer.
-  virtual bool Finish();
 
   // Helper functions for subclasses to produce reductions for a node.
   static Reduction NoChange() { return Reduction(); }

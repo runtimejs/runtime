@@ -550,9 +550,6 @@ class JavaScriptFrame: public StandardFrame {
   // Determine the code for the frame.
   virtual Code* unchecked_code() const;
 
-  // Returns the levels of inlining for this frame.
-  virtual int GetInlineCount() { return 1; }
-
   // Return a list with JSFunctions of this frame.
   virtual void GetFunctions(List<JSFunction*>* functions);
 
@@ -627,8 +624,6 @@ class OptimizedFrame : public JavaScriptFrame {
   // GC support.
   virtual void Iterate(ObjectVisitor* v) const;
 
-  virtual int GetInlineCount();
-
   // Return a list with JSFunctions of this frame.
   // The functions are ordered bottom-to-top (i.e. functions.last()
   // is the top-most activation)
@@ -647,9 +642,9 @@ class OptimizedFrame : public JavaScriptFrame {
   inline explicit OptimizedFrame(StackFrameIteratorBase* iterator);
 
  private:
-  JSFunction* LiteralAt(FixedArray* literal_array, int literal_id);
-
   friend class StackFrameIteratorBase;
+
+  Object* StackSlotAt(int index) const;
 };
 
 

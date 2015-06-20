@@ -424,10 +424,27 @@ StackFrame::Type StackFrame::ComputeType(const StackFrameIteratorBase* iterator,
     // into the heap to determine the state. This is safe as long
     // as nobody tries to GC...
     if (!iterator->can_access_heap_objects_) return JAVA_SCRIPT;
-    Code::Kind kind = GetContainingCode(iterator->isolate(),
-                                        *(state->pc_address))->kind();
-    DCHECK(kind == Code::FUNCTION || kind == Code::OPTIMIZED_FUNCTION);
-    return (kind == Code::OPTIMIZED_FUNCTION) ? OPTIMIZED : JAVA_SCRIPT;
+    Code* code_obj =
+        GetContainingCode(iterator->isolate(), *(state->pc_address));
+    switch (code_obj->kind()) {
+      case Code::FUNCTION:
+        return JAVA_SCRIPT;
+
+      case Code::HANDLER:
+#ifdef DEBUG
+        if (!code_obj->is_hydrogen_stub()) {
+          // There's currently no support for non-hydrogen stub handlers. If
+          // you this, you'll have to implement it yourself.
+          UNREACHABLE();
+        }
+#endif
+      case Code::OPTIMIZED_FUNCTION:
+        return OPTIMIZED;
+
+      default:
+        UNREACHABLE();
+        return JAVA_SCRIPT;
+    }
   }
   return static_cast<StackFrame::Type>(Smi::cast(marker)->value());
 }
@@ -863,16 +880,6 @@ void FrameSummary::Print() {
 }
 
 
-JSFunction* OptimizedFrame::LiteralAt(FixedArray* literal_array,
-                                      int literal_id) {
-  if (literal_id == Translation::kSelfLiteralId) {
-    return function();
-  }
-
-  return JSFunction::cast(literal_array->get(literal_id));
-}
-
-
 void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
   DCHECK(frames->length() == 0);
   DCHECK(is_optimized());
@@ -884,65 +891,61 @@ void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
     return JavaScriptFrame::Summarize(frames);
   }
 
+  DisallowHeapAllocation no_gc;
   int deopt_index = Safepoint::kNoDeoptimizationIndex;
-  DeoptimizationInputData* data = GetDeoptimizationData(&deopt_index);
-  FixedArray* literal_array = data->LiteralArray();
-
-  // BUG(3243555): Since we don't have a lazy-deopt registered at
-  // throw-statements, we can't use the translation at the call-site of
-  // throw. An entry with no deoptimization index indicates a call-site
-  // without a lazy-deopt. As a consequence we are not allowed to inline
-  // functions containing throw.
-  DCHECK(deopt_index != Safepoint::kNoDeoptimizationIndex);
+  DeoptimizationInputData* const data = GetDeoptimizationData(&deopt_index);
+  FixedArray* const literal_array = data->LiteralArray();
 
   TranslationIterator it(data->TranslationByteArray(),
                          data->TranslationIndex(deopt_index)->value());
   Translation::Opcode opcode = static_cast<Translation::Opcode>(it.Next());
-  DCHECK(opcode == Translation::BEGIN);
+  DCHECK_EQ(Translation::BEGIN, opcode);
   it.Next();  // Drop frame count.
   int jsframe_count = it.Next();
 
   // We create the summary in reverse order because the frames
   // in the deoptimization translation are ordered bottom-to-top.
   bool is_constructor = IsConstructor();
-  int i = jsframe_count;
-  while (i > 0) {
+  while (jsframe_count != 0) {
     opcode = static_cast<Translation::Opcode>(it.Next());
     if (opcode == Translation::JS_FRAME) {
-      i--;
-      BailoutId ast_id = BailoutId(it.Next());
-      JSFunction* function = LiteralAt(literal_array, it.Next());
+      jsframe_count--;
+      BailoutId const ast_id = BailoutId(it.Next());
+      SharedFunctionInfo* const shared_info =
+          SharedFunctionInfo::cast(literal_array->get(it.Next()));
       it.Next();  // Skip height.
 
-      // The translation commands are ordered and the receiver is always
-      // at the first position.
+      // The translation commands are ordered and the function is always
+      // at the first position, and the receiver is next.
+      opcode = static_cast<Translation::Opcode>(it.Next());
+
+      // Get the correct function in the optimized frame.
+      JSFunction* function;
+      if (opcode == Translation::LITERAL) {
+        function = JSFunction::cast(literal_array->get(it.Next()));
+      } else if (opcode == Translation::STACK_SLOT) {
+        function = JSFunction::cast(StackSlotAt(it.Next()));
+      } else {
+        CHECK_EQ(Translation::JS_FRAME_FUNCTION, opcode);
+        function = this->function();
+      }
+      DCHECK_EQ(shared_info, function->shared());
+
       // If we are at a call, the receiver is always in a stack slot.
       // Otherwise we are not guaranteed to get the receiver value.
       opcode = static_cast<Translation::Opcode>(it.Next());
-      int index = it.Next();
 
       // Get the correct receiver in the optimized frame.
-      Object* receiver = NULL;
+      Object* receiver;
       if (opcode == Translation::LITERAL) {
-        receiver = data->LiteralArray()->get(index);
+        receiver = literal_array->get(it.Next());
       } else if (opcode == Translation::STACK_SLOT) {
-        // Positive index means the value is spilled to the locals
-        // area. Negative means it is stored in the incoming parameter
-        // area.
-        if (index >= 0) {
-          receiver = GetExpression(index);
-        } else {
-          // Index -1 overlaps with last parameter, -n with the first parameter,
-          // (-n - 1) with the receiver with n being the number of parameters
-          // of the outermost, optimized frame.
-          int parameter_count = ComputeParametersCount();
-          int parameter_index = index + parameter_count;
-          receiver = (parameter_index == -1)
-              ? this->receiver()
-              : this->GetParameter(parameter_index);
-        }
+        receiver = StackSlotAt(it.Next());
+      } else if (opcode == Translation::JS_FRAME_FUNCTION) {
+        receiver = this->function();
       } else {
         // The receiver is not in a stack slot nor in a literal.  We give up.
+        it.Skip(Translation::NumberOfOperandsFor(opcode));
         // TODO(3029): Materializing a captured object (or duplicated
         // object) is hard, we return undefined for now. This breaks the
         // produced stack trace, as constructor frames aren't marked as
@@ -950,15 +953,14 @@ void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
         receiver = isolate()->heap()->undefined_value();
       }
 
-      Code* code = function->shared()->code();
-      DeoptimizationOutputData* output_data =
+      Code* const code = shared_info->code();
+      DeoptimizationOutputData* const output_data =
           DeoptimizationOutputData::cast(code->deoptimization_data());
-      unsigned entry = Deoptimizer::GetOutputInfo(output_data,
-                                                  ast_id,
-                                                  function->shared());
-      unsigned pc_offset =
+      unsigned const entry =
+          Deoptimizer::GetOutputInfo(output_data, ast_id, shared_info);
+      unsigned const pc_offset =
           FullCodeGenerator::PcField::decode(entry) + Code::kHeaderSize;
-      DCHECK(pc_offset > 0);
+      DCHECK_NE(0, pc_offset);
 
       FrameSummary summary(receiver, function, code, pc_offset, is_constructor);
       frames->Add(summary);
@@ -1013,30 +1015,6 @@ DeoptimizationInputData* OptimizedFrame::GetDeoptimizationData(
 }
 
 
-int OptimizedFrame::GetInlineCount() {
-  DCHECK(is_optimized());
-
-  // Delegate to JS frame in absence of turbofan deoptimization.
-  // TODO(turbofan): Revisit once we support deoptimization across the board.
-  if (LookupCode()->is_turbofanned() && function()->shared()->asm_function() &&
-      !FLAG_turbo_asm_deoptimization) {
-    return JavaScriptFrame::GetInlineCount();
-  }
-
-  int deopt_index = Safepoint::kNoDeoptimizationIndex;
-  DeoptimizationInputData* data = GetDeoptimizationData(&deopt_index);
-
-  TranslationIterator it(data->TranslationByteArray(),
-                         data->TranslationIndex(deopt_index)->value());
-  Translation::Opcode opcode = static_cast<Translation::Opcode>(it.Next());
-  DCHECK(opcode == Translation::BEGIN);
-  USE(opcode);
-  it.Next();  // Drop frame count.
-  int jsframe_count = it.Next();
-  return jsframe_count;
-}
-
-
 void OptimizedFrame::GetFunctions(List<JSFunction*>* functions) {
   DCHECK(functions->length() == 0);
   DCHECK(is_optimized());
@@ -1048,32 +1026,59 @@ void OptimizedFrame::GetFunctions(List<JSFunction*>* functions) {
     return JavaScriptFrame::GetFunctions(functions);
   }
 
+  DisallowHeapAllocation no_gc;
   int deopt_index = Safepoint::kNoDeoptimizationIndex;
-  DeoptimizationInputData* data = GetDeoptimizationData(&deopt_index);
-  FixedArray* literal_array = data->LiteralArray();
+  DeoptimizationInputData* const data = GetDeoptimizationData(&deopt_index);
+  FixedArray* const literal_array = data->LiteralArray();
 
   TranslationIterator it(data->TranslationByteArray(),
                          data->TranslationIndex(deopt_index)->value());
   Translation::Opcode opcode = static_cast<Translation::Opcode>(it.Next());
-  DCHECK(opcode == Translation::BEGIN);
-  it.Next();  // Drop frame count.
+  DCHECK_EQ(Translation::BEGIN, opcode);
+  it.Next();  // Skip frame count.
   int jsframe_count = it.Next();
 
   // We insert the frames in reverse order because the frames
   // in the deoptimization translation are ordered bottom-to-top.
-  while (jsframe_count > 0) {
+  while (jsframe_count != 0) {
     opcode = static_cast<Translation::Opcode>(it.Next());
+    // Skip over operands to advance to the next opcode.
+    it.Skip(Translation::NumberOfOperandsFor(opcode));
     if (opcode == Translation::JS_FRAME) {
       jsframe_count--;
-      it.Next();  // Skip ast id.
-      JSFunction* function = LiteralAt(literal_array, it.Next());
-      it.Next();  // Skip height.
-      functions->Add(function);
-    } else {
-      // Skip over operands to advance to the next opcode.
-      it.Skip(Translation::NumberOfOperandsFor(opcode));
+
+      // The translation commands are ordered and the function is always at the
+      // first position.
+      opcode = static_cast<Translation::Opcode>(it.Next());
+
+      // Get the correct function in the optimized frame.
+      Object* function;
+      if (opcode == Translation::LITERAL) {
+        function = literal_array->get(it.Next());
+      } else if (opcode == Translation::STACK_SLOT) {
+        function = StackSlotAt(it.Next());
+      } else {
+        CHECK_EQ(Translation::JS_FRAME_FUNCTION, opcode);
+        function = this->function();
+      }
+      functions->Add(JSFunction::cast(function));
     }
   }
+}
+
+
+Object* OptimizedFrame::StackSlotAt(int index) const {
+  // Positive index means the value is spilled to the locals
+  // area. Negative means it is stored in the incoming parameter
+  // area.
+  if (index >= 0) return GetExpression(index);
+
+  // Index -1 overlaps with last parameter, -n with the first parameter,
+  // (-n - 1) with the receiver with n being the number of parameters
+  // of the outermost, optimized frame.
+  int const parameter_count = ComputeParametersCount();
+  int const parameter_index = index + parameter_count;
+  return (parameter_index == -1) ? receiver() : GetParameter(parameter_index);
 }
 
 
@@ -1115,6 +1120,24 @@ void StackFrame::PrintIndex(StringStream* accumulator,
 }
 
 
+namespace {
+
+
+void PrintFunctionSource(StringStream* accumulator, SharedFunctionInfo* shared,
+                         Code* code) {
+  if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
+    std::ostringstream os;
+    os << "--------- s o u r c e   c o d e ---------\n"
+       << SourceCodeOf(shared, FLAG_max_stack_trace_source_length)
+       << "\n-----------------------------------------\n";
+    accumulator->Add(os.str().c_str());
+  }
+}
+
+
+}  // namespace
+
+
 void JavaScriptFrame::Print(StringStream* accumulator,
                             PrintMode mode,
                             int index) const {
@@ -1152,7 +1175,7 @@ void JavaScriptFrame::Print(StringStream* accumulator,
       accumulator->Add(":~%d", line);
     }
 
-    accumulator->Add("] ");
+    accumulator->Add("] [pc=%p] ", pc);
   }
 
   accumulator->Add("(this=%o", receiver);
@@ -1177,7 +1200,9 @@ void JavaScriptFrame::Print(StringStream* accumulator,
     return;
   }
   if (is_optimized()) {
-    accumulator->Add(" {\n// optimized frame\n}\n");
+    accumulator->Add(" {\n// optimized frame\n");
+    PrintFunctionSource(accumulator, shared, code);
+    accumulator->Add("}\n");
     return;
   }
   accumulator->Add(" {\n");
@@ -1244,15 +1269,7 @@ void JavaScriptFrame::Print(StringStream* accumulator,
     accumulator->Add("  [%02d] : %o\n", i, GetExpression(i));
   }
 
-  // Print details about the function.
-  if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
-    std::ostringstream os;
-    SharedFunctionInfo* shared = function->shared();
-    os << "--------- s o u r c e   c o d e ---------\n"
-       << SourceCodeOf(shared, FLAG_max_stack_trace_source_length)
-       << "\n-----------------------------------------\n";
-    accumulator->Add(os.str().c_str());
-  }
+  PrintFunctionSource(accumulator, shared, code);
 
   accumulator->Add("}\n\n");
 }

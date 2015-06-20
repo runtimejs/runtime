@@ -107,17 +107,25 @@ class JSBinopReduction final {
     // already converted values from full code. This way we are sure that we
     // will not re-do any of the side effects.
 
-    Node* left_input =
-        left_type()->Is(Type::PlainPrimitive())
-            ? ConvertPlainPrimitiveToNumber(left())
-            : ConvertToNumber(left(),
-                              CreateFrameStateForLeftInput(frame_state));
+    Node* left_input = nullptr;
+    Node* right_input = nullptr;
+    bool left_is_primitive = left_type()->Is(Type::PlainPrimitive());
+    bool right_is_primitive = right_type()->Is(Type::PlainPrimitive());
+    bool handles_exception = NodeProperties::IsExceptionalCall(node_);
 
-    Node* right_input =
-        right_type()->Is(Type::PlainPrimitive())
-            ? ConvertPlainPrimitiveToNumber(right())
-            : ConvertToNumber(right(), CreateFrameStateForRightInput(
+    if (!left_is_primitive && !right_is_primitive && handles_exception) {
+      ConvertBothInputsToNumber(&left_input, &right_input, frame_state);
+    } else {
+      left_input = left_is_primitive
+                       ? ConvertPlainPrimitiveToNumber(left())
+                       : ConvertSingleInputToNumber(
+                             left(), CreateFrameStateForLeftInput(frame_state));
+      right_input = right_is_primitive
+                        ? ConvertPlainPrimitiveToNumber(right())
+                        : ConvertSingleInputToNumber(
+                              right(), CreateFrameStateForRightInput(
                                            frame_state, left_input));
+    }
 
     node_->ReplaceInput(0, left_input);
     node_->ReplaceInput(1, right_input);
@@ -226,6 +234,7 @@ class JSBinopReduction final {
   JSGraph* jsgraph() { return lowering_->jsgraph(); }
   JSOperatorBuilder* javascript() { return lowering_->javascript(); }
   MachineOperatorBuilder* machine() { return lowering_->machine(); }
+  CommonOperatorBuilder* common() { return jsgraph()->common(); }
   Zone* zone() const { return graph()->zone(); }
 
  private:
@@ -262,7 +271,7 @@ class JSBinopReduction final {
     // left operand.
     const Operator* op = jsgraph()->common()->FrameState(
         state_info.type(), state_info.bailout_id(),
-        OutputFrameStateCombine::PokeAt(1));
+        OutputFrameStateCombine::PokeAt(1), state_info.shared_info());
 
     return graph()->NewNode(op,
                             frame_state->InputAt(kFrameStateParametersInput),
@@ -286,7 +295,7 @@ class JSBinopReduction final {
     // top of the stack (i.e., the slot used for the right operand).
     const Operator* op = jsgraph()->common()->FrameState(
         state_info.type(), state_info.bailout_id(),
-        OutputFrameStateCombine::PokeAt(0));
+        OutputFrameStateCombine::PokeAt(0), state_info.shared_info());
 
     // Change the left operand {converted_left} on the expression stack.
     Node* stack = frame_state->InputAt(2);
@@ -324,16 +333,61 @@ class JSBinopReduction final {
         jsgraph()->EmptyFrameState(), graph()->start(), graph()->start());
   }
 
-  Node* ConvertToNumber(Node* node, Node* frame_state) {
-    if (NodeProperties::GetBounds(node).upper->Is(Type::PlainPrimitive())) {
-      return ConvertPlainPrimitiveToNumber(node);
-    } else {
-      Node* const n =
-          graph()->NewNode(javascript()->ToNumber(), node, context(),
-                           frame_state, effect(), control());
-      update_effect(n);
-      return n;
+  Node* ConvertSingleInputToNumber(Node* node, Node* frame_state) {
+    DCHECK(!NodeProperties::GetBounds(node).upper->Is(Type::PlainPrimitive()));
+    Node* const n = graph()->NewNode(javascript()->ToNumber(), node, context(),
+                                     frame_state, effect(), control());
+    NodeProperties::ReplaceUses(node_, node_, node_, n, n);
+    update_effect(n);
+    return n;
+  }
+
+  void ConvertBothInputsToNumber(Node** left_result, Node** right_result,
+                                 Node* frame_state) {
+    Node* projections[2];
+
+    // Find {IfSuccess} and {IfException} continuations of the operation.
+    NodeProperties::CollectControlProjections(node_, projections, 2);
+    IfExceptionHint hint = OpParameter<IfExceptionHint>(projections[1]);
+    Node* if_exception = projections[1];
+    Node* if_success = projections[0];
+
+    // Insert two ToNumber() operations that both potentially throw.
+    Node* left_state = CreateFrameStateForLeftInput(frame_state);
+    Node* left_conv =
+        graph()->NewNode(javascript()->ToNumber(), left(), context(),
+                         left_state, effect(), control());
+    Node* left_success = graph()->NewNode(common()->IfSuccess(), left_conv);
+    Node* right_state = CreateFrameStateForRightInput(frame_state, left_conv);
+    Node* right_conv =
+        graph()->NewNode(javascript()->ToNumber(), right(), context(),
+                         right_state, left_conv, left_success);
+    Node* left_exception =
+        graph()->NewNode(common()->IfException(hint), left_conv, left_conv);
+    Node* right_exception =
+        graph()->NewNode(common()->IfException(hint), right_conv, right_conv);
+    NodeProperties::ReplaceControlInput(if_success, right_conv);
+    update_effect(right_conv);
+
+    // Wire conversions to existing {IfException} continuation.
+    Node* exception_merge = if_exception;
+    Node* exception_value =
+        graph()->NewNode(common()->Phi(kMachAnyTagged, 2), left_exception,
+                         right_exception, exception_merge);
+    Node* exception_effect =
+        graph()->NewNode(common()->EffectPhi(2), left_exception,
+                         right_exception, exception_merge);
+    for (Edge edge : exception_merge->use_edges()) {
+      if (NodeProperties::IsEffectEdge(edge)) edge.UpdateTo(exception_effect);
+      if (NodeProperties::IsValueEdge(edge)) edge.UpdateTo(exception_value);
     }
+    NodeProperties::RemoveBounds(exception_merge);
+    exception_merge->ReplaceInput(0, left_exception);
+    exception_merge->ReplaceInput(1, right_exception);
+    exception_merge->set_op(common()->Merge(2));
+
+    *left_result = left_conv;
+    *right_result = right_conv;
   }
 
   Node* ConvertToUI32(Node* node, Signedness signedness) {
@@ -770,7 +824,7 @@ Reduction JSTypedLowering::ReduceJSLoadProperty(Node* node) {
   Node* key = NodeProperties::GetValueInput(node, 1);
   Node* base = NodeProperties::GetValueInput(node, 0);
   Type* key_type = NodeProperties::GetBounds(key).upper;
-  HeapObjectMatcher<Object> mbase(base);
+  HeapObjectMatcher mbase(base);
   if (mbase.HasValue() && mbase.Value().handle()->IsJSTypedArray()) {
     Handle<JSTypedArray> const array =
         Handle<JSTypedArray>::cast(mbase.Value().handle());
@@ -817,7 +871,7 @@ Reduction JSTypedLowering::ReduceJSStoreProperty(Node* node) {
   Node* value = NodeProperties::GetValueInput(node, 2);
   Type* key_type = NodeProperties::GetBounds(key).upper;
   Type* value_type = NodeProperties::GetBounds(value).upper;
-  HeapObjectMatcher<Object> mbase(base);
+  HeapObjectMatcher mbase(base);
   if (mbase.HasValue() && mbase.Value().handle()->IsJSTypedArray()) {
     Handle<JSTypedArray> const array =
         Handle<JSTypedArray>::cast(mbase.Value().handle());
@@ -936,6 +990,7 @@ Reduction JSTypedLowering::ReduceJSStoreContext(Node* node) {
 Reduction JSTypedLowering::ReduceJSLoadDynamicGlobal(Node* node) {
   DCHECK_EQ(IrOpcode::kJSLoadDynamicGlobal, node->opcode());
   DynamicGlobalAccess const& access = DynamicGlobalAccessOf(node->op());
+  Node* const vector = NodeProperties::GetValueInput(node, 0);
   Node* const context = NodeProperties::GetContextInput(node);
   Node* const state1 = NodeProperties::GetFrameStateInput(node, 0);
   Node* const state2 = NodeProperties::GetFrameStateInput(node, 1);
@@ -971,14 +1026,71 @@ Reduction JSTypedLowering::ReduceJSLoadDynamicGlobal(Node* node) {
       context, effect);
   Node* fast = graph()->NewNode(
       javascript()->LoadNamed(name, access.feedback(), access.mode()), global,
-      context, state1, state2, global, check_true);
+      vector, context, state1, state2, global, check_true);
 
   // Slow case, because variable potentially shadowed. Perform dynamic lookup.
   uint32_t check_bitset = DynamicGlobalAccess::kFullCheckRequired;
   Node* slow = graph()->NewNode(
       javascript()->LoadDynamicGlobal(access.name(), check_bitset,
                                       access.feedback(), access.mode()),
-      context, context, state1, state2, effect, check_false);
+      vector, context, context, state1, state2, effect, check_false);
+
+  // Replace value, effect and control uses accordingly.
+  Node* new_control =
+      graph()->NewNode(common()->Merge(2), check_true, check_false);
+  Node* new_effect =
+      graph()->NewNode(common()->EffectPhi(2), fast, slow, new_control);
+  Node* new_value = graph()->NewNode(common()->Phi(kMachAnyTagged, 2), fast,
+                                     slow, new_control);
+  ReplaceWithValue(node, new_value, new_effect, new_control);
+  return Changed(new_value);
+}
+
+
+Reduction JSTypedLowering::ReduceJSLoadDynamicContext(Node* node) {
+  DCHECK_EQ(IrOpcode::kJSLoadDynamicContext, node->opcode());
+  DynamicContextAccess const& access = DynamicContextAccessOf(node->op());
+  ContextAccess const& context_access = access.context_access();
+  Node* const context = NodeProperties::GetContextInput(node);
+  Node* const state = NodeProperties::GetFrameStateInput(node, 0);
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+  if (access.RequiresFullCheck()) return NoChange();
+
+  // Perform checks whether the fast mode applies, by looking for any extension
+  // object which might shadow the optimistic declaration.
+  uint32_t bitset = access.check_bitset();
+  Node* check_true = control;
+  Node* check_false = graph()->NewNode(common()->Merge(0));
+  for (int depth = 0; bitset != 0; bitset >>= 1, depth++) {
+    if ((bitset & 1) == 0) continue;
+    Node* load = graph()->NewNode(
+        javascript()->LoadContext(depth, Context::EXTENSION_INDEX, false),
+        context, context, effect);
+    Node* check = graph()->NewNode(simplified()->ReferenceEqual(Type::Tagged()),
+                                   load, jsgraph()->ZeroConstant());
+    Node* branch = graph()->NewNode(common()->Branch(BranchHint::kTrue), check,
+                                    check_true);
+    Node* if_true = graph()->NewNode(common()->IfTrue(), branch);
+    Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
+    check_false->set_op(common()->Merge(check_false->InputCount() + 1));
+    check_false->AppendInput(graph()->zone(), if_false);
+    check_true = if_true;
+  }
+
+  // Fast case, because variable is not shadowed. Perform context slot load.
+  Node* fast =
+      graph()->NewNode(javascript()->LoadContext(context_access.depth(),
+                                                 context_access.index(), false),
+                       context, context, effect);
+
+  // Slow case, because variable potentially shadowed. Perform dynamic lookup.
+  uint32_t check_bitset = DynamicContextAccess::kFullCheckRequired;
+  Node* slow =
+      graph()->NewNode(javascript()->LoadDynamicContext(
+                           access.name(), check_bitset, context_access.depth(),
+                           context_access.index()),
+                       context, context, state, effect, check_false);
 
   // Replace value, effect and control uses accordingly.
   Node* new_control =
@@ -1020,8 +1132,8 @@ Reduction JSTypedLowering::ReduceJSCreateClosure(Node* node) {
 
 Reduction JSTypedLowering::ReduceJSCreateLiteralArray(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateLiteralArray, node->opcode());
-  HeapObjectMatcher<FixedArray> mconst(NodeProperties::GetValueInput(node, 2));
-  int length = mconst.Value().handle()->length();
+  HeapObjectMatcher mconst(NodeProperties::GetValueInput(node, 2));
+  int length = Handle<FixedArray>::cast(mconst.Value().handle())->length();
   int flags = OpParameter<int>(node->op());
 
   // Use the FastCloneShallowArrayStub only for shallow boilerplates up to the
@@ -1050,9 +1162,9 @@ Reduction JSTypedLowering::ReduceJSCreateLiteralArray(Node* node) {
 
 Reduction JSTypedLowering::ReduceJSCreateLiteralObject(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateLiteralObject, node->opcode());
-  HeapObjectMatcher<FixedArray> mconst(NodeProperties::GetValueInput(node, 2));
+  HeapObjectMatcher mconst(NodeProperties::GetValueInput(node, 2));
   // Constants are pairs, see ObjectLiteral::properties_count().
-  int length = mconst.Value().handle()->length() / 2;
+  int length = Handle<FixedArray>::cast(mconst.Value().handle())->length() / 2;
   int flags = OpParameter<int>(node->op());
 
   // Use the FastCloneShallowObjectStub only for shallow boilerplates without
@@ -1115,9 +1227,10 @@ Reduction JSTypedLowering::ReduceJSCreateWithContext(Node* node) {
 Reduction JSTypedLowering::ReduceJSCreateBlockContext(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateBlockContext, node->opcode());
   Node* const input = NodeProperties::GetValueInput(node, 0);
-  HeapObjectMatcher<ScopeInfo> minput(input);
+  HeapObjectMatcher minput(input);
   DCHECK(minput.HasValue());  // TODO(mstarzinger): Make ScopeInfo static.
-  int context_length = minput.Value().handle()->ContextLength();
+  int context_length =
+      Handle<ScopeInfo>::cast(minput.Value().handle())->ContextLength();
   if (FLAG_turbo_allocate && context_length < kBlockContextAllocationLimit) {
     // JSCreateBlockContext(s:scope[length < limit], f)
     Node* const effect = NodeProperties::GetEffectInput(node);
@@ -1146,6 +1259,39 @@ Reduction JSTypedLowering::ReduceJSCreateBlockContext(Node* node) {
     node->set_op(common()->Finish(1));
     node->TrimInputCount(2);
     return Changed(node);
+  }
+  return NoChange();
+}
+
+
+Reduction JSTypedLowering::ReduceJSCallFunction(Node* node) {
+  DCHECK_EQ(IrOpcode::kJSCallFunction, node->opcode());
+  CallFunctionParameters const& p = CallFunctionParametersOf(node->op());
+  int const arity = static_cast<int>(p.arity() - 2);
+  Node* const function = NodeProperties::GetValueInput(node, 0);
+  Type* const function_type = NodeProperties::GetBounds(function).upper;
+  Node* const receiver = NodeProperties::GetValueInput(node, 1);
+  Type* const receiver_type = NodeProperties::GetBounds(receiver).upper;
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+
+  // Check that {function} is actually a JSFunction with the correct arity.
+  if (function_type->IsFunction() &&
+      function_type->AsFunction()->Arity() == arity) {
+    // Check that the {receiver} doesn't need to be wrapped.
+    if (receiver_type->Is(Type::ReceiverOrUndefined())) {
+      Node* const context = graph()->NewNode(
+          simplified()->LoadField(AccessBuilder::ForJSFunctionContext()),
+          function, effect, control);
+      NodeProperties::ReplaceContextInput(node, context);
+      CallDescriptor::Flags flags = CallDescriptor::kNeedsFrameState;
+      if (is_strict(p.language_mode())) {
+        flags |= CallDescriptor::kSupportsTailCalls;
+      }
+      node->set_op(common()->Call(Linkage::GetJSCallDescriptor(
+          graph()->zone(), false, 1 + arity, flags)));
+      return Changed(node);
+    }
   }
   return NoChange();
 }
@@ -1290,8 +1436,14 @@ Reduction JSTypedLowering::ReduceJSForInPrepare(Node* node) {
       Revisit(use);
     } else {
       if (NodeProperties::IsControlEdge(edge)) {
-        DCHECK_EQ(IrOpcode::kIfSuccess, use->opcode());
-        Replace(use, control);
+        if (use->opcode() == IrOpcode::kIfSuccess) {
+          Replace(use, control);
+        } else if (use->opcode() == IrOpcode::kIfException) {
+          edge.UpdateTo(cache_type_true0);
+          continue;
+        } else {
+          UNREACHABLE();
+        }
       } else {
         DCHECK(NodeProperties::IsValueEdge(edge));
         DCHECK_EQ(IrOpcode::kProjection, use->opcode());
@@ -1501,6 +1653,8 @@ Reduction JSTypedLowering::Reduce(Node* node) {
       return ReduceJSStoreContext(node);
     case IrOpcode::kJSLoadDynamicGlobal:
       return ReduceJSLoadDynamicGlobal(node);
+    case IrOpcode::kJSLoadDynamicContext:
+      return ReduceJSLoadDynamicContext(node);
     case IrOpcode::kJSCreateClosure:
       return ReduceJSCreateClosure(node);
     case IrOpcode::kJSCreateLiteralArray:
@@ -1511,6 +1665,8 @@ Reduction JSTypedLowering::Reduce(Node* node) {
       return ReduceJSCreateWithContext(node);
     case IrOpcode::kJSCreateBlockContext:
       return ReduceJSCreateBlockContext(node);
+    case IrOpcode::kJSCallFunction:
+      return ReduceJSCallFunction(node);
     case IrOpcode::kJSForInDone:
       return ReduceJSForInDone(node);
     case IrOpcode::kJSForInNext:

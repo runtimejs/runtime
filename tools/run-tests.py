@@ -301,12 +301,22 @@ def BuildOptions():
   result.add_option("--junittestsuite",
                     help="The testsuite name in the JUnit output file",
                     default="v8tests")
-  result.add_option("--random-seed", default=0, dest="random_seed",
+  result.add_option("--random-seed", default=0, dest="random_seed", type="int",
                     help="Default seed for initializing random generator")
+  result.add_option("--random-seed-stress-count", default=1, type="int",
+                    dest="random_seed_stress_count",
+                    help="Number of runs with different random seeds")
   result.add_option("--msan",
                     help="Regard test expectations for MSAN",
                     default=False, action="store_true")
   return result
+
+
+def RandomSeed():
+  seed = 0
+  while not seed:
+    seed = random.SystemRandom().randint(-2147483648, 2147483647)
+  return seed
 
 
 def ProcessOptions(options):
@@ -373,8 +383,8 @@ def ProcessOptions(options):
   if options.j == 0:
     options.j = multiprocessing.cpu_count()
 
-  while options.random_seed == 0:
-    options.random_seed = random.SystemRandom().randint(-2147483648, 2147483647)
+  if options.random_seed_stress_count <= 1 and options.random_seed == 0:
+    options.random_seed = RandomSeed()
 
   def excl(*args):
     """Returns true if zero or one of multiple arguments are true."""
@@ -584,7 +594,6 @@ def Execute(arch, mode, args, options, suites, workspace):
   }
   all_tests = []
   num_tests = 0
-  test_id = 0
   for s in suites:
     s.ReadStatusFile(variables)
     s.ReadTestCases(ctx)
@@ -597,14 +606,30 @@ def Execute(arch, mode, args, options, suites, workspace):
       verbose.PrintTestSource(s.tests)
       continue
     variant_flags = [VARIANT_FLAGS[var] for var in VARIANTS]
-    s.tests = [ t.CopyAddingFlags(v)
-                for t in s.tests
-                for v in s.VariantFlags(t, variant_flags) ]
+    variant_tests = [ t.CopyAddingFlags(v)
+                      for t in s.tests
+                      for v in s.VariantFlags(t, variant_flags) ]
+
+    if options.random_seed_stress_count > 1:
+      # Duplicate test for random seed stress mode.
+      def iter_seed_flags():
+        for i in range(0, options.random_seed_stress_count):
+          # Use given random seed for all runs (set by default in execution.py)
+          # or a new random seed if none is specified.
+          if options.random_seed:
+            yield []
+          else:
+            yield ["--random-seed=%d" % RandomSeed()]
+      s.tests = [
+        t.CopyAddingFlags(v)
+        for t in variant_tests
+        for v in iter_seed_flags()
+      ]
+    else:
+      s.tests = variant_tests
+
     s.tests = ShardTests(s.tests, options.shard_count, options.shard_run)
     num_tests += len(s.tests)
-    for t in s.tests:
-      t.id = test_id
-      test_id += 1
 
   if options.cat:
     return 0  # We're done here.
@@ -614,14 +639,14 @@ def Execute(arch, mode, args, options, suites, workspace):
 
   # Run the tests, either locally or distributed on the network.
   start_time = time.time()
-  progress_indicator = progress.PROGRESS_INDICATORS[options.progress]()
+  progress_indicator = progress.IndicatorNotifier()
+  progress_indicator.Register(progress.PROGRESS_INDICATORS[options.progress]())
   if options.junitout:
-    progress_indicator = progress.JUnitTestProgressIndicator(
-        progress_indicator, options.junitout, options.junittestsuite)
+    progress_indicator.Register(progress.JUnitTestProgressIndicator(
+        options.junitout, options.junittestsuite))
   if options.json_test_results:
-    progress_indicator = progress.JsonTestProgressIndicator(
-        progress_indicator, options.json_test_results, arch,
-        MODES[mode]["execution_mode"])
+    progress_indicator.Register(progress.JsonTestProgressIndicator(
+        options.json_test_results, arch, MODES[mode]["execution_mode"]))
 
   run_networked = not options.no_network
   if not run_networked:

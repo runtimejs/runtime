@@ -34,7 +34,8 @@ void Runtime::SetupArrayBuffer(Isolate* isolate,
   array_buffer->set_byte_length(*byte_length);
 
   if (data && !is_external) {
-    isolate->heap()->RegisterNewArrayBuffer(data, allocated_length);
+    isolate->heap()->RegisterNewArrayBuffer(
+        isolate->heap()->InNewSpace(*array_buffer), data, allocated_length);
   }
 }
 
@@ -144,13 +145,14 @@ RUNTIME_FUNCTION(Runtime_ArrayBufferNeuter) {
     return isolate->heap()->undefined_value();
   }
   // Shared array buffers should never be neutered.
-  DCHECK(!array_buffer->is_shared());
+  RUNTIME_ASSERT(!array_buffer->is_shared());
   DCHECK(!array_buffer->is_external());
   void* backing_store = array_buffer->backing_store();
   size_t byte_length = NumberToSize(isolate, array_buffer->byte_length());
   array_buffer->set_is_external(true);
   Runtime::NeuterArrayBuffer(array_buffer);
-  isolate->heap()->UnregisterArrayBuffer(backing_store);
+  isolate->heap()->UnregisterArrayBuffer(
+      isolate->heap()->InNewSpace(*array_buffer), backing_store);
   isolate->array_buffer_allocator()->Free(backing_store, byte_length);
   return isolate->heap()->undefined_value();
 }

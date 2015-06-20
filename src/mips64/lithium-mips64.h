@@ -19,7 +19,9 @@ class LCodeGen;
 
 #define LITHIUM_CONCRETE_INSTRUCTION_LIST(V) \
   V(AccessArgumentsAt)                       \
+  V(AddE)                                    \
   V(AddI)                                    \
+  V(AddS)                                    \
   V(Allocate)                                \
   V(AllocateBlockContext)                    \
   V(ApplyArguments)                          \
@@ -122,6 +124,7 @@ class LCodeGen;
   V(ModByPowerOf2I)                          \
   V(ModI)                                    \
   V(MulI)                                    \
+  V(MulS)                                    \
   V(MultiplyAddD)                            \
   V(NumberTagD)                              \
   V(NumberTagU)                              \
@@ -150,6 +153,7 @@ class LCodeGen;
   V(StringCharFromCode)                      \
   V(StringCompareAndBranch)                  \
   V(SubI)                                    \
+  V(SubS)                                    \
   V(TaggedToI)                               \
   V(ThisFunction)                            \
   V(ToFastProperties)                        \
@@ -753,6 +757,21 @@ class LFlooringDivI final : public LTemplateInstruction<1, 2, 0> {
 };
 
 
+class LMulS final : public LTemplateInstruction<1, 2, 0> {
+ public:
+  LMulS(LOperand* left, LOperand* right) {
+    inputs_[0] = left;
+    inputs_[1] = right;
+  }
+
+  LOperand* left() { return inputs_[0]; }
+  LOperand* right() { return inputs_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(MulS, "mul-s")
+  DECLARE_HYDROGEN_ACCESSOR(Mul)
+};
+
+
 class LMulI final : public LTemplateInstruction<1, 2, 0> {
  public:
   LMulI(LOperand* left, LOperand* right) {
@@ -1153,7 +1172,7 @@ class LCmpT final : public LTemplateInstruction<1, 3, 0> {
   DECLARE_CONCRETE_INSTRUCTION(CmpT, "cmp-t")
   DECLARE_HYDROGEN_ACCESSOR(CompareGeneric)
 
-  LanguageMode language_mode() { return hydrogen()->language_mode(); }
+  Strength strength() { return hydrogen()->strength(); }
 
   Token::Value op() const { return hydrogen()->token(); }
 };
@@ -1269,6 +1288,21 @@ class LSubI final : public LTemplateInstruction<1, 2, 0> {
   LOperand* right() { return inputs_[1]; }
 
   DECLARE_CONCRETE_INSTRUCTION(SubI, "sub-i")
+  DECLARE_HYDROGEN_ACCESSOR(Sub)
+};
+
+
+class LSubS final : public LTemplateInstruction<1, 2, 0> {
+ public:
+  LSubS(LOperand* left, LOperand* right) {
+    inputs_[0] = left;
+    inputs_[1] = right;
+  }
+
+  LOperand* left() { return inputs_[0]; }
+  LOperand* right() { return inputs_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(SubS, "sub-s")
   DECLARE_HYDROGEN_ACCESSOR(Sub)
 };
 
@@ -1421,6 +1455,21 @@ class LSeqStringSetChar final : public LTemplateInstruction<1, 4, 0> {
 };
 
 
+class LAddE final : public LTemplateInstruction<1, 2, 0> {
+ public:
+  LAddE(LOperand* left, LOperand* right) {
+    inputs_[0] = left;
+    inputs_[1] = right;
+  }
+
+  LOperand* left() { return inputs_[0]; }
+  LOperand* right() { return inputs_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(AddE, "add-e")
+  DECLARE_HYDROGEN_ACCESSOR(Add)
+};
+
+
 class LAddI final : public LTemplateInstruction<1, 2, 0> {
  public:
   LAddI(LOperand* left, LOperand* right) {
@@ -1432,6 +1481,21 @@ class LAddI final : public LTemplateInstruction<1, 2, 0> {
   LOperand* right() { return inputs_[1]; }
 
   DECLARE_CONCRETE_INSTRUCTION(AddI, "add-i")
+  DECLARE_HYDROGEN_ACCESSOR(Add)
+};
+
+
+class LAddS final : public LTemplateInstruction<1, 2, 0> {
+ public:
+  LAddS(LOperand* left, LOperand* right) {
+    inputs_[0] = left;
+    inputs_[1] = right;
+  }
+
+  LOperand* left() { return inputs_[0]; }
+  LOperand* right() { return inputs_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(AddS, "add-s")
   DECLARE_HYDROGEN_ACCESSOR(Add)
 };
 
@@ -1510,7 +1574,7 @@ class LArithmeticT final : public LTemplateInstruction<1, 3, 0> {
 
   DECLARE_HYDROGEN_ACCESSOR(BinaryOperation)
 
-  LanguageMode language_mode() { return hydrogen()->language_mode(); }
+  Strength strength() { return hydrogen()->strength(); }
 
  private:
   Token::Value op_;

@@ -117,8 +117,8 @@ class JSGraph : public ZoneObject {
   // cannot deopt.
   Node* EmptyFrameState();
 
-  // Create a control node that serves as control dependency for dead nodes.
-  Node* DeadControl();
+  // Create a control node that serves as dependency for dead nodes.
+  Node* Dead();
 
   JSOperatorBuilder* javascript() const { return javascript_; }
   CommonOperatorBuilder* common() const { return common_; }
@@ -142,7 +142,7 @@ class JSGraph : public ZoneObject {
     kOneConstant,
     kNaNConstant,
     kEmptyFrameState,
-    kDeadControl,
+    kDead,
     kNumCachedNodes  // Must remain last.
   };
 

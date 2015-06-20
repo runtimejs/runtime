@@ -774,8 +774,7 @@ void Isolate::ReportFailedAccessCheck(Handle<JSObject> receiver) {
 
 bool Isolate::IsInternallyUsedPropertyName(Handle<Object> name) {
   if (name->IsSymbol()) {
-    return Handle<Symbol>::cast(name)->is_private() &&
-           Handle<Symbol>::cast(name)->is_own();
+    return Handle<Symbol>::cast(name)->is_private();
   }
   return name.is_identical_to(factory()->hidden_string());
 }
@@ -783,7 +782,7 @@ bool Isolate::IsInternallyUsedPropertyName(Handle<Object> name) {
 
 bool Isolate::IsInternallyUsedPropertyName(Object* name) {
   if (name->IsSymbol()) {
-    return Symbol::cast(name)->is_private() && Symbol::cast(name)->is_own();
+    return Symbol::cast(name)->is_private();
   }
   return name == heap()->hidden_string();
 }
@@ -937,6 +936,9 @@ void ReportBootstrappingException(Handle<Object> exception,
         "Extension or internal compilation error in %s at line %d.\n",
         String::cast(location->script()->name())->ToCString().get(),
         line_number);
+  } else if (exception->IsString()) {
+    base::OS::PrintError("Extension or internal compilation error: %s.\n",
+                         String::cast(*exception)->ToCString().get());
   } else {
     base::OS::PrintError("Extension or internal compilation error.\n");
   }
@@ -2379,11 +2381,11 @@ CodeTracer* Isolate::GetCodeTracer() {
 }
 
 
-Map* Isolate::get_initial_js_array_map(ElementsKind kind,
-                                       ObjectStrength strength) {
+Map* Isolate::get_initial_js_array_map(ElementsKind kind, Strength strength) {
   Context* native_context = context()->native_context();
-  Object* maybe_map_array = strength ? native_context->js_array_strong_maps()
-                                     : native_context->js_array_maps();
+  Object* maybe_map_array = is_strong(strength)
+                                ? native_context->js_array_strong_maps()
+                                : native_context->js_array_maps();
   if (!maybe_map_array->IsUndefined()) {
     Object* maybe_transitioned_map =
         FixedArray::cast(maybe_map_array)->get(kind);

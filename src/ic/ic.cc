@@ -564,7 +564,7 @@ void CompareIC::Clear(Isolate* isolate, Address address, Code* target,
   // Only clear CompareICs that can retain objects.
   if (stub.state() != CompareICState::KNOWN_OBJECT) return;
   SetTargetAtAddress(address,
-                     GetRawUninitialized(isolate, stub.op(), stub.strong()),
+                     GetRawUninitialized(isolate, stub.op(), stub.strength()),
                      constant_pool);
   PatchInlinedSmiCode(address, DISABLE_INLINED_SMI_CHECK);
 }
@@ -1226,7 +1226,7 @@ static Handle<Object> TryConvertKey(Handle<Object> key, Isolate* isolate) {
     } else {
       int int_value = FastD2I(value);
       if (value == int_value && Smi::IsValid(int_value)) {
-        key = Handle<Smi>(Smi::FromInt(int_value), isolate);
+        key = handle(Smi::FromInt(int_value), isolate);
       }
     }
   } else if (key->IsUndefined()) {
@@ -1480,8 +1480,7 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
     Handle<Object> result;
     ASSIGN_RETURN_ON_EXCEPTION(
         isolate(), result,
-        JSObject::SetElement(receiver, index, value, NONE, language_mode()),
-        Object);
+        JSObject::SetElement(receiver, index, value, language_mode()), Object);
     return value;
   }
 
@@ -2431,7 +2430,7 @@ MaybeHandle<Object> BinaryOpIC::Transition(
 
   // Compute the actual result using the builtin for the binary operation.
   Object* builtin = isolate()->js_builtins_object()->javascript_builtin(
-      TokenToJSBuiltin(state.op(), state.language_mode()));
+      TokenToJSBuiltin(state.op(), state.strength()));
   Handle<JSFunction> function = handle(JSFunction::cast(builtin), isolate());
   Handle<Object> result;
   ASSIGN_RETURN_ON_EXCEPTION(
@@ -2532,8 +2531,8 @@ RUNTIME_FUNCTION(BinaryOpIC_MissWithAllocationSite) {
 
 
 Code* CompareIC::GetRawUninitialized(Isolate* isolate, Token::Value op,
-                                     bool strong) {
-  CompareICStub stub(isolate, op, strong, CompareICState::UNINITIALIZED,
+                                     Strength strength) {
+  CompareICStub stub(isolate, op, strength, CompareICState::UNINITIALIZED,
                      CompareICState::UNINITIALIZED,
                      CompareICState::UNINITIALIZED);
   Code* code = NULL;
@@ -2543,8 +2542,8 @@ Code* CompareIC::GetRawUninitialized(Isolate* isolate, Token::Value op,
 
 
 Handle<Code> CompareIC::GetUninitialized(Isolate* isolate, Token::Value op,
-                                         bool strong) {
-  CompareICStub stub(isolate, op, strong, CompareICState::UNINITIALIZED,
+                                         Strength strength) {
+  CompareICStub stub(isolate, op, strength, CompareICState::UNINITIALIZED,
                      CompareICState::UNINITIALIZED,
                      CompareICState::UNINITIALIZED);
   return stub.GetCode();
@@ -2561,7 +2560,7 @@ Code* CompareIC::UpdateCaches(Handle<Object> x, Handle<Object> y) {
   CompareICState::State state = CompareICState::TargetState(
       old_stub.state(), old_stub.left(), old_stub.right(), op_,
       HasInlinedSmiCode(address()), x, y);
-  CompareICStub stub(isolate(), op_, old_stub.strong(), new_left, new_right,
+  CompareICStub stub(isolate(), op_, old_stub.strength(), new_left, new_right,
                      state);
   if (state == CompareICState::KNOWN_OBJECT) {
     stub.set_known_map(
@@ -2671,8 +2670,8 @@ RUNTIME_FUNCTION(Unreachable) {
 
 
 Builtins::JavaScript BinaryOpIC::TokenToJSBuiltin(Token::Value op,
-                                                  LanguageMode language_mode) {
-  if (is_strong(language_mode)) {
+                                                  Strength strength) {
+  if (is_strong(strength)) {
     switch (op) {
       default: UNREACHABLE();
       case Token::ADD: return Builtins::ADD_STRONG;
@@ -2772,10 +2771,11 @@ RUNTIME_FUNCTION(LoadPropertyWithInterceptorOnly) {
       args.at<JSObject>(NamedLoadHandlerCompiler::kInterceptorArgsHolderIndex);
   HandleScope scope(isolate);
   LookupIterator it(receiver, name, holder, LookupIterator::OWN);
-  auto res = JSObject::GetPropertyWithInterceptor(&it);
-  RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
+  bool done;
   Handle<Object> result;
-  if (res.ToHandle(&result)) return *result;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+      isolate, result, JSObject::GetPropertyWithInterceptor(&it, &done));
+  if (done) return *result;
   return isolate->heap()->no_interceptor_result_sentinel();
 }
 

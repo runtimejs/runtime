@@ -1299,6 +1299,15 @@ class IsLoadContextMatcher final : public NodeMatcher {
         access_matcher_(access_matcher),
         context_matcher_(context_matcher) {}
 
+  void DescribeTo(std::ostream* os) const final {
+    NodeMatcher::DescribeTo(os);
+    *os << " whose access (";
+    access_matcher_.DescribeTo(os);
+    *os << ") and context (";
+    context_matcher_.DescribeTo(os);
+    *os << ")";
+  }
+
   bool MatchAndExplain(Node* node, MatchResultListener* listener) const final {
     return (NodeMatcher::MatchAndExplain(node, listener) &&
             PrintMatchAndExplain(OpParameter<ContextAccess>(node), "access",
@@ -1367,6 +1376,11 @@ class IsUnopMatcher final : public NodeMatcher {
 };
 
 }  // namespace
+
+
+Matcher<Node*> IsDead() {
+  return MakeMatcher(new NodeMatcher(IrOpcode::kDead));
+}
 
 
 Matcher<Node*> IsEnd(const Matcher<Node*>& control0_matcher) {

@@ -59,11 +59,6 @@ class AstNumberingVisitor final : public AstVisitor {
     dont_optimize_reason_ = reason;
     DisableSelfOptimization();
   }
-  void DisableCaching(BailoutReason reason) {
-    dont_optimize_reason_ = reason;
-    DisableSelfOptimization();
-    properties_.flags()->Add(kDontCache);
-  }
 
   template <typename Node>
   void ReserveFeedbackSlots(Node* node) {
@@ -296,6 +291,7 @@ void AstNumberingVisitor::VisitWhileStatement(WhileStatement* node) {
 void AstNumberingVisitor::VisitTryCatchStatement(TryCatchStatement* node) {
   IncrementNodeCount();
   DisableOptimization(kTryCatchStatement);
+  node->set_base_id(ReserveIdRange(TryCatchStatement::num_ids()));
   Visit(node->try_block());
   Visit(node->catch_block());
 }
@@ -304,6 +300,7 @@ void AstNumberingVisitor::VisitTryCatchStatement(TryCatchStatement* node) {
 void AstNumberingVisitor::VisitTryFinallyStatement(TryFinallyStatement* node) {
   IncrementNodeCount();
   DisableOptimization(kTryFinallyStatement);
+  node->set_base_id(ReserveIdRange(TryFinallyStatement::num_ids()));
   Visit(node->try_block());
   Visit(node->finally_block());
 }
@@ -437,6 +434,7 @@ void AstNumberingVisitor::VisitClassLiteral(ClassLiteral* node) {
   for (int i = 0; i < node->properties()->length(); i++) {
     VisitObjectLiteralProperty(node->properties()->at(i));
   }
+  ReserveFeedbackSlots(node);
 }
 
 
