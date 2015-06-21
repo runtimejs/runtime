@@ -15,13 +15,13 @@
 'use strict';
 
 var assert = require('assert');
+var u8view = require('u8-view');
 var runtime = require('../../core');
 
 function DescriptorTable(buffer, byteOffset, ringSize) {
-  this.view = new DataView(buffer, byteOffset, ringSize * DescriptorTable.SIZE);
+  this.mem = new Uint8Array(buffer, byteOffset, ringSize * DescriptorTable.SIZE);
   this.freeDescriptorHead = 0;
   this.descriptorsAvailable = ringSize;
-
   this.descriptorsBuffers = new Array(ringSize);
 
   var i;
@@ -45,9 +45,9 @@ DescriptorTable.VRING_DESC_F_WRITE = 2;
 DescriptorTable.prototype.get = function(descriptorId) {
   var self = this;
   var base = DescriptorTable.SIZE * descriptorId;
-  var len = self.view.getUint32(base + DescriptorTable.OFFSET_LEN, true);
-  var flags = self.view.getUint16(base + DescriptorTable.OFFSET_FLAGS, true);
-  var next = self.view.getUint16(base + DescriptorTable.OFFSET_NEXT, true);
+  var len = u8view.getUint32LE(self.mem, base + DescriptorTable.OFFSET_LEN);
+  var flags = u8view.getUint16LE(self.mem, base + DescriptorTable.OFFSET_FLAGS);
+  var next = u8view.getUint16LE(self.mem, base + DescriptorTable.OFFSET_NEXT);
 
   return {
     len: len,
@@ -64,22 +64,22 @@ DescriptorTable.prototype.setBuffer = function(descriptorId, buf, len, flags) {
   var self = this;
   var base = DescriptorTable.SIZE * descriptorId;
   var addr = runtime.bufferAddress(buf);
-  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 0, addr[1], true); // high
-  self.view.setUint32(base + DescriptorTable.OFFSET_ADDR + 4, addr[2], true); // low
-  self.view.setUint32(base + DescriptorTable.OFFSET_LEN, len >>> 0, true);
-  self.view.setUint16(base + DescriptorTable.OFFSET_FLAGS, flags >>> 0, true);
+  u8view.setUint32LE(self.mem, base + DescriptorTable.OFFSET_ADDR + 0, addr[1]); // high
+  u8view.setUint32LE(self.mem, base + DescriptorTable.OFFSET_ADDR + 4, addr[2]); // low
+  u8view.setUint32LE(self.mem, base + DescriptorTable.OFFSET_LEN, len >>> 0);
+  u8view.setUint16LE(self.mem, base + DescriptorTable.OFFSET_FLAGS, flags >>> 0);
 };
 
 DescriptorTable.prototype.getNext = function(descriptorId) {
   var self = this;
   var base = DescriptorTable.SIZE * descriptorId;
-  return self.view.getUint16(base + DescriptorTable.OFFSET_NEXT, true);
+  return u8view.getUint16LE(self.mem, base + DescriptorTable.OFFSET_NEXT);
 };
 
 DescriptorTable.prototype.setNext = function(descriptorId, next) {
   var self = this;
   var base = DescriptorTable.SIZE * descriptorId;
-  self.view.setUint16(base + DescriptorTable.OFFSET_NEXT, next >>> 0, true);
+  u8view.setUint16LE(self.mem, base + DescriptorTable.OFFSET_NEXT, next >>> 0);
 };
 
 /**
