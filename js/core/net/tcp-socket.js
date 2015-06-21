@@ -202,6 +202,31 @@ class TCPSocket {
     return true;
   }
 
+  _emitData(u8) {
+    var ondata = this.ondata;
+    setImmediate(function() {
+      ondata(u8);
+    });
+  }
+
+  _emitEnd() {
+    var onend = this.onend;
+    setImmediate(function() {
+      onend();
+    });
+  }
+
+  _emitOpen() {
+    this.onopen();
+  }
+
+  _emitClose() {
+    var onclose = this.onclose;
+    setImmediate(function() {
+      onclose();
+    });
+  }
+
   _sendSYN(isAck) {
     var flags = tcpHeader.FLAG_SYN;
     if (isAck) {
@@ -418,7 +443,7 @@ class TCPSocket {
       this._destroy();
       // TODO: close all connections
       if (this.onclose) {
-        this.onclose();
+        this._emitClose();
       }
       return;
     }
@@ -442,10 +467,7 @@ class TCPSocket {
     // Fast path for ordered data
     if (seq === this._receiveWindowEdge) {
       if (u8 && this.ondata) {
-        var self = this;
-        setImmediate(function() {
-          self.ondata(u8);
-        });
+        this._emitData(u8);
       }
 
       this._receiveWindowSlideTo(SEQ_INC(seq, len));
@@ -519,9 +541,7 @@ class TCPSocket {
       while (removed-- > 0) {
         let removedItem = this._receiveQueue.pop();
         if (removedItem[2] && this.ondata) {
-          setImmediate(function() {
-            self.ondata(removedItem[2]);
-          });
+          this._emitData(removedItem[2]);
         }
       }
 
@@ -597,7 +617,7 @@ class TCPSocket {
           this._sendTransmitQueue();
           this._state = STATE_ESTABLISHED;
           if (this.onopen) {
-            this.onopen();
+            this._emitOpen();
           }
         }
         break;
@@ -606,7 +626,7 @@ class TCPSocket {
         if (flags & tcpHeader.FLAG_ACK) {
           this._state = STATE_ESTABLISHED;
           if (this.onopen) {
-            this.onopen();
+            this._emitOpen();
           }
         }
         break;
@@ -615,7 +635,7 @@ class TCPSocket {
         if (this._getTransmitPosition() === ackNumber) {
           this._state = STATE_CLOSED;
           if (this.onclose) {
-            this.onclose();
+            this._emitClose();
           }
           this._destroy();
         }
@@ -642,17 +662,17 @@ class TCPSocket {
         this._state = STATE_TIME_WAIT;
         this._timeWaitTime = Date.now();
         if (this.onend) {
-          this.onend();
+          this._emitEnd();
         }
         if (this.onclose) {
-          this.onclose();
+          this._emitClose();
         }
       }
 
       if (this._state === STATE_ESTABLISHED) {
         this._state = STATE_CLOSE_WAIT;
         if (this.onend) {
-          this.onend();
+          this._emitEnd();
         }
       }
     }
