@@ -1,6 +1,6 @@
 {
   "name": "runtimejs",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Core runtime.js library",
   "main": "index.js",
   "scripts": {
