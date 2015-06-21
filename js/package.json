@@ -20,6 +20,7 @@
   "homepage": "http://runtimejs.org",
   "devDependencies": {
     "eslint": "^0.23.0",
+    "eslint-plugin-runtime-internal": "*",
     "runtime-tools": "*",
     "runtimeify": "*",
     "tape": "^4.0.0"
