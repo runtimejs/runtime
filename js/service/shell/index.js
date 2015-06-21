@@ -33,7 +33,7 @@ inputBox.onInput.add(function(text, done) {
   }
 
   if (commands.has(name)) {
-    return commands.get(name)(args, done);
+    return commands.get(name)(args, runtime.stdio, done);
   }
 
   tty.print('Command "' + name + '" not found.\n', 1, tty.color.LIGHTRED);
@@ -45,3 +45,20 @@ exports.setCommand = function(name, cb) {
   assert(typeutils.isFunction(cb));
   commands.set(name, cb);
 };
+
+exports.runCommand = function(name, args, cb) {
+  var capture = require('./captureio.js');
+
+  assert(typeutils.isString(name));
+
+  args = args || "";
+
+  commands.get(name)(args, capture.io, function() { capture.events.emit('end'); });
+
+  if (cb) {
+    capture.events.redrawPrompt = inputBox.done;
+    cb(null, capture.events);
+  }
+
+  return capture.events;
+}

@@ -14,6 +14,7 @@
 
 'use strict';
 var vga = require('./vga');
+var readline = require('./readline');
 var buffer = vga.allocBuffer();
 buffer.clear(vga.color.BLACK);
 
@@ -33,6 +34,7 @@ function scrollUp() {
 refresh();
 
 exports.color = vga.color;
+exports.get = readline.get;
 
 exports.print = function(text, repeat, fg, bg) {
   // fix issue #53 where non-strings (ints, etc...) would not get printed
