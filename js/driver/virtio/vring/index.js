@@ -32,8 +32,11 @@ function VRing(mem, byteOffset, ringSize) {
   var offsetAvailableRing = DescriptorTable.getDescriptorSizeBytes() * ringSize;
   var offsetUsedRing = align(offsetAvailableRing + SIZEOF_UINT16 * (3 + ringSize));
   var ringSizeBytes = offsetUsedRing + align(UsedRing.getElementSize() * ringSize);
+  this.ringSize = ringSize;
   this.address = baseAddress;
   this.size = ringSizeBytes;
+  this.suppressInterruptsMax = 0;
+  this.suppressInterruptsCount = 0;
   this.descriptorTable = new DescriptorTable(mem.buffer, byteOffset, ringSize);
   this.availableRing = new AvailableRing(mem.buffer, byteOffset + offsetAvailableRing, ringSize);
   this.usedRing = new UsedRing(mem.buffer, byteOffset + offsetUsedRing, ringSize);
@@ -41,6 +44,54 @@ function VRing(mem, byteOffset, ringSize) {
   this.availableRing.enableInterrupts();
 }
 
+VRing.prototype.fetchBuffers = function(fn) {
+  var count = 0;
+  var u8 = null;
+  for (;;) {
+    u8 = this.getBuffer();
+    if (null === u8) {
+      break;
+    }
+
+    count++;
+    if (fn) {
+      fn(u8);
+    }
+  }
+
+  this.availableRing.setEventIdx(this.usedRing.lastUsedIndex);
+
+  u8 = null;
+  for (;;) {
+    u8 = this.getBuffer();
+    if (null === u8) {
+      break;
+    }
+
+    count++;
+    if (fn) {
+      fn(u8);
+    }
+
+    this.availableRing.setEventIdx(this.usedRing.lastUsedIndex);
+  }
+
+  return count;
+};
+
+VRing.prototype.removeUsedBuffers = function() {
+  if (this.suppressInterruptsCount < this.suppressInterruptsMax) {
+    return;
+  }
+
+  var count = this.fetchBuffers()
+  this.suppressInterruptsCount -= count;
+  if (this.suppressInterruptsCount < 1) {
+    this.suppressInterruptsCount = 1;
+  }
+
+  this.availableRing.setEventIdx((this.usedRing.lastUsedIndex + this.suppressInterruptsMax - this.suppressInterruptsCount) & 0xffff);
+};
 
 /**
  * Supply buffers to the device
@@ -49,6 +100,11 @@ function VRing(mem, byteOffset, ringSize) {
  * @param isWriteOnly {bool} R/W buffers flag
  */
 VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
+  if (this.suppressInterruptsMax > 0) {
+    ++this.suppressInterruptsCount;
+    this.removeUsedBuffers();
+  }
+
   var self = this;
 
   // Single Uint8Array could use multiple physical pages
@@ -73,6 +129,7 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
 
   var first = self.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly);
   if (first < 0) {
+    --this.suppressInterruptsCount;
     return false;
   }
 
@@ -95,8 +152,6 @@ VRing.prototype.getBuffer = function() {
     return null;
   }
 
-  self.availableRing.setEventIdx(self.usedRing.lastUsedIndex);
-
   var descriptorId = used.id;
 
   var buffer = self.descriptorTable.getBuffer(descriptorId);
@@ -112,6 +167,12 @@ VRing.prototype.getBuffer = function() {
   }
 
   return buffer.subarray(0, len);
+};
+
+VRing.prototype.suppressUsedBuffers = function() {
+  this.suppressInterruptsMax = (this.ringSize / 2) | 0;
+  this.suppressInterruptsCount = 0;
+  this.availableRing.setEventIdx((this.usedRing.lastUsedIndex + this.suppressInterruptsMax) & 0xffff);
 };
 
 module.exports = VRing;

@@ -109,7 +109,7 @@ function initializeNetworkDevice(pciDevice) {
 
   var recvQueue = dev.queueSetup(QUEUE_ID_RECV);
   var transmitQueue = dev.queueSetup(QUEUE_ID_TRANSMIT);
-  // var networkInterface = null;
+  transmitQueue.suppressUsedBuffers();
 
   function fillReceiveQueue() {
     while (recvQueue.descriptorTable.descriptorsAvailable) {
@@ -133,29 +133,16 @@ function initializeNetworkDevice(pciDevice) {
     dev.queueNotify(QUEUE_ID_TRANSMIT);
   };
 
+  function recvBuffer(u8) {
+    intf.receive(u8);
+  }
+
   irq.on(function() {
     if (!dev.hasPendingIRQ()) {
       return;
     }
 
-    var u8 = null;
-    for (;;) {
-      u8 = transmitQueue.getBuffer();
-      if (null === u8) {
-        break;
-      }
-    }
-
-    u8 = null;
-    for (;;) {
-      u8 = recvQueue.getBuffer();
-      if (null === u8) {
-        break;
-      }
-
-      intf.receive(u8);
-    }
-
+    recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
   });
 
