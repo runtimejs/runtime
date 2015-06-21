@@ -62,6 +62,7 @@ start64:
     shl eax, 16
     mov ebx, SYSTEM_STACK_64BIT
     sub ebx, eax
+    sub ebx, 8
     xor rsp, rsp
     mov esp, ebx
 

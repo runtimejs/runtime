@@ -198,7 +198,7 @@ public:
         RT_ASSERT(stack_.len());
         RT_ASSERT(reinterpret_cast<uintptr_t>(stack_.top()) % 2 * Constants::MiB == 0);
         RT_ASSERT(stack_.len() % 2 * Constants::MiB == 0);
-        uintptr_t stack_pos = reinterpret_cast<uintptr_t>(stack_.top()) + stack_.len() - 256;
+        uintptr_t stack_pos = reinterpret_cast<uintptr_t>(stack_.top()) + stack_.len() - 256 - 8;
         RT_ASSERT(stack_pos);
         return stack_pos;
     }

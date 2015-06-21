@@ -50,7 +50,6 @@ config = {
             '-nostdinc++',
             '-std=c++11',
             '-O3',
-            '-fno-tree-vectorize',  # misaligned movdqa %xmm1,(%rsp) generated without this option and O3
             '-fno-rtti',
             '-U__STRICT_ANSI__',
             '-DENABLE_DEBUGGER_SUPPORT',

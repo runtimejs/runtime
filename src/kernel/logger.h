@@ -93,7 +93,11 @@ public:
     }
 
     int VPrintf(LogDataType type, const char* fmt, va_list va) {
-        return PrintFormat(type, fmt, va);
+        va_list args_copy;
+        va_copy(args_copy, va);
+        int result = PrintFormat(type, fmt, args_copy);
+        va_end(args_copy);
+        return result;
     }
 
     void SetMode(LoggerMode mode) {
@@ -140,7 +144,10 @@ private:
         if (console) serial_writer_.Lock();
 
         type_ = type;
-        int count = tfp_format(this, putp_printer, fmt, va);
+        va_list args_copy;
+        va_copy(args_copy, va);
+        int count = tfp_format(this, putp_printer, fmt, args_copy);
+        va_end(args_copy);
 
         if (console) serial_writer_.Unlock();
         if (video) video_writer_.Unlock();
