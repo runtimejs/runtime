@@ -14,7 +14,7 @@
 
 'use strict';
 
-class stdin() {
+class stdin {
   constructor() {
 
   }
@@ -89,5 +89,7 @@ class stdin() {
     input.drawCursor();
   }
 }
+
+
 
 module.exports = stdin;

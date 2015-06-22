@@ -14,7 +14,7 @@
 
 'use strict';
 
-class stdout() {
+class stdout {
   constructor() {
 
   }

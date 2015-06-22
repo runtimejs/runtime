@@ -14,15 +14,8 @@
 
 'use strict';
 
-const http = require('http');
-var so = require('./stdout');
-var si = require('./stdin');
-var sn = require('./stdnet');
+var stdout = require('./stdout');
+var stdin = require('./stdin');
 
-var stdout = new so();
-var stdin = new si();
-var stdnet = new sn();
-
-exports.stdout = so;
-exports.stdin = si;
-exports.stdnet = sn;
+module.exports.stdout = stdout;
+module.exports.stdin = stdin;

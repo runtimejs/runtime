@@ -28,12 +28,10 @@ var stdio = require('./stdio');
 
 global.stdout = new stdio.stdout();
 global.stdin = new stdio.stdin();
-global.stdnet = new stdio.stdnet();
 
 global.stdio = {
   stdout: global.stdout,
-  stdin: global.stdin,
-  stdnet: global.stdnet
+  stdin: global.stdin
 };
 
 function Runtime() {
@@ -53,7 +51,6 @@ function Runtime() {
   };
   this.stdout = global.stdout;
   this.stdin = global.stdin;
-  this.stdnet = global.stdnet;
   this.stdio = global.stdio;
 }
 
