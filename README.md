@@ -12,6 +12,11 @@ Example **index.js**:
 var runtime = require('runtimejs')
 console.log('Hello world!')
 ```
+__runtime.js__ does not come with shell commands, however, it's easy to add them. Just add this to the top of your **index.js**:
+```js
+// Note the '()', it exports a function that loads commands.
+var rshell = require('runtime-shell')();
+```
 
 Let's bundle up and run it!
 
