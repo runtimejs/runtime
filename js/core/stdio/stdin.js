@@ -14,7 +14,7 @@
 
 'use strict';
 
-class stdin {
+class StdIn {
   constructor() {
 
   }
@@ -92,4 +92,4 @@ class stdin {
 
 
 
-module.exports = stdin;
+module.exports = StdIn;

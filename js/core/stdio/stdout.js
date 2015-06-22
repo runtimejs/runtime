@@ -14,7 +14,7 @@
 
 'use strict';
 
-class stdout {
+class StdOut {
   constructor() {
 
   }
@@ -28,4 +28,4 @@ class stdout {
   }
 }
 
-module.exports = stdout;
+module.exports = StdOut;

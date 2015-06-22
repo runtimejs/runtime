@@ -17,5 +17,5 @@
 var stdout = require('./stdout');
 var stdin = require('./stdin');
 
-module.exports.stdout = stdout;
-module.exports.stdin = stdin;
+module.exports.StdOut = stdout;
+module.exports.StdIn = stdin;

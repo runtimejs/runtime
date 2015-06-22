@@ -36,8 +36,8 @@ runtime.dns = require('./service/dns-resolver');
 runtime.debug = isDebug;
 
 // Example shell command
-runtime.shell.setCommand('1', function(args, cb) {
-  runtime.tty.print('OK.\n');
+runtime.shell.setCommand('1', function(args, env, cb) {
+  env.stdout.writeln('OK.');
   runtime.dns.resolve('www.google.com', {}, function(err, data) {
     if (err) {
       return cb();

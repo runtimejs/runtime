@@ -26,13 +26,10 @@ var pci = require('./pci');
 var net = require('./net');
 var stdio = require('./stdio');
 
-global.stdout = new stdio.stdout();
-global.stdin = new stdio.stdin();
-
-global.stdio = {
-  stdout: global.stdout,
-  stdin: global.stdin
-};
+global.env = {
+  stdout: new stdio.StdOut(),
+  stdin: new stdio.StdIn()
+}
 
 function Runtime() {
   this.tty = tty;
@@ -49,9 +46,6 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
-  this.stdout = global.stdout;
-  this.stdin = global.stdin;
-  this.stdio = global.stdio;
 }
 
 global.runtime = module.exports = new Runtime();
