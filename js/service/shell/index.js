@@ -16,6 +16,7 @@
 var typeutils = require('typeutils');
 var assert = require('assert');
 var inputBox = require('./input-box');
+var CaptureIO = require('./captureio.js');
 var runtime = require('../../core');
 var tty = runtime.tty;
 var commands = new Map();
@@ -47,5 +48,17 @@ exports.setCommand = function(name, cb) {
 };
 
 exports.runCommand = function(name, args) {
-  
+  var captureio = new CaptureIO();
+
+  assert(typeutils.isString(name));
+  assert(typeutils.isArray(args));
+
+  args[0] = " " + args[0];
+  stringargs = args.join(' ');
+
+  commands.get(name)(stringargs, captureio.io, function() { captureio.events.emit('end'); });
+
+  captureio.events.redrawPrompt = inputBox.done;
+
+  return captureio.events;
 }
