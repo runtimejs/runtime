@@ -14,15 +14,18 @@
 
 'use strict';
 
-const http = require('http');
-var so = require('./stdout');
-var si = require('./stdin');
-var sn = require('./stdnet');
+class stdout() {
+  constructor() {
 
-var stdout = new so();
-var stdin = new si();
-var stdnet = new sn();
+  }
 
-exports.stdout = so;
-exports.stdin = si;
-exports.stdnet = sn;
+  write(text, fg, bg) {
+    runtime.tty.print(text, 1, fg, bg);
+  }
+
+  writeln(text, fg, bg) {
+    runtime.tty.print(text + '\n', 1, fg, bg);
+  }
+}
+
+module.exports = stdout;

@@ -14,15 +14,20 @@
 
 'use strict';
 
-const http = require('http');
-var so = require('./stdout');
-var si = require('./stdin');
-var sn = require('./stdnet');
+class stdnet() {
+  constructor() {
 
-var stdout = new so();
-var stdin = new si();
-var stdnet = new sn();
+  }
 
-exports.stdout = so;
-exports.stdin = si;
-exports.stdnet = sn;
+  get(url, cb) {
+    try {
+      http.get(url, function(res) {
+        cb(null, res);
+      });
+    } catch(e) {
+      cb(e, null);
+    }
+  }
+}
+
+module.exports = stdnet;

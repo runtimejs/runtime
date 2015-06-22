@@ -24,9 +24,17 @@ var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
 var pci = require('./pci');
 var net = require('./net');
-var StdIO = require('./stdio');
+var stdio = require('./stdio');
 
-global.stdio = new StdIO();
+global.stdout = new stdio.stdout();
+global.stdin = new stdio.stdin();
+global.stdnet = new stdio.stdnet();
+
+global.stdio = {
+  stdout: global.stdout,
+  stdin: global.stdin,
+  stdnet: global.stdnet
+};
 
 function Runtime() {
   this.tty = tty;
@@ -43,6 +51,9 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
+  this.stdout = global.stdout;
+  this.stdin = global.stdin;
+  this.stdnet = global.stdnet;
   this.stdio = global.stdio;
 }
 
