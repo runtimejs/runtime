@@ -26,6 +26,8 @@ var pci = require('./pci');
 var net = require('./net');
 var StdIO = require('./stdio');
 
+global.stdio = new StdIO();
+
 function Runtime() {
   this.tty = tty;
   this.keyboard = keyboard;
@@ -41,7 +43,7 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
-  this.stdio = new StdIO();
+  this.stdio = global.stdio;
 }
 
 global.runtime = module.exports = new Runtime();
