@@ -45,3 +45,7 @@ exports.setCommand = function(name, cb) {
   assert(typeutils.isFunction(cb));
   commands.set(name, cb);
 };
+
+exports.runCommand = function(name, args) {
+  
+}
