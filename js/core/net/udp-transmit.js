@@ -40,5 +40,5 @@ module.exports = function(intf, destIP, viaIP, srcPort, destPort, u8data) {
   var ck = checksum(u8data, 0, u8data.length, sum);
   udpHeader.writeChecksum(u8headers, udpOffset, ck);
 
-  intf.sendIP4(viaIP, u8headers, u8data);
+  intf.sendIP4(viaIP || destIP, u8headers, u8data);
 };
