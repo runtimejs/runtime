@@ -14,35 +14,24 @@
 
 'use strict';
 
-class StdIn {
-  constructor() {
-    this.onread = function() {};
+module.exports = function(self) {
+  self.tty.stdout.onwrite = function(text) {
+    self.tty.print(text, 1, self.tty.stdout.fgcolor, self.tty.stdout.bgcolor);
   }
 
-  read(cb) {
-    this.onread(cb);
+  self.tty.stdout.onsetcolor = function(fg) {
+    self.tty.stdout.fgcolor = fg;
   }
 
-  readLine(cb) {
-    // If there's onreadline, use it.
-    if (this.onreadline) {
-      this.onreadline(cb);
-    } else {
-      // Else, use onread.
-      // Downside: no cusor moving or backspace.
-      // TODO: Fix downside.
-      var text = '';
-      function addinput(char) {
-        if (char !== '\n') {
-          text += char;
-          this.onread(addinput);
-        } else {
-          cb(text);
-        }
-      }
-      this.onread(addinput);
-    }
+  self.tty.stdout.onsetbackgroundcolor = function(bg) {
+    self.tty.stdout.bgcolor = bg;
+  }
+
+  self.tty.stdin.onread = function(cb) {
+    self.tty.read(cb);
+  }
+
+  self.tty.stdin.onreadline = function(cb) {
+    self.tty.readLine(cb);
   }
 }
-
-module.exports = StdIn;

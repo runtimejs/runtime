@@ -25,7 +25,7 @@ var historyPosition = 0;
 
 function newLine() {
   var text = input.inputText;
-  input.inputEnabled = false;
+  inputEnabled = false;
   historyPosition = 0;
   input.removeCursor();
   runtime.tty.print('\n');
@@ -41,11 +41,12 @@ function newLine() {
     }
     history.splice(1, 0, result);
 
-    onInput.dispatch(result, function() {
-      tty.print('\n');
+    onInput.dispatch(result, function(rescode) {
+      runtime.tty.print('\n');
       inputEnabled = true;
       input.drawPrompt();
       input.drawCursor();
+      return rescode;
     });
   } else {
     inputEnabled = true;
@@ -96,3 +97,9 @@ runtime.keyboard.onKeydown.add(function(keyinfo) {
 });
 
 exports.onInput = onInput;
+exports.done = function() {
+  runtime.tty.print('\n');
+  inputEnabled = true;
+  input.drawPrompt();
+  input.drawCursor();
+};

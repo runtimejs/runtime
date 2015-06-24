@@ -68,6 +68,74 @@ exports.print = function(text, repeat, fg, bg) {
   refresh();
 };
 
+exports.read = function(cb) {
+  var input = require('../../shared/input');
+
+  function addinput(keyinfo) {
+    switch (keyinfo.type) {
+    case 'kpup':
+      break;
+    case 'kpdown':
+      break;
+    case 'kpleft':
+      break;
+    case 'kpright':
+      break;
+    case 'character':
+      runtime.tty.print(keyinfo.character);
+      cb(keyinfo.character);
+      runtime.keyboard.onKeydown.remove(addinput);
+      break;
+    case 'backspace':
+      break;
+    case 'enter':
+      runtime.tty.print('\n');
+      cb('\n');
+      runtime.keyboard.onKeydown.remove(addinput);
+      break;
+    }
+  }
+
+  runtime.keyboard.onKeydown.add(addinput);
+
+  input.drawCursor();
+}
+
+exports.readLine = function(cb) {
+  var input = require('../../shared/input');
+
+  function addinput(keyinfo) {
+    switch (keyinfo.type) {
+    case 'kpup':
+      break;
+    case 'kpdown':
+      break;
+    case 'kpleft':
+      input.moveCursorLeft();
+      break;
+    case 'kpright':
+      input.moveCursorRight();
+      break;
+    case 'character':
+      input.putChar(keyinfo.character);
+      break;
+    case 'backspace':
+      input.removeChar();
+      break;
+    case 'enter':
+      runtime.tty.print('\n');
+      cb(input.inputText);
+      input.inputText = '';
+      runtime.keyboard.onKeydown.remove(addinput);
+      break;
+    }
+  }
+
+  runtime.keyboard.onKeydown.add(addinput);
+
+  input.drawCursor();
+}
+
 exports.moveOffset = function(offset) {
   offset = offset | 0;
   var newPos = posCurrent + offset;

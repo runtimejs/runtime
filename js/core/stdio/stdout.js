@@ -16,15 +16,35 @@
 
 class StdOut {
   constructor() {
-
+    this.onwrite = function() {};
+    this.onsetcolor = function() {};
+    this.onsetbackgroundcolor = function() {};
+    this.fgcolor = runtime.tty.color.WHITE;
+    this.bgcolor = runtime.tty.color.BLACK;
   }
 
-  write(text, fg, bg) {
-    runtime.tty.print(text, 1, fg, bg);
+  write() {
+    var text = [];
+    for (var i = 0; i < arguments.length; i++) {
+      text[i] = arguments[i];
+    }
+    this.onwrite(text.join(' '));
   }
 
-  writeln(text, fg, bg) {
-    runtime.tty.print(text + '\n', 1, fg, bg);
+  writeLine() {
+    var text = [];
+    for (var i = 0; i < arguments.length; i++) {
+      text[i] = arguments[i];
+    }
+    this.onwrite(text.join(' ') + '\n');
+  }
+
+  setColor(fg) {
+    this.onsetcolor(fg);
+  }
+
+  setBackgroundColor(bg) {
+    this.onsetbackgroundcolor(bg);
   }
 }
 

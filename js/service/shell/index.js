@@ -16,7 +16,6 @@
 var typeutils = require('typeutils');
 var assert = require('assert');
 var inputBox = require('./input-box');
-var CaptureIO = require('./captureio.js');
 var runtime = require('../../core');
 var tty = runtime.tty;
 var commands = new Map();
@@ -34,7 +33,7 @@ inputBox.onInput.add(function(text, done) {
   }
 
   if (commands.has(name)) {
-    return commands.get(name)(args, done);
+    return commands.get(name)(args, runtime.stdio, done);
   }
 
   tty.print('Command "' + name + '" not found.\n', 1, tty.color.LIGHTRED);
@@ -47,18 +46,29 @@ exports.setCommand = function(name, cb) {
   commands.set(name, cb);
 };
 
-exports.runCommand = function(name, args) {
-  var captureio = new CaptureIO();
+exports.runCommand = function(name, args, done) {
+  var opts = {};
 
   assert(typeutils.isString(name));
-  assert(typeutils.isArray(args));
 
-  args[0] = " " + args[0];
-  stringargs = args.join(' ');
+  if (typeutils.isArray(args)) {
+    opts.args = args;
+  } else {
+    opts = args;
+    opts.args = [];
+  }
 
-  commands.get(name)(stringargs, captureio.io, function() { captureio.events.emit('end'); });
+  var stringargs = opts.args.join(' ');
 
-  captureio.events.redrawPrompt = inputBox.done;
+  opts.stdout = opts.stdout || env.stdout;
+  opts.stdin = opts.stdin || env.stdin;
 
-  return captureio.events;
+  commands.get(name)(stringargs, {
+    stdout: opts.stdout,
+    stdin: opts.stdin
+  }, function(rescode) {
+    done(rescode, inputBox.done);
+  });
+
+  return;
 }
