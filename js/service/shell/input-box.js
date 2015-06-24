@@ -15,7 +15,8 @@
 'use strict';
 var EventController = require('event-controller');
 var runtime = require('../../core');
-var input = require('../../shared/input');
+var InputJS = require('../../shared/input');
+var input = new InputJS();
 
 var onInput = new EventController();
 var inputEnabled = true;
@@ -42,7 +43,6 @@ function newLine() {
     history.splice(1, 0, result);
 
     onInput.dispatch(result, function(rescode) {
-      runtime.tty.print('\n');
       inputEnabled = true;
       input.drawPrompt();
       input.drawCursor();

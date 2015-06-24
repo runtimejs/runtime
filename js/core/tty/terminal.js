@@ -69,7 +69,8 @@ exports.print = function(text, repeat, fg, bg) {
 };
 
 exports.read = function(cb) {
-  var input = require('../../shared/input');
+  var InputJS = require('../../shared/input');
+  var input = new InputJS();
 
   function addinput(keyinfo) {
     switch (keyinfo.type) {
@@ -102,7 +103,8 @@ exports.read = function(cb) {
 }
 
 exports.readLine = function(cb) {
-  var input = require('../../shared/input');
+  var InputJS = require('../../shared/input');
+  var input = new InputJS();
 
   function addinput(keyinfo) {
     switch (keyinfo.type) {
@@ -123,6 +125,7 @@ exports.readLine = function(cb) {
       input.removeChar();
       break;
     case 'enter':
+      input.removeCursor();
       runtime.tty.print('\n');
       cb(input.inputText);
       input.inputText = '';
