@@ -16,7 +16,9 @@
 
 var ELEMENT_SIZE = 8;
 var OFFSET_BYTES_RING = 4;
+var INDEX_FLAGS = 0;
 var INDEX_IDX = 1;
+var VRING_USED_F_NO_NOTIFY = 1;
 
 class UsedRing {
   constructor(buffer, byteOffset, ringSize) {
@@ -54,14 +56,22 @@ class UsedRing {
   }
 
   getUsedDescriptor() {
-    if (!this.hasUnprocessedBuffers()) {
-      return null;
-    }
-
     var last = (this.lastUsedIndex & (this.ringSize - 1)) >>> 0;
     var descriptorData = this.readElement(last);
     this.lastUsedIndex = (this.lastUsedIndex + 1) & 0xffff;
     return descriptorData;
+  }
+
+  isNotificationNeeded() {
+    return !(this.ringData[INDEX_FLAGS] & VRING_USED_F_NO_NOTIFY);
+  }
+
+  printDebug() {
+    console.log('USED RING:');
+    console.log(`  idx = ${this.readIdx()}, wrapped ${this.readIdx() & (this.ringSize - 1)}`);
+    console.log(`  last_used_index = ${this.lastUsedIndex}, wrapped ${this.lastUsedIndex & (this.ringSize - 1)}`);
+    console.log(`  has_unproc_buffers = ${this.hasUnprocessedBuffers()}`);
+    console.log(`  notif_needed = ${this.isNotificationNeeded()}`);
   }
 }
 

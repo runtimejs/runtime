@@ -50,6 +50,7 @@ function initializeNetworkDevice(pciDevice) {
   var allocator = runtime.allocator;
 
   var features = {
+    // Device specific
     VIRTIO_NET_F_CSUM: 0,
     VIRTIO_NET_F_GUEST_CSUM: 1,
     VIRTIO_NET_F_MAC: 5,
@@ -69,6 +70,8 @@ function initializeNetworkDevice(pciDevice) {
     VIRTIO_NET_F_CTRL_VLAN: 19,
     VIRTIO_NET_F_GUEST_ANNOUNCE: 21,
 
+    // VRing
+    VIRTIO_RING_F_NOTIFY_ON_EMPTY: 24,
     VIRTIO_RING_F_EVENT_IDX: 29
   };
 
@@ -77,11 +80,12 @@ function initializeNetworkDevice(pciDevice) {
 
   var driverFeatures = {
     VIRTIO_NET_F_MAC: true,    // able to read MAC address
-    VIRTIO_NET_F_STATUS: true, // able to check network status
+    VIRTIO_NET_F_STATUS: true  // able to check network status
+    // VIRTIO_RING_F_NOTIFY_ON_EMPTY: true
     // VIRTIO_NET_F_CSUM: true,   // checksum offload
     // VIRTIO_NET_F_GUEST_CSUM: true,   // ok without cksum
     // VIRTIO_NET_F_GSO: true,
-    VIRTIO_RING_F_EVENT_IDX: true // able to suppress interrupts
+    // VIRTIO_RING_F_EVENT_IDX: true // using index to suppress interrupts
   };
 
   var deviceFeatures = dev.readDeviceFeatures(features);
@@ -113,10 +117,14 @@ function initializeNetworkDevice(pciDevice) {
 
   function fillReceiveQueue() {
     while (recvQueue.descriptorTable.descriptorsAvailable) {
-      recvQueue.placeBuffers([new Uint8Array(1536)], true);
+      if (!recvQueue.placeBuffers([new Uint8Array(1536)], true)) {
+        break;
+      }
     }
 
-    dev.queueNotify(QUEUE_ID_RECV);
+    if (recvQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_RECV);
+    }
   }
 
   var mac = new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
@@ -130,7 +138,9 @@ function initializeNetworkDevice(pciDevice) {
       transmitQueue.placeBuffers([u8headers], false);
     }
 
-    dev.queueNotify(QUEUE_ID_TRANSMIT);
+    if (transmitQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_TRANSMIT);
+    }
   };
 
   function recvBuffer(u8) {
@@ -145,6 +155,14 @@ function initializeNetworkDevice(pciDevice) {
     recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
   });
+
+  // Under high load we're missing interrupts. This needs to be fixed.
+  // This setInterval hack clears pending IRQ flag and rechecks queues.
+  setInterval(function () {
+    dev.hasPendingIRQ();
+    recvQueue.fetchBuffers(recvBuffer);
+    fillReceiveQueue();
+  }, 100);
 
   dev.setDriverReady();
   fillReceiveQueue();

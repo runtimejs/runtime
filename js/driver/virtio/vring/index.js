@@ -20,6 +20,7 @@ var runtime = require('../../../core');
 var DescriptorTable = require('./descriptor-table');
 var AvailableRing = require('./available-ring');
 var UsedRing = require('./used-ring');
+var memoryBarrier = require('../../../core/atomic').memoryBarrier;
 var SIZEOF_UINT16 = 2;
 
 function VRing(mem, byteOffset, ringSize) {
@@ -35,8 +36,7 @@ function VRing(mem, byteOffset, ringSize) {
   this.ringSize = ringSize;
   this.address = baseAddress;
   this.size = ringSizeBytes;
-  this.suppressInterruptsMax = 0;
-  this.suppressInterruptsCount = 0;
+  this.suppressInterrupts = false;
   this.descriptorTable = new DescriptorTable(mem.buffer, byteOffset, ringSize);
   this.availableRing = new AvailableRing(mem.buffer, byteOffset + offsetAvailableRing, ringSize);
   this.usedRing = new UsedRing(mem.buffer, byteOffset + offsetUsedRing, ringSize);
@@ -46,51 +46,40 @@ function VRing(mem, byteOffset, ringSize) {
 
 VRing.prototype.fetchBuffers = function(fn) {
   var count = 0;
-  var u8 = null;
+
   for (;;) {
-    u8 = this.getBuffer();
-    if (null === u8) {
+    if (!this.suppressInterrupts) {
+      this.availableRing.disableInterrupts();
+    }
+
+    for (;;) {
+      let u8 = this.getBuffer();
+      if (null === u8) {
+        break;
+      }
+
+      count++;
+      if (fn) {
+        setImmediate(function() {
+          fn(u8);
+        });
+      }
+    }
+
+    if (!this.suppressInterrupts) {
+      this.availableRing.enableInterrupts();
+
+      // Make sure we read the latest index written by the
+      // device, otherwise we can miss interrupts
+      memoryBarrier();
+    }
+
+    if (!this.usedRing.hasUnprocessedBuffers()) {
       break;
     }
-
-    count++;
-    if (fn) {
-      fn(u8);
-    }
-  }
-
-  this.availableRing.setEventIdx(this.usedRing.lastUsedIndex);
-
-  u8 = null;
-  for (;;) {
-    u8 = this.getBuffer();
-    if (null === u8) {
-      break;
-    }
-
-    count++;
-    if (fn) {
-      fn(u8);
-    }
-
-    this.availableRing.setEventIdx(this.usedRing.lastUsedIndex);
   }
 
   return count;
-};
-
-VRing.prototype.removeUsedBuffers = function() {
-  if (this.suppressInterruptsCount < this.suppressInterruptsMax) {
-    return;
-  }
-
-  var count = this.fetchBuffers()
-  this.suppressInterruptsCount -= count;
-  if (this.suppressInterruptsCount < 1) {
-    this.suppressInterruptsCount = 1;
-  }
-
-  this.availableRing.setEventIdx((this.usedRing.lastUsedIndex + this.suppressInterruptsMax - this.suppressInterruptsCount) & 0xffff);
 };
 
 /**
@@ -100,9 +89,8 @@ VRing.prototype.removeUsedBuffers = function() {
  * @param isWriteOnly {bool} R/W buffers flag
  */
 VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
-  if (this.suppressInterruptsMax > 0) {
-    ++this.suppressInterruptsCount;
-    this.removeUsedBuffers();
+  if (this.suppressInterrupts) {
+    this.fetchBuffers(null);
   }
 
   var self = this;
@@ -124,14 +112,20 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
       pageSplitBuffers.push(u8.subarray(addr[0]));
       lengths.push(addr[0]);
       lengths.push(addr[3]);
+      debug('virtio: multipage buffer\n');
     }
   }
 
   var first = self.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly);
   if (first < 0) {
-    --this.suppressInterruptsCount;
+    debug('virtio: no descriptors\n');
     return false;
   }
+
+  // Barrier is needed to make sure device would be able to see
+  // updated descriptors in descriptor table before we're going
+  // to update index
+  memoryBarrier();
 
   self.availableRing.placeDescriptor(first);
   return true;
@@ -139,10 +133,7 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
 
 VRing.prototype.getBuffer = function() {
   var self = this;
-  self.availableRing.disableInterrupts();
   var hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
-  self.availableRing.enableInterrupts();
-
   if (!hasUnprocessed) {
     return null;
   }
@@ -153,9 +144,10 @@ VRing.prototype.getBuffer = function() {
   }
 
   var descriptorId = used.id;
-
   var buffer = self.descriptorTable.getBuffer(descriptorId);
   var len = used.len;
+
+  this.availableRing.setEventIdx(this.usedRing.lastUsedIndex + 1);
 
   if (!(buffer instanceof Uint8Array)) {
     // TODO: global vring errors handler
@@ -169,10 +161,16 @@ VRing.prototype.getBuffer = function() {
   return buffer.subarray(0, len);
 };
 
+VRing.prototype.isNotificationNeeded = function() {
+  // Barrier to make sure we've updated index before
+  // checking notifications flag
+  memoryBarrier();
+  return this.usedRing.isNotificationNeeded();
+};
+
 VRing.prototype.suppressUsedBuffers = function() {
-  this.suppressInterruptsMax = (this.ringSize / 2) | 0;
-  this.suppressInterruptsCount = 0;
-  this.availableRing.setEventIdx((this.usedRing.lastUsedIndex + this.suppressInterruptsMax) & 0xffff);
+  this.availableRing.disableInterrupts();
+  this.suppressInterrupts = true;
 };
 
 module.exports = VRing;

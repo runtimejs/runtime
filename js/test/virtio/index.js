@@ -18,6 +18,7 @@ var resources = require('../../core/resources');
 var allocator = resources.allocator;
 var mem = allocator.allocDMA();
 var VRing = require('../../driver/virtio/vring');
+var DescriptorTable = require('../../driver/virtio/vring/descriptor-table');
 
 function clearBuffer(u8) {
   for (var i = 0; i < u8.length; ++i) {
@@ -138,5 +139,41 @@ test('ring fill all slots and process', function(t) {
   ring.usedRing.placeDescriptorAsDevice(descId, 5 /* bytes written */);
   t.equal(ring.getBuffer()[0], 4);
   t.equal(ring.getBuffer(), null);
+  t.end();
+});
+
+test('vring operation', function(t) {
+  var ring = new VRing(mem, 0, 4);
+  var devIndex = 0;
+  var count = 0;
+
+  function devProcessAll() {
+    var bytesWritten = 3;
+    var descId = 0;
+    while (devIndex < ring.availableRing.readIdx()) {
+      descId = ring.availableRing.readDescriptorAsDevice();
+      ring.usedRing.placeDescriptorAsDevice(descId, bytesWritten);
+      --count;
+      ++devIndex;
+    }
+  }
+
+  function driverProcessAll() {
+    ring.fetchBuffers(null);
+    while (ring.descriptorTable.descriptorsAvailable) {
+      if (!ring.placeBuffers([getOnePageBuffer(0)], true)) {
+        break;
+      }
+      ++count;
+    }
+  }
+
+  t.equal(count, 0);
+  for (var i = 0; i < 4; ++i) {
+    driverProcessAll();
+    t.ok(count > 0);
+    devProcessAll();
+  }
+  t.equal(count, 0);
   t.end();
 });

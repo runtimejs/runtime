@@ -60,6 +60,14 @@ class AvailableRing {
   enableInterrupts() {
     this.availableRing[AVAILABLE_RING_INDEX_FLAGS] = 0;
   }
+
+  printDebug() {
+    console.log('AVAILABLE RING:');
+    console.log(`  idx = ${this.readIdx()}, wrapped ${this.readIdx() & (this.ringSize - 1)}`);
+    for (var i = 0; i < this.ringSize; ++i) {
+      console.log(`  ${i}: descriptor = ${this.readDescriptorAsDevice(i)}`);
+    }
+  }
 }
 
 module.exports = AvailableRing;

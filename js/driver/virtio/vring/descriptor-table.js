@@ -134,6 +134,15 @@ class DescriptorTable {
     ++this.descriptorsAvailable;
     return buffer;
   }
+
+  printDebug() {
+    console.log('DESCRIPTOR TABLE:');
+    var self = this;
+    this.descriptorsBuffers.forEach(function(buf, i) {
+      var next = self.getNext(i);
+      console.log(`  ${i}: ${buf ? ('<Uint8Array:' + buf.length + '>') : '-'}, next ${next}`);
+    });
+  }
 }
 
 module.exports = DescriptorTable;
