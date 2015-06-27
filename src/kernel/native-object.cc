@@ -27,6 +27,10 @@
 
 namespace rt {
 
+NATIVE_FUNCTION(NativesObject, MemoryBarrier) {
+    __sync_synchronize();
+}
+
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
     PROLOGUE_NOTHIS;
 #ifdef RUNTIME_PROFILER

@@ -53,6 +53,11 @@ public:
     DECLARE_NATIVE(BufferSliceInplace);
 
     /**
+     * Memory barriers
+     */
+    DECLARE_NATIVE(MemoryBarrier);
+
+    /**
      * Kernel utils
      */
     DECLARE_NATIVE(StartProfiling);
@@ -111,6 +116,7 @@ public:
 
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("kernelLog", KernelLog);
+        obj.SetCallback("memoryBarrier", MemoryBarrier);
         obj.SetCallback("resources", Resources);
         obj.SetCallback("args", Args);
         obj.SetCallback("installInternals", InstallInternals);
