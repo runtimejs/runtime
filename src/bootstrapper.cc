@@ -1541,7 +1541,7 @@ bool Genesis::CompileNative(Isolate* isolate, Vector<const char> name,
   // environment has been at least partially initialized. Add a stack check
   // before entering JS code to catch overflow early.
   StackLimitCheck check(isolate);
-  if (check.HasOverflowed()) {
+  if (check.JsHasOverflowed(1 * KB)) {
     isolate->StackOverflow();
     return false;
   }
@@ -1711,6 +1711,13 @@ void Genesis::InstallNativeFunctions() {
   INSTALL_NATIVE(JSFunction, "$observeNativeObjectNotifierPerformChange",
                  native_object_notifier_perform_change);
   INSTALL_NATIVE(JSFunction, "$arrayValues", array_values_iterator);
+  INSTALL_NATIVE(JSFunction, "$mapGet", map_get);
+  INSTALL_NATIVE(JSFunction, "$mapSet", map_set);
+  INSTALL_NATIVE(JSFunction, "$mapHas", map_has);
+  INSTALL_NATIVE(JSFunction, "$mapDelete", map_delete);
+  INSTALL_NATIVE(JSFunction, "$setAdd", set_add);
+  INSTALL_NATIVE(JSFunction, "$setHas", set_has);
+  INSTALL_NATIVE(JSFunction, "$setDelete", set_delete);
   INSTALL_NATIVE(JSFunction, "$mapFromArray", map_from_array);
   INSTALL_NATIVE(JSFunction, "$setFromArray", set_from_array);
 }
@@ -1793,8 +1800,6 @@ void Genesis::InitializeBuiltinTypedArrays() {
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_modules)
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_arrays)
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_array_includes)
-EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_classes)
-EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_object_literals)
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_regexps)
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_arrow_functions)
 EMPTY_NATIVE_FUNCTIONS_FOR_FEATURE(harmony_tostring)
@@ -1831,8 +1836,6 @@ void Genesis::InstallNativeFunctions_harmony_proxies() {
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_modules)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_arrays)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_array_includes)
-EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_classes)
-EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_object_literals)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_arrow_functions)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_proxies)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_sloppy)
@@ -2466,9 +2469,7 @@ bool Genesis::InstallExperimentalNatives() {
   static const char* harmony_array_includes_natives[] = {
       "native harmony-array-includes.js", nullptr};
   static const char* harmony_proxies_natives[] = {"native proxy.js", nullptr};
-  static const char* harmony_classes_natives[] = {nullptr};
   static const char* harmony_modules_natives[] = {nullptr};
-  static const char* harmony_object_literals_natives[] = {nullptr};
   static const char* harmony_regexps_natives[] = {"native harmony-regexp.js",
                                                   nullptr};
   static const char* harmony_arrow_functions_natives[] = {nullptr};

@@ -657,6 +657,22 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
       break;
     }
+    case kArchPrepareCallCFunction: {
+      int const num_parameters = MiscField::decode(instr->opcode());
+      __ PrepareCallCFunction(num_parameters, kScratchReg);
+      break;
+    }
+    case kArchCallCFunction: {
+      int const num_parameters = MiscField::decode(instr->opcode());
+      if (instr->InputAt(0)->IsImmediate()) {
+        ExternalReference ref = i.InputExternalReference(0);
+        __ CallCFunction(ref, num_parameters);
+      } else {
+        Register func = i.InputRegister(0);
+        __ CallCFunction(func, num_parameters);
+      }
+      break;
+    }
     case kArchJmp:
       AssembleArchJump(i.InputRpo(0));
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
@@ -962,6 +978,16 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ Push(i.InputRegister(0));
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
       break;
+    case kPPC_PushFrame: {
+      int num_slots = i.InputInt32(1);
+      __ StorePU(i.InputRegister(0), MemOperand(sp, -num_slots * kPointerSize));
+      break;
+    }
+    case kPPC_StoreToStackSlot: {
+      int slot = i.InputInt32(1);
+      __ StoreP(i.InputRegister(0), MemOperand(sp, slot * kPointerSize));
+      break;
+    }
     case kPPC_ExtendSignWord8:
       __ extsb(i.OutputRegister(), i.InputRegister(0));
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
@@ -1346,11 +1372,17 @@ void CodeGenerator::AssembleReturn() {
     __ LeaveFrame(StackFrame::MANUAL);
     __ Ret();
   } else if (descriptor->IsJSFunctionCall() || needs_frame_) {
-    int pop_count = descriptor->IsJSFunctionCall()
-                        ? static_cast<int>(descriptor->JSParameterCount())
-                        : 0;
-    __ LeaveFrame(StackFrame::MANUAL, pop_count * kPointerSize);
-    __ Ret();
+    // Canonicalize JSFunction return sites for now.
+    if (return_label_.is_bound()) {
+      __ b(&return_label_);
+    } else {
+      __ bind(&return_label_);
+      int pop_count = descriptor->IsJSFunctionCall()
+                          ? static_cast<int>(descriptor->JSParameterCount())
+                          : 0;
+      __ LeaveFrame(StackFrame::MANUAL, pop_count * kPointerSize);
+      __ Ret();
+    }
   } else {
     __ Ret();
   }

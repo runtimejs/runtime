@@ -733,7 +733,6 @@ void LoadIndexedStringStub::Generate(MacroAssembler* masm) {
 
 
 void ArgumentsAccessStub::GenerateReadElement(MacroAssembler* masm) {
-  CHECK(!has_new_target());
   // The key is in edx and the parameter count is in eax.
   DCHECK(edx.is(ArgumentsAccessReadDescriptor::index()));
   DCHECK(eax.is(ArgumentsAccessReadDescriptor::parameter_count()));
@@ -800,8 +799,6 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   // esp[8] : receiver displacement
   // esp[12] : function
 
-  CHECK(!has_new_target());
-
   // Check if the calling frame is an arguments adaptor frame.
   Label runtime;
   __ mov(edx, Operand(ebp, StandardFrameConstants::kCallerFPOffset));
@@ -829,8 +826,6 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   // ebx = parameter count (tagged)
   __ mov(ebx, Operand(esp, 1 * kPointerSize));
-
-  CHECK(!has_new_target());
 
   // Check if the calling frame is an arguments adaptor frame.
   // TODO(rossberg): Factor out some of the bits that are shared with the other
@@ -1071,18 +1066,6 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   // Patch the arguments.length and the parameters pointer.
   __ bind(&adaptor_frame);
   __ mov(ecx, Operand(edx, ArgumentsAdaptorFrameConstants::kLengthOffset));
-
-  if (has_new_target()) {
-    // If the constructor was [[Call]]ed, the call will not push a new.target
-    // onto the stack. In that case the arguments array we construct is bogus,
-    // bu we do not care as the constructor throws immediately.
-    __ cmp(ecx, Immediate(Smi::FromInt(0)));
-    Label skip_decrement;
-    __ j(equal, &skip_decrement);
-    // Subtract 1 from smi-tagged arguments count.
-    __ sub(ecx, Immediate(2));
-    __ bind(&skip_decrement);
-  }
 
   __ lea(edx, Operand(edx, ecx, times_2,
                       StandardFrameConstants::kCallerSPOffset));
@@ -2264,6 +2247,11 @@ void CallIC_ArrayStub::Generate(MacroAssembler* masm) {
          factory->allocation_site_map());
   __ j(not_equal, &miss);
 
+  // Increment the call count for monomorphic function calls.
+  __ add(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
+
   __ mov(ebx, ecx);
   __ mov(edx, edi);
   ArrayConstructorStub stub(masm->isolate(), arg_count());
@@ -2322,6 +2310,11 @@ void CallICStub::Generate(MacroAssembler* masm) {
   // The compare above could have been a SMI/SMI comparison. Guard against this
   // convincing us that we have a monomorphic JSFunction.
   __ JumpIfSmi(edi, &extra_checks_or_miss);
+
+  // Increment the call count for monomorphic function calls.
+  __ add(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
 
   __ bind(&have_js_function);
   if (CallAsMethod()) {
@@ -2393,6 +2386,11 @@ void CallICStub::Generate(MacroAssembler* masm) {
 
   // Update stats.
   __ add(FieldOperand(ebx, with_types_offset), Immediate(Smi::FromInt(1)));
+
+  // Initialize the call counter.
+  __ mov(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
 
   // Store the function. Use a stub since we need a frame for allocation.
   // ebx - vector

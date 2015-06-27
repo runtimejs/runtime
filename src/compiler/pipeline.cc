@@ -45,6 +45,7 @@
 #include "src/compiler/scheduler.h"
 #include "src/compiler/select-lowering.h"
 #include "src/compiler/simplified-lowering.h"
+#include "src/compiler/simplified-operator-reducer.h"
 #include "src/compiler/tail-call-optimization.h"
 #include "src/compiler/typer.h"
 #include "src/compiler/value-numbering-reducer.h"
@@ -407,8 +408,7 @@ class SourcePositionWrapper final : public Reducer {
 class JSGraphReducer final : public GraphReducer {
  public:
   JSGraphReducer(JSGraph* jsgraph, Zone* zone)
-      : GraphReducer(zone, jsgraph->graph(), jsgraph->TheHoleConstant(),
-                     jsgraph->Dead()) {}
+      : GraphReducer(zone, jsgraph->graph(), jsgraph->Dead()) {}
   ~JSGraphReducer() final {}
 };
 
@@ -486,27 +486,25 @@ struct GraphBuilderPhase {
 };
 
 
-struct ContextSpecializerPhase {
-  static const char* phase_name() { return "context specializing"; }
-
-  void Run(PipelineData* data, Zone* temp_zone) {
-    JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
-    JSContextSpecializer spec(&graph_reducer, data->jsgraph());
-    AddReducer(data, &graph_reducer, &spec);
-    graph_reducer.ReduceGraph();
-  }
-};
-
-
 struct InliningPhase {
   static const char* phase_name() { return "inlining"; }
 
   void Run(PipelineData* data, Zone* temp_zone) {
     JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
+    DeadCodeElimination dead_code_elimination(&graph_reducer, data->graph(),
+                                              data->common());
+    CommonOperatorReducer common_reducer(&graph_reducer, data->graph(),
+                                         data->common(), data->machine());
+    JSContextSpecializer context_specializer(&graph_reducer, data->jsgraph());
     JSInliner inliner(&graph_reducer, data->info()->is_inlining_enabled()
                                           ? JSInliner::kGeneralInlining
                                           : JSInliner::kRestrictedInlining,
                       temp_zone, data->info(), data->jsgraph());
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
+    AddReducer(data, &graph_reducer, &common_reducer);
+    if (data->info()->is_context_specializing()) {
+      AddReducer(data, &graph_reducer, &context_specializer);
+    }
     AddReducer(data, &graph_reducer, &inliner);
     graph_reducer.ReduceGraph();
   }
@@ -567,6 +565,8 @@ struct TypedLoweringPhase {
 
   void Run(PipelineData* data, Zone* temp_zone) {
     JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
+    DeadCodeElimination dead_code_elimination(&graph_reducer, data->graph(),
+                                              data->common());
     LoadElimination load_elimination(&graph_reducer);
     JSBuiltinReducer builtin_reducer(&graph_reducer, data->jsgraph());
     JSTypedLowering typed_lowering(&graph_reducer, data->jsgraph(), temp_zone);
@@ -577,6 +577,7 @@ struct TypedLoweringPhase {
             : JSIntrinsicLowering::kDeoptimizationDisabled);
     CommonOperatorReducer common_reducer(&graph_reducer, data->graph(),
                                          data->common(), data->machine());
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
     AddReducer(data, &graph_reducer, &builtin_reducer);
     AddReducer(data, &graph_reducer, &typed_lowering);
     AddReducer(data, &graph_reducer, &intrinsic_lowering);
@@ -595,11 +596,16 @@ struct SimplifiedLoweringPhase {
                                 data->source_positions());
     lowering.LowerAllNodes();
     JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
-    ValueNumberingReducer vn_reducer(temp_zone);
+    DeadCodeElimination dead_code_elimination(&graph_reducer, data->graph(),
+                                              data->common());
+    SimplifiedOperatorReducer simple_reducer(data->jsgraph());
+    ValueNumberingReducer value_numbering(temp_zone);
     MachineOperatorReducer machine_reducer(data->jsgraph());
     CommonOperatorReducer common_reducer(&graph_reducer, data->graph(),
                                          data->common(), data->machine());
-    AddReducer(data, &graph_reducer, &vn_reducer);
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
+    AddReducer(data, &graph_reducer, &simple_reducer);
+    AddReducer(data, &graph_reducer, &value_numbering);
     AddReducer(data, &graph_reducer, &machine_reducer);
     AddReducer(data, &graph_reducer, &common_reducer);
     graph_reducer.ReduceGraph();
@@ -623,43 +629,20 @@ struct ChangeLoweringPhase {
 
   void Run(PipelineData* data, Zone* temp_zone) {
     JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
-    ValueNumberingReducer vn_reducer(temp_zone);
+    DeadCodeElimination dead_code_elimination(&graph_reducer, data->graph(),
+                                              data->common());
+    SimplifiedOperatorReducer simple_reducer(data->jsgraph());
+    ValueNumberingReducer value_numbering(temp_zone);
     ChangeLowering lowering(data->jsgraph());
     MachineOperatorReducer machine_reducer(data->jsgraph());
     CommonOperatorReducer common_reducer(&graph_reducer, data->graph(),
                                          data->common(), data->machine());
-    AddReducer(data, &graph_reducer, &vn_reducer);
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
+    AddReducer(data, &graph_reducer, &simple_reducer);
+    AddReducer(data, &graph_reducer, &value_numbering);
     AddReducer(data, &graph_reducer, &lowering);
     AddReducer(data, &graph_reducer, &machine_reducer);
     AddReducer(data, &graph_reducer, &common_reducer);
-    graph_reducer.ReduceGraph();
-  }
-};
-
-
-struct EarlyControlReductionPhase {
-  static const char* phase_name() { return "early control reduction"; }
-  void Run(PipelineData* data, Zone* temp_zone) {
-    GraphReducer graph_reducer(temp_zone, data->graph());
-    DeadCodeElimination dce(&graph_reducer, data->graph(), data->common());
-    CommonOperatorReducer common(&graph_reducer, data->graph(), data->common(),
-                                 data->machine());
-    graph_reducer.AddReducer(&dce);
-    graph_reducer.AddReducer(&common);
-    graph_reducer.ReduceGraph();
-  }
-};
-
-
-struct LateControlReductionPhase {
-  static const char* phase_name() { return "late control reduction"; }
-  void Run(PipelineData* data, Zone* temp_zone) {
-    GraphReducer graph_reducer(temp_zone, data->graph());
-    DeadCodeElimination dce(&graph_reducer, data->graph(), data->common());
-    CommonOperatorReducer common(&graph_reducer, data->graph(), data->common(),
-                                 data->machine());
-    graph_reducer.AddReducer(&dce);
-    graph_reducer.AddReducer(&common);
     graph_reducer.ReduceGraph();
   }
 };
@@ -706,13 +689,20 @@ struct GenericLoweringPhase {
   static const char* phase_name() { return "generic lowering"; }
 
   void Run(PipelineData* data, Zone* temp_zone) {
-    JSGenericLowering generic(data->info()->is_typing_enabled(),
-                              data->jsgraph());
-    SelectLowering select(data->jsgraph()->graph(), data->jsgraph()->common());
-    TailCallOptimization tco(data->common(), data->graph());
     JSGraphReducer graph_reducer(data->jsgraph(), temp_zone);
-    AddReducer(data, &graph_reducer, &generic);
-    AddReducer(data, &graph_reducer, &select);
+    DeadCodeElimination dead_code_elimination(&graph_reducer, data->graph(),
+                                              data->common());
+    CommonOperatorReducer common_reducer(&graph_reducer, data->graph(),
+                                         data->common(), data->machine());
+    JSGenericLowering generic_lowering(data->info()->is_typing_enabled(),
+                                       data->jsgraph());
+    SelectLowering select_lowering(data->jsgraph()->graph(),
+                                   data->jsgraph()->common());
+    TailCallOptimization tco(data->common(), data->graph());
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
+    AddReducer(data, &graph_reducer, &common_reducer);
+    AddReducer(data, &graph_reducer, &generic_lowering);
+    AddReducer(data, &graph_reducer, &select_lowering);
     // TODO(turbofan): TCO is currently limited to stubs.
     if (data->info()->IsStub()) AddReducer(data, &graph_reducer, &tco);
     graph_reducer.ReduceGraph();
@@ -1046,18 +1036,11 @@ Handle<Code> Pipeline::GenerateCode() {
   if (data.compilation_failed()) return Handle<Code>::null();
   RunPrintAndVerify("Initial untyped", true);
 
-  Run<EarlyControlReductionPhase>();
-  RunPrintAndVerify("Early Control reduced", true);
-
-  if (info()->is_context_specializing()) {
-    // Specialize the code to the context as aggressively as possible.
-    Run<ContextSpecializerPhase>();
-    RunPrintAndVerify("Context specialized", true);
-  }
-
+  // Perform context specialization and inlining (if enabled).
   Run<InliningPhase>();
   RunPrintAndVerify("Inlined", true);
 
+  // Remove dead->live edges from the graph.
   Run<EarlyGraphTrimmingPhase>();
   RunPrintAndVerify("Early trimmed", true);
 
@@ -1072,7 +1055,8 @@ Handle<Code> Pipeline::GenerateCode() {
   SmartPointer<Typer> typer;
   if (info()->is_typing_enabled()) {
     // Type the graph.
-    typer.Reset(new Typer(isolate(), data.graph(), info()->context()));
+    typer.Reset(new Typer(isolate(), data.graph(), info()->function_type(),
+                          info()->context()));
     Run<TyperPhase>(typer.get());
     RunPrintAndVerify("Typed");
   }
@@ -1113,9 +1097,6 @@ Handle<Code> Pipeline::GenerateCode() {
     Run<ChangeLoweringPhase>();
     // TODO(jarin, rossberg): Remove UNTYPED once machine typing works.
     RunPrintAndVerify("Lowered changes", true);
-
-    Run<LateControlReductionPhase>();
-    RunPrintAndVerify("Late Control reduced");
   } else {
     if (info()->is_osr()) {
       Run<OsrDeconstructionPhase>();

@@ -898,6 +898,11 @@ void CodeFlusher::ProcessJSFunctionCandidates() {
         shared->ShortPrint();
         PrintF(" - age: %d]\n", code->GetAge());
       }
+      // Always flush the optimized code map if requested by flag.
+      if (FLAG_flush_optimized_code_cache &&
+          !shared->optimized_code_map()->IsSmi()) {
+        shared->ClearOptimizedCodeMap();
+      }
       shared->set_code(lazy_compile);
       candidate->set_code(lazy_compile);
     } else {
@@ -940,6 +945,11 @@ void CodeFlusher::ProcessSharedFunctionInfoCandidates() {
         PrintF("[code-flushing clears: ");
         candidate->ShortPrint();
         PrintF(" - age: %d]\n", code->GetAge());
+      }
+      // Always flush the optimized code map if requested by flag.
+      if (FLAG_flush_optimized_code_cache &&
+          !candidate->optimized_code_map()->IsSmi()) {
+        candidate->ClearOptimizedCodeMap();
       }
       candidate->set_code(lazy_compile);
     }
@@ -2637,7 +2647,6 @@ void MarkCompactCollector::AbortWeakCollections() {
 
 
 void MarkCompactCollector::ProcessAndClearWeakCells() {
-  HeapObject* the_hole = heap()->the_hole_value();
   Object* weak_cell_obj = heap()->encountered_weak_cells();
   while (weak_cell_obj != Smi::FromInt(0)) {
     WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
@@ -2672,19 +2681,18 @@ void MarkCompactCollector::ProcessAndClearWeakCells() {
       RecordSlot(slot, slot, *slot);
     }
     weak_cell_obj = weak_cell->next();
-    weak_cell->set_next(the_hole, SKIP_WRITE_BARRIER);
+    weak_cell->clear_next(heap());
   }
   heap()->set_encountered_weak_cells(Smi::FromInt(0));
 }
 
 
 void MarkCompactCollector::AbortWeakCells() {
-  Object* the_hole = heap()->the_hole_value();
   Object* weak_cell_obj = heap()->encountered_weak_cells();
   while (weak_cell_obj != Smi::FromInt(0)) {
     WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
     weak_cell_obj = weak_cell->next();
-    weak_cell->set_next(the_hole, SKIP_WRITE_BARRIER);
+    weak_cell->clear_next(heap());
   }
   heap()->set_encountered_weak_cells(Smi::FromInt(0));
 }

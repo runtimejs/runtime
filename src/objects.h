@@ -1114,6 +1114,12 @@ class Object {
     }
   }
 
+  inline ElementsKind OptimalElementsKind() {
+    if (IsSmi()) return FAST_SMI_ELEMENTS;
+    if (IsNumber()) return FAST_DOUBLE_ELEMENTS;
+    return FAST_ELEMENTS;
+  }
+
   inline bool FitsRepresentation(Representation representation) {
     if (FLAG_track_fields && representation.IsNone()) {
       return false;
@@ -1777,7 +1783,7 @@ class JSObject: public JSReceiver {
                                        Handle<Map> map,
                                        Handle<FixedArrayBase> elements);
   inline ElementsKind GetElementsKind();
-  inline ElementsAccessor* GetElementsAccessor();
+  ElementsAccessor* GetElementsAccessor();
   // Returns true if an object has elements of FAST_SMI_ELEMENTS ElementsKind.
   inline bool HasFastSmiElements();
   // Returns true if an object has elements of FAST_ELEMENTS ElementsKind.
@@ -1897,12 +1903,6 @@ class JSObject: public JSReceiver {
   static void SetNormalizedProperty(Handle<JSObject> object, Handle<Name> name,
                                     Handle<Object> value,
                                     PropertyDetails details);
-  static void AddDictionaryElement(Handle<JSObject> object, uint32_t index,
-                                   Handle<Object> value,
-                                   PropertyAttributes attributes);
-  static void AddSloppyArgumentsElement(Handle<JSObject> object, uint32_t index,
-                                        Handle<Object> value,
-                                        PropertyAttributes attributes);
   static void SetDictionaryElement(Handle<JSObject> object, uint32_t index,
                                    Handle<Object> value,
                                    PropertyAttributes attributes);
@@ -1910,11 +1910,6 @@ class JSObject: public JSReceiver {
                                             uint32_t index,
                                             Handle<Object> value,
                                             PropertyAttributes attributes);
-
-  static void AddFastElement(Handle<JSObject> object, uint32_t index,
-                             Handle<Object> value);
-  static void AddFastDoubleElement(Handle<JSObject> object, uint32_t index,
-                                   Handle<Object> value);
 
   static void OptimizeAsPrototype(Handle<JSObject> object,
                                   PrototypeOptimizationMode mode);
@@ -1990,7 +1985,7 @@ class JSObject: public JSReceiver {
 
   static void SetIdentityHash(Handle<JSObject> object, Handle<Smi> hash);
 
-  static inline void ValidateElements(Handle<JSObject> object);
+  static void ValidateElements(Handle<JSObject> object);
 
   // Makes sure that this object can contain HeapObject as elements.
   static inline void EnsureCanContainHeapObjectElements(Handle<JSObject> obj);
@@ -2017,18 +2012,6 @@ class JSObject: public JSReceiver {
   // an access at key?
   bool WouldConvertToSlowElements(uint32_t index);
   inline bool WouldConvertToSlowElements(Handle<Object> key);
-  // Do we want to keep the elements in fast case when increasing the
-  // capacity?
-  bool ShouldConvertToSlowElements(int new_capacity);
-  // Returns true if the backing storage for the slow-case elements of
-  // this object takes up nearly as much space as a fast-case backing
-  // storage would.  In that case the JSObject should have fast
-  // elements.
-  bool ShouldConvertToFastElements();
-  // Returns true if the elements of JSObject contains only values that can be
-  // represented in a FixedDoubleArray and has at least one value that can only
-  // be represented as a double and not a Smi.
-  bool ShouldConvertToFastDoubleElements(bool* has_smi_only_elements);
 
   // Computes the new capacity when expanding the elements of a JSObject.
   static uint32_t NewElementsCapacity(uint32_t old_capacity) {
@@ -2039,29 +2022,6 @@ class JSObject: public JSReceiver {
   // These methods do not perform access checks!
   static void UpdateAllocationSite(Handle<JSObject> object,
                                    ElementsKind to_kind);
-
-  enum SetFastElementsCapacitySmiMode {
-    kAllowSmiElements,
-    kForceSmiElements,
-    kDontAllowSmiElements
-  };
-
-  static Handle<FixedArray> SetFastElementsCapacity(
-      Handle<JSObject> object, int capacity,
-      SetFastElementsCapacitySmiMode smi_mode);
-  static Handle<FixedArrayBase> SetFastDoubleElementsCapacity(
-      Handle<JSObject> object, int capacity);
-
-  // Replace the elements' backing store with fast elements of the given
-  // capacity.  Update the length for JSArrays.  Returns the new backing
-  // store.
-  static Handle<FixedArray> SetFastElementsCapacityAndLength(
-      Handle<JSObject> object,
-      int capacity,
-      int length,
-      SetFastElementsCapacitySmiMode smi_mode);
-  static Handle<FixedArrayBase> SetFastDoubleElementsCapacityAndLength(
-      Handle<JSObject> object, int capacity, int length);
 
   // Lookup interceptors are used for handling properties controlled by host
   // objects.
@@ -2320,6 +2280,9 @@ class JSObject: public JSReceiver {
       Handle<JSObject> object, const char* type, Handle<Name> name,
       Handle<Object> old_value);
 
+  // Gets the current elements capacity and the number of used elements.
+  void GetElementsCapacityAndUsage(int* capacity, int* used);
+
  private:
   friend class DictionaryElementsAccessor;
   friend class JSReceiver;
@@ -2353,12 +2316,6 @@ class JSObject: public JSReceiver {
   bool ReferencesObjectFromElements(FixedArray* elements,
                                     ElementsKind kind,
                                     Object* object);
-
-  // Returns true if most of the elements backing storage is used.
-  bool HasDenseElements();
-
-  // Gets the current elements capacity and the number of used elements.
-  void GetElementsCapacityAndUsage(int* capacity, int* used);
 
   static bool CanSetCallback(Handle<JSObject> object, Handle<Name> name);
   static void SetElementCallback(Handle<JSObject> object,
@@ -3222,6 +3179,7 @@ class StringTable: public HashTable<StringTable,
   // added. The return value is the string found.
   static Handle<String> LookupString(Isolate* isolate, Handle<String> key);
   static Handle<String> LookupKey(Isolate* isolate, HashTableKey* key);
+  static String* LookupKeyIfExists(Isolate* isolate, HashTableKey* key);
 
   // Tries to internalize given string and returns string handle on success
   // or an empty handle otherwise.
@@ -5110,7 +5068,7 @@ class Code: public HeapObject {
   inline bool back_edges_patched_for_osr();
 
   // [to_boolean_foo]: For kind TO_BOOLEAN_IC tells what state the stub is in.
-  inline byte to_boolean_state();
+  inline uint16_t to_boolean_state();
 
   // [has_function_cache]: For kind STUB tells whether there is a function
   // cache is passed to the stub.
@@ -6256,7 +6214,6 @@ class Map: public HeapObject {
       Handle<LayoutDescriptor> layout_descriptor);
 
  private:
-  static void ConnectElementsTransition(Handle<Map> parent, Handle<Map> child);
   static void ConnectTransition(Handle<Map> parent, Handle<Map> child,
                                 Handle<Name> name, SimpleTransitionFlag flag);
 
@@ -6293,9 +6250,6 @@ class Map: public HeapObject {
   // This includes adding transitions to the leaf map or changing
   // the descriptor array.
   inline void NotifyLeafMapLayoutChange();
-
-  static Handle<Map> TransitionElementsToSlow(Handle<Map> object,
-                                              ElementsKind to_kind);
 
   void DeprecateTransitionTree();
   bool DeprecateTarget(PropertyKind kind, Name* key,
@@ -6600,6 +6554,14 @@ enum BuiltinFunctionId {
 };
 
 
+// Result of searching in an optimized code map of a SharedFunctionInfo. Note
+// that both {code} and {literals} can be NULL to pass search result status.
+struct CodeAndLiterals {
+  Code* code;            // Cached optimized code.
+  FixedArray* literals;  // Cached literals array.
+};
+
+
 // SharedFunctionInfo describes the JSFunction information that can be
 // shared by multiple instances of the function.
 class SharedFunctionInfo: public HeapObject {
@@ -6615,16 +6577,11 @@ class SharedFunctionInfo: public HeapObject {
   // and a shared literals array or Smi(0) if none.
   DECL_ACCESSORS(optimized_code_map, Object)
 
-  // Returns index i of the entry with the specified context and OSR entry.
-  // At position i - 1 is the context, position i the code, and i + 1 the
-  // literals array.  Returns -1 when no matching entry is found.
-  int SearchOptimizedCodeMap(Context* native_context, BailoutId osr_ast_id);
-
-  // Installs optimized code from the code map on the given closure. The
-  // index has to be consistent with a search result as defined above.
-  FixedArray* GetLiteralsFromOptimizedCodeMap(int index);
-
-  Code* GetCodeFromOptimizedCodeMap(int index);
+  // Returns entry from optimized code map for specified context and OSR entry.
+  // Note that {code == nullptr} indicates no matching entry has been found,
+  // whereas {literals == nullptr} indicates the code is context-independent.
+  CodeAndLiterals SearchOptimizedCodeMap(Context* native_context,
+                                         BailoutId osr_ast_id);
 
   // Clear optimized code map.
   void ClearOptimizedCodeMap();
@@ -6632,20 +6589,14 @@ class SharedFunctionInfo: public HeapObject {
   // Removed a specific optimized code object from the optimized code map.
   void EvictFromOptimizedCodeMap(Code* optimized_code, const char* reason);
 
-  // Unconditionally clear the type feedback vector (including vector ICs).
-  void ClearTypeFeedbackInfo();
-
-  // Clear the type feedback vector with a more subtle policy at GC time.
-  void ClearTypeFeedbackInfoAtGCTime();
-
   // Trims the optimized code map after entries have been removed.
   void TrimOptimizedCodeMap(int shrink_by);
 
-  // Initialize a SharedFunctionInfo from a parsed function literal.
-  static void InitFromFunctionLiteral(Handle<SharedFunctionInfo> shared_info,
-                                      FunctionLiteral* lit);
+  // Add a new entry to the optimized code map for context-independent code.
+  static void AddSharedCodeToOptimizedCodeMap(Handle<SharedFunctionInfo> shared,
+                                              Handle<Code> code);
 
-  // Add a new entry to the optimized code map.
+  // Add a new entry to the optimized code map for context-dependent code.
   static void AddToOptimizedCodeMap(Handle<SharedFunctionInfo> shared,
                                     Handle<Context> native_context,
                                     Handle<Code> code,
@@ -6659,7 +6610,8 @@ class SharedFunctionInfo: public HeapObject {
 
   // Layout description of the optimized code map.
   static const int kNextMapIndex = 0;
-  static const int kEntriesStart = 1;
+  static const int kSharedCodeIndex = 1;
+  static const int kEntriesStart = 2;
   static const int kContextOffset = 0;
   static const int kCachedCodeOffset = 1;
   static const int kLiteralsOffset = 2;
@@ -6699,6 +6651,12 @@ class SharedFunctionInfo: public HeapObject {
   // (increasingly) from crankshafted code where sufficient feedback isn't
   // available.
   DECL_ACCESSORS(feedback_vector, TypeFeedbackVector)
+
+  // Unconditionally clear the type feedback vector (including vector ICs).
+  void ClearTypeFeedbackInfo();
+
+  // Clear the type feedback vector with a more subtle policy at GC time.
+  void ClearTypeFeedbackInfoAtGCTime();
 
 #if TRACE_MAPS
   // [unique_id] - For --trace-maps purposes, an identifier that's persistent
@@ -6870,6 +6828,9 @@ class SharedFunctionInfo: public HeapObject {
   // Indicates that the the shared function info is deserialized from cache.
   DECL_BOOLEAN_ACCESSORS(deserialized)
 
+  // Indicates that the the shared function info has never been compiled before.
+  DECL_BOOLEAN_ACCESSORS(never_compiled)
+
   inline FunctionKind kind();
   inline void set_kind(FunctionKind kind);
 
@@ -6938,6 +6899,10 @@ class SharedFunctionInfo: public HeapObject {
   int CalculateInObjectProperties();
 
   inline bool is_simple_parameter_list();
+
+  // Initialize a SharedFunctionInfo from a parsed function literal.
+  static void InitFromFunctionLiteral(Handle<SharedFunctionInfo> shared_info,
+                                      FunctionLiteral* lit);
 
   // Dispatched behavior.
   DECLARE_PRINTER(SharedFunctionInfo)
@@ -7119,6 +7084,7 @@ class SharedFunctionInfo: public HeapObject {
     kInClassLiteral,
     kIsAsmFunction,
     kDeserialized,
+    kNeverCompiled,
     kCompilerHintsCount  // Pseudo entry
   };
   // Add hints for other modes when they're added.
@@ -9654,6 +9620,10 @@ class WeakCell : public HeapObject {
 
   DECL_ACCESSORS(next, Object)
 
+  inline void clear_next(Heap* heap);
+
+  inline bool next_cleared();
+
   DECLARE_CAST(WeakCell)
 
   DECLARE_PRINTER(WeakCell)
@@ -10168,10 +10138,6 @@ class JSArray: public JSObject {
   // is set to a smi. This matches the set function on FixedArray.
   inline void set_length(Smi* length);
 
-  static void JSArrayUpdateLengthFromIndex(Handle<JSArray> array,
-                                           uint32_t index,
-                                           Handle<Object> value);
-
   static bool HasReadOnlyLength(Handle<JSArray> array);
   static bool WouldChangeReadOnlyLength(Handle<JSArray> array, uint32_t index);
   static MaybeHandle<Object> ReadOnlyLengthError(Handle<JSArray> array);
@@ -10183,6 +10149,7 @@ class JSArray: public JSObject {
 
   // If the JSArray has fast elements, and new_length would result in
   // normalization, returns true.
+  bool SetLengthWouldNormalize(uint32_t new_length);
   static inline bool SetLengthWouldNormalize(Heap* heap, uint32_t new_length);
 
   // Initializes the array to a certain length.
@@ -10198,16 +10165,6 @@ class JSArray: public JSObject {
                                 Handle<FixedArrayBase> storage);
 
   DECLARE_CAST(JSArray)
-
-  // Ensures that the fixed array backing the JSArray has at
-  // least the stated size.
-  static inline void EnsureSize(Handle<JSArray> array,
-                                int minimum_size_of_backing_fixed_array);
-
-  // Expand the fixed array backing of a fast-case JSArray to at least
-  // the requested size.
-  static void Expand(Handle<JSArray> array,
-                     int minimum_size_of_backing_fixed_array);
 
   // Dispatched behavior.
   DECLARE_PRINTER(JSArray)

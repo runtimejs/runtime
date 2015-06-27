@@ -84,8 +84,8 @@ Node* GraphTest::UndefinedConstant() {
 Node* GraphTest::EmptyFrameState() {
   Node* state_values = graph()->NewNode(common()->StateValues(0));
   return graph()->NewNode(
-      common()->FrameState(JS_FRAME, BailoutId::None(),
-                           OutputFrameStateCombine::Ignore()),
+      common()->FrameState(BailoutId::None(), OutputFrameStateCombine::Ignore(),
+                           nullptr),
       state_values, state_values, state_values, NumberConstant(0),
       UndefinedConstant(), graph()->start());
 }
@@ -111,7 +111,7 @@ Matcher<Node*> GraphTest::IsUndefinedConstant() {
 
 TypedGraphTest::TypedGraphTest(int num_parameters)
     : GraphTest(num_parameters),
-      typer_(isolate(), graph(), MaybeHandle<Context>()) {}
+      typer_(isolate(), graph(), nullptr, MaybeHandle<Context>()) {}
 
 
 TypedGraphTest::~TypedGraphTest() {}

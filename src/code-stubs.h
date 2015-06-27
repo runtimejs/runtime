@@ -431,8 +431,8 @@ class CodeStubDescriptor {
     return call_descriptor().GetEnvironmentParameterCount();
   }
 
-  Representation GetEnvironmentParameterRepresentation(int index) const {
-    return call_descriptor().GetEnvironmentParameterRepresentation(index);
+  Type* GetEnvironmentParameterType(int index) const {
+    return call_descriptor().GetEnvironmentParameterType(index);
   }
 
   ExternalReference miss_handler() const {
@@ -1785,13 +1785,8 @@ class ArgumentsAccessStub: public PlatformCodeStub {
     NEW_STRICT
   };
 
-  enum HasNewTarget { NO_NEW_TARGET, HAS_NEW_TARGET };
-
-  ArgumentsAccessStub(Isolate* isolate, Type type,
-                      HasNewTarget has_new_target = NO_NEW_TARGET)
-      : PlatformCodeStub(isolate) {
-    minor_key_ =
-        TypeBits::encode(type) | HasNewTargetBits::encode(has_new_target);
+  ArgumentsAccessStub(Isolate* isolate, Type type) : PlatformCodeStub(isolate) {
+    minor_key_ = TypeBits::encode(type);
   }
 
   CallInterfaceDescriptor GetCallInterfaceDescriptor() override {
@@ -1803,9 +1798,6 @@ class ArgumentsAccessStub: public PlatformCodeStub {
 
  private:
   Type type() const { return TypeBits::decode(minor_key_); }
-  bool has_new_target() const {
-    return HasNewTargetBits::decode(minor_key_) == HAS_NEW_TARGET;
-  }
 
   void GenerateReadElement(MacroAssembler* masm);
   void GenerateNewStrict(MacroAssembler* masm);
@@ -1815,7 +1807,6 @@ class ArgumentsAccessStub: public PlatformCodeStub {
   void PrintName(std::ostream& os) const override;  // NOLINT
 
   class TypeBits : public BitField<Type, 0, 2> {};
-  class HasNewTargetBits : public BitField<HasNewTarget, 2, 1> {};
 
   DEFINE_PLATFORM_CODE_STUB(ArgumentsAccess, PlatformCodeStub);
 };
@@ -2746,16 +2737,15 @@ class ToBooleanStub: public HydrogenCodeStub {
     RESULT_AS_INVERSE_ODDBALL  // For {false} on truthy value, {true} otherwise.
   };
 
-  // At most 8 different types can be distinguished, because the Code object
-  // only has room for a single byte to hold a set of these types. :-P
-  STATIC_ASSERT(NUMBER_OF_TYPES <= 8);
+  // At most 16 different types can be distinguished, because the Code object
+  // only has room for two bytes to hold a set of these types. :-P
+  STATIC_ASSERT(NUMBER_OF_TYPES <= 16);
 
-  class Types : public EnumSet<Type, byte> {
+  class Types : public EnumSet<Type, uint16_t> {
    public:
-    Types() : EnumSet<Type, byte>(0) {}
-    explicit Types(byte bits) : EnumSet<Type, byte>(bits) {}
+    Types() : EnumSet<Type, uint16_t>(0) {}
+    explicit Types(uint16_t bits) : EnumSet<Type, uint16_t>(bits) {}
 
-    byte ToByte() const { return ToIntegral(); }
     bool UpdateStatus(Handle<Object> object);
     bool NeedsMap() const;
     bool CanBeUndetectable() const;
@@ -2766,13 +2756,13 @@ class ToBooleanStub: public HydrogenCodeStub {
 
   ToBooleanStub(Isolate* isolate, ResultMode mode, Types types = Types())
       : HydrogenCodeStub(isolate) {
-    set_sub_minor_key(TypesBits::encode(types.ToByte()) |
+    set_sub_minor_key(TypesBits::encode(types.ToIntegral()) |
                       ResultModeBits::encode(mode));
   }
 
   ToBooleanStub(Isolate* isolate, ExtraICState state)
       : HydrogenCodeStub(isolate) {
-    set_sub_minor_key(TypesBits::encode(static_cast<byte>(state)) |
+    set_sub_minor_key(TypesBits::encode(static_cast<uint16_t>(state)) |
                       ResultModeBits::encode(RESULT_AS_SMI));
   }
 
@@ -2805,7 +2795,7 @@ class ToBooleanStub: public HydrogenCodeStub {
     set_sub_minor_key(ResultModeBits::encode(RESULT_AS_SMI));
   }
 
-  class TypesBits : public BitField<byte, 0, NUMBER_OF_TYPES> {};
+  class TypesBits : public BitField<uint16_t, 0, NUMBER_OF_TYPES> {};
   class ResultModeBits : public BitField<ResultMode, NUMBER_OF_TYPES, 2> {};
 
   DEFINE_CALL_INTERFACE_DESCRIPTOR(ToBoolean);
@@ -2973,6 +2963,8 @@ class StringCompareStub : public PlatformCodeStub {
 #undef DEFINE_HYDROGEN_CODE_STUB
 #undef DEFINE_CODE_STUB
 #undef DEFINE_CODE_STUB_BASE
+
+extern Representation RepresentationFromType(Type* type);
 } }  // namespace v8::internal
 
 #endif  // V8_CODE_STUBS_H_

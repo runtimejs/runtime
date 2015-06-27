@@ -641,15 +641,15 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       __ bind(&count_incremented);
     }
 
+    __ Pop(a1);
+
     __ Push(t4, t4);
 
     // Reload the number of arguments from the stack.
     // sp[0]: receiver
     // sp[1]: receiver
-    // sp[2]: constructor function
-    // sp[3]: number of arguments (smi-tagged)
-    __ lw(a1, MemOperand(sp, 2 * kPointerSize));
-    __ lw(a3, MemOperand(sp, 3 * kPointerSize));
+    // sp[2]: number of arguments (smi-tagged)
+    __ lw(a3, MemOperand(sp, 2 * kPointerSize));
 
     // Set up pointer to last argument.
     __ Addu(a2, fp, Operand(StandardFrameConstants::kCallerSPOffset));
@@ -664,8 +664,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
     // a3: number of arguments (smi-tagged)
     // sp[0]: receiver
     // sp[1]: receiver
-    // sp[2]: constructor function
-    // sp[3]: number of arguments (smi-tagged)
+    // sp[2]: number of arguments (smi-tagged)
     Label loop, entry;
     __ jmp(&entry);
     __ bind(&loop);
@@ -706,8 +705,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
     // If the result is a smi, it is *not* an object in the ECMA sense.
     // v0: result
     // sp[0]: receiver (newly allocated object)
-    // sp[1]: constructor function
-    // sp[2]: number of arguments (smi-tagged)
+    // sp[1]: number of arguments (smi-tagged)
     __ JumpIfSmi(v0, &use_receiver);
 
     // If the type of the result (stored in its map) is less than
@@ -725,9 +723,8 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
     __ bind(&exit);
     // v0: result
     // sp[0]: receiver (newly allocated object)
-    // sp[1]: constructor function
-    // sp[2]: number of arguments (smi-tagged)
-    __ lw(a1, MemOperand(sp, 2 * kPointerSize));
+    // sp[1]: number of arguments (smi-tagged)
+    __ lw(a1, MemOperand(sp, kPointerSize));
 
     // Leave construct frame.
   }
@@ -799,8 +796,6 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
     __ Subu(t0, t0, Operand(2));
     __ Branch(&loop, ge, t0, Operand(zero_reg));
 
-    __ Addu(a0, a0, Operand(1));
-
     // Handle step in.
     Label skip_step_in;
     ExternalReference debug_step_in_fp =
@@ -823,9 +818,10 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
 
     // Restore context from the frame.
     // v0: result
-    // sp[0]: number of arguments (smi-tagged)
+    // sp[0]: new.target
+    // sp[1]: number of arguments (smi-tagged)
     __ lw(cp, MemOperand(fp, StandardFrameConstants::kContextOffset));
-    __ lw(a1, MemOperand(sp, 0));
+    __ lw(a1, MemOperand(sp, kPointerSize));
 
     // Leave construct frame.
   }
@@ -1399,6 +1395,8 @@ static void Generate_PushAppliedArguments(MacroAssembler* masm,
   Label entry, loop;
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register key = LoadDescriptor::NameRegister();
+  Register slot = LoadDescriptor::SlotRegister();
+  Register vector = LoadWithVectorDescriptor::VectorRegister();
 
   __ lw(key, MemOperand(fp, indexOffset));
   __ Branch(&entry);
@@ -1408,7 +1406,13 @@ static void Generate_PushAppliedArguments(MacroAssembler* masm,
   __ lw(receiver, MemOperand(fp, argumentsOffset));
 
   // Use inline caching to speed up access to arguments.
-  Handle<Code> ic = masm->isolate()->builtins()->KeyedLoadIC_Megamorphic();
+  FeedbackVectorSpec spec(0, Code::KEYED_LOAD_IC);
+  Handle<TypeFeedbackVector> feedback_vector =
+      masm->isolate()->factory()->NewTypeFeedbackVector(&spec);
+  int index = feedback_vector->GetIndex(FeedbackVectorICSlot(0));
+  __ li(slot, Operand(Smi::FromInt(index)));
+  __ li(vector, feedback_vector);
+  Handle<Code> ic = KeyedLoadICStub(masm->isolate()).GetCode();
   __ Call(ic, RelocInfo::CODE_TARGET);
 
   __ push(v0);

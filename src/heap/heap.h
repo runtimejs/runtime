@@ -165,6 +165,7 @@ namespace internal {
   V(HeapNumber, nan_value, NanValue)                                           \
   V(HeapNumber, infinity_value, InfinityValue)                                 \
   V(HeapNumber, minus_zero_value, MinusZeroValue)                              \
+  V(HeapNumber, minus_infinity_value, MinusInfinityValue)                      \
   V(JSObject, message_listeners, MessageListeners)                             \
   V(UnseededNumberDictionary, code_stubs, CodeStubs)                           \
   V(UnseededNumberDictionary, non_monomorphic_cache, NonMonomorphicCache)      \
@@ -186,6 +187,7 @@ namespace internal {
   V(FixedArray, allocation_sites_scratchpad, AllocationSitesScratchpad)        \
   V(FixedArray, microtask_queue, MicrotaskQueue)                               \
   V(FixedArray, keyed_load_dummy_vector, KeyedLoadDummyVector)                 \
+  V(FixedArray, keyed_store_dummy_vector, KeyedStoreDummyVector)               \
   V(FixedArray, detached_contexts, DetachedContexts)                           \
   V(ArrayList, retained_maps, RetainedMaps)                                    \
   V(WeakHashTable, weak_object_to_code_table, WeakObjectToCodeTable)           \
@@ -1598,11 +1600,11 @@ class Heap {
   void UnregisterArrayBuffer(bool in_new_space, void* data);
 
   // A live ArrayBuffer was discovered during marking/scavenge.
-  void RegisterLiveArrayBuffer(bool in_new_space, void* data);
+  void RegisterLiveArrayBuffer(bool from_scavenge, void* data);
 
   // Frees all backing store pointers that weren't discovered in the previous
   // marking or scavenge phase.
-  void FreeDeadArrayBuffers(bool in_new_space);
+  void FreeDeadArrayBuffers(bool from_scavenge);
 
   // Prepare for a new scavenge phase. A new marking phase is implicitly
   // prepared by finishing the previous one.
@@ -2372,10 +2374,24 @@ class Heap {
 
   bool concurrent_sweeping_enabled_;
 
+  // |live_array_buffers_| maps externally allocated memory used as backing
+  // store for ArrayBuffers to the length of the respective memory blocks.
+  //
+  // At the beginning of mark/compact, |not_yet_discovered_array_buffers_| is
+  // a copy of |live_array_buffers_| and we remove pointers as we discover live
+  // ArrayBuffer objects during marking. At the end of mark/compact, the
+  // remaining memory blocks can be freed.
   std::map<void*, size_t> live_array_buffers_;
-  std::map<void*, size_t> live_new_array_buffers_;
   std::map<void*, size_t> not_yet_discovered_array_buffers_;
-  std::map<void*, size_t> not_yet_discovered_new_array_buffers_;
+
+  // To be able to free memory held by ArrayBuffers during scavenge as well, we
+  // have a separate list of allocated memory held by ArrayBuffers in new space.
+  //
+  // Since mark/compact also evacuates the new space, all pointers in the
+  // |live_array_buffers_for_scavenge_| list are also in the
+  // |live_array_buffers_| list.
+  std::map<void*, size_t> live_array_buffers_for_scavenge_;
+  std::map<void*, size_t> not_yet_discovered_array_buffers_for_scavenge_;
 
   struct StrongRootsList;
   StrongRootsList* strong_roots_list_;

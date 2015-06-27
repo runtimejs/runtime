@@ -2454,7 +2454,8 @@ void FullCodeGenerator::EmitInlineSmiBinaryOp(BinaryOperation* expr,
 }
 
 
-void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
+void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit,
+                                                  int* used_store_slots) {
   // Constructor is in eax.
   DCHECK(lit != NULL);
   __ push(eax);
@@ -2465,10 +2466,6 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
   __ mov(scratch, FieldOperand(eax, JSFunction::kPrototypeOrInitialMapOffset));
   __ Push(scratch);
 
-  // store_slot_index points to the vector IC slot for the next store IC used.
-  // ClassLiteral::ComputeFeedbackRequirements controls the allocation of slots
-  // and must be updated if the number of store ICs emitted here changes.
-  int store_slot_index = 0;
   for (int i = 0; i < lit->properties()->length(); i++) {
     ObjectLiteral::Property* property = lit->properties()->at(i);
     Expression* value = property->value();
@@ -2491,7 +2488,7 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
 
     VisitForStackValue(value);
     EmitSetHomeObjectIfNeeded(value, 2,
-                              lit->SlotForHomeObject(value, &store_slot_index));
+                              lit->SlotForHomeObject(value, used_store_slots));
 
     switch (property->kind()) {
       case ObjectLiteral::Property::CONSTANT:
@@ -2519,10 +2516,6 @@ void FullCodeGenerator::EmitClassDefineProperties(ClassLiteral* lit) {
 
   // constructor
   __ CallRuntime(Runtime::kToFastProperties, 1);
-
-  // Verify that compilation exactly consumed the number of store ic slots that
-  // the ClassLiteral node had to offer.
-  DCHECK(!FLAG_vector_stores || store_slot_index == lit->slot_count());
 }
 
 
@@ -3024,6 +3017,49 @@ void FullCodeGenerator::EmitInitializeThisAfterSuper(
 }
 
 
+// See http://www.ecma-international.org/ecma-262/6.0/#sec-function-calls.
+void FullCodeGenerator::PushCalleeAndWithBaseObject(Call* expr) {
+  VariableProxy* callee = expr->expression()->AsVariableProxy();
+  if (callee->var()->IsLookupSlot()) {
+    Label slow, done;
+    SetSourcePosition(callee->position());
+    {
+      PreservePositionScope scope(masm()->positions_recorder());
+      // Generate code for loading from variables potentially shadowed by
+      // eval-introduced variables.
+      EmitDynamicLookupFastCase(callee, NOT_INSIDE_TYPEOF, &slow, &done);
+    }
+    __ bind(&slow);
+    // Call the runtime to find the function to call (returned in eax) and
+    // the object holding it (returned in edx).
+    __ push(context_register());
+    __ push(Immediate(callee->name()));
+    __ CallRuntime(Runtime::kLoadLookupSlot, 2);
+    __ push(eax);  // Function.
+    __ push(edx);  // Receiver.
+    PrepareForBailoutForId(expr->LookupId(), NO_REGISTERS);
+
+    // If fast case code has been generated, emit code to push the function
+    // and receiver and have the slow path jump around this code.
+    if (done.is_linked()) {
+      Label call;
+      __ jmp(&call, Label::kNear);
+      __ bind(&done);
+      // Push function.
+      __ push(eax);
+      // The receiver is implicitly the global receiver. Indicate this by
+      // passing the hole to the call function stub.
+      __ push(Immediate(isolate()->factory()->undefined_value()));
+      __ bind(&call);
+    }
+  } else {
+    VisitForStackValue(callee);
+    // refEnv.WithBaseObject()
+    __ push(Immediate(isolate()->factory()->undefined_value()));
+  }
+}
+
+
 void FullCodeGenerator::VisitCall(Call* expr) {
 #ifdef DEBUG
   // We want to verify that RecordJSReturnSite gets called on all paths
@@ -3042,9 +3078,8 @@ void FullCodeGenerator::VisitCall(Call* expr) {
     ZoneList<Expression*>* args = expr->arguments();
     int arg_count = args->length();
     { PreservePositionScope pos_scope(masm()->positions_recorder());
-      VisitForStackValue(callee);
-      // Reserved receiver slot.
-      __ push(Immediate(isolate()->factory()->undefined_value()));
+      PushCalleeAndWithBaseObject(expr);
+
       // Push the arguments.
       for (int i = 0; i < arg_count; i++) {
         VisitForStackValue(args->at(i));
@@ -3058,7 +3093,7 @@ void FullCodeGenerator::VisitCall(Call* expr) {
       // Touch up the stack with the resolved function.
       __ mov(Operand(esp, (arg_count + 1) * kPointerSize), eax);
 
-      PrepareForBailoutForId(expr->EvalOrLookupId(), NO_REGISTERS);
+      PrepareForBailoutForId(expr->EvalId(), NO_REGISTERS);
     }
     // Record source position for debugger.
     SetSourcePosition(expr->position());
@@ -3074,41 +3109,8 @@ void FullCodeGenerator::VisitCall(Call* expr) {
     EmitCallWithLoadIC(expr);
   } else if (call_type == Call::LOOKUP_SLOT_CALL) {
     // Call to a lookup slot (dynamically introduced variable).
-    VariableProxy* proxy = callee->AsVariableProxy();
-    Label slow, done;
-    { PreservePositionScope scope(masm()->positions_recorder());
-      // Generate code for loading from variables potentially shadowed by
-      // eval-introduced variables.
-      EmitDynamicLookupFastCase(proxy, NOT_INSIDE_TYPEOF, &slow, &done);
-    }
-    __ bind(&slow);
-    // Call the runtime to find the function to call (returned in eax) and
-    // the object holding it (returned in edx).
-    __ push(context_register());
-    __ push(Immediate(proxy->name()));
-    __ CallRuntime(Runtime::kLoadLookupSlot, 2);
-    __ push(eax);  // Function.
-    __ push(edx);  // Receiver.
-    PrepareForBailoutForId(expr->EvalOrLookupId(), NO_REGISTERS);
-
-    // If fast case code has been generated, emit code to push the function
-    // and receiver and have the slow path jump around this code.
-    if (done.is_linked()) {
-      Label call;
-      __ jmp(&call, Label::kNear);
-      __ bind(&done);
-      // Push function.
-      __ push(eax);
-      // The receiver is implicitly the global receiver. Indicate this by
-      // passing the hole to the call function stub.
-      __ push(Immediate(isolate()->factory()->undefined_value()));
-      __ bind(&call);
-    }
-
-    // The receiver is either the global receiver or an object found by
-    // LoadContextSlot.
+    PushCalleeAndWithBaseObject(expr);
     EmitCall(expr);
-
   } else if (call_type == Call::PROPERTY_CALL) {
     Property* property = callee->AsProperty();
     bool is_named_call = property->key()->IsPropertyName();
@@ -3796,25 +3798,25 @@ void FullCodeGenerator::EmitValueOf(CallRuntime* expr) {
 }
 
 
-void FullCodeGenerator::EmitThrowIfNotADate(CallRuntime* expr) {
+void FullCodeGenerator::EmitIsDate(CallRuntime* expr) {
   ZoneList<Expression*>* args = expr->arguments();
   DCHECK_EQ(1, args->length());
 
-  VisitForAccumulatorValue(args->at(0));  // Load the object.
+  VisitForAccumulatorValue(args->at(0));
 
-  Label done, not_date_object;
-  Register object = eax;
-  Register result = eax;
-  Register scratch = ecx;
+  Label materialize_true, materialize_false;
+  Label* if_true = nullptr;
+  Label* if_false = nullptr;
+  Label* fall_through = nullptr;
+  context()->PrepareTest(&materialize_true, &materialize_false, &if_true,
+                         &if_false, &fall_through);
 
-  __ JumpIfSmi(object, &not_date_object, Label::kNear);
-  __ CmpObjectType(object, JS_DATE_TYPE, scratch);
-  __ j(equal, &done, Label::kNear);
-  __ bind(&not_date_object);
-  __ CallRuntime(Runtime::kThrowNotDateError, 0);
+  __ JumpIfSmi(eax, if_false);
+  __ CmpObjectType(eax, JS_DATE_TYPE, ebx);
+  PrepareForBailoutBeforeSplit(expr, true, if_true, if_false);
+  Split(equal, if_true, if_false, fall_through);
 
-  __ bind(&done);
-  context()->Plug(result);
+  context()->Plug(if_true, if_false);
 }
 
 
@@ -4662,6 +4664,7 @@ void FullCodeGenerator::VisitCallRuntime(CallRuntime* expr) {
       VisitForStackValue(args->at(i));
     }
 
+    PrepareForBailoutForId(expr->CallId(), NO_REGISTERS);
     EmitCallJSRuntimeFunction(expr);
 
     // Restore context register.
@@ -4686,6 +4689,7 @@ void FullCodeGenerator::VisitCallRuntime(CallRuntime* expr) {
         }
 
         // Call the C runtime function.
+        PrepareForBailoutForId(expr->CallId(), NO_REGISTERS);
         __ CallRuntime(expr->function(), arg_count);
         context()->Plug(eax);
       }

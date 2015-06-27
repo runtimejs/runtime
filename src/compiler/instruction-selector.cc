@@ -336,8 +336,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
     case CallDescriptor::kCallAddress:
       buffer->instruction_args.push_back(
           (call_address_immediate &&
-           (callee->opcode() == IrOpcode::kInt32Constant ||
-            callee->opcode() == IrOpcode::kInt64Constant))
+           callee->opcode() == IrOpcode::kExternalConstant)
               ? g.UseImmediate(callee)
               : g.UseRegister(callee));
       break;
@@ -373,7 +372,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
   // not appear as arguments to the call. Everything else ends up
   // as an InstructionOperand argument to the call.
   auto iter(call->inputs().begin());
-  int pushed_count = 0;
+  size_t pushed_count = 0;
   for (size_t index = 0; index < input_count; ++iter, ++index) {
     DCHECK(iter != call->inputs().end());
     DCHECK((*iter)->op()->opcode() != IrOpcode::kFrameState);
@@ -393,10 +392,8 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
       buffer->instruction_args.push_back(op);
     }
   }
-  CHECK_EQ(pushed_count, static_cast<int>(buffer->pushed_nodes.size()));
-  DCHECK(static_cast<size_t>(input_count) ==
-         (buffer->instruction_args.size() + buffer->pushed_nodes.size() -
-          buffer->frame_state_value_count()));
+  DCHECK_EQ(input_count, buffer->instruction_args.size() + pushed_count -
+                             buffer->frame_state_value_count());
 }
 
 
@@ -1037,7 +1034,7 @@ FrameStateDescriptor* InstructionSelector::GetFrameStateDescriptor(
     Node* state) {
   DCHECK(state->opcode() == IrOpcode::kFrameState);
   DCHECK_EQ(kFrameStateInputCount, state->InputCount());
-  FrameStateCallInfo state_info = OpParameter<FrameStateCallInfo>(state);
+  FrameStateInfo state_info = OpParameter<FrameStateInfo>(state);
 
   int parameters = static_cast<int>(
       StateValuesAccess(state->InputAt(kFrameStateParametersInput)).size());
@@ -1045,6 +1042,9 @@ FrameStateDescriptor* InstructionSelector::GetFrameStateDescriptor(
       StateValuesAccess(state->InputAt(kFrameStateLocalsInput)).size());
   int stack = static_cast<int>(
       StateValuesAccess(state->InputAt(kFrameStateStackInput)).size());
+
+  DCHECK_EQ(parameters, state_info.parameter_count());
+  DCHECK_EQ(locals, state_info.local_count());
 
   FrameStateDescriptor* outer_state = NULL;
   Node* outer_node = state->InputAt(kFrameStateOuterStateInput);

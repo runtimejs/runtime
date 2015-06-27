@@ -265,33 +265,33 @@ void JSGenericLowering::ReplaceWithRuntimeCall(Node* node,
 
 
 void JSGenericLowering::LowerJSUnaryNot(Node* node) {
+  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   Callable callable = CodeFactory::ToBoolean(
       isolate(), ToBooleanStub::RESULT_AS_INVERSE_ODDBALL);
-  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   ReplaceWithStubCall(node, callable,
                       CallDescriptor::kPatchableCallSite | flags);
 }
 
 
 void JSGenericLowering::LowerJSTypeOf(Node* node) {
-  Callable callable = CodeFactory::Typeof(isolate());
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  Callable callable = CodeFactory::Typeof(isolate());
   ReplaceWithStubCall(node, callable, flags);
 }
 
 
 void JSGenericLowering::LowerJSToBoolean(Node* node) {
+  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   Callable callable =
       CodeFactory::ToBoolean(isolate(), ToBooleanStub::RESULT_AS_ODDBALL);
-  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   ReplaceWithStubCall(node, callable,
                       CallDescriptor::kPatchableCallSite | flags);
 }
 
 
 void JSGenericLowering::LowerJSToNumber(Node* node) {
-  Callable callable = CodeFactory::ToNumber(isolate());
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  Callable callable = CodeFactory::ToNumber(isolate());
   ReplaceWithStubCall(node, callable, flags);
 }
 
@@ -332,11 +332,29 @@ void JSGenericLowering::LowerJSLoadNamed(Node* node) {
 }
 
 
+void JSGenericLowering::LowerJSLoadGlobal(Node* node) {
+  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  const LoadNamedParameters& p = LoadGlobalParametersOf(node->op());
+  Callable callable = CodeFactory::LoadICInOptimizedCode(
+      isolate(), p.contextual_mode(), UNINITIALIZED);
+  node->InsertInput(zone(), 1, jsgraph()->HeapConstant(p.name()));
+  node->InsertInput(zone(), 2, jsgraph()->SmiConstant(p.feedback().index()));
+  ReplaceWithStubCall(node, callable, flags);
+}
+
+
 void JSGenericLowering::LowerJSStoreProperty(Node* node) {
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  const StorePropertyParameters& p = StorePropertyParametersOf(node->op());
   LanguageMode language_mode = OpParameter<LanguageMode>(node);
   Callable callable = CodeFactory::KeyedStoreICInOptimizedCode(
       isolate(), language_mode, UNINITIALIZED);
+  if (FLAG_vector_stores) {
+    DCHECK(p.feedback().index() != -1);
+    node->InsertInput(zone(), 3, jsgraph()->SmiConstant(p.feedback().index()));
+  } else {
+    node->RemoveInput(3);
+  }
   ReplaceWithStubCall(node, callable,
                       CallDescriptor::kPatchableCallSite | flags);
 }
@@ -345,8 +363,31 @@ void JSGenericLowering::LowerJSStoreProperty(Node* node) {
 void JSGenericLowering::LowerJSStoreNamed(Node* node) {
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   const StoreNamedParameters& p = StoreNamedParametersOf(node->op());
+  Callable callable = CodeFactory::StoreICInOptimizedCode(
+      isolate(), p.language_mode(), UNINITIALIZED);
+  node->InsertInput(zone(), 1, jsgraph()->HeapConstant(p.name()));
+  if (FLAG_vector_stores) {
+    DCHECK(p.feedback().index() != -1);
+    node->InsertInput(zone(), 3, jsgraph()->SmiConstant(p.feedback().index()));
+  } else {
+    node->RemoveInput(3);
+  }
+  ReplaceWithStubCall(node, callable,
+                      CallDescriptor::kPatchableCallSite | flags);
+}
+
+
+void JSGenericLowering::LowerJSStoreGlobal(Node* node) {
+  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  const StoreNamedParameters& p = StoreGlobalParametersOf(node->op());
   Callable callable = CodeFactory::StoreIC(isolate(), p.language_mode());
   node->InsertInput(zone(), 1, jsgraph()->HeapConstant(p.name()));
+  if (FLAG_vector_stores) {
+    DCHECK(p.feedback().index() != -1);
+    node->InsertInput(zone(), 3, jsgraph()->SmiConstant(p.feedback().index()));
+  } else {
+    node->RemoveInput(3);
+  }
   ReplaceWithStubCall(node, callable,
                       CallDescriptor::kPatchableCallSite | flags);
 }
@@ -365,17 +406,12 @@ void JSGenericLowering::LowerJSHasProperty(Node* node) {
 
 
 void JSGenericLowering::LowerJSInstanceOf(Node* node) {
-  InstanceofStub::Flags flags = static_cast<InstanceofStub::Flags>(
+  CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  InstanceofStub::Flags stub_flags = static_cast<InstanceofStub::Flags>(
       InstanceofStub::kReturnTrueFalseObject |
       InstanceofStub::kArgsInRegisters);
-  InstanceofStub stub(isolate(), flags);
-  CallInterfaceDescriptor d = stub.GetCallInterfaceDescriptor();
-  CallDescriptor::Flags desc_flags = AdjustFrameStatesForCall(node);
-  CallDescriptor* desc =
-      Linkage::GetStubCallDescriptor(isolate(), zone(), d, 0, desc_flags);
-  Node* stub_code = jsgraph()->HeapConstant(stub.GetCode());
-  node->InsertInput(zone(), 0, stub_code);
-  node->set_op(common()->Call(desc));
+  Callable callable = CodeFactory::Instanceof(isolate(), stub_flags);
+  ReplaceWithStubCall(node, callable, flags);
 }
 
 

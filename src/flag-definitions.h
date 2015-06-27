@@ -198,20 +198,18 @@ DEFINE_IMPLICATION(es_staging, harmony)
 
 // Features that are complete (but still behind --harmony/es-staging flag).
 #define HARMONY_STAGED(V)                                      \
-  V(harmony_arrays, "harmony array methods")                   \
-  V(harmony_rest_parameters, "harmony rest parameters")        \
   V(harmony_tostring, "harmony toString")
 
 // Features that are shipping (turned on by default, but internal flag remains).
-#define HARMONY_SHIPPING(V)                                                \
-  V(harmony_arrow_functions, "harmony arrow functions")                    \
-  V(harmony_classes, "harmony classes (implies object literal extension)") \
-  V(harmony_computed_property_names, "harmony computed property names")    \
-  V(harmony_object_literals, "harmony object literal extensions")          \
-  V(harmony_spreadcalls, "harmony spread-calls")                           \
-  V(harmony_spread_arrays, "harmony spread in array literals")             \
-  V(harmony_unicode, "harmony unicode escapes")                            \
-  V(harmony_object, "harmony Object methods")
+#define HARMONY_SHIPPING(V)                                             \
+  V(harmony_arrays, "harmony array methods")                            \
+  V(harmony_arrow_functions, "harmony arrow functions")                 \
+  V(harmony_computed_property_names, "harmony computed property names") \
+  V(harmony_spreadcalls, "harmony spread-calls")                        \
+  V(harmony_spread_arrays, "harmony spread in array literals")          \
+  V(harmony_unicode, "harmony unicode escapes")                         \
+  V(harmony_object, "harmony Object methods")                           \
+  V(harmony_rest_parameters, "harmony rest parameters")
 
 // Once a shipping feature has proved stable in the wild, it will be dropped
 // from HARMONY_SHIPPING, all occurrences of the FLAG_ variable are removed,
@@ -238,7 +236,6 @@ HARMONY_SHIPPING(FLAG_SHIPPING_FEATURES)
 
 
 // Feature dependencies.
-DEFINE_IMPLICATION(harmony_classes, harmony_object_literals)
 DEFINE_IMPLICATION(harmony_unicode_regexps, harmony_unicode)
 
 
@@ -430,6 +427,7 @@ DEFINE_BOOL(turbo_stress_loop_peeling, false,
             "stress loop peeling optimization")
 DEFINE_BOOL(turbo_cf_optimization, true, "optimize control flow in TurboFan")
 DEFINE_BOOL(turbo_frame_elision, true, "elide frames in TurboFan")
+DEFINE_BOOL(turbo_cache_shared_code, true, "cache context-independent code")
 
 DEFINE_INT(typed_array_max_size_in_heap, 64,
            "threshold for in-heap typed array")

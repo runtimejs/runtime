@@ -14,6 +14,8 @@ var GlobalString = global.String;
 var InternalArray = utils.InternalArray;
 var InternalPackedArray = utils.InternalPackedArray;
 
+var ArrayIndexOf;
+var ArrayJoin;
 var MathMax;
 var MathMin;
 var RegExpExec;
@@ -21,6 +23,8 @@ var RegExpExecNoTests;
 var RegExpLastMatchInfo;
 
 utils.Import(function(from) {
+  ArrayIndexOf = from.ArrayIndexOf;
+  ArrayJoin = from.ArrayJoin;
   MathMax = from.MathMax;
   MathMin = from.MathMin;
   RegExpExec = from.RegExpExec;
@@ -191,10 +195,11 @@ function StringNormalizeJS(form) {
   var form = form ? TO_STRING_INLINE(form) : 'NFC';
 
   var NORMALIZATION_FORMS = ['NFC', 'NFD', 'NFKC', 'NFKD'];
-
-  var normalizationForm = NORMALIZATION_FORMS.indexOf(form);
+  var normalizationForm =
+      %_CallFunction(NORMALIZATION_FORMS, form, ArrayIndexOf);
   if (normalizationForm === -1) {
-    throw MakeRangeError(kNormalizationForm, NORMALIZATION_FORMS.join(', '));
+    throw MakeRangeError(kNormalizationForm,
+                         %_CallFunction(NORMALIZATION_FORMS, ', ', ArrayJoin));
   }
 
   return %_ValueOf(this);
@@ -846,98 +851,101 @@ function StringFromCharCode(code) {
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.2.1
 function HtmlEscape(str) {
-  return TO_STRING_INLINE(str).replace(/"/g, "&quot;");
+  return %_CallFunction(TO_STRING_INLINE(str), /"/g, "&quot;", StringReplace);
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.2
 function StringAnchor(name) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.anchor");
-  return "<a name=\"" + HtmlEscape(name) + "\">" + this + "</a>";
+  return "<a name=\"" + HtmlEscape(name) + "\">" + TO_STRING_INLINE(this) +
+         "</a>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.3
 function StringBig() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.big");
-  return "<big>" + this + "</big>";
+  return "<big>" + TO_STRING_INLINE(this) + "</big>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.4
 function StringBlink() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.blink");
-  return "<blink>" + this + "</blink>";
+  return "<blink>" + TO_STRING_INLINE(this) + "</blink>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.5
 function StringBold() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.bold");
-  return "<b>" + this + "</b>";
+  return "<b>" + TO_STRING_INLINE(this) + "</b>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.6
 function StringFixed() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.fixed");
-  return "<tt>" + this + "</tt>";
+  return "<tt>" + TO_STRING_INLINE(this) + "</tt>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.7
 function StringFontcolor(color) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.fontcolor");
-  return "<font color=\"" + HtmlEscape(color) + "\">" + this + "</font>";
+  return "<font color=\"" + HtmlEscape(color) + "\">" + TO_STRING_INLINE(this) +
+         "</font>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.8
 function StringFontsize(size) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.fontsize");
-  return "<font size=\"" + HtmlEscape(size) + "\">" + this + "</font>";
+  return "<font size=\"" + HtmlEscape(size) + "\">" + TO_STRING_INLINE(this) +
+         "</font>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.9
 function StringItalics() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.italics");
-  return "<i>" + this + "</i>";
+  return "<i>" + TO_STRING_INLINE(this) + "</i>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.10
 function StringLink(s) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.link");
-  return "<a href=\"" + HtmlEscape(s) + "\">" + this + "</a>";
+  return "<a href=\"" + HtmlEscape(s) + "\">" + TO_STRING_INLINE(this) + "</a>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.11
 function StringSmall() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.small");
-  return "<small>" + this + "</small>";
+  return "<small>" + TO_STRING_INLINE(this) + "</small>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.12
 function StringStrike() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.strike");
-  return "<strike>" + this + "</strike>";
+  return "<strike>" + TO_STRING_INLINE(this) + "</strike>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.13
 function StringSub() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.sub");
-  return "<sub>" + this + "</sub>";
+  return "<sub>" + TO_STRING_INLINE(this) + "</sub>";
 }
 
 
 // ES6 draft, revision 26 (2014-07-18), section B.2.3.14
 function StringSup() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.sup");
-  return "<sup>" + this + "</sup>";
+  return "<sup>" + TO_STRING_INLINE(this) + "</sup>";
 }
 
 // ES6 draft 01-20-14, section 21.1.3.13
@@ -1188,6 +1196,11 @@ utils.InstallFunctions(GlobalString.prototype, DONT_ENUM, [
 utils.Export(function(to) {
   to.StringCharAt = StringCharAtJS;
   to.StringIndexOf = StringIndexOfJS;
+  to.StringLastIndexOf = StringLastIndexOfJS;
+  to.StringMatch = StringMatchJS;
+  to.StringReplace = StringReplace;
+  to.StringSplit = StringSplitJS;
+  to.StringSubstr = StringSubstr;
   to.StringSubstring = StringSubstring;
 });
 

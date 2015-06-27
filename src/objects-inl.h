@@ -16,7 +16,6 @@
 #include "src/base/bits.h"
 #include "src/contexts.h"
 #include "src/conversions-inl.h"
-#include "src/elements.h"
 #include "src/factory.h"
 #include "src/field-index-inl.h"
 #include "src/heap/heap-inl.h"
@@ -1605,16 +1604,6 @@ FixedArrayBase* JSObject::elements() const {
 }
 
 
-void JSObject::ValidateElements(Handle<JSObject> object) {
-#ifdef ENABLE_SLOW_DCHECKS
-  if (FLAG_enable_slow_asserts) {
-    ElementsAccessor* accessor = object->GetElementsAccessor();
-    accessor->Validate(object);
-  }
-#endif
-}
-
-
 void AllocationSite::Initialize() {
   set_transition_info(Smi::FromInt(0));
   SetElementsKind(GetInitialFastElementsKind());
@@ -1934,6 +1923,14 @@ void WeakCell::set_next(Object* val, WriteBarrierMode mode) {
     WRITE_BARRIER(GetHeap(), this, kNextOffset, val);
   }
 }
+
+
+void WeakCell::clear_next(Heap* heap) {
+  set_next(heap->the_hole_value(), SKIP_WRITE_BARRIER);
+}
+
+
+bool WeakCell::next_cleared() { return next()->IsTheHole(); }
 
 
 int JSObject::GetHeaderSize() {
@@ -2924,6 +2921,7 @@ bool SeededNumberDictionary::requires_slow_elements() {
       (Smi::cast(max_index_object)->value() & kRequiresSlowElementsMask);
 }
 
+
 uint32_t SeededNumberDictionary::max_number_key() {
   DCHECK(!requires_slow_elements());
   Object* max_index_object = get(kMaxNumberKeyIndex);
@@ -2931,6 +2929,7 @@ uint32_t SeededNumberDictionary::max_number_key() {
   uint32_t value = static_cast<uint32_t>(Smi::cast(max_index_object)->value());
   return value >> kRequiresSlowElementsTagSize;
 }
+
 
 void SeededNumberDictionary::set_requires_slow_elements() {
   set(kMaxNumberKeyIndex, Smi::FromInt(kRequiresSlowElementsMask));
@@ -4684,9 +4683,7 @@ bool Code::back_edges_patched_for_osr() {
 }
 
 
-byte Code::to_boolean_state() {
-  return extra_ic_state();
-}
+uint16_t Code::to_boolean_state() { return extra_ic_state(); }
 
 
 bool Code::has_function_cache() {
@@ -5242,6 +5239,8 @@ BOOL_ACCESSORS(SharedFunctionInfo,
                kHasDuplicateParameters)
 BOOL_ACCESSORS(SharedFunctionInfo, compiler_hints, asm_function, kIsAsmFunction)
 BOOL_ACCESSORS(SharedFunctionInfo, compiler_hints, deserialized, kDeserialized)
+BOOL_ACCESSORS(SharedFunctionInfo, compiler_hints, never_compiled,
+               kNeverCompiled)
 
 
 #if V8_HOST_ARCH_32_BIT
@@ -5456,6 +5455,8 @@ void SharedFunctionInfo::ReplaceCode(Code* value) {
   DCHECK(code()->gc_metadata() == NULL && value->gc_metadata() == NULL);
 
   set_code(value);
+
+  if (is_compiled()) set_never_compiled(false);
 }
 
 
@@ -6227,11 +6228,6 @@ ElementsKind JSObject::GetElementsKind() {
 }
 
 
-ElementsAccessor* JSObject::GetElementsAccessor() {
-  return ElementsAccessor::ForKind(GetElementsKind());
-}
-
-
 bool JSObject::HasFastObjectElements() {
   return IsFastObjectElementsKind(GetElementsKind());
 }
@@ -6940,24 +6936,6 @@ int Map::SlackForArraySize(int old_size, int size_limit) {
   CHECK(max_slack >= 0);
   if (old_size < 4) return Min(max_slack, 1);
   return Min(max_slack, old_size / 2);
-}
-
-
-void JSArray::EnsureSize(Handle<JSArray> array, int required_size) {
-  DCHECK(array->HasFastSmiOrObjectElements());
-  Handle<FixedArray> elts = handle(FixedArray::cast(array->elements()));
-  const int kArraySizeThatFitsComfortablyInNewSpace = 128;
-  if (elts->length() < required_size) {
-    // Doubling in size would be overkill, but leave some slack to avoid
-    // constantly growing.
-    Expand(array, required_size + (required_size >> 3));
-    // It's a performance benefit to keep a frequently used array in new-space.
-  } else if (!array->GetHeap()->new_space()->Contains(*elts) &&
-             required_size < kArraySizeThatFitsComfortablyInNewSpace) {
-    // Expand will allocate a new backing store in new space even if the size
-    // we asked for isn't larger than what we had before.
-    Expand(array, required_size);
-  }
 }
 
 

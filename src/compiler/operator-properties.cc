@@ -26,7 +26,7 @@ int OperatorProperties::GetFrameStateInputCount(const Operator* op) {
       return 1;
     case IrOpcode::kJSCallRuntime: {
       const CallRuntimeParameters& p = CallRuntimeParametersOf(op);
-      return Linkage::NeedsFrameState(p.id());
+      return Linkage::FrameStateInputCount(p.id());
     }
 
     // Strict equality cannot lazily deoptimize.
@@ -71,6 +71,8 @@ int OperatorProperties::GetFrameStateInputCount(const Operator* op) {
     case IrOpcode::kJSStoreNamed:
     case IrOpcode::kJSLoadProperty:
     case IrOpcode::kJSStoreProperty:
+    case IrOpcode::kJSLoadGlobal:
+    case IrOpcode::kJSStoreGlobal:
     case IrOpcode::kJSLoadDynamicGlobal:
       return 2;
 

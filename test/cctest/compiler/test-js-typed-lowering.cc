@@ -38,7 +38,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
         simplified(main_zone()),
         common(main_zone()),
         graph(main_zone()),
-        typer(main_isolate(), &graph, MaybeHandle<Context>()),
+        typer(main_isolate(), &graph, nullptr, MaybeHandle<Context>()),
         context_node(NULL) {
     graph.SetStart(graph.NewNode(common.Start(num_parameters)));
     graph.SetEnd(graph.NewNode(common.End(1)));
@@ -79,10 +79,10 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
     Node* locals = graph.NewNode(common.StateValues(0));
     Node* stack = graph.NewNode(common.StateValues(0));
 
-    Node* state_node =
-        graph.NewNode(common.FrameState(JS_FRAME, BailoutId::None(),
-                                        OutputFrameStateCombine::Ignore()),
-                      parameters, locals, stack, context, UndefinedConstant());
+    Node* state_node = graph.NewNode(
+        common.FrameState(BailoutId::None(), OutputFrameStateCombine::Ignore(),
+                          nullptr),
+        parameters, locals, stack, context, UndefinedConstant());
 
     return state_node;
   }

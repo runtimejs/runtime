@@ -134,7 +134,7 @@ namespace internal {
 #define FOR_EACH_INTRINSIC_DATE(F) \
   F(DateMakeDay, 2, 1)             \
   F(DateSetValue, 3, 1)            \
-  F(ThrowIfNotADate, 1, 1)         \
+  F(IsDate, 1, 1)                  \
   F(ThrowNotDateError, 0, 1)       \
   F(DateCurrentTime, 0, 1)         \
   F(DateParseString, 2, 1)         \
@@ -296,6 +296,9 @@ namespace internal {
   F(UnwindAndFindExceptionHandler, 0, 1)      \
   F(PromoteScheduledException, 0, 1)          \
   F(ThrowReferenceError, 1, 1)                \
+  F(NewTypeError, 2, 1)                       \
+  F(NewSyntaxError, 2, 1)                     \
+  F(NewReferenceError, 2, 1)                  \
   F(ThrowIteratorResultNotAnObject, 1, 1)     \
   F(PromiseRejectEvent, 3, 1)                 \
   F(PromiseRevokeReject, 1, 1)                \
@@ -872,7 +875,9 @@ class Runtime : public AllStatic {
 
 
   static void JSMapInitialize(Isolate* isolate, Handle<JSMap> map);
+  static void JSMapClear(Isolate* isolate, Handle<JSMap> map);
   static void JSSetInitialize(Isolate* isolate, Handle<JSSet> set);
+  static void JSSetClear(Isolate* isolate, Handle<JSSet> set);
 
   static void WeakCollectionInitialize(
       Isolate* isolate, Handle<JSWeakCollection> weak_collection);
