@@ -17,6 +17,9 @@
 runtime.tty.stdout = new runtime.tty.Stdout();
 runtime.tty.stdin = new runtime.tty.Stdin();
 
+runtime.tty.stdout.fgcolor = runtime.tty.color.WHITE;
+runtime.tty.stdin.bgcolor = runtime.tty.color.BLACK;
+
 module.exports = function(self) {
   self.tty.stdout.onwrite = function(text) {
     self.tty.print(text, 1, self.tty.stdout.fgcolor, self.tty.stdout.bgcolor);

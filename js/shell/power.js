@@ -15,14 +15,14 @@
 'use strict';
 
 module.exports = function(runtime) {
-  runtime.shell.setCommand('poweroff', function(args, cb) {
-    runtime.tty.print('Going down, now!');
+  runtime.shell.setCommand('poweroff', function(args, env, cb) {
+    env.stdout.writeLine('Going down, now!');
     runtime.machine.shutdown();
-    cb();
+    cb(0);
   });
-  runtime.shell.setCommand('reboot', function(args, cb) {
-    runtime.tty.print('Restarting, now!');
+  runtime.shell.setCommand('reboot', function(args, env, cb) {
+    env.stdout.writeLine('Restarting, now!');
     runtime.machine.reboot();
-    cb();
+    cb(0);
   });
 };

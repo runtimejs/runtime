@@ -37,7 +37,7 @@ runtime.debug = isDebug;
 
 // Example shell command
 runtime.shell.setCommand('1', function(args, env, cb) {
-  env.stdout.writeln('OK.');
+  env.stdout.writeLine('OK.');
   runtime.dns.resolve('www.google.com', {}, function(err, data) {
     if (err) {
       return cb(1);

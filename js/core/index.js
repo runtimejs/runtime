@@ -29,8 +29,6 @@ var initio = require('./initio');
 
 function Runtime() {
   this.tty = tty;
-  this.tty.Stdout = stdio.Stdout;
-  this.tty.Stdin = stdio.Stdin;
   this.keyboard = keyboard;
   this.pci = pci;
   this.ps2 = ps2;
@@ -53,6 +51,6 @@ initio(runtime);
 runtime.stdio = {
   stdout: runtime.tty.stdout,
   stdin: runtime.tty.stdin,
-  Stdin: runtime.tty.Stdin,
-  Stdout: runtime.tty.Stdout
+  Stdin: stdio.Stdin,
+  Stdout: stdio.Stdout
 };

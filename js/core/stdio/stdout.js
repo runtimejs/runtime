@@ -14,13 +14,11 @@
 
 'use strict';
 
-class StdOut {
+class Stdout {
   constructor() {
     this.onwrite = function() {};
     this.onsetcolor = function() {};
     this.onsetbackgroundcolor = function() {};
-    this.fgcolor = runtime.tty.color.WHITE;
-    this.bgcolor = runtime.tty.color.BLACK;
   }
 
   write() {
@@ -48,4 +46,4 @@ class StdOut {
   }
 }
 
-module.exports = StdOut;
+module.exports = Stdout;

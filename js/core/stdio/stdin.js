@@ -14,7 +14,7 @@
 
 'use strict';
 
-class StdIn {
+class Stdin {
   constructor() {
     this.onread = function() {};
   }
@@ -45,4 +45,4 @@ class StdIn {
   }
 }
 
-module.exports = StdIn;
+module.exports = Stdin;
