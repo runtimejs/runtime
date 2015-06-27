@@ -27,20 +27,10 @@ var net = require('./net');
 var stdio = require('./stdio');
 var initio = require('./initio');
 
-function copy(source, dest) {
-  for (var obj in source) {
-    dest[obj] = source[obj];
-  }
-}
-
 function Runtime() {
-  var self = this;
-  this.tty = {
-    StdOut: stdio.StdOut,
-    StdIn: stdio.StdIn
-  };
-  // Copy everything from `tty` to `this.tty`
-  copy(tty, this.tty);
+  this.tty = tty;
+  this.tty.Stdout = stdio.Stdout;
+  this.tty.Stdin = stdio.Stdin;
   this.keyboard = keyboard;
   this.pci = pci;
   this.ps2 = ps2;
@@ -58,43 +48,11 @@ function Runtime() {
 
 global.runtime = module.exports = new Runtime();
 
-runtime.tty.stdout = new runtime.tty.StdOut();
-runtime.tty.stdin = new runtime.tty.StdIn();
 initio(runtime);
 
 runtime.stdio = {
   stdout: runtime.tty.stdout,
   stdin: runtime.tty.stdin,
-  StdIn: runtime.tty.StdIn,
-  StdOut: runtime.tty.StdOut,
-  createOut: function(funcs) {
-    if (funcs) {
-      funcs.onwrite = funcs.onwrite || runtime.stdio.stdout.onwrite;
-      funcs.onsetcolor = funcs.onsetcolor || runtime.stdio.stdout.onsetcolor;
-      funcs.onsetbackgroundcolor = funcs.onsetbackgroundcolor || runtime.stdio.stdout.onsetbackgroundcolor;
-    }
-
-    var newout = new runtime.stdio.StdOut();
-    newout.onwrite = funcs.onwrite;
-    newout.onsetcolor = funcs.onsetcolor;
-    newout.onsetbackgroundcolor = funcs.onsetbackgroundcolor;
-    return newout;
-  },
-  createIn: function(funcs) {
-    if (funcs) {
-      funcs.onread = funcs.onread || runtime.stdio.stdin.onread;
-      funcs.onreadline = funcs.onreadline || runtime.stdio.stdin.onreadline;
-    }
-
-    var newin = new runtime.stdio.StdIn();
-    newin.onread = funcs.onread;
-    newin.onreadline = funcs.onreadline;
-
-    return newin;
-  }
-};
-
-global.env = {
-  stdout: runtime.stdio.stdout,
-  stdin: runtime.stdio.stdin
+  Stdin: runtime.tty.Stdin,
+  Stdout: runtime.tty.Stdout
 };

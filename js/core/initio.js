@@ -14,6 +14,9 @@
 
 'use strict';
 
+runtime.tty.stdout = new runtime.tty.Stdout();
+runtime.tty.stdin = new runtime.tty.Stdin();
+
 module.exports = function(self) {
   self.tty.stdout.onwrite = function(text) {
     self.tty.print(text, 1, self.tty.stdout.fgcolor, self.tty.stdout.bgcolor);

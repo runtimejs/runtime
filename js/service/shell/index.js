@@ -40,19 +40,15 @@ exports.runCommand = function(name, args, done) {
 
   var stringargs = opts.args.join(' ');
 
-  opts.stdout = opts.stdout || env.stdout;
-  opts.stdin = opts.stdin || env.stdin;
+  opts.stdout = opts.stdout || runtime.stdio.stdout;
+  opts.stdin = opts.stdin || runtime.stdio.stdin;
 
-  try {
-    commands.get(name)(stringargs, {
-      stdout: opts.stdout,
-      stdin: opts.stdin
-    }, function(rescode) {
-      done(null, rescode, inputBox.done);
-    });
-  } catch(e) {
-    done(e, null, inputBox.done);
-  }
+  commands.get(name)(stringargs, {
+    stdout: opts.stdout,
+    stdin: opts.stdin
+  }, function(rescode) {
+    done(rescode, inputBox.done);
+  });
 }
 
 inputBox.onInput.add(function(text, done) {
@@ -68,12 +64,8 @@ inputBox.onInput.add(function(text, done) {
   }
 
   if (commands.has(name)) {
-    return exports.runCommand(name, args.substr(1).split(' '), function(err, rescode) {
+    return exports.runCommand(name, args.substr(1).split(' '), function(rescode) {
       var printx = false;
-      if (err) {
-        printx = true;
-        runtime.tty.print('\nERR: ' + err);
-      }
       runtime.tty.print('\n');
       // Since 0 == false and other numbers == true, just check for true.
       if (rescode) {
