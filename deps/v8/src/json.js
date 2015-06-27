@@ -183,6 +183,30 @@ function JSONStringify(value, replacer, space) {
   if (%_ArgumentsLength() == 1) {
     return %BasicJSONStringify(value);
   }
+  if (IS_ARRAY(replacer)) {
+    // Deduplicate replacer array items.
+    var property_list = new InternalArray();
+    var seen_properties = { __proto__: null };
+    var length = replacer.length;
+    for (var i = 0; i < length; i++) {
+      var v = replacer[i];
+      var item;
+      if (IS_STRING(v)) {
+        item = v;
+      } else if (IS_NUMBER(v)) {
+        item = %_NumberToString(v);
+      } else if (IS_STRING_WRAPPER(v) || IS_NUMBER_WRAPPER(v)) {
+        item = $toString(v);
+      } else {
+        continue;
+      }
+      if (!seen_properties[item]) {
+        property_list.push(item);
+        seen_properties[item] = true;
+      }
+    }
+    replacer = property_list;
+  }
   if (IS_OBJECT(space)) {
     // Unwrap 'space' if it is wrapped
     if (IS_NUMBER_WRAPPER(space)) {
@@ -203,28 +227,6 @@ function JSONStringify(value, replacer, space) {
     }
   } else {
     gap = "";
-  }
-  if (IS_ARRAY(replacer)) {
-    // Deduplicate replacer array items.
-    var property_list = new InternalArray();
-    var seen_properties = { __proto__: null };
-    var seen_sentinel = {};
-    var length = replacer.length;
-    for (var i = 0; i < length; i++) {
-      var item = replacer[i];
-      if (IS_STRING_WRAPPER(item)) {
-        item = $toString(item);
-      } else {
-        if (IS_NUMBER_WRAPPER(item)) item = $toNumber(item);
-        if (IS_NUMBER(item)) item = %_NumberToString(item);
-      }
-      if (IS_STRING(item) && seen_properties[item] != seen_sentinel) {
-        property_list.push(item);
-        // We cannot use true here because __proto__ needs to be an object.
-        seen_properties[item] = seen_sentinel;
-      }
-    }
-    replacer = property_list;
   }
   return JSONSerialize('', {'': value}, replacer, new InternalArray(), "", gap);
 }

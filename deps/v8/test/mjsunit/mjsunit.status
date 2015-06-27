@@ -181,8 +181,9 @@
   'array-constructor': [PASS, TIMEOUT],
 
   # Very slow on ARM and MIPS, contains no architecture dependent code.
-  'unicode-case-overoptimization': [PASS, NO_VARIANTS, ['arch == arm or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', TIMEOUT]],
-  'regress/regress-3976': [PASS, NO_VARIANTS, ['arch == arm or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
+  'unicode-case-overoptimization': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', TIMEOUT]],
+  'regress/regress-3976': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
+  'regress/regress-crbug-482998': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
 
   ##############################################################################
   # This test expects to reach a certain recursion depth, which may not work
@@ -245,6 +246,13 @@
   'regress/regress-3116': [PASS, ['isolates', FLAKY]],
 }],  # ALWAYS
 
+['novfp3 == True', {
+  'asm/embenchen/box2d': [SKIP],
+  'asm/embenchen/zlib': [SKIP],
+  'asm/embenchen/memops': [SKIP],
+  'asm/embenchen/lua_binarytrees': [SKIP],
+}],  # novfp3 == True
+
 ##############################################################################
 ['gc_stress == True', {
   # Skip tests not suitable for GC stress.
@@ -296,8 +304,8 @@
   # Issue 478788.
   'es7/object-observe': [SKIP],
 
-  # Issue 3803.
-  'es6/generators-iteration': [PASS, FLAKY],
+  # BUG(v8:4237)
+  'regress/regress-3976': [SKIP],
 }],  # 'gc_stress == True'
 
 ##############################################################################
@@ -411,6 +419,9 @@
   'big-array-literal': [SKIP],
   'big-object-literal': [SKIP],
   'regress/regress-crbug-178790': [SKIP],
+
+  # Exception thrown during bootstrapping on ASAN builds, see issue 4236.
+  'regress/regress-1132': [SKIP],
 }],  # 'asan == True'
 
 ##############################################################################
@@ -564,10 +575,6 @@
   'math-floor-of-div-minus-zero': [SKIP],
 }],  # 'arch == mips64el'
 
-['arch == mips64el and simulator_run == False', {
-  # Random failures on HW, need investigation.
-  'debug-*': [SKIP],
-}],
 ##############################################################################
 ['system == windows', {
   # TODO(mstarzinger): Too slow with turbo fan.

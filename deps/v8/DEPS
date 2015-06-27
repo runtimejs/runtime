@@ -10,7 +10,7 @@ deps = {
   "v8/build/gyp":
     Var("git_url") + "/external/gyp.git" + "@" + "5122240c5e5c4d8da12c543d82b03d6089eb77c5",
   "v8/third_party/icu":
-    Var("git_url") + "/chromium/deps/icu.git" + "@" + "00af1a4e512477e48ba3d5efc97adbc95462685e",
+    Var("git_url") + "/chromium/deps/icu.git" + "@" + "c3f79166089e5360c09e3053fce50e6e296c3204",
   "v8/buildtools":
     Var("git_url") + "/chromium/buildtools.git" + "@" + "ecc8e253abac3b6186a97573871a084f4c0ca3ae",
   "v8/testing/gtest":
@@ -24,7 +24,7 @@ deps = {
 deps_os = {
   "android": {
     "v8/third_party/android_tools":
-      Var("git_url") + "/android_tools.git" + "@" + "ed3dde6470c39b196c70f0c20374894d169754ec",
+      Var("git_url") + "/android_tools.git" + "@" + "21f4bcbd6cd927e4b4227cfde7d5f13486be1236",
   },
   "win": {
     "v8/third_party/cygwin":

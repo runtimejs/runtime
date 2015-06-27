@@ -648,7 +648,7 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArray) {
   double backing_store[kLength];
   Handle<JSArrayBuffer> buffer =
       NewArrayBuffer(backing_store, sizeof(backing_store));
-  ResolvedFeedbackSlot feedback;
+  VectorSlotPair feedback;
   TRACED_FOREACH(ExternalArrayType, type, kExternalArrayTypes) {
     Handle<JSTypedArray> array =
         factory()->NewJSTypedArray(type, buffer, 0, kLength);
@@ -687,7 +687,7 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArrayWithSafeKey) {
   double backing_store[kLength];
   Handle<JSArrayBuffer> buffer =
       NewArrayBuffer(backing_store, sizeof(backing_store));
-  ResolvedFeedbackSlot feedback;
+  VectorSlotPair feedback;
   TRACED_FOREACH(ExternalArrayType, type, kExternalArrayTypes) {
     Handle<JSTypedArray> array =
         factory()->NewJSTypedArray(type, buffer, 0, kLength);
@@ -736,11 +736,13 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArray) {
       Node* base = HeapConstant(array);
       Node* value =
           Parameter(AccessBuilder::ForTypedArrayElement(type, true).type);
+      Node* vector = UndefinedConstant();
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
-      Node* node = graph()->NewNode(javascript()->StoreProperty(language_mode),
-                                    base, key, value, context);
+      VectorSlotPair feedback;
+      const Operator* op = javascript()->StoreProperty(language_mode, feedback);
+      Node* node = graph()->NewNode(op, base, key, value, vector, context);
       for (int i = 0;
            i < OperatorProperties::GetFrameStateInputCount(node->op()); i++) {
         node->AppendInput(zone(), EmptyFrameState());
@@ -782,11 +784,13 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithConversion) {
           Type::Range(kMinInt / element_size, kMaxInt / element_size, zone()));
       Node* base = HeapConstant(array);
       Node* value = Parameter(Type::Any());
+      Node* vector = UndefinedConstant();
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
-      Node* node = graph()->NewNode(javascript()->StoreProperty(language_mode),
-                                    base, key, value, context);
+      VectorSlotPair feedback;
+      const Operator* op = javascript()->StoreProperty(language_mode, feedback);
+      Node* node = graph()->NewNode(op, base, key, value, vector, context);
       for (int i = 0;
            i < OperatorProperties::GetFrameStateInputCount(node->op()); i++) {
         node->AppendInput(zone(), EmptyFrameState());
@@ -841,11 +845,13 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithSafeKey) {
       Node* key = Parameter(Type::Range(min, max, zone()));
       Node* base = HeapConstant(array);
       Node* value = Parameter(access.type);
+      Node* vector = UndefinedConstant();
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
-      Node* node = graph()->NewNode(javascript()->StoreProperty(language_mode),
-                                    base, key, value, context);
+      VectorSlotPair feedback;
+      const Operator* op = javascript()->StoreProperty(language_mode, feedback);
+      Node* node = graph()->NewNode(op, base, key, value, vector, context);
       for (int i = 0;
            i < OperatorProperties::GetFrameStateInputCount(node->op()); i++) {
         node->AppendInput(zone(), EmptyFrameState());
@@ -878,8 +884,8 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
       IsNumberConstant(IsNaN())  // --
   };
 
-  ResolvedFeedbackSlot feedback;
-  Node* global = Parameter(Type::GlobalObject());
+  VectorSlotPair feedback;
+  Node* global = UndefinedConstant();
   Node* vector = UndefinedConstant();
   Node* context = UndefinedConstant();
   Node* effect = graph()->start();
@@ -888,7 +894,7 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
   for (size_t i = 0; i < arraysize(names); i++) {
     Unique<Name> name = Unique<Name>::CreateImmovable(names[i]);
     Reduction r = Reduce(graph()->NewNode(
-        javascript()->LoadNamed(name, feedback), global, vector, context,
+        javascript()->LoadGlobal(name, feedback), global, vector, context,
         EmptyFrameState(), EmptyFrameState(), effect, control));
 
     ASSERT_TRUE(r.Changed());
@@ -908,7 +914,7 @@ TEST_F(JSTypedLoweringTest, JSLoadDynamicGlobal) {
   Node* const effect = graph()->start();
   Node* const control = graph()->start();
   Handle<String> name = factory()->object_string();
-  ResolvedFeedbackSlot feedback;
+  VectorSlotPair feedback;
   for (int i = 0; i < DynamicGlobalAccess::kMaxCheckDepth; ++i) {
     uint32_t bitset = 1 << i;  // Only single check.
     Reduction r = Reduce(graph()->NewNode(

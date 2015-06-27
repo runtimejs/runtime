@@ -1628,7 +1628,6 @@ void LoadIndexedStringStub::Generate(MacroAssembler* masm) {
 
 
 void ArgumentsAccessStub::GenerateReadElement(MacroAssembler* masm) {
-  CHECK(!has_new_target());
   // The displacement is the offset of the last parameter (if any)
   // relative to the frame pointer.
   const int kDisplacement =
@@ -1689,8 +1688,6 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   // sp[1] : receiver displacement
   // sp[2] : function
 
-  CHECK(!has_new_target());
-
   // Check if the calling frame is an arguments adaptor frame.
   Label runtime;
   __ LoadP(r6, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
@@ -1720,8 +1717,6 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   // Registers used over whole function:
   //  r9 : allocated object (tagged)
   //  r11 : mapped parameter count (tagged)
-
-  CHECK(!has_new_target());
 
   __ LoadP(r4, MemOperand(sp, 0 * kPointerSize));
   // r4 = parameter count (tagged)
@@ -2005,14 +2000,6 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   // Patch the arguments.length and the parameters pointer.
   __ bind(&adaptor_frame);
   __ LoadP(r4, MemOperand(r5, ArgumentsAdaptorFrameConstants::kLengthOffset));
-  if (has_new_target()) {
-    __ CmpSmiLiteral(r4, Smi::FromInt(0), r0);
-    Label skip_decrement;
-    __ beq(&skip_decrement);
-    // Subtract 1 from smi-tagged arguments count.
-    __ SubSmiLiteral(r4, r4, Smi::FromInt(1), r0);
-    __ bind(&skip_decrement);
-  }
   __ StoreP(r4, MemOperand(sp, 0));
   __ SmiToPtrArrayOffset(r6, r4);
   __ add(r6, r5, r6);
@@ -2897,14 +2884,20 @@ void CallIC_ArrayStub::Generate(MacroAssembler* masm) {
   __ bne(&miss);
 
   __ mov(r3, Operand(arg_count()));
-  __ SmiToPtrArrayOffset(r7, r6);
-  __ add(r7, r5, r7);
-  __ LoadP(r7, FieldMemOperand(r7, FixedArray::kHeaderSize));
+  __ SmiToPtrArrayOffset(r9, r6);
+  __ add(r9, r5, r9);
+  __ LoadP(r7, FieldMemOperand(r9, FixedArray::kHeaderSize));
 
   // Verify that r7 contains an AllocationSite
   __ LoadP(r8, FieldMemOperand(r7, HeapObject::kMapOffset));
   __ CompareRoot(r8, Heap::kAllocationSiteMapRootIndex);
   __ bne(&miss);
+
+  // Increment the call count for monomorphic function calls.
+  const int count_offset = FixedArray::kHeaderSize + kPointerSize;
+  __ LoadP(r6, FieldMemOperand(r9, count_offset));
+  __ AddSmiLiteral(r6, r6, Smi::FromInt(CallICNexus::kCallCountIncrement), r0);
+  __ StoreP(r6, FieldMemOperand(r9, count_offset), r0);
 
   __ mr(r5, r7);
   __ mr(r6, r4);
@@ -2937,9 +2930,9 @@ void CallICStub::Generate(MacroAssembler* masm) {
   ParameterCount actual(argc);
 
   // The checks. First, does r4 match the recorded monomorphic target?
-  __ SmiToPtrArrayOffset(r7, r6);
-  __ add(r7, r5, r7);
-  __ LoadP(r7, FieldMemOperand(r7, FixedArray::kHeaderSize));
+  __ SmiToPtrArrayOffset(r9, r6);
+  __ add(r9, r5, r9);
+  __ LoadP(r7, FieldMemOperand(r9, FixedArray::kHeaderSize));
 
   // We don't know that we have a weak cell. We might have a private symbol
   // or an AllocationSite, but the memory is safe to examine.
@@ -2962,6 +2955,12 @@ void CallICStub::Generate(MacroAssembler* masm) {
   // The compare above could have been a SMI/SMI comparison. Guard against this
   // convincing us that we have a monomorphic JSFunction.
   __ JumpIfSmi(r4, &extra_checks_or_miss);
+
+  // Increment the call count for monomorphic function calls.
+  const int count_offset = FixedArray::kHeaderSize + kPointerSize;
+  __ LoadP(r6, FieldMemOperand(r9, count_offset));
+  __ AddSmiLiteral(r6, r6, Smi::FromInt(CallICNexus::kCallCountIncrement), r0);
+  __ StoreP(r6, FieldMemOperand(r9, count_offset), r0);
 
   __ bind(&have_js_function);
   if (CallAsMethod()) {
@@ -3006,10 +3005,8 @@ void CallICStub::Generate(MacroAssembler* masm) {
   __ AssertNotSmi(r7);
   __ CompareObjectType(r7, r8, r8, JS_FUNCTION_TYPE);
   __ bne(&miss);
-  __ SmiToPtrArrayOffset(r7, r6);
-  __ add(r7, r5, r7);
   __ LoadRoot(ip, Heap::kmegamorphic_symbolRootIndex);
-  __ StoreP(ip, FieldMemOperand(r7, FixedArray::kHeaderSize), r0);
+  __ StoreP(ip, FieldMemOperand(r9, FixedArray::kHeaderSize), r0);
   // We have to update statistics for runtime profiling.
   __ LoadP(r7, FieldMemOperand(r5, with_types_offset));
   __ SubSmiLiteral(r7, r7, Smi::FromInt(1), r0);
@@ -3038,6 +3035,10 @@ void CallICStub::Generate(MacroAssembler* masm) {
   __ LoadP(r7, FieldMemOperand(r5, with_types_offset));
   __ AddSmiLiteral(r7, r7, Smi::FromInt(1), r0);
   __ StoreP(r7, FieldMemOperand(r5, with_types_offset), r0);
+
+  // Initialize the call counter.
+  __ LoadSmiLiteral(r8, Smi::FromInt(CallICNexus::kCallCountIncrement));
+  __ StoreP(r8, FieldMemOperand(r9, count_offset), r0);
 
   // Store the function. Use a stub since we need a frame for allocation.
   // r5 - vector

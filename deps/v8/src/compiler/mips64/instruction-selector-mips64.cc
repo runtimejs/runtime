@@ -601,28 +601,16 @@ void InstructionSelector::VisitFloat64Mod(Node* node) {
 }
 
 
-void InstructionSelector::VisitFloat32Max(Node* node) {
-  DCHECK(kArchVariant == kMips64r6);
-  VisitRRR(this, kMips64MaxS, node);
-}
+void InstructionSelector::VisitFloat32Max(Node* node) { UNREACHABLE(); }
 
 
-void InstructionSelector::VisitFloat64Max(Node* node) {
-  DCHECK(kArchVariant == kMips64r6);
-  VisitRRR(this, kMips64MaxD, node);
-}
+void InstructionSelector::VisitFloat64Max(Node* node) { UNREACHABLE(); }
 
 
-void InstructionSelector::VisitFloat32Min(Node* node) {
-  DCHECK(kArchVariant == kMips64r6);
-  VisitRRR(this, kMips64MinS, node);
-}
+void InstructionSelector::VisitFloat32Min(Node* node) { UNREACHABLE(); }
 
 
-void InstructionSelector::VisitFloat64Min(Node* node) {
-  DCHECK(kArchVariant == kMips64r6);
-  VisitRRR(this, kMips64MinD, node);
-}
+void InstructionSelector::VisitFloat64Min(Node* node) { UNREACHABLE(); }
 
 
 void InstructionSelector::VisitFloat32Abs(Node* node) {
@@ -673,18 +661,33 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   CallBuffer buffer(zone(), descriptor, frame_state_descriptor);
 
   // Compute InstructionOperands for inputs and outputs.
-  InitializeCallBuffer(node, &buffer, true, false);
+  InitializeCallBuffer(node, &buffer, true, true);
 
-  const int32_t push_count = static_cast<int32_t>(buffer.pushed_nodes.size());
-  if (push_count > 0) {
-    Emit(kMips64StackClaim, g.NoOutput(),
-         g.TempImmediate(push_count << kPointerSizeLog2));
-  }
-  int32_t slot = push_count - 1;
-  for (Node* node : base::Reversed(buffer.pushed_nodes)) {
-    Emit(kMips64StoreToStackSlot, g.NoOutput(), g.UseRegister(node),
-         g.TempImmediate(slot << kPointerSizeLog2));
-    slot--;
+  // Prepare for C function call.
+  if (descriptor->IsCFunctionCall()) {
+    Emit(kArchPrepareCallCFunction |
+             MiscField::encode(static_cast<int>(descriptor->CParameterCount())),
+         0, nullptr, 0, nullptr);
+
+    // Poke any stack arguments.
+    int slot = kCArgSlotCount;
+    for (Node* node : buffer.pushed_nodes) {
+      Emit(kMips64StoreToStackSlot, g.NoOutput(), g.UseRegister(node),
+           g.TempImmediate(slot << kPointerSizeLog2));
+      ++slot;
+    }
+  } else {
+    const int32_t push_count = static_cast<int32_t>(buffer.pushed_nodes.size());
+    if (push_count > 0) {
+      Emit(kMips64StackClaim, g.NoOutput(),
+           g.TempImmediate(push_count << kPointerSizeLog2));
+    }
+    int32_t slot = push_count - 1;
+    for (Node* node : base::Reversed(buffer.pushed_nodes)) {
+      Emit(kMips64StoreToStackSlot, g.NoOutput(), g.UseRegister(node),
+           g.TempImmediate(slot << kPointerSizeLog2));
+      slot--;
+    }
   }
 
   // Pass label of exception handler block.
@@ -702,12 +705,16 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   // Select the appropriate opcode based on the call type.
   InstructionCode opcode;
   switch (descriptor->kind()) {
-    case CallDescriptor::kCallCodeObject: {
-      opcode = kArchCallCodeObject;
+    case CallDescriptor::kCallAddress:
+      opcode =
+          kArchCallCFunction |
+          MiscField::encode(static_cast<int>(descriptor->CParameterCount()));
       break;
-    }
+    case CallDescriptor::kCallCodeObject:
+      opcode = kArchCallCodeObject | MiscField::encode(flags);
+      break;
     case CallDescriptor::kCallJSFunction:
-      opcode = kArchCallJSFunction;
+      opcode = kArchCallJSFunction | MiscField::encode(flags);
       break;
     default:
       UNREACHABLE();
@@ -1288,16 +1295,8 @@ void InstructionSelector::VisitFloat64InsertHighWord32(Node* node) {
 // static
 MachineOperatorBuilder::Flags
 InstructionSelector::SupportedMachineOperatorFlags() {
-  MachineOperatorBuilder::Flags flags =
-      MachineOperatorBuilder::kFloat64RoundDown |
-      MachineOperatorBuilder::kFloat64RoundTruncate;
-  if (kArchVariant == kMips64r6) {
-    flags |= MachineOperatorBuilder::kFloat32Max |
-             MachineOperatorBuilder::kFloat32Min |
-             MachineOperatorBuilder::kFloat64Max |
-             MachineOperatorBuilder::kFloat64Min;
-  }
-  return flags;
+  return MachineOperatorBuilder::kFloat64RoundDown |
+         MachineOperatorBuilder::kFloat64RoundTruncate;
 }
 
 }  // namespace compiler

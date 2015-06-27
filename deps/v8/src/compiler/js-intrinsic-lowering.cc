@@ -46,6 +46,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceIncrementStatsCounter(node);
     case Runtime::kInlineIsArray:
       return ReduceIsInstanceType(node, JS_ARRAY_TYPE);
+    case Runtime::kInlineIsDate:
+      return ReduceIsInstanceType(node, JS_DATE_TYPE);
     case Runtime::kInlineIsTypedArray:
       return ReduceIsInstanceType(node, JS_TYPED_ARRAY_TYPE);
     case Runtime::kInlineIsFunction:
@@ -90,6 +92,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceGetTypeFeedbackVector(node);
     case Runtime::kInlineGetCallerJSFunction:
       return ReduceGetCallerJSFunction(node);
+    case Runtime::kInlineThrowNotDateError:
+      return ReduceThrowNotDateError(node);
     default:
       break;
   }
@@ -130,31 +134,18 @@ Reduction JSIntrinsicLowering::ReduceDateField(Node* node) {
 
 Reduction JSIntrinsicLowering::ReduceDeoptimizeNow(Node* node) {
   if (mode() != kDeoptimizationEnabled) return NoChange();
-  Node* frame_state = NodeProperties::GetFrameStateInput(node, 0);
-  DCHECK_EQ(frame_state->opcode(), IrOpcode::kFrameState);
+  Node* const frame_state = NodeProperties::GetFrameStateInput(node, 0);
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
 
-  Node* effect = NodeProperties::GetEffectInput(node);
-  Node* control = NodeProperties::GetControlInput(node);
+  // TODO(bmeurer): Move MergeControlToEnd() to the AdvancedReducer.
+  Node* deoptimize =
+      graph()->NewNode(common()->Deoptimize(), frame_state, effect, control);
+  NodeProperties::MergeControlToEnd(graph(), common(), deoptimize);
 
-  // We are making the continuation after the call dead. To
-  // model this, we generate if (true) statement with deopt
-  // in the true branch and continuation in the false branch.
-  Node* branch =
-      graph()->NewNode(common()->Branch(), jsgraph()->TrueConstant(), control);
-
-  // False branch - the original continuation.
-  Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
-  ReplaceWithValue(node, jsgraph()->UndefinedConstant(), effect, if_false);
-
-  // True branch: deopt.
-  Node* if_true = graph()->NewNode(common()->IfTrue(), branch);
-  Node* deopt =
-      graph()->NewNode(common()->Deoptimize(), frame_state, effect, if_true);
-
-  // Connect the deopt to the merge exiting the graph.
-  NodeProperties::MergeControlToEnd(graph(), common(), deopt);
-
-  return Changed(deopt);
+  node->set_op(common()->Dead());
+  node->TrimInputCount(0);
+  return Changed(node);
 }
 
 
@@ -277,8 +268,8 @@ Reduction JSIntrinsicLowering::ReduceMathClz32(Node* node) {
 
 
 Reduction JSIntrinsicLowering::ReduceMathFloor(Node* node) {
-  if (!machine()->HasFloat64RoundDown()) return NoChange();
-  return Change(node, machine()->Float64RoundDown());
+  if (!machine()->Float64RoundDown().IsSupported()) return NoChange();
+  return Change(node, machine()->Float64RoundDown().op());
 }
 
 
@@ -502,6 +493,23 @@ Reduction JSIntrinsicLowering::ReduceGetCallerJSFunction(Node* node) {
       graph()->NewNode(simplified()->LoadField(access), fp, effect, control);
   return Change(node, simplified()->LoadField(AccessBuilder::ForFrameMarker()),
                 next_fp, effect, control);
+}
+
+
+Reduction JSIntrinsicLowering::ReduceThrowNotDateError(Node* node) {
+  if (mode() != kDeoptimizationEnabled) return NoChange();
+  Node* const frame_state = NodeProperties::GetFrameStateInput(node, 1);
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+
+  // TODO(bmeurer): Move MergeControlToEnd() to the AdvancedReducer.
+  Node* deoptimize =
+      graph()->NewNode(common()->Deoptimize(), frame_state, effect, control);
+  NodeProperties::MergeControlToEnd(graph(), common(), deoptimize);
+
+  node->set_op(common()->Dead());
+  node->TrimInputCount(0);
+  return Changed(node);
 }
 
 

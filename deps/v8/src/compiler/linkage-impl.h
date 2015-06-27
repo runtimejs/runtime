@@ -115,7 +115,7 @@ class LinkageHelper {
     locations.AddParam(regloc(LinkageTraits::ContextReg()));
     types.AddParam(kMachAnyTagged);
 
-    CallDescriptor::Flags flags = Linkage::NeedsFrameState(function_id)
+    CallDescriptor::Flags flags = Linkage::FrameStateInputCount(function_id) > 0
                                       ? CallDescriptor::kNeedsFrameState
                                       : CallDescriptor::kNoFlags;
 
@@ -165,7 +165,7 @@ class LinkageHelper {
         // The first parameters go in registers.
         Register reg = descriptor.GetEnvironmentParameterRegister(i);
         Representation rep =
-            descriptor.GetEnvironmentParameterRepresentation(i);
+            RepresentationFromType(descriptor.GetEnvironmentParameterType(i));
         locations.AddParam(regloc(reg));
         types.AddParam(reptyp(rep));
       } else {
@@ -204,11 +204,13 @@ class LinkageHelper {
 
     // Add register and/or stack parameter(s).
     const int parameter_count = static_cast<int>(msig->parameter_count());
+    int stack_offset = LinkageTraits::CStackBackingStoreLength();
     for (int i = 0; i < parameter_count; i++) {
       if (i < LinkageTraits::CRegisterParametersLength()) {
         locations.AddParam(regloc(LinkageTraits::CRegisterParameter(i)));
       } else {
-        locations.AddParam(stackloc(-1 - i));
+        locations.AddParam(stackloc(-1 - stack_offset));
+        stack_offset++;
       }
     }
 

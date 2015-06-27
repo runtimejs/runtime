@@ -102,11 +102,17 @@ class CallDescriptor final : public ZoneObject {
   // Returns the kind of this call.
   Kind kind() const { return kind_; }
 
+  // Returns {true} if this descriptor is a call to a C function.
+  bool IsCFunctionCall() const { return kind_ == kCallAddress; }
+
   // Returns {true} if this descriptor is a call to a JSFunction.
   bool IsJSFunctionCall() const { return kind_ == kCallJSFunction; }
 
   // The number of return values from this call.
   size_t ReturnCount() const { return machine_sig_->return_count(); }
+
+  // The number of C parameters to this call.
+  size_t CParameterCount() const { return machine_sig_->parameter_count(); }
 
   // The number of JavaScript parameters to this call, including the receiver
   // object.
@@ -245,7 +251,7 @@ class Linkage : public ZoneObject {
   // the frame offset, e.g. to index into part of a double slot.
   FrameOffset GetFrameOffset(int spill_slot, Frame* frame, int extra = 0) const;
 
-  static bool NeedsFrameState(Runtime::FunctionId function);
+  static int FrameStateInputCount(Runtime::FunctionId function);
 
   // Get the location where an incoming OSR value is stored.
   LinkageLocation GetOsrValueLocation(int index) const;

@@ -530,9 +530,6 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
     __ dec(ecx);
     __ j(greater_equal, &loop);
 
-    __ inc(eax);  // Pushed new.target.
-
-
     // Handle step in.
     Label skip_step_in;
     ExternalReference debug_step_in_fp =
@@ -556,7 +553,8 @@ void Builtins::Generate_JSConstructStubForDerived(MacroAssembler* masm) {
     // Restore context from the frame.
     __ mov(esi, Operand(ebp, StandardFrameConstants::kContextOffset));
 
-    __ mov(ebx, Operand(esp, 0));
+    // Get arguments count, skipping over new.target.
+    __ mov(ebx, Operand(esp, kPointerSize));
   }
 
   __ pop(ecx);  // Return address.
@@ -1044,13 +1042,21 @@ static void Generate_PushAppliedArguments(MacroAssembler* masm,
   Label entry, loop;
   Register receiver = LoadDescriptor::ReceiverRegister();
   Register key = LoadDescriptor::NameRegister();
+  Register slot = LoadDescriptor::SlotRegister();
+  Register vector = LoadWithVectorDescriptor::VectorRegister();
   __ mov(key, Operand(ebp, indexOffset));
   __ jmp(&entry);
   __ bind(&loop);
   __ mov(receiver, Operand(ebp, argumentsOffset));  // load arguments
 
   // Use inline caching to speed up access to arguments.
-  Handle<Code> ic = masm->isolate()->builtins()->KeyedLoadIC_Megamorphic();
+  FeedbackVectorSpec spec(0, Code::KEYED_LOAD_IC);
+  Handle<TypeFeedbackVector> feedback_vector =
+      masm->isolate()->factory()->NewTypeFeedbackVector(&spec);
+  int index = feedback_vector->GetIndex(FeedbackVectorICSlot(0));
+  __ mov(slot, Immediate(Smi::FromInt(index)));
+  __ mov(vector, Immediate(feedback_vector));
+  Handle<Code> ic = KeyedLoadICStub(masm->isolate()).GetCode();
   __ call(ic, RelocInfo::CODE_TARGET);
   // It is important that we do not have a test instruction after the
   // call.  A test instruction after the call is used to indicate that

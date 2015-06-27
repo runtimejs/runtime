@@ -21,6 +21,7 @@ var GlobalFunction = global.Function;
 var GlobalNumber = global.Number;
 var GlobalObject = global.Object;
 var InternalArray = utils.InternalArray;
+var SetFunctionName = utils.SetFunctionName;
 
 var MathAbs;
 var ProxyDelegateCallAndConstruct;
@@ -173,15 +174,18 @@ function ObjectValueOf() {
 
 
 // ECMA-262 - 15.2.4.5
-function ObjectHasOwnProperty(V) {
-  if (%_IsJSProxy(this)) {
-    // TODO(rossberg): adjust once there is a story for symbols vs proxies.
-    if (IS_SYMBOL(V)) return false;
+function ObjectHasOwnProperty(value) {
+  var name = $toName(value);
+  var object = TO_OBJECT_INLINE(this);
 
-    var handler = %GetHandler(this);
-    return CallTrap1(handler, "hasOwn", ProxyDerivedHasOwnTrap, $toName(V));
+  if (%_IsJSProxy(object)) {
+    // TODO(rossberg): adjust once there is a story for symbols vs proxies.
+    if (IS_SYMBOL(value)) return false;
+
+    var handler = %GetHandler(object);
+    return CallTrap1(handler, "hasOwn", ProxyDerivedHasOwnTrap, name);
   }
-  return %HasOwnProperty(TO_OBJECT_INLINE(this), $toName(V));
+  return %HasOwnProperty(object, name);
 }
 
 
@@ -1763,6 +1767,10 @@ function FunctionBind(this_arg) { // Length is 1.
   // so we don't pass the arguments object.
   var result = %FunctionBindArguments(boundFunction, this,
                                       this_arg, new_length);
+
+  var name = this.name;
+  var bound_name = IS_STRING(name) ? name : "";
+  SetFunctionName(result, bound_name, "bound");
 
   // We already have caller and arguments properties on functions,
   // which are non-configurable. It therefore makes no sence to

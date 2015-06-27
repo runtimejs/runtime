@@ -1,4 +1,4 @@
-// Copyright 2013 the V8 project authors. All rights reserved.
+// Copyright 2015 the V8 project authors. All rights reserved.
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
@@ -24,8 +24,23 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Flags: --noharmony-classes --noharmony-object-literals
 
-// Should throw, not crash.
-assertThrows("var o = { get /*space*/ () {} }");
+if (this.Worker) {
+  function f() {
+    var g = function () {
+      postMessage(42);
+    };
+
+    var w = new Worker(g);
+
+    onmessage = function(parentMsg) {
+      w.postMessage(parentMsg);
+      var childMsg = w.getMessage();
+      postMessage(childMsg);
+    };
+  }
+
+  var w = new Worker(f);
+  w.postMessage(9);
+  assertEquals(42, w.getMessage());
+}

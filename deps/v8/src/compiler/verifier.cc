@@ -194,10 +194,7 @@ void Verifier::Visitor::Check(Node* node) {
       break;
     case IrOpcode::kDead:
       // Dead is never connected to the graph.
-      // TODO(mstarzinger): Make the GraphReducer immediately perform control
-      // reduction in case control is killed. This will prevent {Dead} from
-      // being reachable after a phase finished. Then re-enable below assert.
-      // UNREACHABLE();
+      UNREACHABLE();
       break;
     case IrOpcode::kBranch: {
       // Branch uses are IfTrue and IfFalse.
@@ -524,11 +521,13 @@ void Verifier::Visitor::Check(Node* node) {
       break;
     case IrOpcode::kJSLoadProperty:
     case IrOpcode::kJSLoadNamed:
+    case IrOpcode::kJSLoadGlobal:
       // Type can be anything.
       CheckUpperIs(node, Type::Any());
       break;
     case IrOpcode::kJSStoreProperty:
     case IrOpcode::kJSStoreNamed:
+    case IrOpcode::kJSStoreGlobal:
       // Type is empty.
       CheckNotTyped(node);
       break;

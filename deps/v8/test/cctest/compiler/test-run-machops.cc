@@ -5070,7 +5070,7 @@ TEST(RunFloat64RoundDown1) {
   double input = -1.0;
   double result = 0.0;
   RawMachineAssemblerTester<int32_t> m;
-  if (!m.machine()->HasFloat64RoundDown()) return;
+  if (!m.machine()->Float64RoundDown().IsSupported()) return;
   m.StoreToPointer(&result, kMachFloat64,
                    m.Float64RoundDown(m.LoadFromPointer(&input, kMachFloat64)));
   m.Return(m.Int32Constant(0));
@@ -5087,7 +5087,7 @@ TEST(RunFloat64RoundDown2) {
   double input = -1.0;
   double result = 0.0;
   RawMachineAssemblerTester<int32_t> m;
-  if (!m.machine()->HasFloat64RoundDown()) return;
+  if (!m.machine()->Float64RoundDown().IsSupported()) return;
   m.StoreToPointer(&result, kMachFloat64,
                    m.Float64Sub(m.Float64Constant(-0.0),
                                 m.Float64RoundDown(m.Float64Sub(
@@ -5107,7 +5107,7 @@ TEST(RunFloat64RoundTruncate) {
   double input = -1.0;
   double result = 0.0;
   RawMachineAssemblerTester<int32_t> m;
-  if (!m.machine()->HasFloat64RoundTruncate()) return;
+  if (!m.machine()->Float64RoundTruncate().IsSupported()) return;
   m.StoreToPointer(
       &result, kMachFloat64,
       m.Float64RoundTruncate(m.LoadFromPointer(&input, kMachFloat64)));
@@ -5125,7 +5125,7 @@ TEST(RunFloat64RoundTiesAway) {
   double input = -1.0;
   double result = 0.0;
   RawMachineAssemblerTester<int32_t> m;
-  if (!m.machine()->HasFloat64RoundTiesAway()) return;
+  if (!m.machine()->Float64RoundTiesAway().IsSupported()) return;
   m.StoreToPointer(
       &result, kMachFloat64,
       m.Float64RoundTiesAway(m.LoadFromPointer(&input, kMachFloat64)));
@@ -5137,5 +5137,84 @@ TEST(RunFloat64RoundTiesAway) {
     CHECK_EQ(expected, result);
   }
 }
+
+
+#if !USE_SIMULATOR
+
+namespace {
+
+int32_t const kMagicFoo0 = 0xdeadbeef;
+
+
+int32_t foo0() { return kMagicFoo0; }
+
+
+int32_t foo1(int32_t x) { return x; }
+
+
+int32_t foo2(int32_t x, int32_t y) { return x - y; }
+
+
+int32_t foo8(int32_t a, int32_t b, int32_t c, int32_t d, int32_t e, int32_t f,
+             int32_t g, int32_t h) {
+  return a + b + c + d + e + f + g + h;
+}
+
+}  // namespace
+
+
+TEST(RunCallCFunction0) {
+  auto* foo0_ptr = &foo0;
+  RawMachineAssemblerTester<int32_t> m;
+  Node* function = m.LoadFromPointer(&foo0_ptr, kMachPtr);
+  m.Return(m.CallCFunction0(kMachInt32, function));
+  CHECK_EQ(kMagicFoo0, m.Call());
+}
+
+
+TEST(RunCallCFunction1) {
+  auto* foo1_ptr = &foo1;
+  RawMachineAssemblerTester<int32_t> m(kMachInt32);
+  Node* function = m.LoadFromPointer(&foo1_ptr, kMachPtr);
+  m.Return(m.CallCFunction1(kMachInt32, kMachInt32, function, m.Parameter(0)));
+  FOR_INT32_INPUTS(i) {
+    int32_t const expected = *i;
+    CHECK_EQ(expected, m.Call(expected));
+  }
+}
+
+
+TEST(RunCallCFunction2) {
+  auto* foo2_ptr = &foo2;
+  RawMachineAssemblerTester<int32_t> m(kMachInt32, kMachInt32);
+  Node* function = m.LoadFromPointer(&foo2_ptr, kMachPtr);
+  m.Return(m.CallCFunction2(kMachInt32, kMachInt32, kMachInt32, function,
+                            m.Parameter(0), m.Parameter(1)));
+  FOR_INT32_INPUTS(i) {
+    int32_t const x = *i;
+    FOR_INT32_INPUTS(j) {
+      int32_t const y = *j;
+      CHECK_EQ(x - y, m.Call(x, y));
+    }
+  }
+}
+
+
+TEST(RunCallCFunction8) {
+  auto* foo8_ptr = &foo8;
+  RawMachineAssemblerTester<int32_t> m(kMachInt32);
+  Node* function = m.LoadFromPointer(&foo8_ptr, kMachPtr);
+  Node* param = m.Parameter(0);
+  m.Return(m.CallCFunction8(kMachInt32, kMachInt32, kMachInt32, kMachInt32,
+                            kMachInt32, kMachInt32, kMachInt32, kMachInt32,
+                            kMachInt32, function, param, param, param, param,
+                            param, param, param, param));
+  FOR_INT32_INPUTS(i) {
+    int32_t const x = *i;
+    CHECK_EQ(x * 8, m.Call(x));
+  }
+}
+
+#endif  // USE_SIMULATOR
 
 #endif  // V8_TURBOFAN_TARGET

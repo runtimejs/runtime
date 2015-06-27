@@ -289,6 +289,10 @@ FeedbackVectorRequirements ClassLiteral::ComputeFeedbackRequirements(
     if (FunctionLiteral::NeedsHomeObject(value)) ic_slots++;
   }
 
+  if (scope() != NULL && class_variable_proxy()->var()->IsUnallocated()) {
+    ic_slots++;
+  }
+
 #ifdef DEBUG
   // FullCodeGenerator::VisitClassLiteral verifies that it consumes slot_count_
   // slots.
@@ -502,9 +506,9 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
   if (!constant_elements_.is_null()) return;
 
   // Allocate a fixed array to hold all the object literals.
-  Handle<JSArray> array =
-      isolate->factory()->NewJSArray(0, FAST_HOLEY_SMI_ELEMENTS);
-  JSArray::Expand(array, values()->length());
+  Handle<JSArray> array = isolate->factory()->NewJSArray(
+      FAST_HOLEY_SMI_ELEMENTS, values()->length(), values()->length(),
+      Strength::WEAK, INITIALIZE_ARRAY_ELEMENTS_WITH_HOLE);
 
   // Fill in the literals.
   bool is_simple = true;
@@ -521,8 +525,10 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
         depth_acc = m_literal->depth() + 1;
       }
     }
-    Handle<Object> boilerplate_value = GetBoilerplateValue(element, isolate);
 
+    // New handle scope here, needs to be after BuildContants().
+    HandleScope scope(isolate);
+    Handle<Object> boilerplate_value = GetBoilerplateValue(element, isolate);
     if (boilerplate_value->IsTheHole()) {
       is_holey = true;
       continue;
@@ -540,6 +546,7 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
   if (array_index != values()->length()) {
     JSArray::SetLength(array, array_index);
   }
+  JSObject::ValidateElements(array);
   Handle<FixedArrayBase> element_values(array->elements());
 
   // Simple and shallow arrays can be lazily copied, we transform the

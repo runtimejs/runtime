@@ -646,8 +646,8 @@ void Heap::GarbageCollectionEpilogue() {
   if (FLAG_print_handles) PrintHandles();
   if (FLAG_gc_verbose) Print();
   if (FLAG_code_stats) ReportCodeStatistics("After GC");
-#endif
   if (FLAG_check_handle_count) CheckHandleCount();
+#endif
   if (FLAG_deopt_every_n_garbage_collections > 0) {
     // TODO(jkummerow/ulan/jarin): This is not safe! We can't assume that
     // the topmost optimized frame can be deoptimized safely, because it
@@ -1863,9 +1863,11 @@ void Heap::TearDownArrayBuffersHelper(
 void Heap::RegisterNewArrayBuffer(bool in_new_space, void* data,
                                   size_t length) {
   if (!data) return;
-  RegisterNewArrayBufferHelper(
-      in_new_space ? live_new_array_buffers_ : live_array_buffers_, data,
-      length);
+  RegisterNewArrayBufferHelper(live_array_buffers_, data, length);
+  if (in_new_space) {
+    RegisterNewArrayBufferHelper(live_array_buffers_for_scavenge_, data,
+                                 length);
+  }
   reinterpret_cast<v8::Isolate*>(isolate_)
       ->AdjustAmountOfExternalAllocatedMemory(length);
 }
@@ -1873,29 +1875,46 @@ void Heap::RegisterNewArrayBuffer(bool in_new_space, void* data,
 
 void Heap::UnregisterArrayBuffer(bool in_new_space, void* data) {
   if (!data) return;
-  UnregisterArrayBufferHelper(
-      in_new_space ? live_new_array_buffers_ : live_array_buffers_,
-      in_new_space ? not_yet_discovered_new_array_buffers_
-                   : not_yet_discovered_array_buffers_,
+  UnregisterArrayBufferHelper(live_array_buffers_,
+                              not_yet_discovered_array_buffers_, data);
+  if (in_new_space) {
+    UnregisterArrayBufferHelper(live_array_buffers_for_scavenge_,
+                                not_yet_discovered_array_buffers_for_scavenge_,
+                                data);
+  }
+}
+
+
+void Heap::RegisterLiveArrayBuffer(bool from_scavenge, void* data) {
+  // ArrayBuffer might be in the middle of being constructed.
+  if (data == undefined_value()) return;
+  RegisterLiveArrayBufferHelper(
+      from_scavenge ? not_yet_discovered_array_buffers_for_scavenge_
+                    : not_yet_discovered_array_buffers_,
       data);
 }
 
 
-void Heap::RegisterLiveArrayBuffer(bool in_new_space, void* data) {
-  // ArrayBuffer might be in the middle of being constructed.
-  if (data == undefined_value()) return;
-  RegisterLiveArrayBufferHelper(in_new_space
-                                    ? not_yet_discovered_new_array_buffers_
-                                    : not_yet_discovered_array_buffers_,
-                                data);
-}
-
-
-void Heap::FreeDeadArrayBuffers(bool in_new_space) {
+void Heap::FreeDeadArrayBuffers(bool from_scavenge) {
+  if (from_scavenge) {
+    for (auto& buffer : not_yet_discovered_array_buffers_for_scavenge_) {
+      not_yet_discovered_array_buffers_.erase(buffer.first);
+      live_array_buffers_.erase(buffer.first);
+    }
+  } else {
+    for (auto& buffer : not_yet_discovered_array_buffers_) {
+      // Scavenge can't happend during evacuation, so we only need to update
+      // live_array_buffers_for_scavenge_.
+      // not_yet_discovered_array_buffers_for_scanvenge_ will be reset before
+      // the next scavenge run in PrepareArrayBufferDiscoveryInNewSpace.
+      live_array_buffers_for_scavenge_.erase(buffer.first);
+    }
+  }
   size_t freed_memory = FreeDeadArrayBuffersHelper(
-      isolate_, in_new_space ? live_new_array_buffers_ : live_array_buffers_,
-      in_new_space ? not_yet_discovered_new_array_buffers_
-                   : not_yet_discovered_array_buffers_);
+      isolate_,
+      from_scavenge ? live_array_buffers_for_scavenge_ : live_array_buffers_,
+      from_scavenge ? not_yet_discovered_array_buffers_for_scavenge_
+                    : not_yet_discovered_array_buffers_);
   if (freed_memory) {
     reinterpret_cast<v8::Isolate*>(isolate_)
         ->AdjustAmountOfExternalAllocatedMemory(
@@ -1907,13 +1926,12 @@ void Heap::FreeDeadArrayBuffers(bool in_new_space) {
 void Heap::TearDownArrayBuffers() {
   TearDownArrayBuffersHelper(isolate_, live_array_buffers_,
                              not_yet_discovered_array_buffers_);
-  TearDownArrayBuffersHelper(isolate_, live_new_array_buffers_,
-                             not_yet_discovered_new_array_buffers_);
 }
 
 
 void Heap::PrepareArrayBufferDiscoveryInNewSpace() {
-  not_yet_discovered_new_array_buffers_ = live_new_array_buffers_;
+  not_yet_discovered_array_buffers_for_scavenge_ =
+      live_array_buffers_for_scavenge_;
 }
 
 
@@ -1924,10 +1942,10 @@ void Heap::PromoteArrayBuffer(Object* obj) {
   if (!data) return;
   // ArrayBuffer might be in the middle of being constructed.
   if (data == undefined_value()) return;
-  DCHECK(live_new_array_buffers_.count(data) > 0);
-  live_array_buffers_[data] = live_new_array_buffers_[data];
-  live_new_array_buffers_.erase(data);
-  not_yet_discovered_new_array_buffers_.erase(data);
+  DCHECK(live_array_buffers_for_scavenge_.count(data) > 0);
+  DCHECK(live_array_buffers_.count(data) > 0);
+  live_array_buffers_for_scavenge_.erase(data);
+  not_yet_discovered_array_buffers_for_scavenge_.erase(data);
 }
 
 
@@ -3108,7 +3126,7 @@ AllocationResult Heap::AllocateWeakCell(HeapObject* value) {
   }
   result->set_map_no_write_barrier(weak_cell_map());
   WeakCell::cast(result)->initialize(value);
-  WeakCell::cast(result)->set_next(the_hole_value(), SKIP_WRITE_BARRIER);
+  WeakCell::cast(result)->clear_next(this);
   return result;
 }
 
@@ -3187,6 +3205,8 @@ void Heap::CreateInitialObjects() {
   set_nan_value(*factory->NewHeapNumber(
       std::numeric_limits<double>::quiet_NaN(), IMMUTABLE, TENURED));
   set_infinity_value(*factory->NewHeapNumber(V8_INFINITY, IMMUTABLE, TENURED));
+  set_minus_infinity_value(
+      *factory->NewHeapNumber(-V8_INFINITY, IMMUTABLE, TENURED));
 
   // The hole has not been created yet, but we want to put something
   // predictable in the gaps in the string table, so lets make that Smi zero.
@@ -3333,13 +3353,27 @@ void Heap::CreateInitialObjects() {
   // Number of queued microtasks stored in Isolate::pending_microtask_count().
   set_microtask_queue(empty_fixed_array());
 
-  FeedbackVectorSpec spec(0, Code::KEYED_LOAD_IC);
-  Handle<TypeFeedbackVector> dummy_vector =
-      factory->NewTypeFeedbackVector(&spec);
-  dummy_vector->Set(FeedbackVectorICSlot(0),
-                    *TypeFeedbackVector::MegamorphicSentinel(isolate()),
-                    SKIP_WRITE_BARRIER);
-  set_keyed_load_dummy_vector(*dummy_vector);
+  {
+    FeedbackVectorSpec spec(0, Code::KEYED_LOAD_IC);
+    Handle<TypeFeedbackVector> dummy_vector =
+        factory->NewTypeFeedbackVector(&spec);
+    dummy_vector->Set(FeedbackVectorICSlot(0),
+                      *TypeFeedbackVector::MegamorphicSentinel(isolate()),
+                      SKIP_WRITE_BARRIER);
+    set_keyed_load_dummy_vector(*dummy_vector);
+  }
+
+  if (FLAG_vector_stores) {
+    FeedbackVectorSpec spec(0, Code::KEYED_STORE_IC);
+    Handle<TypeFeedbackVector> dummy_vector =
+        factory->NewTypeFeedbackVector(&spec);
+    dummy_vector->Set(FeedbackVectorICSlot(0),
+                      *TypeFeedbackVector::MegamorphicSentinel(isolate()),
+                      SKIP_WRITE_BARRIER);
+    set_keyed_store_dummy_vector(*dummy_vector);
+  } else {
+    set_keyed_store_dummy_vector(empty_fixed_array());
+  }
 
   set_detached_contexts(empty_fixed_array());
   set_retained_maps(ArrayList::cast(empty_fixed_array()));
@@ -5957,7 +5991,9 @@ void Heap::PrintHandles() {
 class CheckHandleCountVisitor : public ObjectVisitor {
  public:
   CheckHandleCountVisitor() : handle_count_(0) {}
-  ~CheckHandleCountVisitor() { CHECK(handle_count_ < 2000); }
+  ~CheckHandleCountVisitor() {
+    CHECK(handle_count_ < HandleScope::kCheckHandleThreshold);
+  }
   void VisitPointers(Object** start, Object** end) {
     handle_count_ += end - start;
   }

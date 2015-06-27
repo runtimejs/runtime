@@ -43,6 +43,8 @@ class CodeFactory final {
   static Callable CallICInOptimizedCode(Isolate* isolate, int argc,
                                         CallICState::CallType call_type);
   static Callable StoreIC(Isolate* isolate, LanguageMode mode);
+  static Callable StoreICInOptimizedCode(Isolate* isolate, LanguageMode mode,
+                                         InlineCacheState initialization_state);
   static Callable KeyedStoreIC(Isolate* isolate, LanguageMode mode);
   static Callable KeyedStoreICInOptimizedCode(
       Isolate* isolate, LanguageMode mode,
@@ -56,6 +58,8 @@ class CodeFactory final {
 
   // Code stubs. Add methods here as needed to reduce dependency on
   // code-stubs.h.
+  static Callable Instanceof(Isolate* isolate, InstanceofStub::Flags flags);
+
   static Callable ToBoolean(
       Isolate* isolate, ToBooleanStub::ResultMode mode,
       ToBooleanStub::Types types = ToBooleanStub::Types());
