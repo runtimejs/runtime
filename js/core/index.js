@@ -46,11 +46,12 @@ function Runtime() {
 
 global.runtime = module.exports = new Runtime();
 
-initio(runtime);
-
 runtime.stdio = {
-  stdout: runtime.tty.stdout,
-  stdin: runtime.tty.stdin,
   Stdin: stdio.Stdin,
   Stdout: stdio.Stdout
-};
+}
+
+initio(runtime);
+
+runtime.stdio.stdout = runtime.tty.stdout;
+runtime.stdio.stdin = runtime.tty.stdin;

@@ -14,13 +14,13 @@
 
 'use strict';
 
-runtime.tty.stdout = new runtime.tty.Stdout();
-runtime.tty.stdin = new runtime.tty.Stdin();
-
-runtime.tty.stdout.fgcolor = runtime.tty.color.WHITE;
-runtime.tty.stdin.bgcolor = runtime.tty.color.BLACK;
-
 module.exports = function(self) {
+  self.tty.stdout = new self.stdio.Stdout();
+  self.tty.stdin = new self.stdio.Stdin();
+
+  self.tty.stdout.fgcolor = self.tty.color.WHITE;
+  self.tty.stdin.bgcolor = self.tty.color.BLACK;
+
   self.tty.stdout.onwrite = function(text) {
     self.tty.print(text, 1, self.tty.stdout.fgcolor, self.tty.stdout.bgcolor);
   }
