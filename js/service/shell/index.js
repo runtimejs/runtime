@@ -13,12 +13,13 @@
 // limitations under the License.
 
 'use strict';
+/* eslint-disable no-alert */
+
 var typeutils = require('typeutils');
 var assert = require('assert');
-var inputBox = require('./input-box');
 var runtime = require('../../core');
-var tty = runtime.tty;
 var commands = new Map();
+var stdio = runtime.stdio.defaultStdio;
 
 exports.setCommand = function(name, cb) {
   assert(typeutils.isString(name));
@@ -44,40 +45,52 @@ exports.runCommand = function(name, args, done) {
 
   commands.get(name)(stringargs, {
     stdio: opts.stdio
-  }, function(rescode) {
-    done(rescode, inputBox.done);
+  }, done);
+};
+
+function prompt() {
+  stdio.setColor('yellow');
+  stdio.write('$');
+  stdio.setColor('white');
+  stdio.write(' ');
+  stdio.readLine(function(text) {
+    var name = '';
+    var args = '';
+
+    var split = text.indexOf(' ');
+    if (split >= 0) {
+      name = text.slice(0, split);
+      args = text.slice(split);
+    } else {
+      name = text;
+    }
+
+    if (!name) {
+      return prompt();
+    }
+
+    if (commands.has(name)) {
+      return exports.runCommand(name, args.substr(1).split(' '), function(rescode) {
+        var printx = false;
+        stdio.write('\n');
+        // Since 0 == false and other numbers == true, just check for true.
+        if (rescode) {
+          printx = true;
+        }
+
+        if (printx) {
+          stdio.setColor('red');
+          stdio.write('X ');
+        }
+
+        prompt();
+      });
+    }
+
+    stdio.setColor('lightred');
+    stdio.writeLine('Command "' + name + '" not found.');
+    prompt();
   });
 }
 
-inputBox.onInput.add(function(text, done) {
-  var name = '';
-  var args = '';
-
-  var split = text.indexOf(' ');
-  if (split >= 0) {
-    name = text.slice(0, split);
-    args = text.slice(split);
-  } else {
-    name = text;
-  }
-
-  if (commands.has(name)) {
-    return exports.runCommand(name, args.substr(1).split(' '), function(rescode) {
-      var printx = false;
-      runtime.tty.print('\n');
-      // Since 0 == false and other numbers == true, just check for true.
-      if (rescode) {
-        printx = true;
-      }
-
-      if (printx) {
-        runtime.tty.print('X', 1, runtime.tty.color.RED);
-        runtime.tty.print(' ');
-      }
-      done(rescode);
-    });
-  }
-
-  tty.print('Command "' + name + '" not found.\n', 1, tty.color.LIGHTRED);
-  done();
-});
+prompt();

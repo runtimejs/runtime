@@ -14,9 +14,9 @@
 
 'use strict';
 
-module.exports = function(runtime) {
-  runtime.shell.setCommand('echo', function(args, env, cb) {
-    env.stdio.writeLine(args);
-    cb(0);
-  });
-};
+var runtime = require('../core');
+
+runtime.shell.setCommand('echo', function(args, env, cb) {
+  env.stdio.writeLine(args);
+  cb(0);
+});

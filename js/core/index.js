@@ -19,16 +19,13 @@ console.log = isolate.log;
 var resources = require('./resources');
 require('./polyfill');
 
-var tty = require('./tty');
 var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
 var pci = require('./pci');
 var net = require('./net');
-var StdioInterface = require('./stdio');
-var initio = require('./initio');
+var stdio = require('./stdio');
 
 function Runtime() {
-  this.tty = tty;
   this.keyboard = keyboard;
   this.pci = pci;
   this.ps2 = ps2;
@@ -36,17 +33,13 @@ function Runtime() {
   this.net = net;
   this.bufferAddress = runtime.bufferAddress; // fixme
   this.debug = runtime.debug; // fixme
+  this.stdio = stdio;
   this.machine = {
     reboot: resources.natives.reboot,
     shutdown: function() {
       resources.acpi.enterSleepState(5);
     }
   };
-  this.stdio = {
-    StdioInterface: StdioInterface
-  };
 }
 
 global.runtime = module.exports = new Runtime();
-
-initio(runtime);
