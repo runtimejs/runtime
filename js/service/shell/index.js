@@ -20,6 +20,35 @@ var runtime = require('../../core');
 var tty = runtime.tty;
 var commands = new Map();
 
+exports.setCommand = function(name, cb) {
+  assert(typeutils.isString(name));
+  assert(typeutils.isFunction(cb));
+  commands.set(name, cb);
+};
+
+exports.runCommand = function(name, args, done) {
+  var opts = {};
+
+  assert(typeutils.isString(name));
+
+  if (typeutils.isArray(args)) {
+    opts.args = args;
+  } else {
+    opts = args;
+    opts.args = [];
+  }
+
+  var stringargs = opts.args.join(' ');
+
+  opts.stdio = opts.stdio || runtime.stdio.defaultStdio;
+
+  commands.get(name)(stringargs, {
+    stdio: opts.stdio
+  }, function(rescode) {
+    done(rescode, inputBox.done);
+  });
+}
+
 inputBox.onInput.add(function(text, done) {
   var name = '';
   var args = '';
@@ -33,15 +62,22 @@ inputBox.onInput.add(function(text, done) {
   }
 
   if (commands.has(name)) {
-    return commands.get(name)(args, done);
+    return exports.runCommand(name, args.substr(1).split(' '), function(rescode) {
+      var printx = false;
+      runtime.tty.print('\n');
+      // Since 0 == false and other numbers == true, just check for true.
+      if (rescode) {
+        printx = true;
+      }
+
+      if (printx) {
+        runtime.tty.print('X', 1, runtime.tty.color.RED);
+        runtime.tty.print(' ');
+      }
+      done(rescode);
+    });
   }
 
   tty.print('Command "' + name + '" not found.\n', 1, tty.color.LIGHTRED);
   done();
 });
-
-exports.setCommand = function(name, cb) {
-  assert(typeutils.isString(name));
-  assert(typeutils.isFunction(cb));
-  commands.set(name, cb);
-};

@@ -15,88 +15,24 @@
 'use strict';
 var EventController = require('event-controller');
 var runtime = require('../../core');
-var tty = runtime.tty;
-var inputText = '';
-var inputPosition = 0;
+var InputJS = require('../../shared/input');
+var input = new InputJS();
+
 var onInput = new EventController();
 var inputEnabled = true;
 
 var history = [''];
 var historyPosition = 0;
 
-function drawPrompt() {
-  tty.print('$', 1, tty.color.YELLOW, tty.color.BLACK);
-  tty.print(' ', 1, tty.color.WHITE, tty.color.BLACK);
-}
-
-function drawCursor() {
-  var char = ' ';
-  if (inputPosition < inputText.length) {
-    char = inputText[inputPosition];
-  }
-
-  tty.print(char, 1, tty.color.WHITE, tty.color.LIGHTGREEN);
-  tty.moveOffset(-1);
-}
-
-function removeCursor() {
-  var char = ' ';
-  if (inputPosition < inputText.length) {
-    char = inputText[inputPosition];
-  }
-
-  tty.print(char, 1, tty.color.WHITE, tty.color.BLACK);
-  tty.moveOffset(-1);
-}
-
-function putChar(char) {
-  removeCursor();
-  if (inputPosition >= inputText.length) {
-    inputText += char;
-    tty.print(char);
-  } else {
-    var rightSide = inputText.slice(inputPosition);
-    inputText = inputText.slice(0, inputPosition) + char + rightSide;
-    tty.print(char);
-    for (var i = 0; i < rightSide.length; ++i) {
-      tty.print(rightSide[i]);
-    }
-    tty.moveOffset(-rightSide.length);
-  }
-  ++inputPosition;
-  drawCursor();
-}
-
-function removeChar() {
-  if (inputPosition > 0) {
-    removeCursor();
-    if (inputPosition >= inputText.length) {
-      inputText = inputText.slice(0, -1);
-      tty.moveOffset(-1);
-    } else {
-      var rightSide = inputText.slice(inputPosition);
-      inputText = inputText.slice(0, inputPosition - 1) + rightSide;
-      tty.moveOffset(-1);
-      for (var i = 0; i < rightSide.length; ++i) {
-        tty.print(rightSide[i]);
-      }
-      tty.print(' ');
-      tty.moveOffset(-rightSide.length - 1);
-    }
-    --inputPosition;
-    drawCursor();
-  }
-}
-
 function newLine() {
-  var text = inputText;
+  var text = input.inputText;
   inputEnabled = false;
   historyPosition = 0;
-  removeCursor();
-  tty.print('\n');
+  input.removeCursor();
+  runtime.tty.print('\n');
 
-  inputText = '';
-  inputPosition = 0;
+  input.inputText = '';
+  input.inputPosition = 0;
 
   var result = text.trim();
   if (result.length > 0) {
@@ -106,59 +42,21 @@ function newLine() {
     }
     history.splice(1, 0, result);
 
-    onInput.dispatch(result, function() {
-      tty.print('\n');
+    onInput.dispatch(result, function(rescode) {
       inputEnabled = true;
-      drawPrompt();
-      drawCursor();
+      input.drawPrompt();
+      input.drawCursor();
+      return rescode;
     });
   } else {
     inputEnabled = true;
-    drawPrompt();
-    drawCursor();
+    input.drawPrompt();
+    input.drawCursor();
   }
 }
 
-function moveCursorLeft() {
-  if (inputPosition > 0) {
-    removeCursor();
-    --inputPosition;
-    tty.moveOffset(-1);
-    drawCursor();
-  }
-}
-
-function moveCursorRight() {
-  if (inputPosition < inputText.length) {
-    removeCursor();
-    ++inputPosition;
-    tty.moveOffset(1);
-    drawCursor();
-  }
-}
-
-function clearInputBox() {
-  while (inputPosition < inputText.length) {
-    moveCursorRight();
-  }
-  while (inputPosition > 0) {
-    removeChar();
-  }
-}
-
-function setInputBox(text) {
-  removeCursor();
-  clearInputBox();
-  for (var i = 0; i < text.length; ++i) {
-    inputText += text[i];
-    tty.print(text[i]);
-    inputPosition++;
-  }
-  drawCursor();
-}
-
-drawPrompt();
-drawCursor();
+input.drawPrompt();
+input.drawCursor();
 
 runtime.keyboard.onKeydown.add(function(keyinfo) {
   if (!inputEnabled) {
@@ -168,29 +66,29 @@ runtime.keyboard.onKeydown.add(function(keyinfo) {
   switch (keyinfo.type) {
   case 'kpup':
     if (historyPosition < history.length - 1) {
-      setInputBox(history[++historyPosition]);
+      input.setInputBox(history[++historyPosition]);
     }
     break;
   case 'kpdown':
     if (historyPosition > 0) {
-      setInputBox(history[--historyPosition]);
+      input.setInputBox(history[--historyPosition]);
     }
     break;
   case 'kpleft':
     historyPosition = 0;
-    moveCursorLeft();
+    input.moveCursorLeft();
     break;
   case 'kpright':
     historyPosition = 0;
-    moveCursorRight();
+    input.moveCursorRight();
     break;
   case 'character':
     historyPosition = 0;
-    putChar(keyinfo.character);
+    input.putChar(keyinfo.character);
     break;
   case 'backspace':
     historyPosition = 0;
-    removeChar();
+    input.removeChar();
     break;
   case 'enter':
     newLine();
@@ -199,3 +97,9 @@ runtime.keyboard.onKeydown.add(function(keyinfo) {
 });
 
 exports.onInput = onInput;
+exports.done = function() {
+  runtime.tty.print('\n');
+  inputEnabled = true;
+  input.drawPrompt();
+  input.drawCursor();
+};

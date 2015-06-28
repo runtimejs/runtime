@@ -15,10 +15,14 @@
 'use strict';
 
 module.exports = function(runtime) {
-  runtime.shell.setCommand('clear', function(args, cb) {
+  runtime.shell.setCommand('clear', function(args, env, cb) {
     // TODO: print according to screen height.
-    runtime.tty.print('\n', 80, runtime.tty.color.BLACK, runtime.tty.color.BLACK);
+    env.stdio.setColor(runtime.tty.color.BLACK);
+    env.stdio.setBackgroundColor(runtime.tty.color.BLACK);
+    for (var i = 0; i < 80; i++) {
+      env.stdio.write('\n');
+    }
     runtime.tty.moveTo(0, 0);
-    cb();
+    cb(0);
   });
 };

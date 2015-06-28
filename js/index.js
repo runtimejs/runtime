@@ -36,14 +36,14 @@ runtime.dns = require('./service/dns-resolver');
 runtime.debug = isDebug;
 
 // Example shell command
-runtime.shell.setCommand('1', function(args, cb) {
-  runtime.tty.print('OK.\n');
+runtime.shell.setCommand('1', function(args, env, cb) {
+  env.stdio.writeLine('OK.');
   runtime.dns.resolve('www.google.com', {}, function(err, data) {
     if (err) {
-      return cb();
+      return cb(1);
     }
     console.log(JSON.stringify(data));
-    cb();
+    cb(0);
   });
 });
 
