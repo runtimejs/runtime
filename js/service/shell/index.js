@@ -40,10 +40,10 @@ exports.runCommand = function(name, args, done) {
 
   var stringargs = opts.args.join(' ');
 
-  opts.io = opts.io || runtime.stdio.defaultio;
+  opts.stdio = opts.stdio || runtime.stdio.defaultStdio;
 
   commands.get(name)(stringargs, {
-    io: opts.io
+    stdio: opts.stdio
   }, function(rescode) {
     done(rescode, inputBox.done);
   });

@@ -24,7 +24,7 @@ var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
 var pci = require('./pci');
 var net = require('./net');
-var Stdio = require('./stdio');
+var StdioInterface = require('./stdio');
 var initio = require('./initio');
 
 function Runtime() {
@@ -43,12 +43,10 @@ function Runtime() {
     }
   };
   this.stdio = {
-    Interface: Stdio
+    StdioInterface: StdioInterface
   };
 }
 
 global.runtime = module.exports = new Runtime();
 
 initio(runtime);
-
-runtime.tty.io = runtime.stdio.defaultio;

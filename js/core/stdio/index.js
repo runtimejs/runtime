@@ -14,7 +14,7 @@
 
 'use strict';
 
-class Stdio {
+class StdioInterface {
   constructor() {
     this.onread = function() {};
     this.onwrite = function() {};
@@ -88,4 +88,4 @@ class Stdio {
   }
 }
 
-module.exports = Stdio;
+module.exports = StdioInterface;
