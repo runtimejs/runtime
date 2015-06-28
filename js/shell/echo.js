@@ -16,7 +16,7 @@
 
 module.exports = function(runtime) {
   runtime.shell.setCommand('echo', function(args, env, cb) {
-    env.stdout.writeLine(args);
+    env.io.writeLine(args);
     cb(0);
   });
 };

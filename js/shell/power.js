@@ -16,12 +16,12 @@
 
 module.exports = function(runtime) {
   runtime.shell.setCommand('poweroff', function(args, env, cb) {
-    env.stdout.writeLine('Going down, now!');
+    env.io.writeLine('Going down, now!');
     runtime.machine.shutdown();
     cb(0);
   });
   runtime.shell.setCommand('reboot', function(args, env, cb) {
-    env.stdout.writeLine('Restarting, now!');
+    env.io.writeLine('Restarting, now!');
     runtime.machine.reboot();
     cb(0);
   });

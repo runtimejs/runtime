@@ -24,7 +24,7 @@ var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
 var pci = require('./pci');
 var net = require('./net');
-var stdio = require('./stdio');
+var Stdio = require('./stdio');
 var initio = require('./initio');
 
 function Runtime() {
@@ -42,16 +42,13 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
+  this.stdio = {
+    Interface: Stdio
+  };
 }
 
 global.runtime = module.exports = new Runtime();
 
-runtime.stdio = {
-  Stdin: stdio.Stdin,
-  Stdout: stdio.Stdout
-}
-
 initio(runtime);
 
-runtime.stdio.stdout = runtime.tty.stdout;
-runtime.stdio.stdin = runtime.tty.stdin;
+runtime.tty.io = runtime.stdio.defaultio;

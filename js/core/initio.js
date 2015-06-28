@@ -15,29 +15,32 @@
 'use strict';
 
 module.exports = function(self) {
-  self.tty.stdout = new self.stdio.Stdout();
-  self.tty.stdin = new self.stdio.Stdin();
+  self.stdio.defaultio = new self.stdio.Interface();
 
-  self.tty.stdout.fgcolor = self.tty.color.WHITE;
-  self.tty.stdin.bgcolor = self.tty.color.BLACK;
+  self.stdio.defaultio.fgcolor = self.tty.color.WHITE;
+  self.stdio.defaultio.bgcolor = self.tty.color.BLACK;
 
-  self.tty.stdout.onwrite = function(text) {
-    self.tty.print(text, 1, self.tty.stdout.fgcolor, self.tty.stdout.bgcolor);
+  self.stdio.defaultio.onwrite = function(text) {
+    self.tty.print(text, 1, self.stdio.defaultio.fgcolor, self.stdio.defaultio.bgcolor);
   }
 
-  self.tty.stdout.onsetcolor = function(fg) {
-    self.tty.stdout.fgcolor = fg;
+  self.stdio.defaultio.onsetcolor = function(fg) {
+    self.stdio.defaultio.fgcolor = fg;
   }
 
-  self.tty.stdout.onsetbackgroundcolor = function(bg) {
-    self.tty.stdout.bgcolor = bg;
+  self.stdio.defaultio.onsetbackgroundcolor = function(bg) {
+    self.stdio.defaultio.bgcolor = bg;
   }
 
-  self.tty.stdin.onread = function(cb) {
+  self.stdio.defaultio.onread = function(cb) {
     self.tty.read(cb);
   }
 
-  self.tty.stdin.onreadline = function(cb) {
+  self.stdio.defaultio.onreadline = function(cb) {
     self.tty.readLine(cb);
+  }
+
+  self.stdio.defaultio.onwriteerror = function(error) {
+    self.tty.print(error, 1, self.tty.color.RED);
   }
 }

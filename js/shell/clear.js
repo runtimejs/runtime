@@ -17,10 +17,10 @@
 module.exports = function(runtime) {
   runtime.shell.setCommand('clear', function(args, env, cb) {
     // TODO: print according to screen height.
-    env.stdout.setColor(runtime.tty.color.BLACK);
-    env.stdout.setBackgroundColor(runtime.tty.color.BLACK);
+    env.io.setColor(runtime.tty.color.BLACK);
+    env.io.setBackgroundColor(runtime.tty.color.BLACK);
     for (var i = 0; i < 80; i++) {
-      env.stdout.write('\n');
+      env.io.write('\n');
     }
     runtime.tty.moveTo(0, 0);
     cb(0);
