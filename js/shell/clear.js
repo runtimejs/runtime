@@ -14,15 +14,15 @@
 
 'use strict';
 
-module.exports = function(runtime) {
-  runtime.shell.setCommand('clear', function(args, env, cb) {
-    // TODO: print according to screen height.
-    env.stdio.setColor(runtime.tty.color.BLACK);
-    env.stdio.setBackgroundColor(runtime.tty.color.BLACK);
-    for (var i = 0; i < 80; i++) {
-      env.stdio.write('\n');
-    }
-    runtime.tty.moveTo(0, 0);
-    cb(0);
-  });
-};
+var runtime = require('../core');
+
+runtime.shell.setCommand('clear', function(args, env, cb) {
+  // TODO: print according to screen height.
+  env.stdio.setColor('black');
+  env.stdio.setBackgroundColor('black');
+  for (var i = 0; i < 80; i++) {
+    env.stdio.write('\n');
+  }
+  env.stdio.setColor('white');
+  cb(0);
+});

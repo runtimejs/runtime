@@ -14,15 +14,16 @@
 
 'use strict';
 
-module.exports = function(runtime) {
-  runtime.shell.setCommand('poweroff', function(args, env, cb) {
-    env.stdio.writeLine('Going down, now!');
-    runtime.machine.shutdown();
-    cb(0);
-  });
-  runtime.shell.setCommand('reboot', function(args, env, cb) {
-    env.stdio.writeLine('Restarting, now!');
-    runtime.machine.reboot();
-    cb(0);
-  });
-};
+var runtime = require('../core');
+
+runtime.shell.setCommand('poweroff', function(args, env, cb) {
+  env.stdio.writeLine('Going down, now!');
+  runtime.machine.shutdown();
+  cb(0);
+});
+
+runtime.shell.setCommand('reboot', function(args, env, cb) {
+  env.stdio.writeLine('Restarting, now!');
+  runtime.machine.reboot();
+  cb(0);
+});

@@ -14,111 +14,119 @@
 
 'use strict';
 
-const tty = runtime.tty;
+var printer = require('./printer');
 
-module.exports = function() {
-  this.inputText = '';
-  this.inputPosition = 0;
-
-  this.drawPrompt = function() {
-    tty.print('$', 1, tty.color.YELLOW, tty.color.BLACK);
-    tty.print(' ', 1, tty.color.WHITE, tty.color.BLACK);
+class LineEditor {
+  constructor() {
+    this.inputText = '';
+    this.inputPosition = 0;
   }
 
-  this.drawCursor = function() {
+  getText() {
+    return this.inputText;
+  }
+
+  drawPrompt() {
+    printer.print('$', 1, printer.color.YELLOW, printer.color.BLACK);
+    printer.print(' ', 1, printer.color.WHITE, printer.color.BLACK);
+  };
+
+  drawCursor() {
     var char = ' ';
     if (this.inputPosition < this.inputText.length) {
       char = this.inputText[this.inputPosition];
     }
 
-    tty.print(char, 1, tty.color.WHITE, tty.color.LIGHTGREEN);
-    tty.moveOffset(-1);
-  }
+    printer.print(char, 1, printer.color.WHITE, printer.color.LIGHTGREEN);
+    printer.moveOffset(-1);
+  };
 
-  this.removeCursor = function() {
+  removeCursor() {
     var char = ' ';
     if (this.inputPosition < this.inputText.length) {
       char = this.inputText[this.inputPosition];
     }
 
-    tty.print(char, 1, tty.color.WHITE, tty.color.BLACK);
-    tty.moveOffset(-1);
-  }
+    printer.print(char, 1, printer.color.WHITE, printer.color.BLACK);
+    printer.moveOffset(-1);
+  };
 
-  this.putChar = function(char) {
+   putChar(char) {
     this.removeCursor();
     if (this.inputPosition >= this.inputText.length) {
       this.inputText += char;
-      tty.print(char);
+      printer.print(char);
     } else {
       var rightSide = this.inputText.slice(this.inputPosition);
       this.inputText = this.inputText.slice(0, this.inputPosition) + char + rightSide;
-      tty.print(char);
+      printer.print(char);
       for (var i = 0; i < rightSide.length; ++i) {
-        tty.print(rightSide[i]);
+        printer.print(rightSide[i]);
       }
-      tty.moveOffset(-rightSide.length);
+      printer.moveOffset(-rightSide.length);
     }
     ++this.inputPosition;
     this.drawCursor();
-  }
+  };
 
-  this.removeChar = function() {
+  removeChar() {
     if (this.inputPosition > 0) {
       this.removeCursor();
       if (this.inputPosition >= this.inputText.length) {
         this.inputText = this.inputText.slice(0, -1);
-        tty.moveOffset(-1);
+        printer.moveOffset(-1);
       } else {
         var rightSide = this.inputText.slice(this.inputPosition);
         this.inputText = this.inputText.slice(0, this.inputPosition - 1) + rightSide;
-        tty.moveOffset(-1);
+        printer.moveOffset(-1);
         for (var i = 0; i < rightSide.length; ++i) {
-          tty.print(rightSide[i]);
+          printer.print(rightSide[i]);
         }
-        tty.print(' ');
-        tty.moveOffset(-rightSide.length - 1);
+        printer.print(' ');
+        printer.moveOffset(-rightSide.length - 1);
       }
       --this.inputPosition;
       this.drawCursor();
     }
-  }
+  };
 
-  this.moveCursorLeft = function() {
+  moveCursorLeft() {
     if (this.inputPosition > 0) {
       this.removeCursor();
       --this.inputPosition;
-      tty.moveOffset(-1);
+      printer.moveOffset(-1);
       this.drawCursor();
     }
-  }
+  };
 
-  this.moveCursorRight = function() {
+  moveCursorRight() {
     if (this.inputPosition < this.inputText.length) {
       this.removeCursor();
       ++this.inputPosition;
-      tty.moveOffset(1);
+      printer.moveOffset(1);
       this.drawCursor();
     }
-  }
+  };
 
-  this.clearInputBox = function() {
+  clearInputBox() {
     while (this.inputPosition < this.inputText.length) {
       this.moveCursorRight();
     }
     while (this.inputPosition > 0) {
       this.removeChar();
     }
-  }
+  };
 
-  this.setInputBox = function(text) {
+  setInputBox(text) {
     this.removeCursor();
     this.clearInputBox();
     for (var i = 0; i < text.length; ++i) {
       this.inputText += text[i];
-      tty.print(text[i]);
-      this.inputPosition++;
+      printer.print(text[i]);
+      ++this.inputPosition;
     }
     this.drawCursor();
-  }
+  };
 }
+
+module.exports = LineEditor;

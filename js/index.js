@@ -47,10 +47,10 @@ runtime.shell.setCommand('1', function(args, env, cb) {
   });
 });
 
-// Builtin functions
-require('./shell/clear')(runtime);
-require('./shell/echo')(runtime);
-require('./shell/power')(runtime);
+// Builtin shell commands
+require('./shell/clear');
+require('./shell/echo');
+require('./shell/power');
 
 // Start device drivers
 require('./driver/ps2');
