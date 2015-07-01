@@ -36,7 +36,7 @@ exports.runCommand = function(name, args, done) {
     opts.args = args;
   } else {
     opts = args;
-    opts.args = [];
+    opts.args = opts.args || [];
   }
 
   var stringargs = opts.args.join(' ');
