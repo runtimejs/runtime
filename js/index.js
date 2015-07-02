@@ -47,10 +47,18 @@ runtime.shell.setCommand('1', function(args, env, cb) {
   });
 });
 
-// Builtin shell commands
-require('./shell/clear');
-require('./shell/echo');
-require('./shell/power');
+runtime.shell.setCommand('poweroff', function(args, env, cb) {
+  env.stdio.writeLine('Going down, now!');
+  runtime.machine.shutdown();
+  cb(0);
+});
+
+runtime.shell.setCommand('reboot', function(args, env, cb) {
+  env.stdio.writeLine('Restarting, now!');
+  runtime.machine.reboot();
+  cb(0);
+});
+
 
 // Start device drivers
 require('./driver/ps2');
