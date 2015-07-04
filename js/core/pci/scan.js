@@ -88,8 +88,8 @@ var pciAccessorFactory = (function(addressPort, dataPort) {
   };
 
   function setPort(bus, slot, func, offset) {
-    var addr = (bus << 16) | (slot << 11) | (func << 8) |
-      (offset & 0xfc) | 0x80000000;
+    var addr = ((bus << 16) | (slot << 11) | (func << 8) |
+      (offset & 0xfc) | 0x80000000) >>> 0;
     addressPort.write32(addr);
   }
 
