@@ -78,8 +78,10 @@ public:
         arraybuffer_allocator_ = new MallocArrayBufferAllocator();
         v8::V8::SetArrayBufferAllocator(arraybuffer_allocator_);
 
+#if 0
         const char flags[] = "--trace-deopt --redirect_code_traces_to=deopt";
         v8::V8::SetFlagsFromString(flags, sizeof(flags));
+#endif
     }
 
     void Startup() {
