@@ -84,6 +84,7 @@ void Thread::SetUp() {
     RT_ASSERT(nullptr == tpl_cache_);
     v8::Isolate::CreateParams params;
     params.code_event_handler = OnJitCodeEvent;
+    params.array_buffer_allocator = &ab_allocator_;
     iv8_ = v8::Isolate::New(params);
     iv8_->SetData(0, this);
 #ifdef RUNTIME_DEBUG
