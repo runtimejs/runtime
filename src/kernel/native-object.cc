@@ -23,7 +23,6 @@
 #include <kernel/engines.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
-#include <kernel/arraybuffer.h>
 
 namespace rt {
 
@@ -74,35 +73,6 @@ uint16_t ComputeChecksum(uint32_t start_with, const uint8_t* buffer, size_t leng
     sum = (sum & 0xffff) + (sum >> 16);
     sum += (sum >> 16);
     return ~sum & 0xffff;
-}
-
-NATIVE_FUNCTION(NativesObject, NetChecksum) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    USEARG(2);
-    USEARG(3);
-    VALIDATEARG(0, ARRAYBUFFER, "argument 0 is not an ArrayBuffer");
-    VALIDATEARG(1, UINT32, "argument 1 is not a Uint32");
-    VALIDATEARG(2, UINT32, "argument 2 is not a Uint32");
-    VALIDATEARG(3, UINT32, "argument 3 is not a Uint32");
-    RT_ASSERT(arg0->IsArrayBuffer());
-    auto abv8 = arg0.As<v8::ArrayBuffer>();
-    if (0 == abv8->ByteLength()) {
-        THROW_ERROR("ArrayBuffer should not be empty");
-    }
-
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    uint32_t offset = arg1->Uint32Value();
-    uint32_t len = arg2->Uint32Value();
-    uint32_t extra = arg3->Uint32Value();
-
-    if (offset + len > ab->size()) {
-        THROW_ERROR("incorrect buffer offset/length");
-    }
-
-    uint16_t ck = ComputeChecksum(extra, reinterpret_cast<uint8_t*>(ab->data()) + offset, len);
-    args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8, ck));
 }
 
 NATIVE_FUNCTION(NativesObject, CallHandler) {
@@ -164,7 +134,7 @@ NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
         str->WriteUtf8(data, buf_len, nullptr, options);
     }
 
-    auto abv8 = ArrayBuffer::FromBuffer(iv8, data, buf_len)->GetInstance();
+    auto abv8 = v8::ArrayBuffer::New(iv8, data, buf_len, v8::ArrayBufferCreationMode::kInternalized);
     args.GetReturnValue().Set(v8::Uint8Array::New(abv8, 0, abv8->ByteLength()));
 }
 
@@ -533,78 +503,6 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     args.GetReturnValue().Set(arr);
 }
 
-NATIVE_FUNCTION(NativesObject, BufferSliceInplace) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    USEARG(2);
-    VALIDATEARG(0, ARRAYBUFFER, "argument 0 is not an ArrayBuffer");
-    VALIDATEARG(1, NUMBER, "argument 1 is not a number");
-    VALIDATEARG(2, NUMBER, "argument 2 is not a number");
-    RT_ASSERT(arg0->IsArrayBuffer());
-    auto abv8 = arg0.As<v8::ArrayBuffer>();
-    if (0 == abv8->ByteLength()) {
-        // Return the same buffer in case it's empty
-        args.GetReturnValue().Set(arg0);
-        return;
-    }
-
-    uint32_t offset = arg1->Uint32Value();
-    uint32_t size = arg2->Uint32Value();
-
-    if (offset + size >= abv8->ByteLength()) {
-        THROW_ERROR("invalid offset and size");
-    }
-
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    auto abNew = ArrayBuffer::FromArrayBufferSlice(ab, offset, size);
-    args.GetReturnValue().Set(abNew->GetInstance());
-}
-
-NATIVE_FUNCTION(NativesObject, ToBuffer) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    USEARG(1);
-    v8::Local<v8::String> str = arg0->ToString();
-    int len = str->Utf8Length();
-    RT_ASSERT(len >= 0);
-
-    bool null_terminate = arg1->BooleanValue();
-    size_t buf_len = len;
-    auto options = v8::String::WriteOptions::NO_NULL_TERMINATION;
-
-    if (null_terminate) {
-        options = v8::String::WriteOptions::NO_OPTIONS;
-        ++buf_len;
-    }
-
-    char* data = nullptr;
-    if (0 != buf_len) {
-        data = new char[buf_len];
-        str->WriteUtf8(data, buf_len, nullptr, options);
-    }
-
-    args.GetReturnValue().Set(ArrayBuffer::FromBuffer(iv8, data, buf_len)
-        ->GetInstance());
-}
-
-NATIVE_FUNCTION(NativesObject, BufferToString) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    VALIDATEARG(0, ARRAYBUFFER, "bufferToString: argument 0 is not an ArrayBuffer");
-    RT_ASSERT(arg0->IsArrayBuffer());
-    auto abv8 = arg0.As<v8::ArrayBuffer>();
-
-    if (0 == abv8->ByteLength()) {
-        args.GetReturnValue().SetEmptyString();
-        return;
-    }
-
-    auto ab = ArrayBuffer::FromInstance(iv8, abv8);
-    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
-        reinterpret_cast<const char*>(ab->data()), v8::String::kNormalString, ab->size()));
-}
-
 NATIVE_FUNCTION(NativesObject, Resources) {
     PROLOGUE_NOTHIS;
 
@@ -788,35 +686,6 @@ NATIVE_FUNCTION(NativesObject, Debug) {
     USEARG(0);
 
     printf(" --- DEBUG --- \n");
-    if (arg0->IsArrayBufferView()) {
-        v8::Local<v8::ArrayBufferView> view = arg0.As<v8::ArrayBufferView>();
-        auto ab = ArrayBuffer::FromInstance(iv8, view->Buffer());
-        auto offset = view->ByteOffset();
-        auto len = view->ByteLength();
-        printf("[ ArrayBufferView  ptr=%p offset=%lu len=%lu bufsize=%lu ]\n", ab->data(), offset, len, ab->size());
-        if (0 != ab->size()) {
-            PrintMemory(ab->data(), offset, offset + len);
-        }
-    } else if (arg0->IsArrayBuffer()) {
-        v8::Local<v8::ArrayBuffer> buf = arg0.As<v8::ArrayBuffer>();
-        auto ab = ArrayBuffer::FromInstance(iv8, buf);
-        printf("[ ArrayBuffer  ptr=%p bufsize=%lu ]\n", ab->data(), ab->size());
-        if (0 != ab->size()) {
-            PrintMemory(ab->data(), 0, std::min(ab->size(), (size_t)600));
-        }
-        return;
-    } else if (arg0->IsObject()) {
-        NativeObjectWrapper* ptr { th->template_cache()->GetWrapped(arg0) };
-        if (nullptr != ptr) {
-            switch (ptr->type_id()) {
-                default:
-                    break;
-            }
-        }
-    }
-
-//    printf(" --- STOP --- \n");
-//    Cpu::HangSystem();
 }
 
 NATIVE_FUNCTION(NativesObject, PerformanceNow) {
@@ -1348,7 +1217,7 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Buffer) {
     auto length = that->memory_block_.size();
     RT_ASSERT(ptr);
     RT_ASSERT(length > 0);
-    auto abv8 = ArrayBuffer::FromBuffer(iv8, ptr, length)->GetInstance();
+    auto abv8 = v8::ArrayBuffer::New(iv8, ptr, length, v8::ArrayBufferCreationMode::kExternalized);
     args.GetReturnValue().Set(abv8);
 }
 
@@ -1383,7 +1252,8 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     v8::Local<v8::Object> ret { v8::Object::New(iv8) };
     ret->Set(s_address, v8::Uint32::New(iv8, static_cast<uint32_t>(ptrvalue)));
     ret->Set(s_size, v8::Uint32::New(iv8, static_cast<uint32_t>(size)));
-    ret->Set(s_buffer, ArrayBuffer::FromBuffer(iv8, ptr, size)->GetInstance());
+    ret->Set(s_buffer, v8::ArrayBuffer::New(iv8, ptr, size,
+        v8::ArrayBufferCreationMode::kExternalized));
 
     args.GetReturnValue().Set(ret);
 }

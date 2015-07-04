@@ -17,7 +17,7 @@
 #include <kernel/object-wrapper.h>
 #include <kernel/thread.h>
 #include <kernel/native-object.h>
-#include <kernel/arraybuffer.h>
+#include <kernel/thread-manager.h>
 
 namespace rt {
 
@@ -107,14 +107,10 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
             return SerializeError::EMPTY_BUFFER;
         }
 
-        auto ab = ArrayBuffer::FromInstance(iv8, b);
-        stream_.AppendValue<void*>(ab->data());
-        stream_.AppendValue<size_t>(ab->size());
-
-        // Make sure ArrayBuffer wrapper instance is aware
-        // that buffer is neutered here
-        ab->Neuter();
-        RT_ASSERT(0 == ab->size());
+        auto contents = b->GetContents();
+        stream_.AppendValue<void*>(contents.Data());
+        stream_.AppendValue<size_t>(contents.ByteLength());
+        b->Neuter();
         RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
@@ -140,9 +136,9 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         else return SerializeError::TYPEDARRAY_VIEW;
 
         // Put ArrayBuffer itself
-        auto ab = ArrayBuffer::FromInstance(iv8, b);
-        stream_.AppendValue<void*>(ab->data());
-        stream_.AppendValue<size_t>(ab->size());
+        auto contents = b->GetContents();
+        stream_.AppendValue<void*>(contents.Data());
+        stream_.AppendValue<size_t>(contents.ByteLength());
 
         // Put view data
         stream_.AppendValue<size_t>(view->ByteOffset());
@@ -150,8 +146,7 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
 
         // Make sure ArrayBuffer wrapper instance is aware
         // that buffer is neutered here
-        ab->Neuter();
-        RT_ASSERT(0 == ab->size());
+        b->Neuter();
         RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
@@ -291,7 +286,7 @@ v8::Local<v8::Value> TransportData::Unpack(Thread* thread) const {
     size_t len = reader.ReadValue<size_t>();                            \
     size_t byte_offset = reader.ReadValue<size_t>();                    \
     size_t byte_length = reader.ReadValue<size_t>();                    \
-    auto buffer = ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance()
+    auto buffer = v8::ArrayBuffer::New(iv8, buf, len, v8::ArrayBufferCreationMode::kInternalized)
 
 v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader& reader) const {
     RT_ASSERT(thread);
@@ -335,7 +330,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     case Type::ARRAYBUFFER: {
         void* buf = reader.ReadValue<void*>();
         size_t len = reader.ReadValue<size_t>();
-        return scope.Escape(ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance());
+        return scope.Escape(v8::ArrayBuffer::New(iv8, buf, len, v8::ArrayBufferCreationMode::kInternalized));
     }
     case Type::TYPEDARRAY_UINT8: {
         TYPEDARRAY_READ;
