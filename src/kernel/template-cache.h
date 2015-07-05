@@ -147,7 +147,7 @@ public:
         if (value.IsEmpty()) return nullptr;
         if (!value->IsObject()) return nullptr;
 
-        v8::Local<v8::Object> obj { value->ToObject() };
+        v8::Local<v8::Object> obj = value.As<v8::Object>();
         if (obj->InternalFieldCount() < 1) return nullptr;
 
         void* ptr = obj->GetAlignedPointerFromInternalField(0);

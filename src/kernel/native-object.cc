@@ -48,9 +48,17 @@ NATIVE_FUNCTION(NativesObject, StopProfiling) {
 
 NATIVE_FUNCTION(NativesObject, GetCommandLine) {
     PROLOGUE_NOTHIS;
-    printf("[PROFILER] started");
     auto cmd = GLOBAL_platform()->GetCommandLine();
-    args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8, cmd.c_str()));
+    v8::MaybeLocal<v8::String> maybe_string = v8::String::NewFromUtf8(iv8,
+        cmd.c_str(), v8::NewStringType::kNormal);
+
+    v8::Local<v8::String> string;
+    if (!maybe_string.ToLocal(&string)) {
+        return;
+    }
+
+    RT_ASSERT(!string.IsEmpty());
+    args.GetReturnValue().Set(string);
 }
 
 
@@ -87,7 +95,7 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
     RT_ASSERT(!thisvalue.IsEmpty());
     if (!thisvalue->IsObject()) return;
 
-    v8::Local<v8::Object> obj { thisvalue->ToObject() };
+    v8::Local<v8::Object> obj = thisvalue.As<v8::Object>();
     if (obj->InternalFieldCount() != 1) return;
     void* ptr = obj->GetAlignedPointerFromInternalField(0);
     if (nullptr == ptr) return;
@@ -102,7 +110,7 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
 
     v8::Local<v8::Promise::Resolver> promise_resolver;
     {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
-        promise_resolver = v8::Promise::Resolver::New(iv8);
+        promise_resolver = v8::Promise::Resolver::New(context).ToLocalChecked();
     }
 
     uint32_t promise_index = th->AddPromise(
@@ -121,7 +129,7 @@ NATIVE_FUNCTION(NativesObject, CallHandler) {
 NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    v8::Local<v8::String> str = arg0->ToString();
+    v8::Local<v8::String> str = arg0->ToString(context).ToLocalChecked();
     int len = str->Utf8Length();
     RT_ASSERT(len >= 0);
 
@@ -172,13 +180,15 @@ NATIVE_FUNCTION(NativesObject, TextDecoderDecode) {
     v8::ArrayBuffer::Contents contents = buf->GetContents();
     uintptr_t dataPtr = reinterpret_cast<uintptr_t>(contents.Data()) + offset;
 
-    v8::MaybeLocal<v8::String> str = v8::String::NewFromUtf8(iv8,
-        reinterpret_cast<const char*>(dataPtr), v8::String::kNormalString, length);
-    if (str.IsEmpty()) {
-        THROW_ERROR("failed to construct string");
+    v8::MaybeLocal<v8::String> maybe_str = v8::String::NewFromUtf8(iv8,
+        reinterpret_cast<const char*>(dataPtr), v8::NewStringType::kNormal, length);
+    v8::Local<v8::String> str;
+    if (!maybe_str.ToLocal(&str)) {
+        return;
     }
 
-    args.GetReturnValue().Set(str.ToLocalChecked());
+    RT_ASSERT(!str.IsEmpty());
+    args.GetReturnValue().Set(str);
 }
 
 NATIVE_FUNCTION(NativesObject, TextEncoder) {
@@ -191,7 +201,7 @@ NATIVE_FUNCTION(NativesObject, TextEncoder) {
     // TODO: add other encodings
     LOCAL_V8STRING(s_encoding, "encoding");
     LOCAL_V8STRING(s_utf8, "utf-8");
-    args.This()->Set(s_encoding, s_utf8);
+    args.This()->Set(context, s_encoding, s_utf8);
 }
 
 NATIVE_FUNCTION(NativesObject, TextDecoder) {
@@ -204,7 +214,7 @@ NATIVE_FUNCTION(NativesObject, TextDecoder) {
     // TODO: add other encodings
     LOCAL_V8STRING(s_encoding, "encoding");
     LOCAL_V8STRING(s_utf8, "utf-8");
-    args.This()->Set(s_encoding, s_utf8);
+    args.This()->Set(context, s_encoding, s_utf8);
 }
 
 NATIVE_FUNCTION(NativesObject, SyncRPC) {
@@ -267,12 +277,17 @@ NATIVE_FUNCTION(NativesObject, CallResult) {
         if (TransportData::ThrowError(iv8, err)) return;
     }
 
-    {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            arg0->BooleanValue() ?
+    {	v8::Maybe<bool> type = arg0->BooleanValue(context);
+        if (type.IsNothing()) {
+            return;
+        }
+
+        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+            type.FromJust() ?
                 ThreadMessage::Type::FUNCTION_RETURN_RESOLVE :
                 ThreadMessage::Type::FUNCTION_RETURN_REJECT,
             th->handle(),
-            std::move(data), nullptr, arg2->Uint32Value()));
+            std::move(data), nullptr, arg2->Uint32Value(context).FromJust()));
         thread.getUnsafe()->PushMessage(std::move(msg));
     }
 }
@@ -281,7 +296,7 @@ NATIVE_FUNCTION(NativesObject, ClearTimer) {
     PROLOGUE_NOTHIS;
     USEARG(0);
     args.GetReturnValue().Set(v8::Boolean::New(iv8,
-        th->FlagTimeoutCleared(arg0->Uint32Value())));
+        th->FlagTimeoutCleared(arg0->Uint32Value(context).FromJust())));
 }
 
 uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
@@ -318,7 +333,7 @@ NATIVE_FUNCTION(NativesObject, SetTimeout) {
     USEARG(1);
     VALIDATEARG(0, FUNCTION, "setTimeout: argument 0 is not a function");
     args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8,
-        SetTimer(iv8, th, arg0, arg1->Uint32Value(), false)));
+        SetTimer(iv8, th, arg0, arg1->Uint32Value(context).FromJust(), false)));
 }
 
 NATIVE_FUNCTION(NativesObject, SetInterval) {
@@ -327,14 +342,15 @@ NATIVE_FUNCTION(NativesObject, SetInterval) {
     USEARG(1);
     VALIDATEARG(0, FUNCTION, "setInterval: argument 0 is not a function");
     args.GetReturnValue().Set(v8::Uint32::NewFromUnsigned(iv8,
-        SetTimer(iv8, th, arg0, arg1->Uint32Value(), true)));
+        SetTimer(iv8, th, arg0, arg1->Uint32Value(context).FromJust(), true)));
 }
 
 NATIVE_FUNCTION(NativesObject, KernelLog) {
+    PROLOGUE_NOTHIS;
     int argc = args.Length();
     for (int i = 0; i < argc; ++i) {
         v8::Local<v8::Value> v = args[i];
-        v8::Local<v8::String> s = v->ToString();
+        v8::Local<v8::String> s = v->ToString(context).ToLocalChecked();
 
         uint32_t len = s->Length();
 
@@ -356,7 +372,7 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
     USEARG(0);
     VALIDATEARG(0, STRING, "initrdText: argument 0 is not a string");
 
-    v8::Local<v8::String> filename = arg0->ToString();
+    v8::Local<v8::String> filename = arg0->ToString(context).ToLocalChecked();
     v8::String::Utf8Value filename_utf8(filename);
     const char* filename_buf = *filename_utf8;
     RT_ASSERT(filename_buf);
@@ -369,11 +385,11 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
         return;
     }
 
-    v8::Local<v8::String> text { v8::String::NewFromUtf8(iv8,
+    v8::MaybeLocal<v8::String> text { v8::String::NewFromUtf8(iv8,
         reinterpret_cast<const char*>(file.Data()),
-        v8::String::kNormalString, file.Size()) };
+        v8::NewStringType::kNormal, file.Size()) };
 
-    args.GetReturnValue().Set(text);
+    args.GetReturnValue().Set(text.ToLocalChecked());
 }
 
 NATIVE_FUNCTION(NativesObject, InitrdList) {
@@ -385,8 +401,8 @@ NATIVE_FUNCTION(NativesObject, InitrdList) {
     LOCAL_V8STRING(s_size, "size");
 
     v8::Local<v8::Object> tmp { v8::Object::New(iv8) };
-    tmp->Set(s_name, v8::String::Empty(iv8));
-    tmp->Set(s_size, v8::Uint32::NewFromUnsigned(iv8, 0));
+    tmp->Set(context, s_name, v8::String::Empty(iv8));
+    tmp->Set(context, s_size, v8::Uint32::NewFromUnsigned(iv8, 0));
 
     for (size_t i = 0; i < files_count; ++i) {
         InitrdFile file = GLOBAL_initrd()->GetByIndex(i);
@@ -394,9 +410,11 @@ NATIVE_FUNCTION(NativesObject, InitrdList) {
 
         RT_ASSERT(file.Size() < 0xffffffff && "Initrd file is too big");
         v8::Local<v8::Object> file_object { tmp->Clone() };
-        file_object->Set(s_name, v8::String::NewFromUtf8(iv8, file.Name()));
-        file_object->Set(s_size, v8::Uint32::NewFromUnsigned(iv8, file.Size() & 0xffffffff));
-        arr->Set(i, file_object);
+        file_object->Set(context, s_name,
+            v8::String::NewFromUtf8(iv8, file.Name(), v8::NewStringType::kNormal).ToLocalChecked());
+        file_object->Set(context, s_size,
+            v8::Uint32::NewFromUnsigned(iv8, file.Size() & 0xffffffff));
+        arr->Set(context, i, file_object);
     }
 
     args.GetReturnValue().Set(arr);
@@ -406,7 +424,7 @@ NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
     PROLOGUE_NOTHIS;
     USEARG(0);
 
-    v8::String::Utf8Value filename_utf8(arg0->ToString());
+    v8::String::Utf8Value filename_utf8(arg0->ToString(context).ToLocalChecked());
     const char* filename_buf = *filename_utf8;
     RT_ASSERT(filename_buf);
 
@@ -439,14 +457,14 @@ NATIVE_FUNCTION(NativesObject, SystemInfo) {
     // TODO: add other counters
     {   auto counters = v8::Array::New(iv8, 1);
         auto ticks = static_cast<uint32_t>(th->thread_manager()->ticks_count());
-        counters->Set(0, v8::Uint32::NewFromUnsigned(iv8, ticks));
+        counters->Set(context, 0, v8::Uint32::NewFromUnsigned(iv8, ticks));
         LOCAL_V8STRING(s_irq_counters, "irqCounters");
-        obj->Set(s_irq_counters, counters);
+        obj->Set(context, s_irq_counters, counters);
     }
 
     {   auto ev_count = static_cast<uint32_t>(th->thread_manager()->events_count());
         LOCAL_V8STRING(s_events_count, "eventsCount");
-        obj->Set(s_events_count, v8::Uint32::NewFromUnsigned(iv8, ev_count));
+        obj->Set(context, s_events_count, v8::Uint32::NewFromUnsigned(iv8, ev_count));
     }
 
     args.GetReturnValue().Set(obj);
@@ -476,15 +494,15 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     uint32_t low = static_cast<uint32_t>(pstart & 0xffffffffull);
 
     auto arr = v8::Array::New(iv8, 6);
-    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, length));
-    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, low));
-    arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, high));
-    arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, 0));
-    arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, 0));
-    arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(context, 0, v8::Uint32::NewFromUnsigned(iv8, length));
+    arr->Set(context, 1, v8::Uint32::NewFromUnsigned(iv8, low));
+    arr->Set(context, 2, v8::Uint32::NewFromUnsigned(iv8, high));
+    arr->Set(context, 3, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(context, 4, v8::Uint32::NewFromUnsigned(iv8, 0));
+    arr->Set(context, 5, v8::Uint32::NewFromUnsigned(iv8, 0));
 
     // Test if this buffer requires more than one physical page
-    // Note: this does not handle buffers over 2MiB (greater
+    // Note: this does not handle buffers over 2MiB (larger
     // than a single page)
     if (pstart < pboundary) {
         size_t len1 = pboundary - pstart;
@@ -494,10 +512,10 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
         uintptr_t pstart2 = reinterpret_cast<uintptr_t>(ptr2);
         uint32_t high2 = static_cast<uint32_t>(pstart2 >> 32);
         uint32_t low2 = static_cast<uint32_t>(pstart2 & 0xffffffffull);
-        arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, len1));
-        arr->Set(3, v8::Uint32::NewFromUnsigned(iv8, len2));
-        arr->Set(4, v8::Uint32::NewFromUnsigned(iv8, low2));
-        arr->Set(5, v8::Uint32::NewFromUnsigned(iv8, high2));
+        arr->Set(context, 0, v8::Uint32::NewFromUnsigned(iv8, len1));
+        arr->Set(context, 3, v8::Uint32::NewFromUnsigned(iv8, len2));
+        arr->Set(context, 4, v8::Uint32::NewFromUnsigned(iv8, low2));
+        arr->Set(context, 5, v8::Uint32::NewFromUnsigned(iv8, high2));
     }
 
     args.GetReturnValue().Set(arr);
@@ -516,29 +534,29 @@ NATIVE_FUNCTION(NativesObject, Resources) {
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
-    obj->Set(s_memory_range, (new ResourceMemoryRangeObject(Range<size_t>(0, 0xffffffff)))
+    obj->Set(context, s_memory_range, (new ResourceMemoryRangeObject(Range<size_t>(0, 0xffffffff)))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_io_range, (new ResourceIORangeObject(Range<uint16_t>(1, 0xffff)))
+    obj->Set(context, s_io_range, (new ResourceIORangeObject(Range<uint16_t>(1, 0xffff)))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_irq_range, (new ResourceIRQRangeObject(Range<uint8_t>(1, 255)))
+    obj->Set(context, s_irq_range, (new ResourceIRQRangeObject(Range<uint8_t>(1, 255)))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_acpi, (new AcpiManagerObject(GLOBAL_engines()->acpi_manager()))
+    obj->Set(context, s_acpi, (new AcpiManagerObject(GLOBAL_engines()->acpi_manager()))
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_allocator, (new AllocatorObject())
+    obj->Set(context, s_allocator, (new AllocatorObject())
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(s_loader, v8::Function::New(iv8, KernelLoaderCallback));
+    obj->Set(context, s_loader, v8::Function::New(context, KernelLoaderCallback).ToLocalChecked());
 
-    obj->Set(s_natives, (new NativesObject())
+    obj->Set(context, s_natives, (new NativesObject())
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
@@ -556,7 +574,7 @@ NATIVE_FUNCTION(NativesObject, Exit) {
     PROLOGUE_NOTHIS;
     USEARG(0);
 
-    v8::V8::TerminateExecution(iv8);
+    iv8->TerminateExecution();
     th->SetTerminateFlag();
     th->SetExitValue(arg0);
 }
@@ -567,56 +585,44 @@ NATIVE_FUNCTION(NativesObject, Eval) {
     USEARG(1);
     VALIDATEARG(0, STRING, "eval: argument 0 is not a string");
 
-    v8::TryCatch trycatch;
     v8::ScriptOrigin origin((!arg1.IsEmpty() && arg1->IsString())
-                            ? arg1->ToString() : v8::String::Empty(iv8));
-    v8::ScriptCompiler::Source source(arg0->ToString(), origin);
-    v8::Local<v8::Script> script = v8::ScriptCompiler::Compile(iv8, &source,
+                            ? arg1.As<v8::String>() : v8::String::Empty(iv8));
+
+    v8::Local<v8::String> source_code = arg0.As<v8::String>();
+    v8::ScriptCompiler::Source source(source_code, origin);
+    v8::MaybeLocal<v8::Script> maybe_script = v8::ScriptCompiler::Compile(context, &source,
         v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
 
-    if (!script.IsEmpty()) {
-        v8::Local<v8::Value> result = script->Run();
-        if (!result.IsEmpty()) {
-            args.GetReturnValue().Set(result);
-        }
+    v8::Local<v8::Script> script;
+    if (!maybe_script.ToLocal(&script)) {
+        return;
     }
 
-
-    v8::Local<v8::Value> ex = trycatch.Exception();
-    if (!ex.IsEmpty() && !trycatch.HasTerminated()) {
-        v8::String::Utf8Value exception_str(ex);
-        v8::Local<v8::Message> message = trycatch.Message();
-        if (message.IsEmpty()) {
-            printf("Uncaught exception: %s\n", *exception_str);
-        } else {
-            v8::String::Utf8Value script_name(message->GetScriptResourceName());
-            int linenum = message->GetLineNumber();
-            printf("Uncaught exception: %s:%i: %s\n", *script_name, linenum, *exception_str);
-        }
-
-        v8::String::Utf8Value stack(trycatch.StackTrace());
-        if (stack.length() > 0) {
-            printf("%s\n", *stack);
-        }
-
-        RT_ASSERT(!"syntax error");
+    RT_ASSERT(!script.IsEmpty());
+    v8::MaybeLocal<v8::Value> maybe_result = script->Run(context);
+    v8::Local<v8::Value> result;
+    if (!maybe_result.ToLocal(&result)) {
+        return;
     }
+
+    RT_ASSERT(!result.IsEmpty());
+    args.GetReturnValue().Set(result);
 }
 
 NATIVE_FUNCTION(NativesObject, Version) {
     PROLOGUE_NOTHIS;
 
     auto arr = v8::Array::New(iv8, 3);
-    arr->Set(0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
-    arr->Set(1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
-    arr->Set(2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
+    arr->Set(context, 0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
+    arr->Set(context, 1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
+    arr->Set(context, 2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
 
     auto obj = v8::Object::New(iv8);
     LOCAL_V8STRING(s_runtime, "runtime");
     LOCAL_V8STRING(s_v8, "v8");
     LOCAL_V8STRING(s_v8ver, v8::V8::GetVersion());
-    obj->Set(s_runtime, arr);
-    obj->Set(s_v8, s_v8ver);
+    obj->Set(context, s_runtime, arr);
+    obj->Set(context, s_v8, s_v8ver);
 
     args.GetReturnValue().Set(obj);
 }
@@ -626,10 +632,12 @@ NATIVE_FUNCTION(NativesObject, InstallInternals) {
     USEARG(0);
 
     RT_ASSERT(arg0->IsObject());
-    v8::Local<v8::Object> obj { arg0->ToObject() };
-    v8::Local<v8::String> call_wrapper_name { v8::String::NewFromUtf8(iv8, "callWrapper") };
-    RT_ASSERT(obj->HasOwnProperty(call_wrapper_name));
-    {	v8::Local<v8::Value> fnv { obj->Get(call_wrapper_name) };
+    v8::Local<v8::Object> obj = arg0.As<v8::Object>();
+    v8::Local<v8::String> call_wrapper_name = v8::String::NewFromUtf8(iv8,
+        "callWrapper", v8::NewStringType::kNormal).ToLocalChecked();
+
+    RT_ASSERT(obj->HasOwnProperty(context, call_wrapper_name).FromJust());
+    {	v8::Local<v8::Value> fnv { obj->Get(context, call_wrapper_name).ToLocalChecked() };
         RT_ASSERT(fnv->IsFunction());
         v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
         th->SetCallWrapper(fn);
@@ -651,10 +659,10 @@ NATIVE_FUNCTION(NativesObject, IsolatesInfo) {
     for (auto& info : list) {
         auto obj = v8::Object::New(iv8);
         // TODO: ensure those uint64 fit into doubles
-        obj->Set(s_name, V8Utils::FromString(iv8, info.filename));
-        obj->Set(s_eventsCount, v8::Number::New(iv8, static_cast<double>(info.ev_count)));
-        obj->Set(s_runtime, v8::Number::New(iv8, static_cast<double>(info.runtime)));
-        arr->Set(index++, obj);
+        obj->Set(context, s_name, V8Utils::FromString(iv8, info.filename));
+        obj->Set(context, s_eventsCount, v8::Number::New(iv8, static_cast<double>(info.ev_count)));
+        obj->Set(context, s_runtime, v8::Number::New(iv8, static_cast<double>(info.runtime)));
+        arr->Set(context, index++, obj);
     }
 
     args.GetReturnValue().Set(arr);
@@ -702,7 +710,8 @@ NATIVE_FUNCTION(NativesObject, StopVideoLog) {
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
     PROLOGUE;
     USEARG(0);
-    uint8_t value = arg0->Uint32Value() & 0xFF;
+    VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
+    uint8_t value = (arg0.As<v8::Uint32>())->Value() & 0xFF;
     IoPortsX64::OutB(that->port_number_, value);
     args.GetReturnValue().SetUndefined();
 }
@@ -710,7 +719,8 @@ NATIVE_FUNCTION(IoPortX64Object, Write8) {
 NATIVE_FUNCTION(IoPortX64Object, Write16) {
     PROLOGUE;
     USEARG(0);
-    uint16_t value = arg0->Uint32Value() & 0xFFFF;
+    VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
+    uint16_t value = (arg0.As<v8::Uint32>())->Value() & 0xFFFF;
     IoPortsX64::OutW(that->port_number_, value);
     args.GetReturnValue().SetUndefined();
 }
@@ -718,7 +728,8 @@ NATIVE_FUNCTION(IoPortX64Object, Write16) {
 NATIVE_FUNCTION(IoPortX64Object, Write32) {
     PROLOGUE;
     USEARG(0);
-    uint32_t value = arg0->Uint32Value();
+    VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
+    uint32_t value = (arg0.As<v8::Uint32>())->Value();
     IoPortsX64::OutDW(that->port_number_, value);
     args.GetReturnValue().SetUndefined();
 }
@@ -802,7 +813,7 @@ NATIVE_FUNCTION(AcpiHandleObject, HardwareId) {
     RT_ASSERT(len > 0);
     RT_ASSERT('\0' == hwid[len - 1]);
     args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8, hwid,
-        v8::String::kNormalString, len - 1));
+        v8::NewStringType::kNormal, len - 1).ToLocalChecked());
 }
 
 class WalkResourcesIrqContext {
@@ -918,17 +929,17 @@ NATIVE_FUNCTION(AcpiHandleObject, GetIrqRoutingTable) {
         }
     }
 
-    v8::Local<v8::String> str_device_id = v8::String::NewFromUtf8(iv8, "deviceId");
-    v8::Local<v8::String> str_irq = v8::String::NewFromUtf8(iv8, "irq");
-    v8::Local<v8::String> str_pin = v8::String::NewFromUtf8(iv8, "pin");
+    LOCAL_V8STRING(str_device_id, "deviceId");
+    LOCAL_V8STRING(str_irq, "irq");
+    LOCAL_V8STRING(str_pin, "pin");
 
     v8::Local<v8::Array> arr = v8::Array::New(iv8, routes.size());
     for (size_t i = 0; i < routes.size(); ++i) {
         v8::Local<v8::Object> row = v8::Object::New(iv8);
-        row->Set(str_device_id, v8::Uint32::New(iv8, routes.Get(i).device()));
-        row->Set(str_irq, v8::Uint32::New(iv8, routes.Get(i).irq()));
-        row->Set(str_pin, v8::Uint32::New(iv8, routes.Get(i).pin()));
-        arr->Set(i, row);
+        row->Set(context, str_device_id, v8::Uint32::New(iv8, routes.Get(i).device()));
+        row->Set(context, str_irq, v8::Uint32::New(iv8, routes.Get(i).irq()));
+        row->Set(context, str_pin, v8::Uint32::New(iv8, routes.Get(i).pin()));
+        arr->Set(context, i, row);
     }
 
     args.GetReturnValue().Set(arr);
@@ -1027,7 +1038,8 @@ NATIVE_FUNCTION(AcpiHandleObject, GetRootBridgeBusNumber) {
 NATIVE_FUNCTION(AcpiManagerObject, EnterSleepState) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    GLOBAL_platform()->EnterSleepState(arg0->Uint32Value());
+    VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
+    GLOBAL_platform()->EnterSleepState(arg0.As<v8::Uint32>()->Value());
 }
 
 NATIVE_FUNCTION(AcpiManagerObject, SystemReset) {
@@ -1042,7 +1054,7 @@ NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
     v8::Local<v8::Array> arr = v8::Array::New(iv8, list.size());
 
     for (size_t i = 0; i < list.size(); ++i) {
-        arr->Set(i, (new AcpiHandleObject(list.Get(i)))
+        arr->Set(context, i, (new AcpiHandleObject(list.Get(i)))
             ->BindToTemplateCache(th->template_cache())
             ->GetInstance());
     }
@@ -1071,8 +1083,8 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Subrange) {
     VALIDATEARG(0, NUMBER, "subrange: argument 0 is not a number");
     VALIDATEARG(1, NUMBER, "subrange: argument 1 is not a number");
 
-    auto begin = static_cast<size_t>(arg0->NumberValue());
-    auto end = static_cast<size_t>(arg1->NumberValue());
+    auto begin = static_cast<size_t>(arg0.As<v8::Number>()->Value());
+    auto end = static_cast<size_t>(arg1.As<v8::Number>()->Value());
 
     if (begin > end) {
         THROW_RANGE_ERROR("subrange: invalid range (begin > end)");
@@ -1095,8 +1107,8 @@ NATIVE_FUNCTION(ResourceMemoryRangeObject, Block) {
     VALIDATEARG(0, NUMBER, "block: argument 0 is not a number");
     VALIDATEARG(1, NUMBER, "block: argument 1 is not a number");
 
-    auto base = static_cast<uint64_t>(arg0->NumberValue());
-    auto size = static_cast<uint32_t>(arg1->Uint32Value());
+    auto base = static_cast<uint64_t>(arg0->NumberValue(context).FromJust());
+    auto size = static_cast<uint32_t>(arg1->Uint32Value(context).FromJust());
 
     Range<size_t> subrange(base, base + size);
     if (!subrange.IsSubrangeOf(that->memory_range_)) {
@@ -1128,8 +1140,8 @@ NATIVE_FUNCTION(ResourceIORangeObject, Subrange) {
     VALIDATEARG(0, NUMBER, "subrange: argument 0 is not a number");
     VALIDATEARG(1, NUMBER, "subrange: argument 1 is not a number");
 
-    auto begin = static_cast<uint32_t>(arg0->Uint32Value());
-    auto end = static_cast<uint32_t>(arg1->Uint32Value());
+    auto begin = static_cast<uint32_t>(arg0->Uint32Value(context).FromJust());
+    auto end = static_cast<uint32_t>(arg1->Uint32Value(context).FromJust());
 
     if (begin > end) {
         THROW_RANGE_ERROR("subrange: invalid range (begin > end)");
@@ -1150,7 +1162,7 @@ NATIVE_FUNCTION(ResourceIORangeObject, Port) {
     USEARG(0);
     VALIDATEARG(0, NUMBER, "port: argument 0 is not a number");
 
-    auto number = arg0->Uint32Value();
+    auto number = arg0->Uint32Value(context).FromJust();
     if (!that->io_range_.Contains(number)) {
         THROW_RANGE_ERROR("port: invalid port number (required <= 0xffff)");
     }
@@ -1165,7 +1177,7 @@ NATIVE_FUNCTION(ResourceIORangeObject, OffsetPort) {
     USEARG(0);
     VALIDATEARG(0, NUMBER, "offsetPort: argument 0 is not a number");
 
-    auto number = that->io_range_.begin() + arg0->Uint32Value();
+    auto number = that->io_range_.begin() + arg0->Uint32Value(context).FromJust();
     if (!that->io_range_.Contains(number)) {
         THROW_RANGE_ERROR("offsetPort: port offset is out of range");
     }
@@ -1182,7 +1194,7 @@ NATIVE_FUNCTION(ResourceIRQRangeObject, Irq) {
     USEARG(0);
     VALIDATEARG(0, NUMBER, "irq: argument 0 is not a number");
 
-    uint32_t number = arg0->Uint32Value();
+    uint32_t number = arg0->Uint32Value(context).FromJust();
     if (!that->irq_range_.Contains(number)) {
         THROW_RANGE_ERROR("irq: irq number is out of range");
     }
@@ -1250,9 +1262,9 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
     memset(ptr, 0, size);
 
     v8::Local<v8::Object> ret { v8::Object::New(iv8) };
-    ret->Set(s_address, v8::Uint32::New(iv8, static_cast<uint32_t>(ptrvalue)));
-    ret->Set(s_size, v8::Uint32::New(iv8, static_cast<uint32_t>(size)));
-    ret->Set(s_buffer, v8::ArrayBuffer::New(iv8, ptr, size,
+    ret->Set(context, s_address, v8::Uint32::New(iv8, static_cast<uint32_t>(ptrvalue)));
+    ret->Set(context, s_size, v8::Uint32::New(iv8, static_cast<uint32_t>(size)));
+    ret->Set(context, s_buffer, v8::ArrayBuffer::New(iv8, ptr, size,
         v8::ArrayBufferCreationMode::kExternalized));
 
     args.GetReturnValue().Set(ret);

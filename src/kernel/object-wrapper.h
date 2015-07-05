@@ -26,37 +26,31 @@ namespace rt {
 class ExportBuilder
 {
 public:
-    ExportBuilder(v8::Isolate* iv8, v8::Local<v8::Object>& obj)
-        :	iv8_(iv8),
+    ExportBuilder(TemplateCache* tpl_cache, v8::Local<v8::Object>& obj)
+        :	tpl_cache_(tpl_cache),
             obj_(obj) {
-        RT_ASSERT(iv8);
+        RT_ASSERT(tpl_cache);
+        RT_ASSERT(tpl_cache_->IsolateV8());
     }
 
     void SetCallback(std::string key, v8::FunctionCallback callback) {
-        v8::HandleScope scope(iv8_);
+        RT_ASSERT(tpl_cache_);
+        v8::Isolate* iv8 = tpl_cache_->IsolateV8();
+        v8::Local<v8::Context> context = iv8->GetCurrentContext();
+        RT_ASSERT(iv8);
+        v8::HandleScope scope(iv8);
         v8::Local<v8::FunctionTemplate> foo =
-            v8::FunctionTemplate::New(iv8_, callback);
+            v8::FunctionTemplate::New(iv8, callback);
 
-        v8::Local<v8::Function> fn = foo->GetFunction();
-        v8::Local<v8::String> fname =
-            v8::String::NewFromOneByte(iv8_,
-                reinterpret_cast<const uint8_t*>(key.c_str()));
+        v8::Local<v8::Function> fn = foo->GetFunction(context).ToLocalChecked();
+        v8::Local<v8::String> fname = v8::String::NewFromUtf8(iv8,
+            key.c_str(), v8::NewStringType::kNormal).ToLocalChecked();
 
         fn->SetName(fname);
-        obj_->Set(fname, fn);
+        obj_->Set(context, fname, fn);
     }
-
-    void SetAccessors(std::string key, v8::AccessorGetterCallback getter,
-                      v8::AccessorSetterCallback setter = nullptr) {
-        v8::Local<v8::String> fname =
-            v8::String::NewFromOneByte(iv8_,
-                reinterpret_cast<const uint8_t*>(key.c_str()));
-
-        obj_->SetAccessor(fname, getter, setter);
-    }
-
 private:
-    v8::Isolate* iv8_;
+    TemplateCache* tpl_cache_;
     v8::Local<v8::Object>& obj_;
 };
 
@@ -106,7 +100,7 @@ public:
 
     inline void Weak() {
         EnsureInstance();
-        object_.SetWeak(this, WeakCallback);
+        object_.SetWeak(this, WeakCallback, v8::WeakCallbackType::kParameter);
     }
 
     inline void Unweak() {
@@ -121,9 +115,9 @@ protected:
         Unweak();
     }
 
-    inline static void WeakCallback(const v8::WeakCallbackData<v8::Object,
-                                    JsObjectWrapperBase>& data) {
+    inline static void WeakCallback(const v8::WeakCallbackInfo<JsObjectWrapperBase>& data) {
         JsObjectWrapperBase* w = static_cast<JsObjectWrapperBase*>(data.GetParameter());
+        data.GetParameter()->object_.Reset();
         delete w;
     }
 
@@ -145,7 +139,7 @@ protected:
             cached = tpl_cache_->Get(type_id());
         } else {
             v8::Local<v8::Object> local_obj = tpl_cache_->NewWrappedObject(this);
-            ObjectInit(ExportBuilder(iv8, local_obj));
+            ObjectInit(ExportBuilder(tpl_cache_, local_obj));
             cached = local_obj;
             tpl_cache_->Put(type_id(), cached);
         }

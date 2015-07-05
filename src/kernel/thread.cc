@@ -152,14 +152,14 @@ void Thread::TearDown() {
 
 v8::Local<v8::Object> Thread::GetIsolateGlobal() {
     v8::EscapableHandleScope scope(iv8_);
-    auto s_isolate = v8::String::NewFromUtf8(iv8_, "isolate");
+    auto s_isolate = v8::String::NewFromUtf8(iv8_, "isolate", v8::NewStringType::kNormal).ToLocalChecked();
 
     auto context = v8::Local<v8::Context>::New(iv8_, context_);
     RT_ASSERT(!context.IsEmpty());
-    auto isolate_value = context->Global()->Get(s_isolate);
+    auto isolate_value = context->Global()->Get(context, s_isolate).ToLocalChecked();
     RT_ASSERT(!isolate_value.IsEmpty());
     RT_ASSERT(isolate_value->IsObject());
-    return scope.Escape(isolate_value->ToObject());
+    return scope.Escape(isolate_value.As<v8::Object>());
 }
 
 bool Thread::Run() {
@@ -203,7 +203,7 @@ bool Thread::Run() {
     v8::Local<v8::Context> context = v8::Local<v8::Context>::New(iv8_, context_);
     v8::Context::Scope cs(context);
 
-    v8::TryCatch trycatch;
+    v8::TryCatch trycatch(iv8_);
     uint64_t ev_count = 0;
 
     for (ThreadMessage* message : messages) {
@@ -222,8 +222,8 @@ bool Thread::Run() {
 
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
 
-            auto s_data = v8::String::NewFromUtf8(iv8_, "data");
-            GetIsolateGlobal()->Set(s_data, unpacked);
+            auto s_data = v8::String::NewFromUtf8(iv8_, "data", v8::NewStringType::kNormal).ToLocalChecked();
+            GetIsolateGlobal()->Set(context, s_data, unpacked);
         }
             break;
         case ThreadMessage::Type::SET_ARGUMENTS: {
@@ -234,23 +234,17 @@ bool Thread::Run() {
             args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
 
             // Install args [isolate.data, isolate.env, isolate.system]
-            auto s_data = v8::String::NewFromUtf8(iv8_, "data");
-            auto s_env = v8::String::NewFromUtf8(iv8_, "env");
-            auto s_system = v8::String::NewFromUtf8(iv8_, "system");
-            auto s_net = v8::String::NewFromUtf8(iv8_, "net");
-            auto s_net2 = v8::String::NewFromUtf8(iv8_, "net2");
+            auto s_data = v8::String::NewFromUtf8(iv8_, "data", v8::NewStringType::kNormal).ToLocalChecked();
+            auto s_env = v8::String::NewFromUtf8(iv8_, "env", v8::NewStringType::kNormal).ToLocalChecked();
+            auto s_system = v8::String::NewFromUtf8(iv8_, "system", v8::NewStringType::kNormal).ToLocalChecked();
             auto isolate_obj = GetIsolateGlobal();
             RT_ASSERT(!unpacked.IsEmpty());
             RT_ASSERT(unpacked->IsArray());
             auto args_array = unpacked.As<v8::Array>();
             RT_ASSERT(3 == args_array->Length());
-            isolate_obj->Set(s_data, args_array->Get(0));
-            isolate_obj->Set(s_env, args_array->Get(1));
-            isolate_obj->Set(s_system, args_array->Get(2));
-
-            // Set isolate.net === isolate.system.net2
-            // TODO: remove system namespace and import directly
-            isolate_obj->Set(s_net, args_array->Get(2).As<v8::Object>()->Get(s_net2));
+            isolate_obj->Set(context, s_data, args_array->Get(context, 0).ToLocalChecked());
+            isolate_obj->Set(context, s_env, args_array->Get(context, 1).ToLocalChecked());
+            isolate_obj->Set(context, s_system, args_array->Get(context, 2).ToLocalChecked());
 
             parent_thread_ = message->sender();
             parent_promise_id_ = message->recv_index();
@@ -261,21 +255,22 @@ bool Thread::Run() {
             RT_ASSERT(!unpacked.IsEmpty());
             RT_ASSERT(unpacked->IsArray());
             v8::Local<v8::Array> arr { v8::Local<v8::Array>::Cast(unpacked) };
-            v8::Local<v8::Value> code { arr->Get(0) };
-            v8::Local<v8::Value> filename { arr->Get(1) };
+            v8::Local<v8::Value> code { arr->Get(context, 0).ToLocalChecked() };
+            v8::Local<v8::Value> filename { arr->Get(context, 1).ToLocalChecked() };
             RT_ASSERT(code->IsString());
             RT_ASSERT(filename->IsString());
             if (filename_.empty()) {
-                filename_ = V8Utils::ToString(filename->ToString());
+                filename_ = V8Utils::ToString(filename.As<v8::String>());
             }
 
             v8::ScriptOrigin origin(filename);
-            v8::ScriptCompiler::Source source(code->ToString(), origin);
-            v8::Local<v8::Script> script = v8::ScriptCompiler::Compile(iv8_, &source,
+            v8::ScriptCompiler::Source source(code.As<v8::String>(), origin);
+            v8::MaybeLocal<v8::Script> maybe_script = v8::ScriptCompiler::Compile(context, &source,
                 v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
-            if (!script.IsEmpty()) {
+            v8::Local<v8::Script> script;
+            if (maybe_script.ToLocal(&script)) {
                 RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-                script->Run();
+                script->Run(context);
             }
         }
             break;
@@ -302,7 +297,7 @@ bool Thread::Run() {
                    v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
                 };
                 RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-                fnwrap->Call(context->Global(), 4, argv);
+                fnwrap->Call(context, context->Global(), 4, argv);
             }
         }
             break;
@@ -313,7 +308,7 @@ bool Thread::Run() {
             v8::Local<v8::Promise::Resolver> resolver {
                 v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index())) };
 
-            resolver->Resolve(unpacked);
+            resolver->Resolve(context, unpacked);
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             iv8_->RunMicrotasks();
         }
@@ -325,7 +320,7 @@ bool Thread::Run() {
             v8::Local<v8::Promise::Resolver> resolver {
                 v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index())) };
 
-            resolver->Reject(unpacked);
+            resolver->Reject(context, unpacked);
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
             iv8_->RunMicrotasks();
         }
@@ -351,7 +346,7 @@ bool Thread::Run() {
             }
 
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            fn->Call(context->Global(), 0, nullptr);
+            fn->Call(context, context->Global(), 0, nullptr);
         }
             break;
         case ThreadMessage::Type::IRQ_RAISE: {
@@ -360,7 +355,7 @@ bool Thread::Run() {
             RT_ASSERT(fnv->IsFunction());
             v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-            fn->Call(context->Global(), 0, nullptr);
+            fn->Call(context, context->Global(), 0, nullptr);
         }
             break;
         case ThreadMessage::Type::EMPTY:
@@ -383,13 +378,17 @@ bool Thread::Run() {
             printf("Uncaught exception: %s\n", *exception_str);
         } else {
             v8::String::Utf8Value script_name(message->GetScriptResourceName());
-            int linenum = message->GetLineNumber();
+            int linenum = message->GetLineNumber(context).FromMaybe(0);
             printf("Uncaught exception: %s:%i: %s\n", *script_name, linenum, *exception_str);
         }
 
-        v8::String::Utf8Value stack(trycatch.StackTrace());
-        if (stack.length() > 0) {
-            printf("%s\n", *stack);
+        v8::MaybeLocal<v8::Value> maybe_stack = trycatch.StackTrace(context);
+        v8::Local<v8::Value> stack_value;
+        if (maybe_stack.ToLocal(&stack_value)) {
+            v8::String::Utf8Value stack(stack_value);
+            if (stack.length() > 0) {
+                printf("%s\n", *stack);
+            }
         }
     }
 
