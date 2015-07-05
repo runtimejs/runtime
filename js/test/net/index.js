@@ -15,3 +15,4 @@
 'use strict';
 require('./tcp');
 require('./tcp-receive');
+require('./port-allocator');
