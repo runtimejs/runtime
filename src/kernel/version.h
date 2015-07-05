@@ -29,7 +29,7 @@ public:
     }
 
     static uint32_t getRev() {
-        return 11;
+        return 12;
     }
 
 private:
