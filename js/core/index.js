@@ -40,6 +40,7 @@ function Runtime() {
       resources.acpi.enterSleepState(5);
     }
   };
+  this.driver = {};
 }
 
 global.runtime = module.exports = new Runtime();
