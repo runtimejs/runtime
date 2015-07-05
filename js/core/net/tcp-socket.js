@@ -17,15 +17,16 @@ var assertError = require('assert-error');
 var typeutils = require('typeutils');
 var IP4Address = require('./ip4-address');
 var portUtils = require('./port-utils');
-var PortPool = require('./port-pool');
+var PortAllocator = require('./port-allocator');
 var tcpTransmit = require('./tcp-transmit');
 var route = require('./route');
 var tcpHeader = require('./tcp-header');
 var netError = require('./net-error');
 var tcpTimer = require('./tcp-timer');
 var tcpSocketState = require('./tcp-socket-state');
+var connHash = require('./tcp-hash');
 
-var ports = new PortPool();
+var ports = new PortAllocator();
 
 var STATE_CLOSED = tcpSocketState.STATE_CLOSED;
 var STATE_LISTEN = tcpSocketState.STATE_LISTEN;
@@ -44,15 +45,6 @@ function SEQ_OFFSET(a, b) { return ((a - b) | 0); }
 
 var MSL_TIME = 15000;
 var bufferedLimitHint = 64 * 1024; /* 64 KiB */
-
-function sortFunction(a, b) {
-  return a[0] - b[0];
-}
-
-var pow32 = Math.pow(2, 32);
-function connHash(ip, port) {
-  return pow32 * port + (((ip.a << 24) | (ip.b << 16) | (ip.c << 8) | ip.d) >>> 0);
-}
 
 class TCPSocket {
   constructor() {
@@ -145,10 +137,10 @@ class TCPSocket {
 
   _listen(port) {
     if (!port) {
-      port = ports.getEphemeral(this);
+      port = ports.allocEphemeral(this);
     } else {
       assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
-      if (!ports.alloc(port, this)) {
+      if (!ports.allocPort(port, this)) {
         throw netError.E_ADDRESS_IN_USE;
       }
     }
@@ -191,7 +183,7 @@ class TCPSocket {
     }
 
     if (!this._port) {
-      this._port = ports.getEphemeral(this);
+      this._port = ports.allocEphemeral(this);
       if (!this._port) {
         return false;
       }
@@ -679,7 +671,7 @@ class TCPSocket {
   }
 
   static lookupReceive(destPort) {
-    return ports.get(destPort) || null;
+    return ports.lookup(destPort);
   }
 }
 
