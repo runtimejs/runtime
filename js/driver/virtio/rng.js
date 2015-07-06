@@ -52,28 +52,31 @@ function initializeRNGDevice(pciDevice) {
   }
 
   runtime.driver.rng = {
-    getRand: function(cb) {
+    getRand: function() {
       if (!cb) {
         cb = function() {};
       }
 
       fillRequestQueue(1);
       dev.hasPendingIRQ();
-      reqQueue.fetchBuffers(cb);
+      return reqQueue.getBuffer();
     },
-    getRandLength: function(length, cb) {
-      if (typeof length === 'function') {
-        cb = length;
-        length = 1;
-      }
-
-      if (!cb) {
-        cb = function() {};
-      }
-
+    getRandLength: function(length) {
+      fillRequestQueue(length || 1);
+      dev.hasPendingIRQ();
+      return reqQueue.getBuffer();
+    },
+    randomBytes: function(length) {
+      var retbuf = null;
+      length = length || 1;
       fillRequestQueue(length);
       dev.hasPendingIRQ();
-      reqQueue.fetchBuffers(cb);
+      var u8 = reqQueue.getBuffer();
+      retbuf = new Buffer(u8.length);
+      for (let k in u8) {
+        retbuf.writeUInt8(u8[k], k);
+      }
+      return retbuf;
     }
   };
 
