@@ -51,45 +51,89 @@ function initializeRNGDevice(pciDevice) {
     }
   }
 
-  runtime.driver.rng = {
-    getRand: function() {
-      if (!cb) {
-        cb = function() {};
-      }
+  dev.setDriverReady();
 
-      fillRequestQueue(1);
-      dev.hasPendingIRQ();
-      return reqQueue.getBuffer();
-    },
-    getRandLength: function(length) {
+  fillRequestQueue(1);
+  dev.hasPendingIRQ();
+
+  var s1 = reqQueue.getBuffer();
+  s1 = s1[0];
+
+  fillRequestQueue(1);
+  dev.hasPendingIRQ();
+
+  var s2 = reqQueue.getBuffer();
+  s2 = s2[0];
+
+  function prng() {
+    var tmp2 = 36969 * (s2 & 65535) + (s2 >> 16);
+    var tmp1 = 18000 * (s1 & 65535) + (s1 >> 16);
+    var tmp = (tmp2 << 16) + tmp1;
+    if (tmp < 0) tmp = tmp * -1;
+    while (tmp > 256) tmp = tmp / 4;
+    tmp = Math.round(tmp);
+    s1 = s2;
+    s2 = tmp;
+    return tmp;
+  }
+
+  runtime.driver.rng = {
+    getRand: function(length, cb) {
+      if (typeof length === 'function') {
+        cb = length;
+        length = 1;
+      }
       fillRequestQueue(length || 1);
-      dev.hasPendingIRQ();
-      return reqQueue.getBuffer();
-    },
-    randomBytes: function(length, cb) {
-      length = length || 1;
-      fillRequestQueue(length);
       dev.hasPendingIRQ();
       if (cb) {
         reqQueue.fetchBuffers(function(u8) {
-          var tmp = new Buffer(u8.length);
-          for (let k in u8) {
-            tmp.writeUInt8(u8[k], k);
-          };
-          cb(tmp);
+          s1 = s2;
+          s2 = u8[0];
+          cb(u8);
         });
       } else {
-        var u8 = reqQueue.getBuffer();
-        var retbuf = new Buffer(u8.length);
-        for (let k in u8) {
-          retbuf.writeUInt8(u8[k], k);
+        var result = reqQueue.getBuffer();
+        s1 = s2;
+        s2 = result[0];
+        return result;
+      }
+    },
+    getHybridRand: function(length, cb) {
+      if (typeof length === 'function') {
+        cb = length;
+        length = 1;
+      }
+
+      fillRequestQueue(length || 1);
+      dev.hasPendingIRQ();
+      if (cb) {
+        reqQueue.fetchBuffers(function(u8) {
+          if (u8 === null) {
+            var tmparr = [];
+            for (var i = 0;i < length; i++) {
+              tmparr.push(prng());
+            }
+            u8 = new Uint8Array(tmparr);
+          }
+          s1 = s2
+          s2 = u8[0];
+          cb(u8);
+        });
+      } else {
+        var result = reqQueue.getBuffer();
+        if (result === null) {
+          var tmparr = [];
+          for (var i = 0;i < length; i++) {
+            tmparr.push(prng());
+          }
+          result = new Uint8Array(tmparr);
         }
-        return retbuf;
+        s1 = s2;
+        s2 = result[0];
+        return result;
       }
     }
   };
-
-  dev.setDriverReady();
 }
 
 module.exports = initializeRNGDevice;
