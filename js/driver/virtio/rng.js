@@ -80,8 +80,9 @@ function initializeRNGDevice(pciDevice) {
   runtime.driver.rng = {
     getRand: function(length, cb) {
       if (typeof length === 'function') {
-        cb = length;
-        length = 1;
+        var tmp = length;
+        length = cb || 1;
+        cb = tmp;
       }
       fillRequestQueue(length || 1);
       dev.hasPendingIRQ();
@@ -100,8 +101,9 @@ function initializeRNGDevice(pciDevice) {
     },
     getHybridRand: function(length, cb) {
       if (typeof length === 'function') {
-        cb = length;
-        length = 1;
+        var tmp = length;
+        length = cb || 1;
+        cb = tmp;
       }
 
       fillRequestQueue(length || 1);
