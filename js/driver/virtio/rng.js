@@ -66,17 +66,26 @@ function initializeRNGDevice(pciDevice) {
       dev.hasPendingIRQ();
       return reqQueue.getBuffer();
     },
-    randomBytes: function(length) {
-      var retbuf = null;
+    randomBytes: function(length, cb) {
       length = length || 1;
       fillRequestQueue(length);
       dev.hasPendingIRQ();
-      var u8 = reqQueue.getBuffer();
-      retbuf = new Buffer(u8.length);
-      for (let k in u8) {
-        retbuf.writeUInt8(u8[k], k);
+      if (cb) {
+        reqQueue.fetchBuffers(function(u8) {
+          var tmp = new Buffer(u8.length);
+          for (let k in u8) {
+            tmp.writeUInt8(u8[k], k);
+          };
+          cb(tmp);
+        });
+      } else {
+        var u8 = reqQueue.getBuffer();
+        var retbuf = new Buffer(u8.length);
+        for (let k in u8) {
+          retbuf.writeUInt8(u8[k], k);
+        }
+        return retbuf;
       }
-      return retbuf;
     }
   };
 
