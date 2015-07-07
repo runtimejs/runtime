@@ -29,7 +29,7 @@ function init() {
   }
 }
 
-function findDevice(vendorId, deviceId) {
+function setupDeviceDriver(vendorId, deviceId, driver) {
   assert(isint.uint16(vendorId));
   assert(isint.uint16(deviceId) || typeutils.isFunction(deviceId));
 
@@ -53,17 +53,12 @@ function findDevice(vendorId, deviceId) {
       }
     }
 
-    return device;
+    device.setDriver(driver);
   }
-
-  return null;
 }
 
 init();
 
 exports.addDriver = function(vendorId, deviceId, opts) {
-  var device = findDevice(vendorId, deviceId);
-  if (device) {
-    device.setDriver(opts);
-  }
+  setupDeviceDriver(vendorId, deviceId, opts);
 };
