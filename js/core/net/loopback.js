@@ -20,7 +20,7 @@ var route = require('./route');
 
 var intf = new Interface(MACAddress.ZERO);
 var ip = new IP4Address(127, 0, 0, 1);
-var mask = new IP4Address(127, 0, 0, 255);
+var mask = new IP4Address(255, 0, 0, 0);
 intf.disableArp();
 intf.setName('loopback');
 intf.configure(ip, mask);
