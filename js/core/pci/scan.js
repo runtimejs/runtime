@@ -340,6 +340,7 @@ var pciSpace = (function(pciAccessorFactoryArg) {
  */
 var codeNameResolver = (function() {
   var classCodes = [
+    'RNG Device',
     'Unclassified',
     'Mass Storage Controller',
     'Network Controller',
@@ -366,7 +367,7 @@ var codeNameResolver = (function() {
      */
     classCodeToName: function(code) {
       if ('undefined' === typeof classCodes[code]) {
-        return classCodes[0];
+        return classCodes[1];
       }
 
       return classCodes[code];
