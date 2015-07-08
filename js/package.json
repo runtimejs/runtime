@@ -35,7 +35,6 @@
     "isint": "^1.0.0",
     "module-singleton": "^2.0.0",
     "typeutils": "^1.0.1",
-    "u8-view": "^1.0.0",
-    "sync": "^0.0.9"
+    "u8-view": "^1.0.0"
   }
 }
