@@ -99,6 +99,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         kernel->Set(iv8_, "startProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StartProfiling));
         kernel->Set(iv8_, "stopProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StopProfiling));
         kernel->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
+        kernel->Set(iv8_, "memoryInfo", v8::FunctionTemplate::New(iv8_, NativesObject::MemoryInfo));
         global->Set(iv8_, "kernel", kernel);
 
         v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New(iv8_) };

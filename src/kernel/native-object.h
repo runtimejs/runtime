@@ -49,6 +49,7 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
     DECLARE_NATIVE(BufferAddress);
+    DECLARE_NATIVE(MemoryInfo);
 
     /**
      * Memory barriers

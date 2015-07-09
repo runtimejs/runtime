@@ -30,6 +30,31 @@ NATIVE_FUNCTION(NativesObject, MemoryBarrier) {
     __sync_synchronize();
 }
 
+NATIVE_FUNCTION(NativesObject, MemoryInfo) {
+    PROLOGUE_NOTHIS;
+    v8::HeapStatistics stat;
+    iv8->GetHeapStatistics(&stat);
+
+    size_t total = stat.total_heap_size();
+    size_t used = stat.used_heap_size();
+
+    size_t pm_total = GLOBAL_mem_manager()->physical_memory_total();
+    size_t pm_used = GLOBAL_mem_manager()->physical_memory_used();
+
+    LOCAL_V8STRING(s_heap_total, "heapTotal");
+    LOCAL_V8STRING(s_heap_used, "heapUsed");
+    LOCAL_V8STRING(s_pm_total, "pmTotal");
+    LOCAL_V8STRING(s_pm_used, "pmUsed");
+
+    v8::Local<v8::Object> obj = v8::Object::New(iv8);
+    obj->Set(context, s_heap_total, v8::Number::New(iv8, total));
+    obj->Set(context, s_heap_used, v8::Number::New(iv8, used));
+    obj->Set(context, s_pm_total, v8::Number::New(iv8, pm_total));
+    obj->Set(context, s_pm_used, v8::Number::New(iv8, pm_used));
+
+    args.GetReturnValue().Set(obj);
+}
+
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
     PROLOGUE_NOTHIS;
 #ifdef RUNTIME_PROFILER
