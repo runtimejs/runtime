@@ -14,8 +14,16 @@
 
 #include "engines.h"
 #include <kernel/acpi-manager.h>
+#include <kernel/platform.h>
 
 namespace rt {
+
+bool EntropySource(unsigned char* buffer, size_t length) {
+    for (size_t i = 0; i < length; ++i) {
+        buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
+    }
+    return true;
+}
 
 AcpiManager* Engines::acpi_manager() {
     if (nullptr == _acpi_manager) {

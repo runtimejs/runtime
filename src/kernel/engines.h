@@ -27,6 +27,7 @@
 namespace rt {
 
 class AcpiManager;
+bool EntropySource(unsigned char* buffer, size_t length);
 
 class Engines {
 public:
@@ -63,6 +64,9 @@ public:
         RT_ASSERT(!v8_platform_);
         v8_platform_ = new V8Platform();
         RT_ASSERT(v8_platform_);
+
+        v8::V8::SetEntropySource(EntropySource);
+
         v8::V8::InitializePlatform(v8_platform_);
         v8::V8::Initialize();
 
