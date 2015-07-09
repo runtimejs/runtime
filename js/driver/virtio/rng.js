@@ -69,11 +69,16 @@ function initializeRNGDevice(pciDevice) {
     },
     realRand: function(cb) {
       fillRequestQueue();
-      var u8 = reqQueue.fetchBuffers(function(u8) {
+      for (;;) {
+        var u8 = reqQueue.getBuffer();
+        if (u8 === null) {
+          cb();
+          break;
+        }
         for (let obj of u8) {
           randobj.queue.push(obj);
         }
-      }, cb);
+      }
     },
     seed: function() {
       fillRequestQueue();
