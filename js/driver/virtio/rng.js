@@ -83,6 +83,14 @@ function initializeRNGDevice(pciDevice) {
     seed: function() {
       fillRequestQueue();
       var u8 = reqQueue.getBuffer();
+      // If it was requested too fast, use Math.random instead.
+      if (u8 === null) {
+        var foo = Math.round(Math.random() * 0xffffffff);
+        if (foo < 0) foo = -foo;
+        while (foo > 256) foo /= 4;
+        foo = Math.round(foo);
+        u8 = [foo];
+      }
       return u8[0];
     },
     fillQueue: function() {
