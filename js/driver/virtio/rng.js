@@ -39,10 +39,10 @@ function initializeRNGDevice(pciDevice) {
 
   var reqQueue = dev.queueSetup(QUEUE_ID_REQ);
 
-  function fillRequestQueue(length) {
-    if (reqQueue.descriptorTable.descriptorsAvailable) {
-      if (!reqQueue.placeBuffers([new Uint8Array(length || 1)], true)) {
-        debug('[virtio rng] error placing descriptor buffers');
+  function fillRequestQueue() {
+    while (reqQueue.descriptorTable.descriptorsAvailable) {
+      if (!reqQueue.placeBuffers([new Uint8Array(256)], true)) {
+
       }
     }
 
@@ -53,87 +53,51 @@ function initializeRNGDevice(pciDevice) {
 
   dev.setDriverReady();
 
-  fillRequestQueue(1);
-  dev.hasPendingIRQ();
-
-  var s1 = reqQueue.getBuffer();
-  s1 = s1[0];
-
-  fillRequestQueue(1);
-  dev.hasPendingIRQ();
-
-  var s2 = reqQueue.getBuffer();
-  s2 = s2[0];
-
-  function prng() {
-    var tmp2 = 36969 * (s2 & 65535) + (s2 >> 16);
-    var tmp1 = 18000 * (s1 & 65535) + (s1 >> 16);
-    var tmp = (tmp2 << 16) + tmp1;
-    if (tmp < 0) tmp = tmp * -1;
-    while (tmp > 256) tmp = tmp / 4;
-    tmp = Math.round(tmp);
-    s1 = s2;
-    s2 = tmp;
-    return tmp;
-  }
-
-  runtime.driver.rng = {
-    getRand: function(length, cb) {
-      if (typeof length === 'function') {
-        cb = length;
-        length = 1;
-      }
-      fillRequestQueue(length || 1);
-      dev.hasPendingIRQ();
-      if (cb) {
-        reqQueue.fetchBuffers(function(u8) {
-          s1 = s2;
-          s2 = u8[0];
-          cb(u8);
-        });
-      } else {
-        var result = reqQueue.getBuffer();
-        s1 = s2;
-        s2 = result[0];
-        return result;
+  var randobj = {
+    queue: [],
+    init: function() {
+      fillRequestQueue();
+      for (;;) {
+        var u8 = reqQueue.getBuffer();
+        if (u8 === null) {
+          break;
+        }
+        for (let obj of u8) {
+          randobj.queue.push(obj);
+        }
       }
     },
-    getHybridRand: function(length, cb) {
-      if (typeof length === 'function') {
-        cb = length;
-        length = 1;
-      }
-
-      fillRequestQueue(length || 1);
-      dev.hasPendingIRQ();
-      if (cb) {
-        reqQueue.fetchBuffers(function(u8) {
-          if (u8 === null) {
-            var tmparr = [];
-            for (var i = 0;i < length; i++) {
-              tmparr.push(prng());
-            }
-            u8 = new Uint8Array(tmparr);
-          }
-          s1 = s2
-          s2 = u8[0];
-          cb(u8);
-        });
-      } else {
-        var result = reqQueue.getBuffer();
-        if (result === null) {
-          var tmparr = [];
-          for (var i = 0;i < length; i++) {
-            tmparr.push(prng());
-          }
-          result = new Uint8Array(tmparr);
+    realRand: function(cb) {
+      fillRequestQueue();
+      var u8 = reqQueue.fetchBuffers(function(u8) {
+        for (let obj of u8) {
+          randobj.queue.push(obj);
         }
-        s1 = s2;
-        s2 = result[0];
-        return result;
+      }, cb);
+    },
+    seed: function() {
+      fillRequestQueue();
+      var u8 = reqQueue.getBuffer();
+      return u8[0];
+    },
+    fillQueue: function() {
+      // This function must block,
+      // It's called after the queue is drained
+      fillRequestQueue();
+      for (;;) {
+        var u8 = reqQueue.getBuffer();
+        if (u8 === null) {
+          break;
+        }
+        for (let obj of u8) {
+          randobj.queue.push(obj);
+        }
       }
     }
-  };
+  }
+
+  var random = runtime.random.addSource('virtio-rng', randobj);
+  runtime.random.setDefault('virtio-rng');
 }
 
 module.exports = initializeRNGDevice;

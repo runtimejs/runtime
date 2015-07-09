@@ -44,7 +44,7 @@ function VRing(mem, byteOffset, ringSize) {
   this.availableRing.enableInterrupts();
 }
 
-VRing.prototype.fetchBuffers = function(fn) {
+VRing.prototype.fetchBuffers = function(fn, done) {
   var count = 0;
 
   for (;;) {
@@ -55,6 +55,9 @@ VRing.prototype.fetchBuffers = function(fn) {
     for (;;) {
       let u8 = this.getBuffer();
       if (null === u8) {
+        if (done) {
+          done();
+        }
         break;
       }
 

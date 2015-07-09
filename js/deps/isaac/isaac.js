@@ -94,7 +94,7 @@ function toIntArray(str) {
 }
 
 /* isaac module pattern */
-module.exports = function() {
+module.exports = (function() {
   var self = this;
 
   /* private: internal states */
@@ -104,8 +104,6 @@ module.exports = function() {
       cnt = 0,        // counter
       r = Array(256), // result array
       gnt = 0;        // generation counter
-
-  seed(Math.random() * 0xffffffff);
 
   /* private: 32-bit integer safe adder */
   function add(x, y) {
@@ -226,6 +224,8 @@ module.exports = function() {
     return {a: acc, b: brs, c: cnt, m: m, r: r};
   }
 
+  this.seed(Math.random() * 0xffffffff);
+
   /* return class object */
   return {
     'reset': self.reset,
@@ -234,7 +234,7 @@ module.exports = function() {
     'rand':  self.rand,
     'internals': self.internals
   };
-};
+})();
 
 /* public: output*/
 module.exports.random = function() {
