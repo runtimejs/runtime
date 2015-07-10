@@ -39,25 +39,17 @@ function initializeRNGDevice(pciDevice) {
 
   var reqQueue = dev.queueSetup(QUEUE_ID_REQ);
 
-  function fillRequestQueue() {
-    while (reqQueue.descriptorTable.descriptorsAvailable) {
-      if (!reqQueue.placeBuffers([new Uint8Array(256)], true)) {
-        break;
-      }
-    }
-
-    if (reqQueue.isNotificationNeeded()) {
-      dev.queueNotify(QUEUE_ID_REQ);
-    }
-  }
-
   dev.setDriverReady();
 
   var randobj = {
     queue: [],
     init: function() {},
     seed: function() {
-      fillRequestQueue();
+      reqQueue.placeBuffers([new Uint8Array(1)], true);
+      if (reqQueue.isNotificationNeeded()) {
+        dev.queueNotify(QUEUE_ID_REQ);
+      }
+
       var u8 = reqQueue.getBuffer();
       // If it was requested too fast, fallback to Math.random instead.
       if (u8 === null) {
@@ -70,32 +62,25 @@ function initializeRNGDevice(pciDevice) {
       return u8[0];
     },
     fillQueue: function(cb) {
-      var no_ret = true;
-      var pos = randobj.queue.length - 1;
-      function fillItUp() {
-        fillRequestQueue();
-        reqQueue.fetchBuffers(function(u8) {
-          if (typeof randobj.queue[pos] !== 'undefined') {
-            if (randobj.queue[pos].missing === 0 && no_ret === true) {
-              no_ret = false;
-              return cb();
-            }
-            if (u8.length < randobj.queue[pos].missing && no_ret === true) {
-              for (let obj in u8) {
-                randobj.queue[pos].array[randobj.queue[pos].array.length - randobj.queue[pos].missing] = u8[obj];
-                randobj.queue[pos].missing -= 1;
-              }
-              fillItUp();
-            } else if (no_ret === true) {
-              for (var j = 0; j < randobj.queue[0].missing; j++) {
-                randobj.queue[pos].array[randobj.queue[pos].array.length - randobj.queue[pos].missing] = u8[j];
-                randobj.queue[pos].missing -= 1;
-              }
-            }
-          }
-        });
+      var array = [];
+      for (var i = 0; i < randobj.queue.length; i++) {
+        array.push(randobj.queue[i].array);
       }
-      fillItUp();
+
+      reqQueue.placeBuffers(array, true);
+
+      if (reqQueue.isNotificationNeeded()) {
+        dev.queueNotify(QUEUE_ID_REQ);
+      }
+
+      var j = 0;
+
+      reqQueue.fetchBuffers(function(u8) {
+        randobj.queue[j].array = u8;
+        if (j === randobj.queue.length - 1) {
+          cb();
+        }
+      });
     }
   }
 
