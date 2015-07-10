@@ -36,37 +36,7 @@ function isaacRound(n) {
 }
 
 var def = 'none';
-var sources = {
-  // If there are no methods specified and someone requests randomness,
-  // use the default 'none' method which uses isaac.rand().
-  // isaac.js uses Math.random as the initial seed (which does not use true
-  // randomness), that's why as soon as the VirtioRNG device loads,
-  // it sets itself as the default, since it uses true randomness.
-  'none': {
-    queue: [],
-    init: function() {
-      for (var i = 0; i < 256; i++) {
-        sources['none'].queue.push(isaacRound(isaac.rand()));
-      }
-    },
-    realRand: function(cb) {
-      for (var i = 0; i < 256; i++) {
-        sources['none'].queue.push(isaacRound(isaac.rand()));
-      }
-      cb();
-    },
-    seed: function() {
-      return isaacRound(isaac.rand());
-    },
-    fillQueue: function() {
-      for (var i = 0; i < 256; i++) {
-        sources['none'].queue.push(isaacRound(isaac.rand()));
-      }
-    }
-  }
-};
-
-sources['none'].init();
+var sources = {};
 
 module.exports = {
   addSource: function(name, obj) {
@@ -81,7 +51,7 @@ module.exports = {
     def = name;
     return true;
   },
-  rand: function(length, cb) {
+  getRandomValues: function(length, cb, method) {
     // Works like /dev/random, always waits for real randomness.
 
     if (typeof length === 'undefined') {
@@ -93,76 +63,66 @@ module.exports = {
       length = 1;
     }
 
+    if (typeof cb === 'undefined') {
+      throw new Error('runtime.random.getRandomValues requires a callback');
+    }
+
     // Don't use sources[method || def] (method may be defined,
     // but it may not be a method in sources).
     var method = sources[method || ''] || sources[def];
 
-    if (length > method.queue.length) {
-      function loopit() {
-        if (length > method.queue.length) {
-          method.realRand(loopit);
-        } else {
-          var arr = [];
-
-          while (arr.length < length) {
-            arr.push(method.queue.shift());
-          }
-
-          cb(arr);
-        }
-      }
-      method.realRand(loopit);
-    } else {
-      var arr = [];
-
-      while (arr.length < length) {
-        arr.push(method.queue.shift());
-      }
-
-      cb(arr);
-    }
+    method.queue.push({
+      missing: length,
+      array: new Uint8Array(length)
+    });
+    method.fillQueue(function() {
+      var arr = method.queue.pop();
+      cb(arr.array);
+    });
   },
-  urand: function(length, method) {
-    // Works like /dev/urandom, gets randomness from queue.
-    // If there is not enough randomness, it gets all the avaiable randomness
-    // and it asks for a seed and uses isaac.js (a CSPRNG)
-    // to generate randomness from the seed to fill up the the rest of the length.
-    // After doing this (only if there was not enough randomness), it fills up the queue.
+  getPseudoRandomValues: function(length, vari, method) {
+    // This function asks for a seed and uses isaac.js (a CSPRNG)
+    // to generate randomness from the seed to fill up the the request.
 
     if (typeof length === 'undefined') {
       length = 1;
     }
 
+    if (length instanceof Uint8Array) {
+      vari = length;
+      length = 1;
+    }
+
+    if (typeof vari === 'string') {
+      method = vari;
+      vari = null;
+    }
+
     // Again, don't use sources[method || def].
-    var method = sources[method] || sources[def];
+    var method = sources[method || ''] || sources[def];
 
-    if (length > method.queue.length) {
-      var arr = [];
+    var seed = method.seed();
 
-      while (method.queue.length !== 0) {
-        arr.push(method.queue.shift());
+    isaac.reset();
+    isaac.seed(seed);
+
+    if (vari) {
+      if (!vari instanceof Uint8Array) {
+        throw new Error('getPseudoRandomValues: variable must be an instance of Uint8Array');
+      } else {
+        for (var i = 0; i < vari.length; i++) {
+          vari[i] = isaacRound(isaac.rand());
+        }
+        return vari;
       }
-
-      var seed = method.seed();
-
-      isaac.reset();
-      isaac.seed(seed);
+    } else {
+      var arr = [];
 
       while (arr.length < length) {
         arr.push(isaacRound(isaac.rand()));
       }
 
-      method.fillQueue();
-
-      return arr;
-    } else {
-      var arr = [];
-
-      while (arr.length < length) {
-        arr.push(method.queue.shift());
-      }
-
-      return arr;
+      return new Uint8Array(arr);
     }
   }
 };

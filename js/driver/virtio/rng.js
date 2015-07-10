@@ -42,7 +42,7 @@ function initializeRNGDevice(pciDevice) {
   function fillRequestQueue() {
     while (reqQueue.descriptorTable.descriptorsAvailable) {
       if (!reqQueue.placeBuffers([new Uint8Array(256)], true)) {
-
+        break;
       }
     }
 
@@ -55,35 +55,11 @@ function initializeRNGDevice(pciDevice) {
 
   var randobj = {
     queue: [],
-    init: function() {
-      fillRequestQueue();
-      for (;;) {
-        var u8 = reqQueue.getBuffer();
-        if (u8 === null) {
-          break;
-        }
-        for (let obj of u8) {
-          randobj.queue.push(obj);
-        }
-      }
-    },
-    realRand: function(cb) {
-      fillRequestQueue();
-      for (;;) {
-        var u8 = reqQueue.getBuffer();
-        if (u8 === null) {
-          cb();
-          break;
-        }
-        for (let obj of u8) {
-          randobj.queue.push(obj);
-        }
-      }
-    },
+    init: function() {},
     seed: function() {
       fillRequestQueue();
       var u8 = reqQueue.getBuffer();
-      // If it was requested too fast, use Math.random instead.
+      // If it was requested too fast, fallback to Math.random instead.
       if (u8 === null) {
         var foo = Math.round(Math.random() * 0xffffffff);
         if (foo < 0) foo = -foo;
@@ -93,19 +69,33 @@ function initializeRNGDevice(pciDevice) {
       }
       return u8[0];
     },
-    fillQueue: function() {
-      // This function must block,
-      // It's called after the queue is drained
-      fillRequestQueue();
-      for (;;) {
-        var u8 = reqQueue.getBuffer();
-        if (u8 === null) {
-          break;
-        }
-        for (let obj of u8) {
-          randobj.queue.push(obj);
-        }
+    fillQueue: function(cb) {
+      var no_ret = true;
+      var pos = randobj.queue.length - 1;
+      function fillItUp() {
+        fillRequestQueue();
+        reqQueue.fetchBuffers(function(u8) {
+          if (typeof randobj.queue[pos] !== 'undefined') {
+            if (randobj.queue[pos].missing === 0 && no_ret === true) {
+              no_ret = false;
+              return cb();
+            }
+            if (u8.length < randobj.queue[pos].missing && no_ret === true) {
+              for (let obj in u8) {
+                randobj.queue[pos].array[randobj.queue[pos].array.length - randobj.queue[pos].missing] = u8[obj];
+                randobj.queue[pos].missing -= 1;
+              }
+              fillItUp();
+            } else if (no_ret === true) {
+              for (var j = 0; j < randobj.queue[0].missing; j++) {
+                randobj.queue[pos].array[randobj.queue[pos].array.length - randobj.queue[pos].missing] = u8[j];
+                randobj.queue[pos].missing -= 1;
+              }
+            }
+          }
+        });
       }
+      fillItUp();
     }
   }
 
