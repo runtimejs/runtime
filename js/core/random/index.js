@@ -41,7 +41,10 @@ var sources = {};
 module.exports = {
   addSource: function(name, obj) {
     sources[name] = obj;
-    sources[name].init();
+    // source.init() can do it's initialization stuff, BUT, it must return a seed for isaac.js
+    var seed = sources[name].init();
+    isaac.reset();
+    isaac.seed(seed);
   },
   setDefault: function(name) {
     if (!sources[name]) {
@@ -80,7 +83,7 @@ module.exports = {
       cb(arr.array);
     });
   },
-  getPseudoRandomValues: function(length, vari, method) {
+  getPseudoRandomValues: function(length, vari) {
     // This function asks for a seed and uses isaac.js (a CSPRNG)
     // to generate randomness from the seed to fill up the the request.
 
@@ -92,19 +95,6 @@ module.exports = {
       vari = length;
       length = 1;
     }
-
-    if (typeof vari === 'string') {
-      method = vari;
-      vari = null;
-    }
-
-    // Again, don't use sources[method || def].
-    var method = sources[method || ''] || sources[def];
-
-    var seed = method.seed();
-
-    isaac.reset();
-    isaac.seed(seed);
 
     if (vari) {
       if (!vari instanceof Uint8Array) {

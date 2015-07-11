@@ -43,8 +43,7 @@ function initializeRNGDevice(pciDevice) {
 
   var randobj = {
     queue: [],
-    init: function() {},
-    seed: function() {
+    init: function() {
       reqQueue.placeBuffers([new Uint8Array(1)], true);
       if (reqQueue.isNotificationNeeded()) {
         dev.queueNotify(QUEUE_ID_REQ);
@@ -73,13 +72,19 @@ function initializeRNGDevice(pciDevice) {
         dev.queueNotify(QUEUE_ID_REQ);
       }
 
-      var j = 0;
-
-      reqQueue.fetchBuffers(function(u8) {
-        randobj.queue[j].array = u8;
-        if (j === randobj.queue.length - 1) {
-          cb();
+      irq.on(function() {
+        if (!dev.hasPendingIRQ()) {
+          return;
         }
+
+        var j = 0;
+
+        reqQueue.fetchBuffers(function(u8) {
+          randobj.queue[j].array = u8;
+          if (j === randobj.queue.length - 1) {
+            cb();
+          }
+        });
       });
     }
   }
