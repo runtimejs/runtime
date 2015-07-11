@@ -174,13 +174,6 @@ inline Handle<T> handle(T* t) {
 }
 
 
-// Key comparison function for Map handles.
-inline bool operator<(const Handle<Map>& lhs, const Handle<Map>& rhs) {
-  // This is safe because maps don't move.
-  return *lhs < *rhs;
-}
-
-
 class DeferredHandles;
 class HandleScopeImplementer;
 
@@ -226,7 +219,7 @@ class HandleScope {
 
   Isolate* isolate() { return isolate_; }
 
-  // Limit for number of handles with --check_handle-count. This is
+  // Limit for number of handles with --check-handle-count. This is
   // large enough to compile natives and pass unit tests with some
   // slack for future changes to natives.
   static const int kCheckHandleThreshold = 30 * 1024;

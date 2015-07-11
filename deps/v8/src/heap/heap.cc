@@ -20,6 +20,7 @@
 #include "src/heap/gc-idle-time-handler.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/mark-compact.h"
+#include "src/heap/memory-reducer.h"
 #include "src/heap/objects-visiting-inl.h"
 #include "src/heap/objects-visiting.h"
 #include "src/heap/store-buffer.h"
@@ -107,8 +108,6 @@ Heap::Heap()
       allocation_timeout_(0),
 #endif  // DEBUG
       old_generation_allocation_limit_(initial_old_generation_size_),
-      idle_old_generation_allocation_limit_(
-          kMinimumOldGenerationAllocationLimit),
       old_gen_exhausted_(false),
       inline_allocation_disabled_(false),
       store_buffer_rebuilder_(store_buffer()),
@@ -117,6 +116,7 @@ Heap::Heap()
       total_regexp_code_generated_(0),
       tracer_(this),
       new_space_high_promotion_mode_active_(false),
+      gathering_lifetime_feedback_(0),
       high_survival_rate_period_length_(0),
       promoted_objects_size_(0),
       low_survival_rate_period_length_(0),
@@ -143,6 +143,7 @@ Heap::Heap()
       store_buffer_(this),
       marking_(this),
       incremental_marking_(this),
+      memory_reducer_(this),
       full_codegen_bytes_generated_(0),
       crankshaft_codegen_bytes_generated_(0),
       new_space_allocation_counter_(0),
@@ -433,7 +434,7 @@ void Heap::GarbageCollectionPrologue() {
     gc_count_++;
     unflattened_strings_length_ = 0;
 
-    if (FLAG_flush_code && FLAG_flush_code_incrementally) {
+    if (FLAG_flush_code) {
       mark_compact_collector()->EnableCodeFlushing(true);
     }
 
@@ -926,6 +927,11 @@ bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
   }
 
   bool next_gc_likely_to_collect_more = false;
+  intptr_t committed_memory_before = 0;
+
+  if (collector == MARK_COMPACTOR) {
+    committed_memory_before = CommittedOldGenerationMemory();
+  }
 
   {
     tracer()->Start(collector, gc_reason, collector_reason);
@@ -947,9 +953,20 @@ bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
     }
 
     if (collector == MARK_COMPACTOR) {
-      gc_idle_time_handler_.NotifyMarkCompact(next_gc_likely_to_collect_more);
-    } else {
-      gc_idle_time_handler_.NotifyScavenge();
+      intptr_t committed_memory_after = CommittedOldGenerationMemory();
+      intptr_t used_memory_after = PromotedSpaceSizeOfObjects();
+      MemoryReducer::Event event;
+      event.type = MemoryReducer::kMarkCompact;
+      event.time_ms = MonotonicallyIncreasingTimeInMs();
+      // Trigger one more GC if
+      // - this GC decreased committed memory,
+      // - there is high fragmentation,
+      // - there are live detached contexts.
+      event.next_gc_likely_to_collect_more =
+          (committed_memory_before - committed_memory_after) > MB ||
+          HasHighFragmentation(used_memory_after, committed_memory_after) ||
+          (detached_contexts()->length() > 0);
+      memory_reducer_.NotifyMarkCompact(event);
     }
 
     tracer()->Stop(collector);
@@ -984,7 +1001,17 @@ int Heap::NotifyContextDisposed(bool dependant_context) {
   AgeInlineCaches();
   set_retained_maps(ArrayList::cast(empty_fixed_array()));
   tracer()->AddContextDisposalTime(base::OS::TimeCurrentMillis());
+  MemoryReducer::Event event;
+  event.type = MemoryReducer::kContextDisposed;
+  event.time_ms = MonotonicallyIncreasingTimeInMs();
+  memory_reducer_.NotifyContextDisposed(event);
   return ++contexts_disposed_;
+}
+
+
+void Heap::StartIdleIncrementalMarking() {
+  gc_idle_time_handler_.ResetNoProgressCounter();
+  incremental_marking()->Start(kReduceMemoryFootprintMask);
 }
 
 
@@ -1253,7 +1280,9 @@ bool Heap::PerformGarbageCollection(
 
   // When pretenuring is collecting new feedback, we do not shrink the new space
   // right away.
-  if (!deopted) {
+  if (deopted) {
+    RecordDeoptForPretenuring();
+  } else {
     ConfigureNewGenerationSize();
   }
   ConfigureInitialOldGenerationSize();
@@ -2635,6 +2664,8 @@ void Heap::ConfigureInitialOldGenerationSize() {
 
 
 void Heap::ConfigureNewGenerationSize() {
+  bool still_gathering_lifetime_data = gathering_lifetime_feedback_ != 0;
+  if (gathering_lifetime_feedback_ != 0) gathering_lifetime_feedback_--;
   if (!new_space_high_promotion_mode_active_ &&
       new_space_.TotalCapacity() == new_space_.MaximumCapacity() &&
       IsStableOrIncreasingSurvivalTrend() && IsHighSurvivalRate()) {
@@ -2642,10 +2673,18 @@ void Heap::ConfigureNewGenerationSize() {
     // maximum capacity indicates that most objects will be promoted.
     // To decrease scavenger pauses and final mark-sweep pauses, we
     // have to limit maximal capacity of the young generation.
-    new_space_high_promotion_mode_active_ = true;
-    if (FLAG_trace_gc) {
-      PrintPID("Limited new space size due to high promotion rate: %d MB\n",
-               new_space_.InitialTotalCapacity() / MB);
+    if (still_gathering_lifetime_data) {
+      if (FLAG_trace_gc) {
+        PrintPID(
+            "Postpone entering high promotion mode as optimized pretenuring "
+            "code is still being generated\n");
+      }
+    } else {
+      new_space_high_promotion_mode_active_ = true;
+      if (FLAG_trace_gc) {
+        PrintPID("Limited new space size due to high promotion rate: %d MB\n",
+                 new_space_.InitialTotalCapacity() / MB);
+      }
     }
   } else if (new_space_high_promotion_mode_active_ &&
              IsStableOrDecreasingSurvivalTrend() && IsLowSurvivalRate()) {
@@ -3395,6 +3434,10 @@ void Heap::CreateInitialObjects() {
   Handle<PropertyCell> cell = factory->NewPropertyCell();
   cell->set_value(Smi::FromInt(Isolate::kArrayProtectorValid));
   set_array_protector(*cell);
+
+  cell = factory->NewPropertyCell();
+  cell->set_value(the_hole_value());
+  set_empty_property_cell(*cell);
 
   set_weak_stack_trace_list(Smi::FromInt(0));
 
@@ -4746,6 +4789,21 @@ bool Heap::HasLowAllocationRate() {
 }
 
 
+bool Heap::HasHighFragmentation() {
+  intptr_t used = PromotedSpaceSizeOfObjects();
+  intptr_t committed = CommittedOldGenerationMemory();
+  return HasHighFragmentation(used, committed);
+}
+
+
+bool Heap::HasHighFragmentation(intptr_t used, intptr_t committed) {
+  const intptr_t kSlack = 16 * MB;
+  // Fragmentation is high if committed > 2 * used + kSlack.
+  // Rewrite the exression to avoid overflow.
+  return committed - used > used + kSlack;
+}
+
+
 void Heap::ReduceNewSpaceSize() {
   if (!FLAG_predictable && HasLowAllocationRate()) {
     new_space_.Shrink();
@@ -4772,7 +4830,6 @@ bool Heap::TryFinalizeIdleIncrementalMarking(
                   static_cast<size_t>(idle_time_in_ms), size_of_objects,
                   final_incremental_mark_compact_speed_in_bytes_per_ms))) {
     CollectAllGarbage(kNoGCFlags, "idle notification: finalize incremental");
-    gc_idle_time_handler_.NotifyIdleMarkCompact();
     return true;
   }
   return false;
@@ -4803,15 +4860,6 @@ GCIdleTimeHandler::HeapState Heap::ComputeHeapState() {
   heap_state.new_space_capacity = new_space_.Capacity();
   heap_state.new_space_allocation_throughput_in_bytes_per_ms =
       tracer()->NewSpaceAllocationThroughputInBytesPerMillisecond();
-  heap_state.has_low_allocation_rate = HasLowAllocationRate();
-  intptr_t limit = old_generation_allocation_limit_;
-  if (heap_state.has_low_allocation_rate) {
-    limit = idle_old_generation_allocation_limit_;
-  }
-  heap_state.can_start_incremental_marking =
-      incremental_marking()->CanBeActivated() &&
-      HeapIsFullEnoughToStartIncrementalMarking(limit) &&
-      !mark_compact_collector()->sweeping_in_progress();
   return heap_state;
 }
 
@@ -4825,10 +4873,7 @@ bool Heap::PerformIdleTimeAction(GCIdleTimeAction action,
       result = true;
       break;
     case DO_INCREMENTAL_MARKING: {
-      if (incremental_marking()->IsStopped()) {
-        incremental_marking()->Start(
-            action.reduce_memory ? kReduceMemoryFootprintMask : kNoGCFlags);
-      }
+      DCHECK(!incremental_marking()->IsStopped());
       double remaining_idle_time_in_ms = 0.0;
       do {
         incremental_marking()->Step(
@@ -4849,17 +4894,9 @@ bool Heap::PerformIdleTimeAction(GCIdleTimeAction action,
       break;
     }
     case DO_FULL_GC: {
-      if (action.reduce_memory) {
-        isolate_->compilation_cache()->Clear();
-      }
-      if (contexts_disposed_) {
-        HistogramTimerScope scope(isolate_->counters()->gc_context());
-        CollectAllGarbage(kNoGCFlags, "idle notification: contexts disposed");
-      } else {
-        CollectAllGarbage(kReduceMemoryFootprintMask,
-                          "idle notification: finalize idle round");
-      }
-      gc_idle_time_handler_.NotifyIdleMarkCompact();
+      DCHECK(contexts_disposed_ > 0);
+      HistogramTimerScope scope(isolate_->counters()->gc_context());
+      CollectAllGarbage(kNoGCFlags, "idle notification: contexts disposed");
       break;
     }
     case DO_SCAVENGE:
@@ -4919,6 +4956,19 @@ void Heap::IdleNotificationEpilogue(GCIdleTimeAction action,
 }
 
 
+void Heap::CheckAndNotifyBackgroundIdleNotification(double idle_time_in_ms,
+                                                    double now_ms) {
+  if (idle_time_in_ms >= GCIdleTimeHandler::kMinBackgroundIdleTime) {
+    MemoryReducer::Event event;
+    event.type = MemoryReducer::kBackgroundIdleNotification;
+    event.time_ms = now_ms;
+    event.can_start_incremental_gc = incremental_marking()->IsStopped() &&
+                                     incremental_marking()->CanBeActivated();
+    memory_reducer_.NotifyBackgroundIdleNotification(event);
+  }
+}
+
+
 double Heap::MonotonicallyIncreasingTimeInMs() {
   return V8::GetCurrentPlatform()->MonotonicallyIncreasingTime() *
          static_cast<double>(base::Time::kMillisecondsPerSecond);
@@ -4942,6 +4992,8 @@ bool Heap::IdleNotification(double deadline_in_seconds) {
       isolate_->counters()->gc_idle_notification());
   double start_ms = MonotonicallyIncreasingTimeInMs();
   double idle_time_in_ms = deadline_in_ms - start_ms;
+
+  CheckAndNotifyBackgroundIdleNotification(idle_time_in_ms, start_ms);
 
   tracer()->SampleAllocation(start_ms, NewSpaceAllocationCounter(),
                              OldGenerationAllocationCounter());
@@ -5585,7 +5637,8 @@ void Heap::SetOldGenerationAllocationLimit(intptr_t old_gen_size,
 
   // We set the old generation growing factor to 2 to grow the heap slower on
   // memory-constrained devices.
-  if (max_old_generation_size_ <= kMaxOldSpaceSizeMediumMemoryDevice) {
+  if (max_old_generation_size_ <= kMaxOldSpaceSizeMediumMemoryDevice ||
+      FLAG_optimize_for_size) {
     factor = Min(factor, kMaxHeapGrowingFactorMemoryConstrained);
   }
 
@@ -5594,23 +5647,14 @@ void Heap::SetOldGenerationAllocationLimit(intptr_t old_gen_size,
     factor = kMinHeapGrowingFactor;
   }
 
-  // TODO(hpayer): Investigate if idle_old_generation_allocation_limit_ is still
-  // needed after taking the allocation rate for the old generation limit into
-  // account.
-  double idle_factor = Min(factor, kMaxHeapGrowingFactorIdle);
-
   old_generation_allocation_limit_ =
       CalculateOldGenerationAllocationLimit(factor, old_gen_size);
-  idle_old_generation_allocation_limit_ =
-      CalculateOldGenerationAllocationLimit(idle_factor, old_gen_size);
 
   if (FLAG_trace_gc_verbose) {
-    PrintIsolate(
-        isolate_,
-        "Grow: old size: %" V8_PTR_PREFIX "d KB, new limit: %" V8_PTR_PREFIX
-        "d KB (%.1f), new idle limit: %" V8_PTR_PREFIX "d KB (%.1f)\n",
-        old_gen_size / KB, old_generation_allocation_limit_ / KB, factor,
-        idle_old_generation_allocation_limit_ / KB, idle_factor);
+    PrintIsolate(isolate_, "Grow: old size: %" V8_PTR_PREFIX
+                           "d KB, new limit: %" V8_PTR_PREFIX "d KB (%.1f)\n",
+                 old_gen_size / KB, old_generation_allocation_limit_ / KB,
+                 factor);
   }
 }
 

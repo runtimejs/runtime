@@ -244,6 +244,10 @@
 
   # BUG(v8:3838).
   'regress/regress-3116': [PASS, ['isolates', FLAKY]],
+
+  # BUG(chromium:508074). Remove this once the issue is fixed.
+  'harmony/arrow-rest-params': [PASS, NO_VARIANTS],
+  'harmony/rest-params': [PASS, ['no_snap == True', NO_VARIANTS]],
 }],  # ALWAYS
 
 ['novfp3 == True', {
@@ -353,9 +357,6 @@
   'regress/regress-2185': [PASS, ['mode == debug', PASS, TIMEOUT]],
   'regress/regress-2185-2': [PASS, TIMEOUT],
   'whitespaces': [PASS, TIMEOUT, SLOW],
-
-  # BUG(v8:3147). It works on other architectures by accident.
-  'regress/regress-conditional-position': [FAIL],
 
   # BUG(v8:3457).
   'deserialize-reference': [PASS, FAIL],
@@ -488,6 +489,9 @@
 ##############################################################################
 ['arch == mipsel or arch == mips', {
 
+  # Bug in zlib due to 35eb3a0260d349cb4201fed66ff62a438962bd47
+  'asm/embenchen/zlib': [SKIP],
+
   # Slow tests which times out in debug mode.
   'try': [PASS, ['mode == debug', SKIP]],
   'debug-scripts-request': [PASS, ['mode == debug', SKIP]],
@@ -526,6 +530,9 @@
 
 ##############################################################################
 ['arch == mips64el', {
+
+  # Bug in zlib due to 35eb3a0260d349cb4201fed66ff62a438962bd47
+  'asm/embenchen/zlib': [SKIP],
 
   # Slow tests which times out in debug mode.
   'try': [PASS, ['mode == debug', SKIP]],
@@ -586,9 +593,6 @@
 
   # BUG(v8:3435)
   'debug-script-breakpoints': [PASS, FAIL],
-
-  # BUG(v8:4127)
-  'deserialize-script-id': [PASS, ['no_snap == True', FLAKY]],
 }],  # 'system == windows'
 
 ##############################################################################

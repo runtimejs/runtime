@@ -175,10 +175,11 @@ Handle<Object> CallSite::GetScriptNameOrSourceUrl(Isolate* isolate) {
 }
 
 
-bool CheckMethodName(Handle<JSObject> obj, Handle<Name> name,
+bool CheckMethodName(Isolate* isolate, Handle<JSObject> obj, Handle<Name> name,
                      Handle<JSFunction> fun,
                      LookupIterator::Configuration config) {
-  LookupIterator iter(obj, name, config);
+  LookupIterator iter =
+      LookupIterator::PropertyOrElement(isolate, obj, name, config);
   if (iter.state() == LookupIterator::DATA) {
     return iter.GetDataValue().is_identical_to(fun);
   } else if (iter.state() == LookupIterator::ACCESSOR) {
@@ -203,7 +204,7 @@ Handle<Object> CallSite::GetMethodName(Isolate* isolate) {
   Handle<Object> function_name(fun_->shared()->name(), isolate);
   if (function_name->IsName()) {
     Handle<Name> name = Handle<Name>::cast(function_name);
-    if (CheckMethodName(obj, name, fun_,
+    if (CheckMethodName(isolate, obj, name, fun_,
                         LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR))
       return name;
   }
@@ -222,7 +223,7 @@ Handle<Object> CallSite::GetMethodName(Isolate* isolate) {
       HandleScope inner_scope(isolate);
       if (!keys->get(i)->IsName()) continue;
       Handle<Name> name_key(Name::cast(keys->get(i)), isolate);
-      if (!CheckMethodName(current_obj, name_key, fun_,
+      if (!CheckMethodName(isolate, current_obj, name_key, fun_,
                            LookupIterator::OWN_SKIP_INTERCEPTOR))
         continue;
       // Return null in case of duplicates to avoid confusion.
@@ -331,7 +332,6 @@ MaybeHandle<String> MessageTemplate::FormatMessage(int template_index,
                                                    Handle<String> arg0,
                                                    Handle<String> arg1,
                                                    Handle<String> arg2) {
-  static const int kMaxArgLength = 256;
   Isolate* isolate = arg0->GetIsolate();
   const char* template_string;
   switch (template_index) {
@@ -360,16 +360,7 @@ MaybeHandle<String> MessageTemplate::FormatMessage(int template_index,
       } else {
         DCHECK(i < arraysize(args));
         Handle<String> arg = args[i++];
-        int length = arg->length();
-        if (length > kMaxArgLength) {
-          builder.AppendString(
-              isolate->factory()->NewSubString(arg, 0, kMaxArgLength - 6));
-          builder.AppendCString("...");
-          builder.AppendString(
-              isolate->factory()->NewSubString(arg, length - 3, length));
-        } else {
-          builder.AppendString(arg);
-        }
+        builder.AppendString(arg);
       }
     } else {
       builder.AppendCharacter(*c);

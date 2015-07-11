@@ -394,6 +394,7 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
     }
 
     if (info()->shared_info()->asm_function()) {
+      if (info()->osr_frame()) info()->MarkAsFrameSpecializing();
       info()->MarkAsContextSpecializing();
     } else if (FLAG_turbo_type_feedback) {
       info()->MarkAsTypeFeedbackEnabled();
@@ -712,7 +713,9 @@ static void InsertCodeIntoOptimizedCodeMap(CompilationInfo* info) {
   if (code->kind() != Code::OPTIMIZED_FUNCTION) return;  // Nothing to do.
 
   // Context specialization folds-in the context, so no sharing can occur.
-  if (code->is_turbofanned() && info->is_context_specializing()) return;
+  if (info->is_context_specializing()) return;
+  // Frame specialization implies context specialization.
+  DCHECK(!info->is_frame_specializing());
 
   // Do not cache bound functions.
   Handle<JSFunction> function = info->closure();
@@ -1440,6 +1443,11 @@ Handle<SharedFunctionInfo> Compiler::GetSharedFunctionInfo(
     // first time. It may have already been compiled previously.
     result->set_never_compiled(outer_info->is_first_compile() && lazy);
 
+    if (literal->scope()->new_target_var() != nullptr) {
+      Handle<Code> stub(isolate->builtins()->JSConstructStubNewTarget());
+      result->set_construct_stub(*stub);
+    }
+
     RecordFunctionCompilation(Logger::FUNCTION_TAG, &info, result);
     result->set_allows_lazy_compilation(literal->AllowsLazyCompilation());
     result->set_allows_lazy_compilation_without_context(allow_lazy_without_ctx);
@@ -1450,21 +1458,22 @@ Handle<SharedFunctionInfo> Compiler::GetSharedFunctionInfo(
                                          literal->expected_property_count());
     live_edit_tracker.RecordFunctionInfo(result, literal, info.zone());
     return result;
-  } else {
-    // We may have additional data from compilation now.
+  } else if (!lazy) {
+    // We have additional data from compilation now.
     DCHECK(!existing->is_compiled());
     existing->ReplaceCode(*info.code());
     existing->set_scope_info(*scope_info);
     existing->set_feedback_vector(*info.feedback_vector());
-    return existing;
   }
+  return existing;
 }
 
 
 MaybeHandle<Code> Compiler::GetOptimizedCode(Handle<JSFunction> function,
                                              Handle<Code> current_code,
                                              ConcurrencyMode mode,
-                                             BailoutId osr_ast_id) {
+                                             BailoutId osr_ast_id,
+                                             JavaScriptFrame* osr_frame) {
   Handle<Code> cached_code;
   if (GetCodeFromOptimizedCodeMap(
           function, osr_ast_id).ToHandle(&cached_code)) {
@@ -1522,6 +1531,7 @@ MaybeHandle<Code> Compiler::GetOptimizedCode(Handle<JSFunction> function,
       return isolate->builtins()->InOptimizationQueue();
     }
   } else {
+    info->set_osr_frame(osr_frame);
     if (GetOptimizedCodeNow(info.get())) return info->code();
   }
 

@@ -9,7 +9,6 @@
 #include "src/compiler/all-nodes.h"
 #include "src/compiler/ast-graph-builder.h"
 #include "src/compiler/common-operator.h"
-#include "src/compiler/js-context-specialization.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
@@ -116,8 +115,8 @@ class CopyVisitor {
 };
 
 
-Reduction JSInliner::InlineCall(Node* call, Node* frame_state, Node* start,
-                                Node* end) {
+Reduction JSInliner::InlineCall(Node* call, Node* context, Node* frame_state,
+                                Node* start, Node* end) {
   // The scheduler is smart enough to place our code; we just ensure {control}
   // becomes the control input of the start of the inlinee, and {effect} becomes
   // the effect input of the start of the inlinee.
@@ -140,14 +139,12 @@ Reduction JSInliner::InlineCall(Node* call, Node* frame_state, Node* start,
         if (index < inliner_inputs && index < inlinee_context_index) {
           // There is an input from the call, and the index is a value
           // projection but not the context, so rewire the input.
-          ReplaceWithValue(use, call->InputAt(index));
+          Replace(use, call->InputAt(index));
         } else if (index == inlinee_context_index) {
-          // TODO(turbofan): We always context specialize inlinees currently, so
-          // we should never get here.
-          UNREACHABLE();
+          Replace(use, context);
         } else if (index < inlinee_context_index) {
           // Call has fewer arguments than required, fill with undefined.
-          ReplaceWithValue(use, jsgraph_->UndefinedConstant());
+          Replace(use, jsgraph_->UndefinedConstant());
         } else {
           // We got too many arguments, discard for now.
           // TODO(sigurds): Fix to treat arguments array correctly.
@@ -252,6 +249,39 @@ Reduction JSInliner::Reduce(Node* node) {
     return NoChange();
   }
 
+  // Disallow cross native-context inlining for now. This means that all parts
+  // of the resulting code will operate on the same global object.
+  // This also prevents cross context leaks for asm.js code, where we could
+  // inline functions from a different context and hold on to that context (and
+  // closure) from the code object.
+  // TODO(turbofan): We might want to revisit this restriction later when we
+  // have a need for this, and we know how to model different native contexts
+  // in the same graph in a compositional way.
+  if (function->context()->native_context() !=
+      info_->context()->native_context()) {
+    TRACE("Not inlining %s into %s because of different native contexts\n",
+          function->shared()->DebugName()->ToCString().get(),
+          info_->shared_info()->DebugName()->ToCString().get());
+    return NoChange();
+  }
+
+  // TODO(turbofan): TranslatedState::GetAdaptedArguments() currently relies on
+  // not inlining recursive functions. We might want to relax that at some
+  // point.
+  for (Node* frame_state = call.frame_state();
+       frame_state->opcode() == IrOpcode::kFrameState;
+       frame_state = frame_state->InputAt(kFrameStateOuterStateInput)) {
+    FrameStateInfo const& info = OpParameter<FrameStateInfo>(frame_state);
+    Handle<SharedFunctionInfo> shared_info;
+    if (info.shared_info().ToHandle(&shared_info) &&
+        *shared_info == function->shared()) {
+      TRACE("Not inlining %s into %s because call is recursive\n",
+            function->shared()->DebugName()->ToCString().get(),
+            info_->shared_info()->DebugName()->ToCString().get());
+      return NoChange();
+    }
+  }
+
   Zone zone;
   ParseInfo parse_info(&zone, function);
   CompilationInfo info(&parse_info);
@@ -262,7 +292,7 @@ Reduction JSInliner::Reduce(Node* node) {
 
   if (info.scope()->arguments() != NULL && is_sloppy(info.language_mode())) {
     // For now do not inline functions that use their arguments array.
-    TRACE("Not Inlining %s into %s because inlinee uses arguments array\n",
+    TRACE("Not inlining %s into %s because inlinee uses arguments array\n",
           function->shared()->DebugName()->ToCString().get(),
           info_->shared_info()->DebugName()->ToCString().get());
     return NoChange();
@@ -275,17 +305,14 @@ Reduction JSInliner::Reduce(Node* node) {
   Graph graph(info.zone());
   JSGraph jsgraph(info.isolate(), &graph, jsgraph_->common(),
                   jsgraph_->javascript(), jsgraph_->machine());
+  AstGraphBuilder graph_builder(local_zone_, &info, &jsgraph);
+  graph_builder.CreateGraph(false);
 
   // The inlinee specializes to the context from the JSFunction object.
   // TODO(turbofan): We might want to load the context from the JSFunction at
   // runtime in case we only know the SharedFunctionInfo once we have dynamic
   // type feedback in the compiler.
-  AstGraphBuilder graph_builder(local_zone_, &info, &jsgraph);
-  graph_builder.CreateGraph(true, false);
-  GraphReducer graph_reducer(local_zone_, &graph);
-  JSContextSpecializer context_specializer(&graph_reducer, &jsgraph);
-  graph_reducer.AddReducer(&context_specializer);
-  graph_reducer.ReduceGraph();
+  Node* context = jsgraph_->Constant(handle(function->context()));
 
   CopyVisitor visitor(&graph, jsgraph_->graph(), info.zone());
   visitor.CopyGraph();
@@ -310,7 +337,7 @@ Reduction JSInliner::Reduce(Node* node) {
   // Remember that we inlined this function.
   info_->AddInlinedFunction(info.shared_info());
 
-  return InlineCall(node, frame_state, start, end);
+  return InlineCall(node, context, frame_state, start, end);
 }
 
 }  // namespace compiler

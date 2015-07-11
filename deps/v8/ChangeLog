@@ -1,3 +1,146 @@
+2015-07-09: Version 4.5.107
+
+        [arm] Don't call branch_offset within CheckConstPool (issue 4292).
+
+        [arm] Fix missing CheckBuffer for branches (issue 4292).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-09: Version 4.5.106
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-09: Version 4.5.105
+
+        Guard @@isConcatSpreadable behind a flag (Chromium issue 507553).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-08: Version 4.5.104
+
+        [x64] Fix handling of Smi constants in LSubI and LBitI (Chromium issue
+        478612).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-08: Version 4.5.103
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-08: Version 4.5.102
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-07: Version 4.5.101
+
+        Move compatible receiver check from CompileHandler to UpdateCaches
+        (Chromium issue 505374).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-07: Version 4.5.100
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-07: Version 4.5.99
+
+        unicode-decoder: fix out-of-band write in utf16 (issue 4274).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-06: Version 4.5.98
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-04: Version 4.5.97
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-03: Version 4.5.96
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-03: Version 4.5.95
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-02: Version 4.5.94
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-02: Version 4.5.93
+
+        Include Harmony Array/TypedArray methods unconditionally (Chromium issue
+        504629).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-02: Version 4.5.92
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-01: Version 4.5.91
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-01: Version 4.5.90
+
+        Performance and stability improvements on all platforms.
+
+
+2015-07-01: Version 4.5.89
+
+        Performance and stability improvements on all platforms.
+
+
+2015-06-30: Version 4.5.88
+
+        Performance and stability improvements on all platforms.
+
+
+2015-06-30: Version 4.5.87
+
+        Performance and stability improvements on all platforms.
+
+
+2015-06-30: Version 4.5.86
+
+        Ensure mjsunit tests use dashes not underscores in flags directives
+        (Chromium issue 505228).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-06-29: Version 4.5.85
+
+        Fix flag convention in handle count tests and comment (Chromium issue
+        505228).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-06-29: Version 4.5.84
+
+        Performance and stability improvements on all platforms.
+
+
 2015-06-27: Version 4.5.83
 
         Performance and stability improvements on all platforms.
