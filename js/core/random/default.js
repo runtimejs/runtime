@@ -37,8 +37,7 @@ function isaacRound(n) {
 
 var obj = {
   queue: [],
-  init: function() {},
-  seed: function() {
+  init: function() {
     return isaacRound(isaac.rand());
   },
   fillQueue: function(cb) {
