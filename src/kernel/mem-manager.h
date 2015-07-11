@@ -22,6 +22,7 @@
 #include <kernel/x64/address-space-x64.h>
 #include <kernel/runtime-state.h>
 #include <kernel/threadlib/spinlock.h>
+#include <kernel/allocation-tracker.h>
 
 namespace rt {
 
@@ -448,6 +449,12 @@ public:
     }
 
     inline void Free(void* ptr) {
+#ifdef RUNTIME_ALLOCATION_TRACKER
+        if (allocation_tracker_) {
+            allocation_tracker_->UnregisterAlloc(ptr);
+        }
+#endif // RUNTIME_ALLOCATION_TRACKER
+
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
@@ -476,12 +483,26 @@ public:
      * Initialize allocator cpu-shared data
      */
     void InitOnce();
+
+    /**
+     * Get allocation tracker instance, not thread-safe
+     */
+    AllocationTracker* allocation_tracker() {
+#ifdef RUNTIME_ALLOCATION_TRACKER
+        if (!allocation_tracker_) {
+            allocation_tracker_ = new AllocationTracker();
+        }
+#endif // RUNTIME_ALLOCATION_TRACKER
+        RT_ASSERT(allocation_tracker_);
+        return allocation_tracker_;
+    }
 private:
     threadlib::spinlock_t default_mspace_locker_;
     mspace default_mspace_;
     AllocatorTraceCallback enter_callback_;
     AllocatorTraceCallback exit_callback_;
     void* callback_param_;
+    AllocationTracker* allocation_tracker_;
     DELETE_COPY_AND_ASSIGN(MallocAllocator);
 };
 

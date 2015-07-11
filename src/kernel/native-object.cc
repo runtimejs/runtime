@@ -23,6 +23,8 @@
 #include <kernel/engines.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
+#include <kernel/heap-snapshot.h>
+#include <v8-profiler.h>
 
 namespace rt {
 
@@ -45,14 +47,28 @@ NATIVE_FUNCTION(NativesObject, MemoryInfo) {
     LOCAL_V8STRING(s_heap_used, "heapUsed");
     LOCAL_V8STRING(s_pm_total, "pmTotal");
     LOCAL_V8STRING(s_pm_used, "pmUsed");
+    LOCAL_V8STRING(s_buffers_size, "buffersSize");
+    LOCAL_V8STRING(s_buffers_count, "buffersCount");
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
     obj->Set(context, s_heap_total, v8::Number::New(iv8, total));
     obj->Set(context, s_heap_used, v8::Number::New(iv8, used));
     obj->Set(context, s_pm_total, v8::Number::New(iv8, pm_total));
     obj->Set(context, s_pm_used, v8::Number::New(iv8, pm_used));
+    obj->Set(context, s_buffers_size, v8::Number::New(iv8, GLOBAL_engines()->buffers_size()));
+    obj->Set(context, s_buffers_count, v8::Number::New(iv8, GLOBAL_engines()->buffers_count()));
 
     args.GetReturnValue().Set(obj);
+}
+
+NATIVE_FUNCTION(NativesObject, TakeHeapSnapshot) {
+    PROLOGUE_NOTHIS;
+    const v8::HeapSnapshot* snapshot = iv8->GetHeapProfiler()->TakeHeapSnapshot();
+    RT_ASSERT(snapshot);
+    HeapSnapshotStream stream;
+    snapshot->Serialize(&stream, v8::HeapSnapshot::SerializationFormat::kJSON);
+    const_cast<v8::HeapSnapshot*>(snapshot)->Delete();
+    args.GetReturnValue().Set(stream.FetchBuffers(iv8));
 }
 
 NATIVE_FUNCTION(NativesObject, StartProfiling) {
@@ -163,7 +179,7 @@ NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
 
     char* data = nullptr;
     if (0 != buf_len) {
-        data = new char[buf_len];
+        data = reinterpret_cast<char*>(GLOBAL_engines()->AllocateUninitializedBuffer(sizeof(char) * buf_len));
         str->WriteUtf8(data, buf_len, nullptr, options);
     }
 
@@ -346,7 +362,7 @@ NATIVE_FUNCTION(NativesObject, SetImmediate) {
     uint32_t index { th->PutObject(v8::UniquePersistent<v8::Value>(iv8, arg0)) };
 
     {   std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            ThreadMessage::Type::IRQ_RAISE,
+            ThreadMessage::Type::SET_IMMEDIATE,
             ResourceHandle<EngineThread>(), TransportData(), nullptr, index));
         th->handle().getUnsafe()->PushMessage(std::move(msg));
     }

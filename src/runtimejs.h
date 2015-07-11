@@ -27,3 +27,19 @@
 //#define RUNTIME_PROFILER
 //#define RUNTIME_TRACK_STATE
 //#define RUNTIME_ALLOCATOR_CALLBACKS
+
+/**
+ * Module that can track allocated pointers to make sure
+ * they're getting freed. When enabled it uses hashtable to
+ * store pointers and tracks all free() calls to malloc subsystem.
+ * Pointers to track need to be added manually.
+ *
+ * USAGE:
+ *
+ * Add pointer to track:
+ * GLOBAL_mem_manager()->malloc_allocator().allocation_tracker()->RegisterAlloc(ptr);
+ *
+ * Get number of unfreed tracked pointers:
+ * GLOBAL_mem_manager()->malloc_allocator().allocation_tracker()->unfreed_allocations_count();
+ */
+//#define RUNTIME_ALLOCATION_TRACKER
