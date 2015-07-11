@@ -156,6 +156,9 @@ class TCPSocket {
       var hash = connHash(this._destIP, this._destPort);
       this._serverSocket._connections.delete(hash);
     }
+    this._transmitQueue = [];
+    this._receiveQueue = [];
+    this._queueTx = [];
   }
 
   _transmit(seq, ack, flags, window, u8) {
@@ -352,6 +355,11 @@ class TCPSocket {
         var flags = item[5];
         var interval = retransmits * 2000; /* 2 seconds each time in ms */
 
+        if (retransmits > 7) {
+          this._resetConnection();
+          return;
+        }
+
         if (retransmits === 0 || now > timeAdded + interval) {
           this._ackRequired = false;
           this._transmit(seq, this._receiveWindowEdge, flags, this._receiveWindowSize, u8);
@@ -390,6 +398,11 @@ class TCPSocket {
     while (deleteCount-- > 0) {
       this._transmitQueue.shift();
     }
+  }
+
+  _resetConnection() {
+    this._state = STATE_CLOSED;
+    this._destroy();
   }
 
   send(u8) {
@@ -599,6 +612,7 @@ class TCPSocket {
             this._onconnect(socket);
           }
         }
+        return;
         break;
       case STATE_SYN_SENT:
         this._acceptACK(ackNumber, windowSize);
