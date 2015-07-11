@@ -1100,6 +1100,58 @@ TEST(ScopeUsesArgumentsSuperThis) {
 }
 
 
+static void CheckParsesToNumber(const char* source, bool with_dot) {
+  v8::V8::Initialize();
+  HandleAndZoneScope handles;
+
+  i::Isolate* isolate = CcTest::i_isolate();
+  i::Factory* factory = isolate->factory();
+
+  std::string full_source = "function f() { return ";
+  full_source += source;
+  full_source += "; }";
+
+  i::Handle<i::String> source_code =
+      factory->NewStringFromUtf8(i::CStrVector(full_source.c_str()))
+          .ToHandleChecked();
+
+  i::Handle<i::Script> script = factory->NewScript(source_code);
+
+  i::ParseInfo info(handles.main_zone(), script);
+  i::Parser parser(&info);
+  parser.set_allow_harmony_arrow_functions(true);
+  parser.set_allow_harmony_sloppy(true);
+  info.set_global();
+  info.set_lazy(false);
+  info.set_allow_lazy_parsing(false);
+  info.set_toplevel(true);
+
+  i::CompilationInfo compilation_info(&info);
+  CHECK(i::Compiler::ParseAndAnalyze(&info));
+
+  CHECK(info.scope()->declarations()->length() == 1);
+  i::FunctionLiteral* fun =
+      info.scope()->declarations()->at(0)->AsFunctionDeclaration()->fun();
+  CHECK(fun->body()->length() == 1);
+  CHECK(fun->body()->at(0)->IsReturnStatement());
+  i::ReturnStatement* ret = fun->body()->at(0)->AsReturnStatement();
+  CHECK(ret->expression()->IsLiteral());
+  i::Literal* lit = ret->expression()->AsLiteral();
+  const i::AstValue* val = lit->raw_value();
+  CHECK(with_dot == val->ContainsDot());
+}
+
+
+TEST(ParseNumbers) {
+  CheckParsesToNumber("1.34", true);
+  CheckParsesToNumber("134", false);
+  CheckParsesToNumber("134e44", false);
+  CheckParsesToNumber("134.e44", true);
+  CheckParsesToNumber("134.44e44", true);
+  CheckParsesToNumber(".44", true);
+}
+
+
 TEST(ScopePositions) {
   // Test the parser for correctly setting the start and end positions
   // of a scope. We check the scope positions of exactly one scope
@@ -1384,7 +1436,8 @@ enum ParserFlag {
   kAllowHarmonyDestructuring,
   kAllowHarmonySpreadArrays,
   kAllowHarmonyNewTarget,
-  kAllowStrongMode
+  kAllowStrongMode,
+  kNoLegacyConst
 };
 
 
@@ -1416,6 +1469,7 @@ void SetParserFlags(i::ParserBase<Traits>* parser,
       flags.Contains(kAllowHarmonySpreadArrays));
   parser->set_allow_harmony_new_target(flags.Contains(kAllowHarmonyNewTarget));
   parser->set_allow_strong_mode(flags.Contains(kAllowStrongMode));
+  parser->set_allow_legacy_const(!flags.Contains(kNoLegacyConst));
 }
 
 
@@ -6708,5 +6762,79 @@ TEST(NewTarget) {
   RunParserSyncTest(good_context_data, data, kSuccess, NULL, 0, always_flags,
                     arraysize(always_flags));
   RunParserSyncTest(bad_context_data, data, kError, NULL, 0, always_flags,
+                    arraysize(always_flags));
+}
+
+
+TEST(ConstLegacy) {
+  // clang-format off
+  const char* context_data[][2] = {
+    {"", ""},
+    {"{", "}"},
+    {NULL, NULL}
+  };
+
+  const char* data[] = {
+    "const x",
+    "const x = 1",
+    "for (const x = 1; x < 1; x++) {}",
+    "for (const x in {}) {}",
+    "for (const x of []) {}",
+    NULL
+  };
+  // clang-format on
+
+
+  static const ParserFlag always_flags[] = {kNoLegacyConst};
+  RunParserSyncTest(context_data, data, kError, NULL, 0, always_flags,
+                    arraysize(always_flags));
+  RunParserSyncTest(context_data, data, kSuccess);
+}
+
+
+TEST(ConstSloppy) {
+  // clang-format off
+  const char* context_data[][2] = {
+    {"", ""},
+    {"{", "}"},
+    {NULL, NULL}
+  };
+
+  const char* data[] = {
+    "const x = 1",
+    "for (const x = 1; x < 1; x++) {}",
+    "for (const x in {}) {}",
+    "for (const x of []) {}",
+    NULL
+  };
+  // clang-format on
+  static const ParserFlag always_flags[] = {kAllowHarmonySloppy,
+                                            kNoLegacyConst};
+  RunParserSyncTest(context_data, data, kSuccess, NULL, 0, always_flags,
+                    arraysize(always_flags));
+}
+
+
+TEST(LetSloppy) {
+  // clang-format off
+  const char* context_data[][2] = {
+    {"", ""},
+    {"'use strict';", ""},
+    {"{", "}"},
+    {NULL, NULL}
+  };
+
+  const char* data[] = {
+    "let x",
+    "let x = 1",
+    "for (let x = 1; x < 1; x++) {}",
+    "for (let x in {}) {}",
+    "for (let x of []) {}",
+    NULL
+  };
+  // clang-format on
+
+  static const ParserFlag always_flags[] = {kAllowHarmonySloppy};
+  RunParserSyncTest(context_data, data, kSuccess, NULL, 0, always_flags,
                     arraysize(always_flags));
 }

@@ -314,8 +314,8 @@ void JSGenericLowering::LowerJSToObject(Node* node) {
 void JSGenericLowering::LowerJSLoadProperty(Node* node) {
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   const LoadPropertyParameters& p = LoadPropertyParametersOf(node->op());
-  Callable callable =
-      CodeFactory::KeyedLoadICInOptimizedCode(isolate(), UNINITIALIZED);
+  Callable callable = CodeFactory::KeyedLoadICInOptimizedCode(
+      isolate(), p.language_mode(), UNINITIALIZED);
   node->InsertInput(zone(), 2, jsgraph()->SmiConstant(p.feedback().index()));
   ReplaceWithStubCall(node, callable, flags);
 }
@@ -325,7 +325,7 @@ void JSGenericLowering::LowerJSLoadNamed(Node* node) {
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   const LoadNamedParameters& p = LoadNamedParametersOf(node->op());
   Callable callable = CodeFactory::LoadICInOptimizedCode(
-      isolate(), p.contextual_mode(), UNINITIALIZED);
+      isolate(), p.contextual_mode(), p.language_mode(), UNINITIALIZED);
   node->InsertInput(zone(), 1, jsgraph()->HeapConstant(p.name()));
   node->InsertInput(zone(), 2, jsgraph()->SmiConstant(p.feedback().index()));
   ReplaceWithStubCall(node, callable, flags);
@@ -336,7 +336,7 @@ void JSGenericLowering::LowerJSLoadGlobal(Node* node) {
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
   const LoadNamedParameters& p = LoadGlobalParametersOf(node->op());
   Callable callable = CodeFactory::LoadICInOptimizedCode(
-      isolate(), p.contextual_mode(), UNINITIALIZED);
+      isolate(), p.contextual_mode(), SLOPPY, UNINITIALIZED);
   node->InsertInput(zone(), 1, jsgraph()->HeapConstant(p.name()));
   node->InsertInput(zone(), 2, jsgraph()->SmiConstant(p.feedback().index()));
   ReplaceWithStubCall(node, callable, flags);
@@ -529,6 +529,9 @@ void JSGenericLowering::LowerJSCallFunction(Node* node) {
   CallFunctionStub stub(isolate(), arg_count, p.flags());
   CallInterfaceDescriptor d = stub.GetCallInterfaceDescriptor();
   CallDescriptor::Flags flags = AdjustFrameStatesForCall(node);
+  if (p.AllowTailCalls()) {
+    flags |= CallDescriptor::kSupportsTailCalls;
+  }
   CallDescriptor* desc = Linkage::GetStubCallDescriptor(
       isolate(), zone(), d, static_cast<int>(p.arity() - 1), flags);
   Node* stub_code = jsgraph()->HeapConstant(stub.GetCode());

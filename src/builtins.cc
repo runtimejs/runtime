@@ -1089,7 +1089,7 @@ MUST_USE_RESULT static MaybeHandle<Object> HandleApiCallHelper(
                                      args.length() - 1,
                                      is_construct);
 
-    v8::Handle<v8::Value> value = custom.Call(callback);
+    v8::Local<v8::Value> value = custom.Call(callback);
     Handle<Object> result;
     if (value.IsEmpty()) {
       result = isolate->factory()->undefined_value();
@@ -1226,7 +1226,7 @@ MUST_USE_RESULT static Object* HandleApiCallAsFunctionOrConstructor(
                                      &args[0] - 1,
                                      args.length() - 1,
                                      is_construct_call);
-    v8::Handle<v8::Value> value = custom.Call(callback);
+    v8::Local<v8::Value> value = custom.Call(callback);
     if (value.IsEmpty()) {
       result = heap->undefined_value();
     } else {
@@ -1260,7 +1260,12 @@ static void Generate_LoadIC_Miss(MacroAssembler* masm) {
 
 
 static void Generate_LoadIC_Normal(MacroAssembler* masm) {
-  LoadIC::GenerateNormal(masm);
+  LoadIC::GenerateNormal(masm, SLOPPY);
+}
+
+
+static void Generate_LoadIC_Normal_Strong(MacroAssembler* masm) {
+  LoadIC::GenerateNormal(masm, STRONG);
 }
 
 
@@ -1270,17 +1275,22 @@ static void Generate_LoadIC_Getter_ForDeopt(MacroAssembler* masm) {
 
 
 static void Generate_LoadIC_Slow(MacroAssembler* masm) {
-  LoadIC::GenerateRuntimeGetProperty(masm);
+  LoadIC::GenerateRuntimeGetProperty(masm, SLOPPY);
 }
 
 
-static void Generate_KeyedLoadIC_Initialize(MacroAssembler* masm) {
-  KeyedLoadIC::GenerateInitialize(masm);
+static void Generate_LoadIC_Slow_Strong(MacroAssembler* masm) {
+  LoadIC::GenerateRuntimeGetProperty(masm, STRONG);
 }
 
 
 static void Generate_KeyedLoadIC_Slow(MacroAssembler* masm) {
-  KeyedLoadIC::GenerateRuntimeGetProperty(masm);
+  KeyedLoadIC::GenerateRuntimeGetProperty(masm, SLOPPY);
+}
+
+
+static void Generate_KeyedLoadIC_Slow_Strong(MacroAssembler* masm) {
+  KeyedLoadIC::GenerateRuntimeGetProperty(masm, STRONG);
 }
 
 
@@ -1290,7 +1300,12 @@ static void Generate_KeyedLoadIC_Miss(MacroAssembler* masm) {
 
 
 static void Generate_KeyedLoadIC_Megamorphic(MacroAssembler* masm) {
-  KeyedLoadIC::GenerateMegamorphic(masm);
+  KeyedLoadIC::GenerateMegamorphic(masm, SLOPPY);
+}
+
+
+static void Generate_KeyedLoadIC_Megamorphic_Strong(MacroAssembler* masm) {
+  KeyedLoadIC::GenerateMegamorphic(masm, STRONG);
 }
 
 
@@ -1356,31 +1371,6 @@ static void Generate_KeyedStoreIC_PreMonomorphic_Strict(MacroAssembler* masm) {
 
 static void Generate_CallICStub_DebugBreak(MacroAssembler* masm) {
   DebugCodegen::GenerateCallICStubDebugBreak(masm);
-}
-
-
-static void Generate_LoadIC_DebugBreak(MacroAssembler* masm) {
-  DebugCodegen::GenerateLoadICDebugBreak(masm);
-}
-
-
-static void Generate_StoreIC_DebugBreak(MacroAssembler* masm) {
-  DebugCodegen::GenerateStoreICDebugBreak(masm);
-}
-
-
-static void Generate_KeyedLoadIC_DebugBreak(MacroAssembler* masm) {
-  DebugCodegen::GenerateKeyedLoadICDebugBreak(masm);
-}
-
-
-static void Generate_KeyedStoreIC_DebugBreak(MacroAssembler* masm) {
-  DebugCodegen::GenerateKeyedStoreICDebugBreak(masm);
-}
-
-
-static void Generate_CompareNilIC_DebugBreak(MacroAssembler* masm) {
-  DebugCodegen::GenerateCompareNilICDebugBreak(masm);
 }
 
 
