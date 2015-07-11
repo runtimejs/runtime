@@ -13,17 +13,4 @@
 // limitations under the License.
 
 'use strict';
-var ethernet = require('./ethernet');
-var arpHeader = require('./arp-header');
-var MACAddress = require('./mac-address');
-
-module.exports = function(intf, operation, srcMAC, srcIP, targetMAC, targetIP) {
-  var ethOffset = intf.bufferDataOffset;
-  var arpOffset = ethOffset + ethernet.headerLength;
-  var len = arpOffset + arpHeader.headerLength;
-  var u8 = new Uint8Array(len);
-  ethernet.write(u8, ethOffset, MACAddress.BROADCAST,
-    intf.macAddr, ethernet.ETHERTYPE_ARP);
-  arpHeader.write(u8, arpOffset, operation, srcMAC, srcIP, targetMAC, targetIP);
-  intf.sendRaw(u8);
-};
+exports.socketsCreated = 0;

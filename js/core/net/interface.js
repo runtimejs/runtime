@@ -21,6 +21,7 @@ var ip4 = require('./ip4');
 var IP4Address = require('./ip4-address');
 var EventController = require('event-controller');
 var typeutils = require('typeutils');
+var stat = require('./net-stat');
 
 function Interface(macAddr) {
   assert(macAddr instanceof MACAddress);
@@ -79,6 +80,7 @@ Interface.prototype.hasIP = function() {
 };
 
 Interface.prototype.receive = function(u8) {
+  ++stat.receiveCount;
   var etherType = ethernet.getEtherType(u8, this.bufferDataOffset);
   var nextOffset = this.bufferDataOffset + ethernet.headerLength;
 
@@ -92,7 +94,15 @@ Interface.prototype.receive = function(u8) {
   debug('receive called', etherType.toString(16));
 };
 
+Interface.prototype.sendRaw = function(u8) {
+  ++stat.transmitCount;
+  if (this.ontransmit) {
+    this.ontransmit(u8, null);
+  }
+};
+
 Interface.prototype.sendIP4 = function(viaIP, u8headers, u8data) {
+  ++stat.transmitCount;
   var targetMAC;
   if (viaIP.isBroadcast()) {
     targetMAC = MACAddress.BROADCAST;

@@ -25,6 +25,7 @@ var netError = require('./net-error');
 var tcpTimer = require('./tcp-timer');
 var tcpSocketState = require('./tcp-socket-state');
 var connHash = require('./tcp-hash');
+var tcpStat = require('./tcp-stat');
 
 var ports = new PortAllocator();
 
@@ -86,6 +87,8 @@ class TCPSocket {
     this._onconnect = null;
 
     this._bufferedAmount = 0;
+
+    ++tcpStat.socketsCreated;
   }
 
   get bufferedAmount() { return this._bufferedAmount; }
