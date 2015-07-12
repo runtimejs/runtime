@@ -65,12 +65,9 @@ class TyperCache final {
                                          Type::Integral32(), zone());
   Type* const kClz32Func =
       Type::Function(CreateRange(0, 32), Type::Number(), zone());
-  Type* const kArrayBufferFunc =
-      Type::Function(Type::Object(zone()), Type::Unsigned32(), zone());
 
 #define TYPED_ARRAY(TypeName, type_name, TYPE_NAME, ctype, size) \
-  Type* const k##TypeName##Array = CreateArray(k##TypeName);     \
-  Type* const k##TypeName##ArrayFunc = CreateArrayFunction(k##TypeName##Array);
+  Type* const k##TypeName##Array = CreateArray(k##TypeName);
   TYPED_ARRAYS(TYPED_ARRAY)
 #undef TYPED_ARRAY
 
@@ -119,12 +116,10 @@ class Typer::Decorator final : public GraphDecorator {
 };
 
 
-Typer::Typer(Isolate* isolate, Graph* graph, Type::FunctionType* function_type,
-             MaybeHandle<Context> context)
+Typer::Typer(Isolate* isolate, Graph* graph, Type::FunctionType* function_type)
     : isolate_(isolate),
       graph_(graph),
       function_type_(function_type),
-      context_(context),
       decorator_(nullptr),
       cache_(kCache.Get()) {
   Zone* zone = this->zone();
@@ -261,7 +256,6 @@ class Typer::Visitor : public Reducer {
 
  private:
   Typer* typer_;
-  MaybeHandle<Context> context_;
   ZoneSet<NodeId> weakened_nodes_;
 
 #define DECLARE_METHOD(x) inline Bounds Type##x(Node* node);
@@ -286,7 +280,6 @@ class Typer::Visitor : public Reducer {
   Zone* zone() { return typer_->zone(); }
   Isolate* isolate() { return typer_->isolate(); }
   Graph* graph() { return typer_->graph(); }
-  MaybeHandle<Context> context() { return typer_->context(); }
 
   void SetWeakened(NodeId node_id) { weakened_nodes_.insert(node_id); }
   bool IsWeakened(NodeId node_id) {
@@ -331,6 +324,7 @@ class Typer::Visitor : public Reducer {
 #undef DECLARE_METHOD
 
   static Type* JSUnaryNotTyper(Type*, Typer*);
+  static Type* JSTypeOfTyper(Type*, Typer*);
   static Type* JSLoadPropertyTyper(Type*, Type*, Typer*);
   static Type* JSCallFunctionTyper(Type*, Typer*);
 
@@ -588,16 +582,6 @@ Bounds Typer::Visitor::TypeParameter(Node* node) {
 
 
 Bounds Typer::Visitor::TypeOsrValue(Node* node) {
-  if (node->InputAt(0)->opcode() == IrOpcode::kOsrLoopEntry) {
-    // Before deconstruction, OSR values have type {None} to avoid polluting
-    // the types of phis and other nodes in the graph.
-    return Bounds(Type::None(), Type::None());
-  }
-  if (NodeProperties::IsTyped(node)) {
-    // After deconstruction, OSR values may have had a type explicitly set.
-    return NodeProperties::GetBounds(node);
-  }
-  // Otherwise, be conservative.
   return Bounds::Unbounded(zone());
 }
 
@@ -1211,8 +1195,25 @@ Bounds Typer::Visitor::TypeJSUnaryNot(Node* node) {
 }
 
 
+Type* Typer::Visitor::JSTypeOfTyper(Type* type, Typer* t) {
+  Factory* const f = t->isolate()->factory();
+  if (type->Is(Type::Boolean())) {
+    return Type::Constant(f->boolean_string(), t->zone());
+  } else if (type->Is(Type::Number())) {
+    return Type::Constant(f->number_string(), t->zone());
+  } else if (type->Is(Type::Symbol())) {
+    return Type::Constant(f->symbol_string(), t->zone());
+  } else if (type->Is(Type::Union(Type::Undefined(), Type::Undetectable()))) {
+    return Type::Constant(f->undefined_string(), t->zone());
+  } else if (type->Is(Type::Null())) {
+    return Type::Constant(f->object_string(), t->zone());
+  }
+  return Type::InternalizedString();
+}
+
+
 Bounds Typer::Visitor::TypeJSTypeOf(Node* node) {
-  return Bounds(Type::None(zone()), Type::InternalizedString(zone()));
+  return TypeUnaryOp(node, JSTypeOfTyper);
 }
 
 
@@ -1646,6 +1647,21 @@ Bounds Typer::Visitor::TypeNumberModulus(Node* node) {
 }
 
 
+Bounds Typer::Visitor::TypeNumberShiftLeft(Node* node) {
+  return Bounds(Type::None(zone()), Type::Signed32(zone()));
+}
+
+
+Bounds Typer::Visitor::TypeNumberShiftRight(Node* node) {
+  return Bounds(Type::None(zone()), Type::Signed32(zone()));
+}
+
+
+Bounds Typer::Visitor::TypeNumberShiftRightLogical(Node* node) {
+  return Bounds(Type::None(zone()), Type::Unsigned32(zone()));
+}
+
+
 Bounds Typer::Visitor::TypeNumberToInt32(Node* node) {
   return TypeUnaryOp(node, NumberToInt32);
 }
@@ -2041,6 +2057,11 @@ Bounds Typer::Visitor::TypeUint64LessThan(Node* node) {
 }
 
 
+Bounds Typer::Visitor::TypeUint64LessThanOrEqual(Node* node) {
+  return Bounds(Type::Boolean());
+}
+
+
 Bounds Typer::Visitor::TypeUint64Mod(Node* node) {
   return Bounds(Type::Internal());
 }
@@ -2319,35 +2340,13 @@ Type* Typer::Visitor::TypeConstant(Handle<Object> value) {
         default:
           break;
       }
-    } else if (JSFunction::cast(*value)->IsBuiltin() && !context().is_null()) {
-      Handle<Context> native =
-          handle(context().ToHandleChecked()->native_context(), isolate());
-      if (*value == native->array_buffer_fun()) {
-        return typer_->cache_.kArrayBufferFunc;
-      } else if (*value == native->int8_array_fun()) {
-        return typer_->cache_.kInt8ArrayFunc;
-      } else if (*value == native->int16_array_fun()) {
-        return typer_->cache_.kInt16ArrayFunc;
-      } else if (*value == native->int32_array_fun()) {
-        return typer_->cache_.kInt32ArrayFunc;
-      } else if (*value == native->uint8_array_fun()) {
-        return typer_->cache_.kUint8ArrayFunc;
-      } else if (*value == native->uint16_array_fun()) {
-        return typer_->cache_.kUint16ArrayFunc;
-      } else if (*value == native->uint32_array_fun()) {
-        return typer_->cache_.kUint32ArrayFunc;
-      } else if (*value == native->float32_array_fun()) {
-        return typer_->cache_.kFloat32ArrayFunc;
-      } else if (*value == native->float64_array_fun()) {
-        return typer_->cache_.kFloat64ArrayFunc;
-      }
     }
     int const arity =
         JSFunction::cast(*value)->shared()->internal_formal_parameter_count();
     switch (arity) {
       case SharedFunctionInfo::kDontAdaptArgumentsSentinel:
         // Some smart optimization at work... &%$!&@+$!
-        return Type::Any(zone());
+        break;
       case 0:
         return typer_->cache_.kAnyFunc0;
       case 1:

@@ -1028,10 +1028,7 @@ bool Object::IsJSGlobalProxy() const {
 
 bool Object::IsGlobalObject() const {
   if (!IsHeapObject()) return false;
-
-  InstanceType type = HeapObject::cast(this)->map()->instance_type();
-  return type == JS_GLOBAL_OBJECT_TYPE ||
-         type == JS_BUILTINS_OBJECT_TYPE;
+  return HeapObject::cast(this)->map()->IsGlobalObjectMap();
 }
 
 
@@ -1161,17 +1158,18 @@ bool Object::HasSpecificClassOf(String* name) {
 
 
 MaybeHandle<Object> Object::GetProperty(Handle<Object> object,
-                                        Handle<Name> name) {
+                                        Handle<Name> name,
+                                        LanguageMode language_mode) {
   LookupIterator it(object, name);
-  return GetProperty(&it);
+  return GetProperty(&it, language_mode);
 }
 
 
-MaybeHandle<Object> Object::GetElement(Isolate* isolate,
-                                       Handle<Object> object,
-                                       uint32_t index) {
+MaybeHandle<Object> Object::GetElement(Isolate* isolate, Handle<Object> object,
+                                       uint32_t index,
+                                       LanguageMode language_mode) {
   LookupIterator it(isolate, object, index);
-  return GetProperty(&it);
+  return GetProperty(&it, language_mode);
 }
 
 
@@ -1188,11 +1186,11 @@ Handle<Object> Object::GetPrototypeSkipHiddenPrototypes(
 }
 
 
-MaybeHandle<Object> Object::GetProperty(Isolate* isolate,
-                                        Handle<Object> object,
-                                        const char* name) {
+MaybeHandle<Object> Object::GetProperty(Isolate* isolate, Handle<Object> object,
+                                        const char* name,
+                                        LanguageMode language_mode) {
   Handle<String> str = isolate->factory()->InternalizeUtf8String(name);
-  return GetProperty(object, str);
+  return GetProperty(object, str, language_mode);
 }
 
 
@@ -5094,6 +5092,7 @@ ACCESSORS(CallHandlerInfo, callback, Object, kCallbackOffset)
 ACCESSORS(CallHandlerInfo, data, Object, kDataOffset)
 
 ACCESSORS(TemplateInfo, tag, Object, kTagOffset)
+SMI_ACCESSORS(TemplateInfo, number_of_properties, kNumberOfProperties)
 ACCESSORS(TemplateInfo, property_list, Object, kPropertyListOffset)
 ACCESSORS(TemplateInfo, property_accessors, Object, kPropertyAccessorsOffset)
 
@@ -5603,6 +5602,11 @@ bool JSFunction::IsFromExtensionScript() {
   Object* script = shared()->script();
   return script->IsScript() &&
          Script::cast(script)->type()->value() == Script::TYPE_EXTENSION;
+}
+
+
+bool JSFunction::IsSubjectToDebugging() {
+  return !IsFromNativeScript() && !IsFromExtensionScript();
 }
 
 
@@ -6220,7 +6224,7 @@ ElementsKind JSObject::GetElementsKind() {
             fixed_array->IsFixedArray() &&
             fixed_array->IsDictionary()) ||
            (kind > DICTIONARY_ELEMENTS));
-    DCHECK((kind != SLOPPY_ARGUMENTS_ELEMENTS) ||
+    DCHECK(!IsSloppyArgumentsElements(kind) ||
            (elements()->IsFixedArray() && elements()->length() >= 2));
   }
 #endif
@@ -6263,8 +6267,18 @@ bool JSObject::HasDictionaryElements() {
 }
 
 
+bool JSObject::HasFastArgumentsElements() {
+  return GetElementsKind() == FAST_SLOPPY_ARGUMENTS_ELEMENTS;
+}
+
+
+bool JSObject::HasSlowArgumentsElements() {
+  return GetElementsKind() == SLOW_SLOPPY_ARGUMENTS_ELEMENTS;
+}
+
+
 bool JSObject::HasSloppyArgumentsElements() {
-  return GetElementsKind() == SLOPPY_ARGUMENTS_ELEMENTS;
+  return IsSloppyArgumentsElements(GetElementsKind());
 }
 
 
@@ -6546,10 +6560,11 @@ String* String::GetForwardedInternalizedString() {
 
 
 MaybeHandle<Object> Object::GetPropertyOrElement(Handle<Object> object,
-                                                 Handle<Name> name) {
+                                                 Handle<Name> name,
+                                                 LanguageMode language_mode) {
   LookupIterator it =
       LookupIterator::PropertyOrElement(name->GetIsolate(), object, name);
-  return GetProperty(&it);
+  return GetProperty(&it, language_mode);
 }
 
 
@@ -6933,9 +6948,12 @@ void Map::ClearCodeCache(Heap* heap) {
 
 int Map::SlackForArraySize(int old_size, int size_limit) {
   const int max_slack = size_limit - old_size;
-  CHECK(max_slack >= 0);
-  if (old_size < 4) return Min(max_slack, 1);
-  return Min(max_slack, old_size / 2);
+  CHECK_LE(0, max_slack);
+  if (old_size < 4) {
+    DCHECK_LE(1, max_slack);
+    return 1;
+  }
+  return Min(max_slack, old_size / 4);
 }
 
 

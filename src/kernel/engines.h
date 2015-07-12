@@ -27,11 +27,14 @@
 namespace rt {
 
 class AcpiManager;
+bool EntropySource(unsigned char* buffer, size_t length);
 
 class Engines {
 public:
     Engines(uint32_t cpu_count)
-        :	cpu_count_(cpu_count),
+        :   cpu_count_(cpu_count),
+            buffers_size_(0),
+            buffers_count_(0),
             _non_isolate_ticks(0),
             v8_platform_(nullptr) {
         RT_ASSERT(nullptr == GLOBAL_engines());
@@ -63,6 +66,9 @@ public:
         RT_ASSERT(!v8_platform_);
         v8_platform_ = new V8Platform();
         RT_ASSERT(v8_platform_);
+
+        v8::V8::SetEntropySource(EntropySource);
+
         v8::V8::InitializePlatform(v8_platform_);
         v8::V8::Initialize();
 
@@ -221,6 +227,37 @@ public:
 
     AcpiManager* acpi_manager();
 
+    void* AllocateBuffer(size_t length) {
+        void* ptr = calloc(1, length);
+        if (ptr) {
+            buffers_size_ += length;
+            ++buffers_count_;
+        }
+        return ptr;
+    }
+
+    void* AllocateUninitializedBuffer(size_t length) {
+        void* ptr = malloc(length);
+        if (ptr) {
+            buffers_size_ += length;
+            ++buffers_count_;
+        }
+        return ptr;
+    }
+
+    void FreeBuffer(void* ptr, size_t length) {
+        if (!ptr) {
+            return;
+        }
+
+        buffers_size_ -= length;
+        --buffers_count_;
+        free(ptr);
+    }
+
+    uint64_t buffers_size() const { return buffers_size_; }
+    uint64_t buffers_count() const { return buffers_count_; }
+
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
 private:
@@ -228,6 +265,8 @@ private:
     std::vector<Engine*> engines_;
     std::vector<Engine*> engines_execution_;
     AcpiManager* _acpi_manager;
+    uint64_t buffers_size_;
+    uint64_t buffers_count_;
     volatile uint64_t _non_isolate_ticks;
 
     v8::Platform* v8_platform_;

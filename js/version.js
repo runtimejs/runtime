@@ -34,4 +34,4 @@ if (kernelVersion[0] < requiredVersionMin[0] ||
   throw new Error('invalid runtime version');
 }
 
-console.log(`v${kernelVersion.join('.')} kernel`);
+console.log(`v${kernelVersion.join('.')} kernel (v8 ${kernel.version().v8})`);

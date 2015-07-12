@@ -87,11 +87,6 @@ Handle<JSObject> LookupIterator::GetStoreTarget() const {
 }
 
 
-bool LookupIterator::IsBootstrapping() const {
-  return isolate_->bootstrapper()->IsActive();
-}
-
-
 bool LookupIterator::HasAccess() const {
   DCHECK_EQ(ACCESS_CHECK, state_);
   return isolate_->MayAccess(GetHolder<JSObject>());
@@ -225,6 +220,28 @@ void LookupIterator::ApplyTransitionToDataProperty() {
   holder_map_ = transition_map();
   JSObject::MigrateToMap(receiver, holder_map_);
   ReloadPropertyInformation();
+}
+
+
+void LookupIterator::Delete() {
+  Handle<JSObject> holder = Handle<JSObject>::cast(holder_);
+  if (IsElement()) {
+    ElementsAccessor* accessor = holder->GetElementsAccessor();
+    accessor->Delete(holder, number_);
+  } else {
+    PropertyNormalizationMode mode = holder->map()->is_prototype_map()
+                                         ? KEEP_INOBJECT_PROPERTIES
+                                         : CLEAR_INOBJECT_PROPERTIES;
+
+    if (holder->HasFastProperties()) {
+      JSObject::NormalizeProperties(holder, mode, 0, "DeletingProperty");
+      holder_map_ = handle(holder->map(), isolate_);
+      ReloadPropertyInformation();
+    }
+    // TODO(verwaest): Get rid of the name_ argument.
+    JSObject::DeleteNormalizedProperty(holder, name_, number_);
+    JSObject::ReoptimizeIfPrototype(holder);
+  }
 }
 
 

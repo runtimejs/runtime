@@ -70,6 +70,7 @@ class LinkageHelper {
         js_parameter_count,               // js_parameter_count
         Operator::kNoProperties,          // properties
         kNoCalleeSaved,                   // callee-saved
+        kNoCalleeSaved,                   // callee-saved fp
         flags,                            // flags
         "js-call");
   }
@@ -131,6 +132,7 @@ class LinkageHelper {
         js_parameter_count,               // js_parameter_count
         properties,                       // properties
         kNoCalleeSaved,                   // callee-saved
+        kNoCalleeSaved,                   // callee-saved fp
         flags,                            // flags
         function->name);                  // debug name
   }
@@ -143,8 +145,7 @@ class LinkageHelper {
       Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
       int stack_parameter_count, CallDescriptor::Flags flags,
       Operator::Properties properties, MachineType return_type) {
-    const int register_parameter_count =
-        descriptor.GetEnvironmentParameterCount();
+    const int register_parameter_count = descriptor.GetRegisterParameterCount();
     const int js_parameter_count =
         register_parameter_count + stack_parameter_count;
     const int context_count = 1;
@@ -163,9 +164,9 @@ class LinkageHelper {
     for (int i = 0; i < js_parameter_count; i++) {
       if (i < register_parameter_count) {
         // The first parameters go in registers.
-        Register reg = descriptor.GetEnvironmentParameterRegister(i);
+        Register reg = descriptor.GetRegisterParameter(i);
         Representation rep =
-            RepresentationFromType(descriptor.GetEnvironmentParameterType(i));
+            RepresentationFromType(descriptor.GetParameterType(i));
         locations.AddParam(regloc(reg));
         types.AddParam(reptyp(rep));
       } else {
@@ -191,6 +192,7 @@ class LinkageHelper {
         js_parameter_count,               // js_parameter_count
         properties,                       // properties
         kNoCalleeSaved,                   // callee-saved registers
+        kNoCalleeSaved,                   // callee-saved fp
         flags,                            // flags
         descriptor.DebugName(isolate));
   }
@@ -217,16 +219,17 @@ class LinkageHelper {
     // The target for C calls is always an address (i.e. machine pointer).
     MachineType target_type = kMachPtr;
     LinkageLocation target_loc = LinkageLocation::AnyRegister();
-    return new (zone) CallDescriptor(           // --
-        CallDescriptor::kCallAddress,           // kind
-        target_type,                            // target MachineType
-        target_loc,                             // target location
-        msig,                                   // machine_sig
-        locations.Build(),                      // location_sig
-        0,                                      // js_parameter_count
-        Operator::kNoProperties,                // properties
-        LinkageTraits::CCalleeSaveRegisters(),  // callee-saved registers
-        CallDescriptor::kNoFlags,               // flags
+    return new (zone) CallDescriptor(             // --
+        CallDescriptor::kCallAddress,             // kind
+        target_type,                              // target MachineType
+        target_loc,                               // target location
+        msig,                                     // machine_sig
+        locations.Build(),                        // location_sig
+        0,                                        // js_parameter_count
+        Operator::kNoProperties,                  // properties
+        LinkageTraits::CCalleeSaveRegisters(),    // callee-saved registers
+        LinkageTraits::CCalleeSaveFPRegisters(),  // callee-saved fp regs
+        CallDescriptor::kNoFlags,                 // flags
         "c-call");
   }
 
@@ -274,7 +277,12 @@ LinkageLocation Linkage::GetOsrValueLocation(int index) const {
   int parameter_count = static_cast<int>(incoming_->JSParameterCount() - 1);
   int first_stack_slot = OsrHelper::FirstStackSlotIndex(parameter_count);
 
-  if (index >= first_stack_slot) {
+  if (index == kOsrContextSpillSlotIndex) {
+    // Context. Use the parameter location of the context spill slot.
+    // Parameter (arity + 1) is special for the context of the function frame.
+    int context_index = 1 + 1 + parameter_count;  // target + receiver + params
+    return incoming_->GetInputLocation(context_index);
+  } else if (index >= first_stack_slot) {
     // Local variable stored in this (callee) stack.
     int spill_index =
         LinkageLocation::ANY_REGISTER + 1 + index - first_stack_slot;

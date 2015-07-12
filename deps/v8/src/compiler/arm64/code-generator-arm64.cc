@@ -351,10 +351,6 @@ void CodeGenerator::AssembleDeconstructActivationRecord() {
   if (descriptor->IsJSFunctionCall() || stack_slots > 0) {
     __ Mov(jssp, fp);
     __ Pop(fp, lr);
-    int pop_count = descriptor->IsJSFunctionCall()
-                        ? static_cast<int>(descriptor->JSParameterCount())
-                        : 0;
-    __ Drop(pop_count);
   }
 }
 
@@ -711,7 +707,7 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ Cmp(i.InputRegister(0), i.InputOperand(1));
       break;
     case kArm64Cmp32:
-      __ Cmp(i.InputRegister32(0), i.InputOperand32(1));
+      __ Cmp(i.InputRegister32(0), i.InputOperand2_32(1));
       break;
     case kArm64Cmn:
       __ Cmn(i.InputRegister(0), i.InputOperand(1));
@@ -1094,9 +1090,23 @@ void CodeGenerator::AssemblePrologue() {
     __ SetStackPointer(csp);
     __ Push(lr, fp);
     __ Mov(fp, csp);
-    // TODO(dcarney): correct callee saved registers.
-    __ PushCalleeSavedRegisters();
-    frame()->SetRegisterSaveAreaSize(20 * kPointerSize);
+
+    // Save FP registers.
+    CPURegList saves_fp = CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
+                                     descriptor->CalleeSavedFPRegisters());
+    DCHECK(saves_fp.list() == CPURegList::GetCalleeSavedFP().list());
+    int saved_count = saves_fp.Count();
+    __ PushCPURegList(saves_fp);
+    // Save registers.
+    CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
+                                  descriptor->CalleeSavedRegisters());
+    // TODO(palfia): TF save list is not in sync with
+    // CPURegList::GetCalleeSaved(): x30 is missing.
+    // DCHECK(saves.list() == CPURegList::GetCalleeSaved().list());
+    saved_count += saves.Count();
+    __ PushCPURegList(saves);
+
+    frame()->SetRegisterSaveAreaSize(saved_count * kPointerSize);
   } else if (descriptor->IsJSFunctionCall()) {
     CompilationInfo* info = this->info();
     __ SetStackPointer(jssp);
@@ -1145,10 +1155,18 @@ void CodeGenerator::AssembleReturn() {
       if (stack_slots > 0) {
         __ Add(csp, csp, AlignedStackSlots(stack_slots) * kPointerSize);
       }
+
       // Restore registers.
-      // TODO(dcarney): correct callee saved registers.
-      __ PopCalleeSavedRegisters();
+      CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
+                                    descriptor->CalleeSavedRegisters());
+      __ PopCPURegList(saves);
+
+      CPURegList saves_fp =
+          CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
+                     descriptor->CalleeSavedFPRegisters());
+      __ PopCPURegList(saves_fp);
     }
+
     __ Mov(csp, fp);
     __ Pop(fp, lr);
     __ Ret();
@@ -1162,8 +1180,12 @@ void CodeGenerator::AssembleReturn() {
       __ Pop(fp, lr);
       int pop_count = descriptor->IsJSFunctionCall()
                           ? static_cast<int>(descriptor->JSParameterCount())
-                          : 0;
-      __ Drop(pop_count);
+                          : (info()->IsStub()
+                                 ? info()->code_stub()->GetStackParameterCount()
+                                 : 0);
+      if (pop_count != 0) {
+        __ Drop(pop_count);
+      }
       __ Ret();
     }
   } else {

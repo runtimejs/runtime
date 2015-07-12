@@ -331,6 +331,7 @@ class HGraph final : public ZoneObject {
   HConstant* GetConstantMinus1();
   HConstant* GetConstantTrue();
   HConstant* GetConstantFalse();
+  HConstant* GetConstantBool(bool value);
   HConstant* GetConstantHole();
   HConstant* GetConstantNull();
   HConstant* GetInvalidContext();
@@ -1352,9 +1353,9 @@ class HGraphBuilder {
                                     HValue* key);
 
   HValue* BuildUncheckedDictionaryElementLoad(HValue* receiver,
-                                              HValue* elements,
-                                              HValue* key,
-                                              HValue* hash);
+                                              HValue* elements, HValue* key,
+                                              HValue* hash,
+                                              LanguageMode language_mode);
 
   HValue* BuildRegExpConstructResult(HValue* length,
                                      HValue* index,
@@ -1433,7 +1434,8 @@ class HGraphBuilder {
                                Type* left_type, Type* right_type,
                                Type* result_type, Maybe<int> fixed_right_arg,
                                HAllocationMode allocation_mode,
-                               Strength strength);
+                               Strength strength,
+                               BailoutId opt_id = BailoutId::None());
 
   HLoadNamedField* AddLoadFixedArrayLength(HValue *object,
                                            HValue *dependency = NULL);

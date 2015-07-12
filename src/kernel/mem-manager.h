@@ -22,6 +22,7 @@
 #include <kernel/x64/address-space-x64.h>
 #include <kernel/runtime-state.h>
 #include <kernel/threadlib/spinlock.h>
+#include <kernel/allocation-tracker.h>
 
 namespace rt {
 
@@ -110,7 +111,8 @@ public:
         stack_32_(kStackStartAddress, 1 * Constants::MiB),
         stack_64_(kStackStartAddress + Constants::MiB, 1 * Constants::MiB),
         pages_status_(reinterpret_cast<bool*>(kPagesStatusStartAddress)),
-        available_phys_memory_(0) {
+        available_phys_memory_(0),
+        used_phys_memory_(0) {
 
         memset(reinterpret_cast<void*>(kPagesStatusStartAddress), 1, kPagesStatusSize);
         MultibootMemoryMapEnumerator mmap = GLOBAL_multiboot()->memory_map();
@@ -169,6 +171,8 @@ public:
         } else {
             stack_64_.push(pageid);
         }
+
+        used_phys_memory_ -= kPageSizeBytes;
     }
 
     PhysicalMemoryZone page_directory_zone() {
@@ -189,6 +193,7 @@ public:
         }
 
         pages_status_[pageid] = true;
+        used_phys_memory_ += kPageSizeBytes;
         return reinterpret_cast<void*>(pageid * kPageSizeBytes);
     }
 
@@ -203,12 +208,17 @@ public:
             return nullptr;
         }
 
+        used_phys_memory_ += kPageSizeBytes;
         pages_status_[pageid] = true;
         return reinterpret_cast<void*>(pageid * kPageSizeBytes);
     }
 
     uint64_t physical_memory_total() const {
         return available_phys_memory_;
+    }
+
+    uint64_t physical_memory_used() const {
+        return used_phys_memory_;
     }
 
     static inline size_t chunk_size() {
@@ -235,6 +245,7 @@ private:
     PagesStack stack_64_;
     bool* pages_status_;
     uint64_t available_phys_memory_;
+    uint64_t used_phys_memory_;
 
     void _insert_pages_range(uintptr_t start, uintptr_t end) {
         uint64_t first_page = start / kPageSizeBytes;
@@ -438,6 +449,12 @@ public:
     }
 
     inline void Free(void* ptr) {
+#ifdef RUNTIME_ALLOCATION_TRACKER
+        if (allocation_tracker_) {
+            allocation_tracker_->UnregisterAlloc(ptr);
+        }
+#endif // RUNTIME_ALLOCATION_TRACKER
+
 #ifdef RUNTIME_ALLOCATOR_CALLBACKS
         if (enter_callback_) { enter_callback_(callback_param_); }
 #endif
@@ -466,12 +483,26 @@ public:
      * Initialize allocator cpu-shared data
      */
     void InitOnce();
+
+    /**
+     * Get allocation tracker instance, not thread-safe
+     */
+    AllocationTracker* allocation_tracker() {
+#ifdef RUNTIME_ALLOCATION_TRACKER
+        if (!allocation_tracker_) {
+            allocation_tracker_ = new AllocationTracker();
+        }
+#endif // RUNTIME_ALLOCATION_TRACKER
+        RT_ASSERT(allocation_tracker_);
+        return allocation_tracker_;
+    }
 private:
     threadlib::spinlock_t default_mspace_locker_;
     mspace default_mspace_;
     AllocatorTraceCallback enter_callback_;
     AllocatorTraceCallback exit_callback_;
     void* callback_param_;
+    AllocationTracker* allocation_tracker_;
     DELETE_COPY_AND_ASSIGN(MallocAllocator);
 };
 
@@ -524,6 +555,13 @@ public:
      */
     uint64_t physical_memory_total() const {
         return pmm_.physical_memory_total();
+    }
+
+    /**
+     * Get total amount of used physical memory in bytes
+     */
+    uint64_t physical_memory_used() const {
+        return pmm_.physical_memory_used();
     }
 
     /**

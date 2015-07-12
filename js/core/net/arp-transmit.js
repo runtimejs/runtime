@@ -25,7 +25,5 @@ module.exports = function(intf, operation, srcMAC, srcIP, targetMAC, targetIP) {
   ethernet.write(u8, ethOffset, MACAddress.BROADCAST,
     intf.macAddr, ethernet.ETHERTYPE_ARP);
   arpHeader.write(u8, arpOffset, operation, srcMAC, srcIP, targetMAC, targetIP);
-  if (intf.ontransmit) {
-    intf.ontransmit(u8, null);
-  }
+  intf.sendRaw(u8);
 };

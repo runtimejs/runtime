@@ -22,6 +22,18 @@
 
 namespace rt {
 
+void* MallocArrayBufferAllocator::Allocate(size_t length) {
+    return GLOBAL_engines()->AllocateBuffer(length);
+}
+
+void* MallocArrayBufferAllocator::AllocateUninitialized(size_t length) {
+    return GLOBAL_engines()->AllocateUninitializedBuffer(length);
+}
+
+void MallocArrayBufferAllocator::Free(void* data, size_t length) {
+    GLOBAL_engines()->FreeBuffer(data, length);
+}
+
 Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
     :	thread_mgr_(thread_mgr),
         type_(ethread.getUnsafe()->type() /* TODO: fix this unsafe get */),
@@ -83,7 +95,9 @@ void Thread::SetUp() {
     RT_ASSERT(nullptr == iv8_);
     RT_ASSERT(nullptr == tpl_cache_);
     v8::Isolate::CreateParams params;
+#ifdef RUNTIME_PROFILER
     params.code_event_handler = OnJitCodeEvent;
+#endif
     params.array_buffer_allocator = &ab_allocator_;
     iv8_ = v8::Isolate::New(params);
     iv8_->SetData(0, this);
@@ -352,6 +366,15 @@ bool Thread::Run() {
         case ThreadMessage::Type::IRQ_RAISE: {
             v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
                 GetObject(message->recv_index())) };
+            RT_ASSERT(fnv->IsFunction());
+            v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+            RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+            fn->Call(context, context->Global(), 0, nullptr);
+        }
+            break;
+        case ThreadMessage::Type::SET_IMMEDIATE: {
+            v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
+                TakeObject(message->recv_index())) };
             RT_ASSERT(fnv->IsFunction());
             v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
             RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
