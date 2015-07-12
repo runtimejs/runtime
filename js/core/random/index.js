@@ -79,7 +79,7 @@ module.exports = {
       array: new Uint8Array(length)
     });
     method.fillQueue(function() {
-      var arr = method.queue.pop();
+      var arr = method.queue.shift();
       cb(arr.array);
     });
   },

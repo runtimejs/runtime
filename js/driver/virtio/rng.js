@@ -43,6 +43,7 @@ function initializeRNGDevice(pciDevice) {
 
   var randobj = {
     queue: [],
+    cbqueue: [],
     init: function() {
       reqQueue.placeBuffers([new Uint8Array(1)], true);
       if (reqQueue.isNotificationNeeded()) {
@@ -58,6 +59,19 @@ function initializeRNGDevice(pciDevice) {
         foo = Math.round(foo);
         u8 = [foo];
       }
+
+      irq.on(function() {
+        var j = 0;
+
+        reqQueue.fetchBuffers(function(u8) {
+          randobj.queue[j].array = u8;
+          if (j === randobj.queue.length - 1) {
+            randobj.cbqueue.shift()();
+          }
+          j++;
+        });
+      });
+
       return u8[0];
     },
     fillQueue: function(cb) {
@@ -72,20 +86,7 @@ function initializeRNGDevice(pciDevice) {
         dev.queueNotify(QUEUE_ID_REQ);
       }
 
-      irq.on(function() {
-        if (!dev.hasPendingIRQ()) {
-          return;
-        }
-
-        var j = 0;
-
-        reqQueue.fetchBuffers(function(u8) {
-          randobj.queue[j].array = u8;
-          if (j === randobj.queue.length - 1) {
-            cb();
-          }
-        });
-      });
+      randobj.cbqueue.push(cb);
     }
   }
 
