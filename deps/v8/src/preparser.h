@@ -99,7 +99,8 @@ class ParserBase : public Traits {
         allow_harmony_destructuring_(false),
         allow_harmony_spread_arrays_(false),
         allow_harmony_new_target_(false),
-        allow_strong_mode_(false) {}
+        allow_strong_mode_(false),
+        allow_legacy_const_(true) {}
 
 #define ALLOW_ACCESSORS(name)                           \
   bool allow_##name() const { return allow_##name##_; } \
@@ -116,6 +117,7 @@ class ParserBase : public Traits {
   ALLOW_ACCESSORS(harmony_spread_arrays);
   ALLOW_ACCESSORS(harmony_new_target);
   ALLOW_ACCESSORS(strong_mode);
+  ALLOW_ACCESSORS(legacy_const);
 #undef ALLOW_ACCESSORS
 
   bool allow_harmony_modules() const { return scanner()->HarmonyModules(); }
@@ -152,15 +154,14 @@ class ParserBase : public Traits {
   class BlockState BASE_EMBEDDED {
    public:
     BlockState(Scope** scope_stack, Scope* scope)
-        : scope_stack_(scope_stack), outer_scope_(*scope_stack), scope_(scope) {
-      *scope_stack_ = scope_;
+        : scope_stack_(scope_stack), outer_scope_(*scope_stack) {
+      *scope_stack_ = scope;
     }
     ~BlockState() { *scope_stack_ = outer_scope_; }
 
    private:
     Scope** scope_stack_;
     Scope* outer_scope_;
-    Scope* scope_;
   };
 
   class FunctionState BASE_EMBEDDED {
@@ -492,6 +493,15 @@ class ParserBase : public Traits {
   LanguageMode language_mode() { return scope_->language_mode(); }
   bool is_generator() const { return function_state_->is_generator(); }
 
+  bool allow_const() {
+    return is_strict(language_mode()) || allow_harmony_sloppy() ||
+           allow_legacy_const();
+  }
+
+  bool allow_let() {
+    return is_strict(language_mode()) || allow_harmony_sloppy();
+  }
+
   // Report syntax errors.
   void ReportMessage(MessageTemplate::Template message, const char* arg = NULL,
                      ParseErrorType error_type = kSyntaxError) {
@@ -789,6 +799,7 @@ class ParserBase : public Traits {
   bool allow_harmony_spread_arrays_;
   bool allow_harmony_new_target_;
   bool allow_strong_mode_;
+  bool allow_legacy_const_;
 };
 
 

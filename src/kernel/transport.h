@@ -160,7 +160,7 @@ public:
     void AppendString(v8::Local<v8::Value> value) {
         RT_ASSERT(value->IsString());
         AppendType(Type::STRING_16);
-        v8::Local<v8::String> s { value->ToString() };
+        v8::Local<v8::String> s = value.As<v8::String>();
         int len = s->Length();
         RT_ASSERT(len >= 0);
         stream_.AppendValue<uint32_t>(len);
@@ -256,36 +256,36 @@ public:
         switch (err) {
         case SerializeError::NONE:
             return false;
-        case SerializeError::MAX_STACK:
-            iv8->ThrowException(
-                v8::Exception::Error(
-                v8::String::NewFromUtf8(iv8,
-                "Maximum call stack size exceeded when transferring data")));
+        case SerializeError::MAX_STACK: {
+            v8::MaybeLocal<v8::String> m = v8::String::NewFromUtf8(iv8,
+                "Maximum call stack size exceeded when transferring data", v8::NewStringType::kNormal);
+            iv8->ThrowException(v8::Exception::Error(m.ToLocalChecked()));
             return true;
-        case SerializeError::INVALID_TYPE:
-            iv8->ThrowException(
-                v8::Exception::Error(
-                v8::String::NewFromUtf8(iv8,
-                "Unable to transfer data")));
+        }
+        case SerializeError::INVALID_TYPE: {
+            v8::MaybeLocal<v8::String> m = v8::String::NewFromUtf8(iv8,
+                "Unable to transfer data", v8::NewStringType::kNormal);
+            iv8->ThrowException(v8::Exception::Error(m.ToLocalChecked()));
             return true;
-        case SerializeError::EMPTY_BUFFER:
-            iv8->ThrowException(
-                v8::Exception::Error(
-                v8::String::NewFromUtf8(iv8,
-                "ArrayBuffer is empty or have already been transferred")));
+        }
+        case SerializeError::EMPTY_BUFFER: {
+            v8::MaybeLocal<v8::String> m = v8::String::NewFromUtf8(iv8,
+                "ArrayBuffer is empty or have already been transferred", v8::NewStringType::kNormal);
+            iv8->ThrowException(v8::Exception::Error(m.ToLocalChecked()));
             return true;
-        case SerializeError::TYPEDARRAY_VIEW:
-            iv8->ThrowException(
-                v8::Exception::Error(
-                v8::String::NewFromUtf8(iv8,
-                "Unknown typed array cannot be transferred")));
+        }
+        case SerializeError::TYPEDARRAY_VIEW: {
+            v8::MaybeLocal<v8::String> m = v8::String::NewFromUtf8(iv8,
+                "Unknown typed array cannot be transferred", v8::NewStringType::kNormal);
+            iv8->ThrowException(v8::Exception::Error(m.ToLocalChecked()));
             return true;
-        case SerializeError::NOT_CLONABLE:
-            iv8->ThrowException(
-                v8::Exception::Error(
-                v8::String::NewFromUtf8(iv8,
-                "Native object is not clonable")));
+        }
+        case SerializeError::NOT_CLONABLE: {
+            v8::MaybeLocal<v8::String> m = v8::String::NewFromUtf8(iv8,
+                "Native object is not clonable", v8::NewStringType::kNormal);
+            iv8->ThrowException(v8::Exception::Error(m.ToLocalChecked()));
             return true;
+        }
         default:
             RT_ASSERT(!"unknown serializer error");
             return true;

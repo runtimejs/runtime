@@ -280,13 +280,6 @@ class Scope: public ZoneObject {
   bool is_block_scope() const { return scope_type_ == BLOCK_SCOPE; }
   bool is_with_scope() const { return scope_type_ == WITH_SCOPE; }
   bool is_arrow_scope() const { return scope_type_ == ARROW_SCOPE; }
-  void tag_as_class_scope() {
-    DCHECK(is_block_scope());
-    block_scope_is_class_scope_ = true;
-  }
-  bool is_class_scope() const {
-    return is_block_scope() && block_scope_is_class_scope_;
-  }
   bool is_declaration_scope() const {
     return is_eval_scope() || is_function_scope() ||
         is_module_scope() || is_script_scope();
@@ -449,6 +442,7 @@ class Scope: public ZoneObject {
   // handled separately.
   void CollectStackAndContextLocals(
       ZoneList<Variable*>* stack_locals, ZoneList<Variable*>* context_locals,
+      ZoneList<Variable*>* context_globals,
       ZoneList<Variable*>* strong_mode_free_variables = nullptr);
 
   // Current number of var or const locals.
@@ -457,9 +451,11 @@ class Scope: public ZoneObject {
   // Result of variable allocation.
   int num_stack_slots() const { return num_stack_slots_; }
   int num_heap_slots() const { return num_heap_slots_; }
+  int num_global_slots() const { return num_global_slots_; }
 
   int StackLocalCount() const;
   int ContextLocalCount() const;
+  int ContextGlobalCount() const;
 
   // For script scopes, the number of module literals (including nested ones).
   int num_modules() const { return num_modules_; }
@@ -470,6 +466,9 @@ class Scope: public ZoneObject {
   // Make sure this scope and all outer scopes are eagerly compiled.
   void ForceEagerCompilation()  { force_eager_compilation_ = true; }
 
+  // Determine if we can parse a function literal in this scope lazily.
+  bool AllowsLazyParsing() const;
+
   // Determine if we can use lazy compilation for this scope.
   bool AllowsLazyCompilation() const;
 
@@ -478,9 +477,6 @@ class Scope: public ZoneObject {
 
   // True if the outer context of this scope is always the native context.
   bool HasTrivialOuterContext() const;
-
-  // True if the outer context allows lazy compilation of this scope.
-  bool HasLazyCompilableOuterContext() const;
 
   // The number of contexts between this and scope; zero if this == scope.
   int ContextChainLength(Scope* scope);
@@ -544,8 +540,6 @@ class Scope: public ZoneObject {
 
   // The scope type.
   ScopeType scope_type_;
-  // Some block scopes are tagged as class scopes.
-  bool block_scope_is_class_scope_;
   // If the scope is a function scope, this is the function kind.
   FunctionKind function_kind_;
 
@@ -626,6 +620,7 @@ class Scope: public ZoneObject {
   // Computed via AllocateVariables; function, block and catch scopes only.
   int num_stack_slots_;
   int num_heap_slots_;
+  int num_global_slots_;
 
   // The number of modules (including nested ones).
   int num_modules_;
@@ -722,7 +717,8 @@ class Scope: public ZoneObject {
   void AllocateHeapSlot(Variable* var);
   void AllocateParameterLocals(Isolate* isolate);
   void AllocateNonParameterLocal(Isolate* isolate, Variable* var);
-  void AllocateNonParameterLocals(Isolate* isolate);
+  void AllocateDeclaredGlobal(Isolate* isolate, Variable* var);
+  void AllocateNonParameterLocalsAndDeclaredGlobals(Isolate* isolate);
   void AllocateVariablesRecursively(Isolate* isolate);
   void AllocateParameter(Variable* var, int index);
   void AllocateReceiver();

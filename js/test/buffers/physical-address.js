@@ -19,7 +19,7 @@ var resources = require('../../core/resources');
 
 test('buffer crosses page boundary', function(t) {
   // allocate on page boundary
-  var buf = resources.memoryRange.block(0x800000 - 12, 24).buffer();
+  var buf = resources.memoryRange.block(0x3200000 - 12, 24).buffer();
   var u8 = new Uint8Array(buf);
   for (var i = 0; i < u8.length; i++) {
     u8[i] = i;
@@ -36,7 +36,7 @@ test('buffer crosses page boundary', function(t) {
 });
 
 test('buffer does not cross page boundary', function(t) {
-  var buf = resources.memoryRange.block(0x800000, 24).buffer();
+  var buf = resources.memoryRange.block(0x3200000, 24).buffer();
   var u8 = new Uint8Array(buf);
   for (var i = 0; i < u8.length; i++) {
     u8[i] = i;

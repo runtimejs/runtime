@@ -538,13 +538,6 @@ void CodeGenerator::AssembleDeconstructActivationRecord() {
   if (descriptor->IsJSFunctionCall() || stack_slots > 0) {
     __ movq(rsp, rbp);
     __ popq(rbp);
-    int32_t bytes_to_pop =
-        descriptor->IsJSFunctionCall()
-            ? static_cast<int32_t>(descriptor->JSParameterCount() *
-                                   kPointerSize)
-            : 0;
-    __ popq(Operand(rsp, bytes_to_pop));
-    __ addq(rsp, Immediate(bytes_to_pop));
   }
 }
 
@@ -1469,14 +1462,31 @@ void CodeGenerator::AssemblePrologue() {
   if (descriptor->kind() == CallDescriptor::kCallAddress) {
     __ pushq(rbp);
     __ movq(rbp, rsp);
+    int register_save_area_size = 0;
     const RegList saves = descriptor->CalleeSavedRegisters();
     if (saves != 0) {  // Save callee-saved registers.
-      int register_save_area_size = 0;
       for (int i = Register::kNumRegisters - 1; i >= 0; i--) {
         if (!((1 << i) & saves)) continue;
         __ pushq(Register::from_code(i));
         register_save_area_size += kPointerSize;
       }
+    }
+    const RegList saves_fp = descriptor->CalleeSavedFPRegisters();
+    if (saves_fp != 0) {  // Save callee-saved XMM registers.
+      const uint32_t saves_fp_count = base::bits::CountPopulation32(saves_fp);
+      const int stack_size = saves_fp_count * 16;
+      // Adjust the stack pointer.
+      __ subp(rsp, Immediate(stack_size));
+      // Store the registers on the stack.
+      int slot_idx = 0;
+      for (int i = 0; i < XMMRegister::kMaxNumRegisters; i++) {
+        if (!((1 << i) & saves_fp)) continue;
+        __ movdqu(Operand(rsp, 16 * slot_idx), XMMRegister::from_code(i));
+        slot_idx++;
+      }
+      register_save_area_size += stack_size;
+    }
+    if (register_save_area_size > 0) {
       frame()->SetRegisterSaveAreaSize(register_save_area_size);
     }
   } else if (descriptor->IsJSFunctionCall()) {
@@ -1521,8 +1531,22 @@ void CodeGenerator::AssembleReturn() {
       if (stack_slots > 0) {
         __ addq(rsp, Immediate(stack_slots * kPointerSize));
       }
-      const RegList saves = descriptor->CalleeSavedRegisters();
       // Restore registers.
+      const RegList saves_fp = descriptor->CalleeSavedFPRegisters();
+      if (saves_fp != 0) {
+        const uint32_t saves_fp_count = base::bits::CountPopulation32(saves_fp);
+        const int stack_size = saves_fp_count * 16;
+        // Load the registers from the stack.
+        int slot_idx = 0;
+        for (int i = 0; i < XMMRegister::kMaxNumRegisters; i++) {
+          if (!((1 << i) & saves_fp)) continue;
+          __ movdqu(XMMRegister::from_code(i), Operand(rsp, 16 * slot_idx));
+          slot_idx++;
+        }
+        // Adjust the stack pointer.
+        __ addp(rsp, Immediate(stack_size));
+      }
+      const RegList saves = descriptor->CalleeSavedRegisters();
       if (saves != 0) {
         for (int i = 0; i < Register::kNumRegisters; i++) {
           if (!((1 << i) & saves)) continue;
@@ -1547,11 +1571,17 @@ void CodeGenerator::AssembleReturn() {
       __ popq(rbp);       // Pop caller's frame pointer.
       int pop_count = descriptor->IsJSFunctionCall()
                           ? static_cast<int>(descriptor->JSParameterCount())
-                          : 0;
-      __ Ret(pop_count * kPointerSize, rbx);
+                          : (info()->IsStub()
+                                 ? info()->code_stub()->GetStackParameterCount()
+                                 : 0);
+      if (pop_count == 0) {
+        __ Ret();
+      } else {
+        __ Ret(pop_count * kPointerSize, rbx);
+      }
     }
   } else {
-    __ ret(0);
+    __ Ret();
   }
 }
 

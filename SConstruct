@@ -56,6 +56,8 @@ config = {
             '-DENABLE_DISASSEMBLER',
             '-DV8_HOST_ARCH_X64',
             '-DV8_TARGET_ARCH_X64',
+            # '-DV8_DEPRECATION_WARNINGS',
+            # '-DV8_IMMINENT_DEPRECATION_WARNINGS',
             # '-DVERIFY_HEAP',
             # '-DDEBUG',
             # '-DOBJECT_PRINT',

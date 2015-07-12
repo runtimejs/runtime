@@ -112,17 +112,17 @@ void HydrogenCodeStub::GenerateLightweightMiss(MacroAssembler* masm,
   isolate()->counters()->code_stubs()->Increment();
 
   CallInterfaceDescriptor descriptor = GetCallInterfaceDescriptor();
-  int param_count = descriptor.GetEnvironmentParameterCount();
+  int param_count = descriptor.GetRegisterParameterCount();
   {
     // Call the runtime system in a fresh internal frame.
     FrameScope scope(masm, StackFrame::INTERNAL);
     DCHECK(param_count == 0 ||
-           a0.is(descriptor.GetEnvironmentParameterRegister(param_count - 1)));
+           a0.is(descriptor.GetRegisterParameter(param_count - 1)));
     // Push arguments, adjust sp.
     __ Subu(sp, sp, Operand(param_count * kPointerSize));
     for (int i = 0; i < param_count; ++i) {
       // Store argument to stack.
-      __ sw(descriptor.GetEnvironmentParameterRegister(i),
+      __ sw(descriptor.GetRegisterParameter(i),
             MemOperand(sp, (param_count - 1 - i) * kPointerSize));
     }
     __ CallExternalReference(miss, param_count);
@@ -1779,7 +1779,7 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   const int kNormalOffset =
       Context::SlotOffset(Context::SLOPPY_ARGUMENTS_MAP_INDEX);
   const int kAliasedOffset =
-      Context::SlotOffset(Context::ALIASED_ARGUMENTS_MAP_INDEX);
+      Context::SlotOffset(Context::FAST_ALIASED_ARGUMENTS_MAP_INDEX);
 
   __ lw(t0, MemOperand(cp, Context::SlotOffset(Context::GLOBAL_OBJECT_INDEX)));
   __ lw(t0, FieldMemOperand(t0, GlobalObject::kNativeContextOffset));
@@ -4600,7 +4600,7 @@ void LoadICTrampolineStub::Generate(MacroAssembler* masm) {
 
 void KeyedLoadICTrampolineStub::Generate(MacroAssembler* masm) {
   EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
-  KeyedLoadICStub stub(isolate());
+  KeyedLoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
@@ -4813,7 +4813,7 @@ void KeyedLoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
   __ LoadRoot(at, Heap::kmegamorphic_symbolRootIndex);
   __ Branch(&try_poly_name, ne, at, Operand(feedback));
   Handle<Code> megamorphic_stub =
-      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate());
+      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate(), GetExtraICState());
   __ Jump(megamorphic_stub, RelocInfo::CODE_TARGET);
 
   __ bind(&try_poly_name);

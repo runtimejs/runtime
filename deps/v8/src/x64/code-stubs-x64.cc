@@ -98,15 +98,15 @@ void HydrogenCodeStub::GenerateLightweightMiss(MacroAssembler* masm,
   isolate()->counters()->code_stubs()->Increment();
 
   CallInterfaceDescriptor descriptor = GetCallInterfaceDescriptor();
-  int param_count = descriptor.GetEnvironmentParameterCount();
+  int param_count = descriptor.GetRegisterParameterCount();
   {
     // Call the runtime system in a fresh internal frame.
     FrameScope scope(masm, StackFrame::INTERNAL);
     DCHECK(param_count == 0 ||
-           rax.is(descriptor.GetEnvironmentParameterRegister(param_count - 1)));
+           rax.is(descriptor.GetRegisterParameter(param_count - 1)));
     // Push arguments
     for (int i = 0; i < param_count; ++i) {
-      __ Push(descriptor.GetEnvironmentParameterRegister(i));
+      __ Push(descriptor.GetRegisterParameter(i));
     }
     __ CallExternalReference(miss, param_count);
   }
@@ -674,7 +674,7 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   __ movp(rdi, Operand(rdi, Context::SlotOffset(kIndex)));
   __ jmp(&instantiate, Label::kNear);
 
-  const int kAliasedIndex = Context::ALIASED_ARGUMENTS_MAP_INDEX;
+  const int kAliasedIndex = Context::FAST_ALIASED_ARGUMENTS_MAP_INDEX;
   __ bind(&has_mapped_parameters);
   __ movp(rdi, Operand(rdi, Context::SlotOffset(kAliasedIndex)));
   __ bind(&instantiate);
@@ -4372,7 +4372,7 @@ void LoadICTrampolineStub::Generate(MacroAssembler* masm) {
 
 void KeyedLoadICTrampolineStub::Generate(MacroAssembler* masm) {
   EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
-  KeyedLoadICStub stub(isolate());
+  KeyedLoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
@@ -4551,7 +4551,7 @@ void KeyedLoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
   __ CompareRoot(feedback, Heap::kmegamorphic_symbolRootIndex);
   __ j(not_equal, &try_poly_name);
   Handle<Code> megamorphic_stub =
-      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate());
+      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate(), GetExtraICState());
   __ jmp(megamorphic_stub, RelocInfo::CODE_TARGET);
 
   __ bind(&try_poly_name);

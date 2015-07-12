@@ -49,8 +49,8 @@ public:
     DECLARE_NATIVE(Debug);
     DECLARE_NATIVE(StopVideoLog);
     DECLARE_NATIVE(BufferAddress);
-    DECLARE_NATIVE(NetChecksum);
-    DECLARE_NATIVE(BufferSliceInplace);
+    DECLARE_NATIVE(MemoryInfo);
+    DECLARE_NATIVE(TakeHeapSnapshot);
 
     /**
      * Memory barriers
@@ -94,17 +94,6 @@ public:
     DECLARE_NATIVE(SystemInfo);
 
     /**
-     * Convert JavaScript value converted to string to
-     * UTF-8 encoded ArrayBuffer
-     */
-    DECLARE_NATIVE(ToBuffer);
-
-    /**
-     * Reinterpret ArrayBuffer as UTF-8 string
-     */
-    DECLARE_NATIVE(BufferToString);
-
-    /**
      * Create new handle pool
      */
     DECLARE_NATIVE(HandlePoolCtorFunction);
@@ -129,7 +118,6 @@ public:
         obj.SetCallback("bufferAddress", BufferAddress);
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
-        obj.SetCallback("netChecksum", NetChecksum);
     }
 
     JsObjectWrapperBase* Clone() const {

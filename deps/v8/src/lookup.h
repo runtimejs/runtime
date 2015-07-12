@@ -216,6 +216,7 @@ class LookupIterator final BASE_EMBEDDED {
   void ApplyTransitionToDataProperty();
   void ReconfigureDataProperty(Handle<Object> value,
                                PropertyAttributes attributes);
+  void Delete();
   void TransitionToAccessorProperty(AccessorComponent component,
                                     Handle<Object> accessor,
                                     PropertyAttributes attributes);
@@ -259,11 +260,9 @@ class LookupIterator final BASE_EMBEDDED {
   bool InternalHolderIsReceiverOrHiddenPrototype() const;
   InterceptorInfo* GetInterceptor(JSObject* holder) const;
 
-  bool IsBootstrapping() const;
-
   bool check_hidden() const { return (configuration_ & kHidden) != 0; }
   bool check_interceptor() const {
-    return !IsBootstrapping() && (configuration_ & kInterceptor) != 0;
+    return (configuration_ & kInterceptor) != 0;
   }
   bool check_prototype_chain() const {
     return (configuration_ & kPrototypeChain) != 0;

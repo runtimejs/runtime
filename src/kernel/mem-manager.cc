@@ -78,10 +78,11 @@ void MemManager::PageFault(void* fault_address, uint64_t error_code) {
 }
 
 MallocAllocator::MallocAllocator()
-    :	default_mspace_(nullptr),
+    :   default_mspace_(nullptr),
         enter_callback_(nullptr),
         exit_callback_(nullptr),
-        callback_param_(nullptr) {}
+        callback_param_(nullptr),
+        allocation_tracker_(nullptr) {}
 
 void MallocAllocator::InitCpu() {}
 
@@ -93,7 +94,7 @@ void MallocAllocator::InitOnce() {
     size_t cap = GLOBAL_mem_manager()->virtual_allocator().GetSpaceSize();
 
     RT_ASSERT(s);
-    RT_ASSERT(cap > 1 * Constants::GiB);
+    RT_ASSERT(cap >= 1 * Constants::GiB);
 
     RT_ASSERT(nullptr == default_mspace_);
     default_mspace_ = create_mspace_with_base(s, cap, 0);

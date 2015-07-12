@@ -28,6 +28,7 @@ stream.on('data', function (v) {
 stream.on('end', shutdown);
 
 require('./buffers');
+require('./platform');
 require('./timers');
 require('./virtio');
 require('./net');

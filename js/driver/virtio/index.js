@@ -25,7 +25,7 @@ var driver = {
       return virtioNet(pciDevice);
     }
 
-    debug('[virtio] unknown virtio device');
+    debug(`[virtio] unknown virtio device (subsystem id ${subsystemId})`);
   },
   reset: function(pciDevice) {}
 };

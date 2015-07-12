@@ -467,7 +467,7 @@ TEST_F(JSTypedLoweringTest, JSShiftLeftWithSigned32AndConstant) {
           context, EmptyFrameState(), EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
-                  IsWord32Shl(lhs, IsNumberConstant(BitEq(rhs))));
+                  IsNumberShiftLeft(lhs, IsNumberConstant(BitEq(rhs))));
     }
   }
 }
@@ -484,8 +484,7 @@ TEST_F(JSTypedLoweringTest, JSShiftLeftWithSigned32AndUnsigned32) {
         javascript()->ShiftLeft(language_mode), lhs, rhs, context,
         EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsWord32Shl(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
+    EXPECT_THAT(r.replacement(), IsNumberShiftLeft(lhs, rhs));
   }
 }
 
@@ -506,7 +505,7 @@ TEST_F(JSTypedLoweringTest, JSShiftRightWithSigned32AndConstant) {
           context, EmptyFrameState(), EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
-                  IsWord32Sar(lhs, IsNumberConstant(BitEq(rhs))));
+                  IsNumberShiftRight(lhs, IsNumberConstant(BitEq(rhs))));
     }
   }
 }
@@ -523,8 +522,7 @@ TEST_F(JSTypedLoweringTest, JSShiftRightWithSigned32AndUnsigned32) {
         javascript()->ShiftRight(language_mode), lhs, rhs, context,
         EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsWord32Sar(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
+    EXPECT_THAT(r.replacement(), IsNumberShiftRight(lhs, rhs));
   }
 }
 
@@ -547,7 +545,7 @@ TEST_F(JSTypedLoweringTest,
                            EmptyFrameState(), effect, control));
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(),
-                  IsWord32Shr(lhs, IsNumberConstant(BitEq(rhs))));
+                  IsNumberShiftRightLogical(lhs, IsNumberConstant(BitEq(rhs))));
     }
   }
 }
@@ -565,8 +563,7 @@ TEST_F(JSTypedLoweringTest,
         javascript()->ShiftRightLogical(language_mode), lhs, rhs, context,
         EmptyFrameState(), EmptyFrameState(), effect, control));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsWord32Shr(lhs, IsWord32And(rhs, IsInt32Constant(0x1f))));
+    EXPECT_THAT(r.replacement(), IsNumberShiftRightLogical(lhs, rhs));
   }
 }
 
@@ -650,34 +647,37 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArray) {
       NewArrayBuffer(backing_store, sizeof(backing_store));
   VectorSlotPair feedback;
   TRACED_FOREACH(ExternalArrayType, type, kExternalArrayTypes) {
-    Handle<JSTypedArray> array =
-        factory()->NewJSTypedArray(type, buffer, 0, kLength);
-    int const element_size = static_cast<int>(array->element_size());
+    TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
+      Handle<JSTypedArray> array =
+          factory()->NewJSTypedArray(type, buffer, 0, kLength);
+      int const element_size = static_cast<int>(array->element_size());
 
-    Node* key = Parameter(
-        Type::Range(kMinInt / element_size, kMaxInt / element_size, zone()));
-    Node* base = HeapConstant(array);
-    Node* vector = UndefinedConstant();
-    Node* context = UndefinedConstant();
-    Node* effect = graph()->start();
-    Node* control = graph()->start();
-    Reduction r = Reduce(graph()->NewNode(
-        javascript()->LoadProperty(feedback), base, key, vector, context,
-        EmptyFrameState(), EmptyFrameState(), effect, control));
+      Node* key = Parameter(
+          Type::Range(kMinInt / element_size, kMaxInt / element_size, zone()));
+      Node* base = HeapConstant(array);
+      Node* vector = UndefinedConstant();
+      Node* context = UndefinedConstant();
+      Node* effect = graph()->start();
+      Node* control = graph()->start();
+      Reduction r = Reduce(
+          graph()->NewNode(javascript()->LoadProperty(feedback, language_mode),
+                           base, key, vector, context, EmptyFrameState(),
+                           EmptyFrameState(), effect, control));
 
-    Matcher<Node*> offset_matcher =
-        element_size == 1
-            ? key
-            : IsWord32Shl(key, IsInt32Constant(WhichPowerOf2(element_size)));
+      Matcher<Node*> offset_matcher =
+          element_size == 1
+              ? key
+              : IsWord32Shl(key, IsInt32Constant(WhichPowerOf2(element_size)));
 
-    ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(
-        r.replacement(),
-        IsLoadBuffer(BufferAccess(type),
-                     IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
-                     offset_matcher,
-                     IsNumberConstant(array->byte_length()->Number()), effect,
-                     control));
+      ASSERT_TRUE(r.Changed());
+      EXPECT_THAT(
+          r.replacement(),
+          IsLoadBuffer(BufferAccess(type),
+                       IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
+                       offset_matcher,
+                       IsNumberConstant(array->byte_length()->Number()), effect,
+                       control));
+    }
   }
 }
 
@@ -689,29 +689,32 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArrayWithSafeKey) {
       NewArrayBuffer(backing_store, sizeof(backing_store));
   VectorSlotPair feedback;
   TRACED_FOREACH(ExternalArrayType, type, kExternalArrayTypes) {
-    Handle<JSTypedArray> array =
-        factory()->NewJSTypedArray(type, buffer, 0, kLength);
-    ElementAccess access = AccessBuilder::ForTypedArrayElement(type, true);
+    TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
+      Handle<JSTypedArray> array =
+          factory()->NewJSTypedArray(type, buffer, 0, kLength);
+      ElementAccess access = AccessBuilder::ForTypedArrayElement(type, true);
 
-    int min = random_number_generator()->NextInt(static_cast<int>(kLength));
-    int max = random_number_generator()->NextInt(static_cast<int>(kLength));
-    if (min > max) std::swap(min, max);
-    Node* key = Parameter(Type::Range(min, max, zone()));
-    Node* base = HeapConstant(array);
-    Node* vector = UndefinedConstant();
-    Node* context = UndefinedConstant();
-    Node* effect = graph()->start();
-    Node* control = graph()->start();
-    Reduction r = Reduce(graph()->NewNode(
-        javascript()->LoadProperty(feedback), base, key, vector, context,
-        EmptyFrameState(), EmptyFrameState(), effect, control));
+      int min = random_number_generator()->NextInt(static_cast<int>(kLength));
+      int max = random_number_generator()->NextInt(static_cast<int>(kLength));
+      if (min > max) std::swap(min, max);
+      Node* key = Parameter(Type::Range(min, max, zone()));
+      Node* base = HeapConstant(array);
+      Node* vector = UndefinedConstant();
+      Node* context = UndefinedConstant();
+      Node* effect = graph()->start();
+      Node* control = graph()->start();
+      Reduction r = Reduce(
+          graph()->NewNode(javascript()->LoadProperty(feedback, language_mode),
+                           base, key, vector, context, EmptyFrameState(),
+                           EmptyFrameState(), effect, control));
 
-    ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(
-        r.replacement(),
-        IsLoadElement(access,
-                      IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
-                      key, effect, control));
+      ASSERT_TRUE(r.Changed());
+      EXPECT_THAT(
+          r.replacement(),
+          IsLoadElement(access,
+                        IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
+                        key, effect, control));
+    }
   }
 }
 

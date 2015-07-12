@@ -106,15 +106,15 @@ void HydrogenCodeStub::GenerateLightweightMiss(MacroAssembler* masm,
   isolate()->counters()->code_stubs()->Increment();
 
   CallInterfaceDescriptor descriptor = GetCallInterfaceDescriptor();
-  int param_count = descriptor.GetEnvironmentParameterCount();
+  int param_count = descriptor.GetRegisterParameterCount();
   {
     // Call the runtime system in a fresh internal frame.
     FrameScope scope(masm, StackFrame::INTERNAL);
     DCHECK(param_count == 0 ||
-           eax.is(descriptor.GetEnvironmentParameterRegister(param_count - 1)));
+           eax.is(descriptor.GetRegisterParameter(param_count - 1)));
     // Push arguments
     for (int i = 0; i < param_count; ++i) {
-      __ push(descriptor.GetEnvironmentParameterRegister(i));
+      __ push(descriptor.GetRegisterParameter(i));
     }
     __ CallExternalReference(miss, param_count);
   }
@@ -414,7 +414,6 @@ void LoadIndexedStringStub::Generate(MacroAssembler* masm) {
 
 
 void ArgumentsAccessStub::GenerateReadElement(MacroAssembler* masm) {
-  CHECK(!has_new_target());
   // The key is in edx and the parameter count is in eax.
   DCHECK(edx.is(ArgumentsAccessReadDescriptor::index()));
   DCHECK(eax.is(ArgumentsAccessReadDescriptor::parameter_count()));
@@ -481,8 +480,6 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   // esp[8] : receiver displacement
   // esp[12] : function
 
-  CHECK(!has_new_target());
-
   // Check if the calling frame is an arguments adaptor frame.
   Label runtime;
   __ mov(edx, Operand(ebp, StandardFrameConstants::kCallerFPOffset));
@@ -510,8 +507,6 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   // ebx = parameter count (tagged)
   __ mov(ebx, Operand(esp, 1 * kPointerSize));
-
-  CHECK(!has_new_target());
 
   // Check if the calling frame is an arguments adaptor frame.
   // TODO(rossberg): Factor out some of the bits that are shared with the other
@@ -585,9 +580,8 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   __ jmp(&instantiate, Label::kNear);
 
   __ bind(&has_mapped_parameters);
-  __ mov(
-      edi,
-      Operand(edi, Context::SlotOffset(Context::ALIASED_ARGUMENTS_MAP_INDEX)));
+  __ mov(edi, Operand(edi, Context::SlotOffset(
+                               Context::FAST_ALIASED_ARGUMENTS_MAP_INDEX)));
   __ bind(&instantiate);
 
   // eax = address of new object (tagged)
@@ -752,18 +746,6 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   // Patch the arguments.length and the parameters pointer.
   __ bind(&adaptor_frame);
   __ mov(ecx, Operand(edx, ArgumentsAdaptorFrameConstants::kLengthOffset));
-
-  if (has_new_target()) {
-    // If the constructor was [[Call]]ed, the call will not push a new.target
-    // onto the stack. In that case the arguments array we construct is bogus,
-    // bu we do not care as the constructor throws immediately.
-    __ cmp(ecx, Immediate(Smi::FromInt(0)));
-    Label skip_decrement;
-    __ j(equal, &skip_decrement);
-    // Subtract 1 from smi-tagged arguments count.
-    __ sub(ecx, Immediate(2));
-    __ bind(&skip_decrement);
-  }
 
   __ lea(edx, Operand(edx, ecx, times_2,
                       StandardFrameConstants::kCallerSPOffset));
@@ -1951,6 +1933,11 @@ void CallIC_ArrayStub::Generate(MacroAssembler* masm) {
          factory->allocation_site_map());
   __ j(not_equal, &miss);
 
+  // Increment the call count for monomorphic function calls.
+  __ add(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
+
   __ mov(ebx, ecx);
   __ mov(edx, edi);
   ArrayConstructorStub stub(masm->isolate(), arg_count());
@@ -2009,6 +1996,11 @@ void CallICStub::Generate(MacroAssembler* masm) {
   // The compare above could have been a SMI/SMI comparison. Guard against this
   // convincing us that we have a monomorphic JSFunction.
   __ JumpIfSmi(edi, &extra_checks_or_miss);
+
+  // Increment the call count for monomorphic function calls.
+  __ add(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
 
   __ bind(&have_js_function);
   if (CallAsMethod()) {
@@ -2080,6 +2072,11 @@ void CallICStub::Generate(MacroAssembler* masm) {
 
   // Update stats.
   __ add(FieldOperand(ebx, with_types_offset), Immediate(Smi::FromInt(1)));
+
+  // Initialize the call counter.
+  __ mov(FieldOperand(ebx, edx, times_half_pointer_size,
+                      FixedArray::kHeaderSize + kPointerSize),
+         Immediate(Smi::FromInt(CallICNexus::kCallCountIncrement)));
 
   // Store the function. Use a stub since we need a frame for allocation.
   // ebx - vector
@@ -4090,7 +4087,7 @@ void LoadICTrampolineStub::Generate(MacroAssembler* masm) {
 
 void KeyedLoadICTrampolineStub::Generate(MacroAssembler* masm) {
   EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
-  KeyedLoadICStub stub(isolate());
+  KeyedLoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
@@ -4294,7 +4291,7 @@ void KeyedLoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
   __ CompareRoot(feedback, Heap::kmegamorphic_symbolRootIndex);
   __ j(not_equal, &try_poly_name);
   Handle<Code> megamorphic_stub =
-      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate());
+      KeyedLoadIC::ChooseMegamorphicStub(masm->isolate(), GetExtraICState());
   __ jmp(megamorphic_stub, RelocInfo::CODE_TARGET);
 
   __ bind(&try_poly_name);

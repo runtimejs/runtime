@@ -35,6 +35,13 @@ class ThreadManager;
 class Interface;
 class EngineThread;
 
+class MallocArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+public:
+    virtual void* Allocate(size_t length);
+    virtual void* AllocateUninitialized(size_t length);
+    virtual void Free(void* data, size_t length);
+};
+
 class FunctionExportData {
 public:
     FunctionExportData(v8::Isolate* iv8, v8::Local<v8::Value> fn, size_t export_id)
@@ -343,6 +350,7 @@ public:
 private:
     ThreadManager* thread_mgr_;
     ThreadType type_;
+    MallocArrayBufferAllocator ab_allocator_;
     v8::Isolate* iv8_;
     TemplateCache* tpl_cache_;
 

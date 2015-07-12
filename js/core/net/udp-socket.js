@@ -16,13 +16,13 @@
 var assertError = require('assert-error');
 var IP4Address = require('./ip4-address');
 var portUtils = require('./port-utils');
-var PortPool = require('./port-pool');
+var PortAllocator = require('./port-allocator');
 var udpTransmit = require('./udp-transmit');
 var netError = require('./net-error');
 var typeutils = require('typeutils');
 var route = require('./route');
 
-var ports = new PortPool();
+var ports = new PortAllocator();
 
 class UDPSocket {
   constructor(protocol) {
@@ -56,7 +56,7 @@ class UDPSocket {
     }
 
     if (!this._port) {
-      this._port = ports.getEphemeral(this);
+      this._port = ports.allocEphemeral(this);
       if (!this._port) {
         throw netError.E_NO_FREE_PORT;
       }
@@ -68,7 +68,7 @@ class UDPSocket {
   bind(port) {
     assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
 
-    if (!ports.alloc(port, this)) {
+    if (!ports.allocPort(port, this)) {
       throw netError.E_ADDRESS_IN_USE;
     }
 
@@ -87,7 +87,7 @@ class UDPSocket {
   }
 
   static lookupReceive(destPort) {
-    return ports.get(destPort) || null;
+    return ports.lookup(destPort);
   }
 }
 

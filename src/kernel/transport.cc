@@ -17,7 +17,7 @@
 #include <kernel/object-wrapper.h>
 #include <kernel/thread.h>
 #include <kernel/native-object.h>
-#include <kernel/arraybuffer.h>
+#include <kernel/thread-manager.h>
 
 namespace rt {
 
@@ -92,7 +92,7 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     }
 
     if (value->IsBoolean()) {
-        AppendType(value->BooleanValue() ? Type::BOOL_TRUE : Type::BOOL_FALSE);
+        AppendType(value.As<v8::Boolean>()->Value() ? Type::BOOL_TRUE : Type::BOOL_FALSE);
         return SerializeError::NONE;
     }
 
@@ -107,14 +107,10 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
             return SerializeError::EMPTY_BUFFER;
         }
 
-        auto ab = ArrayBuffer::FromInstance(iv8, b);
-        stream_.AppendValue<void*>(ab->data());
-        stream_.AppendValue<size_t>(ab->size());
-
-        // Make sure ArrayBuffer wrapper instance is aware
-        // that buffer is neutered here
-        ab->Neuter();
-        RT_ASSERT(0 == ab->size());
+        auto contents = b->GetContents();
+        stream_.AppendValue<void*>(contents.Data());
+        stream_.AppendValue<size_t>(contents.ByteLength());
+        b->Neuter();
         RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
@@ -140,9 +136,9 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         else return SerializeError::TYPEDARRAY_VIEW;
 
         // Put ArrayBuffer itself
-        auto ab = ArrayBuffer::FromInstance(iv8, b);
-        stream_.AppendValue<void*>(ab->data());
-        stream_.AppendValue<size_t>(ab->size());
+        auto contents = b->GetContents();
+        stream_.AppendValue<void*>(contents.Data());
+        stream_.AppendValue<size_t>(contents.ByteLength());
 
         // Put view data
         stream_.AppendValue<size_t>(view->ByteOffset());
@@ -150,27 +146,26 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
 
         // Make sure ArrayBuffer wrapper instance is aware
         // that buffer is neutered here
-        ab->Neuter();
-        RT_ASSERT(0 == ab->size());
+        b->Neuter();
         RT_ASSERT(0 == b->ByteLength());
         return SerializeError::NONE;
     }
 
     if (value->IsInt32()) {
         AppendType(Type::INT32);
-        stream_.AppendValue<int32_t>(value->Int32Value());
+        stream_.AppendValue<int32_t>(value.As<v8::Int32>()->Value());
         return SerializeError::NONE;
     }
 
     if (value->IsUint32()) {
         AppendType(Type::UINT32);
-        stream_.AppendValue<uint32_t>(value->Uint32Value());
+        stream_.AppendValue<uint32_t>(value.As<v8::Uint32>()->Value());
         return SerializeError::NONE;
     }
 
     if (value->IsNumber()) {
         AppendType(Type::DOUBLE);
-        stream_.AppendValue<double>(value->NumberValue());
+        stream_.AppendValue<double>(value.As<v8::Number>()->Value());
         return SerializeError::NONE;
     }
 
@@ -181,11 +176,13 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
 
     if (value->IsArray()) {
         AppendType(Type::ARRAY);
+        v8::Isolate* iv8 { exporter->IsolateV8() };
+        v8::Local<v8::Context> context = iv8->GetCurrentContext();
         v8::Local<v8::Array> a { v8::Local<v8::Array>::Cast(value) };
         stream_.AppendValue<uint32_t>(a->Length());
 
         for (uint32_t i = 0; i < a->Length(); ++i) {
-            SerializeError err { SerializeValue(exporter, a->Get(i), stack_level + 1) };
+            SerializeError err { SerializeValue(exporter, a->Get(context, i).ToLocalChecked(), stack_level + 1) };
             if (SerializeError::NONE != err) {
                 return err;
             }
@@ -206,9 +203,10 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         RT_ASSERT(exporter->IsolateV8());
         AppendType(Type::ERROR_OBJ);
         v8::Isolate* iv8 { exporter->IsolateV8() };
+        v8::Local<v8::Context> context = iv8->GetCurrentContext();
         LOCAL_V8STRING(s_message, "message");
-        v8::Local<v8::Object> obj { value->ToObject() };
-        v8::Local<v8::Value> msg { obj->Get(s_message) };
+        v8::Local<v8::Object> obj { value->ToObject(context).ToLocalChecked() };
+        v8::Local<v8::Value> msg { obj->Get(context, s_message).ToLocalChecked() };
         if (!msg->IsString()) {
             LOCAL_V8STRING(s_no_message, "<no error message>");
             AppendString(s_no_message);
@@ -222,8 +220,10 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
     if (value->IsObject()) {
         RT_ASSERT(exporter);
         RT_ASSERT(exporter->template_cache());
+        v8::Isolate* iv8 { exporter->IsolateV8() };
+        v8::Local<v8::Context> context = iv8->GetCurrentContext();
 
-        v8::Local<v8::Object> obj { value->ToObject() };
+        v8::Local<v8::Object> obj { value->ToObject(context).ToLocalChecked() };
         NativeObjectWrapper* ptr { exporter->template_cache()->GetWrapped(value) };
 
         // If current object is wrapped native
@@ -252,17 +252,17 @@ TransportData::SerializeError TransportData::SerializeValue(Thread* exporter,
         }
 
         AppendType(Type::HASHMAP);
-        v8::Local<v8::Array> a { obj->GetOwnPropertyNames() };
+        v8::Local<v8::Array> a { obj->GetOwnPropertyNames(context).ToLocalChecked() };
         stream_.AppendValue<uint32_t>(a->Length());
         for (uint32_t i = 0; i < a->Length(); ++i) {
-            v8::Local<v8::Value> k { a->Get(i) };
+            v8::Local<v8::Value> k { a->Get(context, i).ToLocalChecked() };
             {	SerializeError err { SerializeValue(exporter, k, stack_level + 1) };
                 if (SerializeError::NONE != err) {
                     return err;
                 }
             }
 
-            {	SerializeError err { SerializeValue(exporter, obj->Get(k), stack_level + 1) };
+            {	SerializeError err { SerializeValue(exporter, obj->Get(context, k).ToLocalChecked(), stack_level + 1) };
                 if (SerializeError::NONE != err) {
                     return err;
                 }
@@ -291,12 +291,13 @@ v8::Local<v8::Value> TransportData::Unpack(Thread* thread) const {
     size_t len = reader.ReadValue<size_t>();                            \
     size_t byte_offset = reader.ReadValue<size_t>();                    \
     size_t byte_length = reader.ReadValue<size_t>();                    \
-    auto buffer = ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance()
+    auto buffer = v8::ArrayBuffer::New(iv8, buf, len, v8::ArrayBufferCreationMode::kInternalized)
 
 v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader& reader) const {
     RT_ASSERT(thread);
     RuntimeStateScope<RuntimeState::TRANSPORT_DESERIALIZER> td_state(thread->thread_manager());
     v8::Isolate* iv8 { thread->IsolateV8() };
+    v8::Local<v8::Context> context = iv8->GetCurrentContext();
     RT_ASSERT(iv8);
 
     v8::EscapableHandleScope scope(iv8);
@@ -311,13 +312,13 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         uint32_t len = reader.ReadValue<uint32_t>();
         return scope.Escape(v8::String::NewFromUtf8(iv8,
             reinterpret_cast<const char*>(reader.ReadBuffer(len + 1)),
-            v8::String::kNormalString, len));
+            v8::NewStringType::kNormal, len).ToLocalChecked());
     }
     case Type::STRING_16: {
         uint32_t len = reader.ReadValue<uint32_t>();
         return scope.Escape(v8::String::NewFromTwoByte(iv8,
             reinterpret_cast<const uint16_t*>(reader.ReadBuffer((len + 1) * sizeof(uint16_t))),
-            v8::String::kNormalString, len));
+            v8::NewStringType::kNormal, len).ToLocalChecked());
     }
     case Type::INT32:
         return scope.Escape<v8::Primitive>(v8::Int32::New(iv8,
@@ -335,7 +336,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     case Type::ARRAYBUFFER: {
         void* buf = reader.ReadValue<void*>();
         size_t len = reader.ReadValue<size_t>();
-        return scope.Escape(ArrayBuffer::FromBuffer(iv8, buf, len)->GetInstance());
+        return scope.Escape(v8::ArrayBuffer::New(iv8, buf, len, v8::ArrayBufferCreationMode::kInternalized));
     }
     case Type::TYPEDARRAY_UINT8: {
         TYPEDARRAY_READ;
@@ -375,7 +376,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         uint32_t len = reader.ReadValue<uint32_t>();
         v8::Local<v8::Array> arr { v8::Array::New(iv8, len) };
         for (uint32_t i = 0; i < len; ++i) {
-            arr->Set(i, UnpackValue(thread, reader));
+            arr->Set(context, i, UnpackValue(thread, reader));
         }
         return scope.Escape(arr);
     }
@@ -385,7 +386,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         for (uint32_t i = 0; i < len; ++i) {
             v8::Local<v8::Value> k { UnpackValue(thread, reader) };
             v8::Local<v8::Value> v { UnpackValue(thread, reader) };
-            obj->Set(k, v);
+            obj->Set(context, k, v);
         }
         return scope.Escape(obj);
     }
@@ -406,10 +407,10 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     }
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };
-        return scope.Escape(v8::Exception::Error(v->ToString()));
+        return scope.Escape(v8::Exception::Error(v->ToString(context).ToLocalChecked()));
     }
     case Type::RESOURCES_FN: {
-        return scope.Escape(v8::Function::New(iv8, NativesObject::Resources));
+        return scope.Escape(v8::Function::New(context, NativesObject::Resources).ToLocalChecked());
     }
     default:
         RT_ASSERT(!"unknown data type");

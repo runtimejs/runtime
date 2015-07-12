@@ -229,8 +229,9 @@ class CallSite {
   T(StrongArity,                                                               \
     "In strong mode, calling a function with too few arguments is deprecated") \
   T(StrongDeleteProperty,                                                      \
-    "On strong object %, deletion of property % is deprecated")                \
-  T(StrongImplicitCast, "In strong mode, implicit conversions are deprecated") \
+    "Deleting property '%' of strong object '%' is deprecated")                \
+  T(StrongImplicitConversion,                                                  \
+    "In strong mode, implicit conversions are deprecated")                     \
   T(StrongRedefineDisallowed,                                                  \
     "On strong object %, redefining writable, non-configurable property '%' "  \
     "to be non-writable is deprecated")                                        \
@@ -258,7 +259,6 @@ class CallSite {
     "In strong mode, using an undeclared global variable '%' is not allowed")  \
   T(UnsupportedSuper, "Unsupported reference to 'super'")                      \
   /* RangeError */                                                             \
-  T(ArrayLengthOutOfRange, "defineProperty() array length out of range")       \
   T(DateRange, "Provided date is not in valid range.")                         \
   T(ExpectedLocation, "Expected Area/Location for time zone, got %")           \
   T(InvalidArrayBufferLength, "Invalid array buffer length")                   \
@@ -375,6 +375,8 @@ class CallSite {
     "instead")                                                                 \
   T(StrongForIn,                                                               \
     "In strong mode, 'for'-'in' loops are deprecated, use 'for'-'of' instead") \
+  T(StrongPropertyAccess,                                                      \
+    "In strong mode, accessing missing property '%' of % is deprecated")       \
   T(StrongSuperCallDuplicate,                                                  \
     "In strong mode, invoking the super constructor multiple times is "        \
     "deprecated")                                                              \

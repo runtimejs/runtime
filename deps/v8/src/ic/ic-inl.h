@@ -98,10 +98,11 @@ void IC::SetTargetAtAddress(Address address, Code* target,
 
   DCHECK(target->is_inline_cache_stub() || target->is_compare_ic_stub());
 
-  // Don't use this for load_ics when --vector-ics is turned on.
   DCHECK(!target->is_inline_cache_stub() ||
          (target->kind() != Code::LOAD_IC &&
-          target->kind() != Code::KEYED_LOAD_IC));
+          target->kind() != Code::KEYED_LOAD_IC &&
+          (!FLAG_vector_stores || (target->kind() != Code::STORE_IC &&
+                                   target->kind() != Code::KEYED_STORE_IC))));
 
   Heap* heap = target->GetHeap();
   Code* old_target = GetTargetAtAddress(address, constant_pool);
@@ -135,6 +136,9 @@ void LoadIC::set_target(Code* code) {
   // The contextual mode must be preserved across IC patching.
   DCHECK(LoadICState::GetContextualMode(code->extra_ic_state()) ==
          LoadICState::GetContextualMode(target()->extra_ic_state()));
+  // Strongness must be preserved across IC patching.
+  DCHECK(LoadICState::GetLanguageMode(code->extra_ic_state()) ==
+         LoadICState::GetLanguageMode(target()->extra_ic_state()));
 
   IC::set_target(code);
 }

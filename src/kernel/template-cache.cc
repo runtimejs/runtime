@@ -43,11 +43,11 @@ v8::Local<v8::UnboundScript> TemplateCache::GetInitScript() {
     RT_ASSERT(iv8_);
     v8::EscapableHandleScope scope(iv8_);
     v8::Local<v8::String> inits = v8::String::NewFromUtf8(iv8_, INIT_JS,
-        v8::String::kNormalString, sizeof(INIT_JS) - 1);
+        v8::NewStringType::kNormal, sizeof(INIT_JS) - 1).ToLocalChecked();
     v8::ScriptCompiler::Source source(inits);
     v8::Local<v8::UnboundScript> script = v8::ScriptCompiler
-            ::CompileUnbound(iv8_, &source,
-              v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
+            ::CompileUnboundScript(iv8_, &source,
+              v8::ScriptCompiler::CompileOptions::kNoCompileOptions).ToLocalChecked();
     return scope.Escape(script);
 }
 
@@ -56,7 +56,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
     v8::EscapableHandleScope scope(iv8_);
     if (global_object_template_.IsEmpty()) {
-        v8::Local<v8::ObjectTemplate> global { v8::ObjectTemplate::New() };
+        v8::Local<v8::ObjectTemplate> global { v8::ObjectTemplate::New(iv8_) };
 
         global->Set(iv8_, "setImmediate",
                     v8::FunctionTemplate::New(iv8_, NativesObject::SetImmediate));
@@ -83,7 +83,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
             global->Set(iv8_, "TextDecoder", decoder);
         }
 
-        v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New() };
+        v8::Local<v8::ObjectTemplate> isolate { v8::ObjectTemplate::New(iv8_) };
         isolate->Set(iv8_, "log", v8::FunctionTemplate::New(iv8_, NativesObject::KernelLog));
         isolate->Set(iv8_, "exit", v8::FunctionTemplate::New(iv8_, NativesObject::Exit));
         isolate->Set(iv8_, "eval", v8::FunctionTemplate::New(iv8_, NativesObject::Eval));
@@ -93,24 +93,23 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
         isolate->Set(iv8_, "sync", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "isolate", isolate);
 
-        v8::Local<v8::ObjectTemplate> kernel { v8::ObjectTemplate::New() };
+        v8::Local<v8::ObjectTemplate> kernel { v8::ObjectTemplate::New(iv8_) };
         kernel->Set(iv8_, "version", v8::FunctionTemplate::New(iv8_, NativesObject::Version));
         kernel->Set(iv8_, "getCommandLine", v8::FunctionTemplate::New(iv8_, NativesObject::GetCommandLine));
         kernel->Set(iv8_, "startProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StartProfiling));
         kernel->Set(iv8_, "stopProfiling", v8::FunctionTemplate::New(iv8_, NativesObject::StopProfiling));
         kernel->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
+        kernel->Set(iv8_, "memoryInfo", v8::FunctionTemplate::New(iv8_, NativesObject::MemoryInfo));
+        kernel->Set(iv8_, "takeHeapSnapshot", v8::FunctionTemplate::New(iv8_, NativesObject::TakeHeapSnapshot));
         global->Set(iv8_, "kernel", kernel);
 
-        v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New() };
+        v8::Local<v8::ObjectTemplate> runtime { v8::ObjectTemplate::New(iv8_) };
         runtime->Set(iv8_, "bufferAddress", v8::FunctionTemplate::New(iv8_, NativesObject::BufferAddress));
-        runtime->Set(iv8_, "bufferSliceInplace", v8::FunctionTemplate::New(iv8_, NativesObject::BufferSliceInplace));
-        runtime->Set(iv8_, "toBuffer", v8::FunctionTemplate::New(iv8_, NativesObject::ToBuffer));
-        runtime->Set(iv8_, "bufferToString", v8::FunctionTemplate::New(iv8_, NativesObject::BufferToString));
         runtime->Set(iv8_, "debug", v8::FunctionTemplate::New(iv8_, NativesObject::Debug));
         runtime->Set(iv8_, "syncRPC", v8::FunctionTemplate::New(iv8_, NativesObject::SyncRPC));
         global->Set(iv8_, "runtime", runtime);
 
-        v8::Local<v8::ObjectTemplate> performance { v8::ObjectTemplate::New() };
+        v8::Local<v8::ObjectTemplate> performance { v8::ObjectTemplate::New(iv8_) };
         performance->Set(iv8_, "now", v8::FunctionTemplate::New(iv8_, NativesObject::PerformanceNow));
         global->Set(iv8_, "performance", performance);
 
@@ -120,9 +119,9 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     v8::Local<v8::Context> context = v8::Context::New(iv8_, nullptr,
         global_object_template_.Get(iv8_));
 
-
     v8::Context::Scope cs(context);
-    context->Global()->Set(v8::String::NewFromUtf8(iv8_, "global"), context->Global());
+    context->Global()->Set(context, v8::String::NewFromUtf8(iv8_,
+        "global", v8::NewStringType::kNormal).ToLocalChecked(), context->Global());
 
     if (init_script_.IsEmpty()) {
         init_script_.Set(iv8_, GetInitScript());
@@ -130,7 +129,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
     RT_ASSERT(!init_script_.IsEmpty());
     v8::Local<v8::Value> init_func_val = init_script_.Get(iv8_)
-        ->BindToCurrentContext()->Run();
+        ->BindToCurrentContext()->Run(context).ToLocalChecked();
 
     RT_ASSERT(!init_func_val.IsEmpty());
     RT_ASSERT(init_func_val->IsFunction());
@@ -139,7 +138,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     v8::Local<v8::Value> args_local[1] { (new NativesObject())
         ->BindToTemplateCache(this)
         ->GetInstance() };
-    init_func->Call(context->Global(), 1, &args_local[0]);
+    init_func->Call(context, context->Global(), 1, &args_local[0]).ToLocalChecked();
 
     return scope.Escape(context);
 }
@@ -147,9 +146,10 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 v8::Local<v8::Value> TemplateCache::NewWrappedFunction(ExternalFunction* data) {
     RT_ASSERT(data);
     RT_ASSERT(iv8_);
+    v8::Local<v8::Context> context = iv8_->GetCurrentContext();
     v8::EscapableHandleScope scope(iv8_);
     v8::Local<v8::Object> obj { wrapper_callable_template_.Get(iv8_)
-        ->InstanceTemplate()->NewInstance() };
+        ->InstanceTemplate()->NewInstance(context).ToLocalChecked() };
 
     obj->SetAlignedPointerInInternalField(0,
         static_cast<NativeObjectWrapper*>(data));
@@ -159,9 +159,10 @@ v8::Local<v8::Value> TemplateCache::NewWrappedFunction(ExternalFunction* data) {
 v8::Local<v8::Object> TemplateCache::NewWrappedObject(NativeObjectWrapper* nativeobj) {
     RT_ASSERT(nativeobj);
     RT_ASSERT(iv8_);
+    v8::Local<v8::Context> context = iv8_->GetCurrentContext();
     v8::EscapableHandleScope scope(iv8_);
     v8::Local<v8::Object> obj = wrapper_template_.Get(iv8_)
-        ->InstanceTemplate()->NewInstance();
+        ->InstanceTemplate()->NewInstance(context).ToLocalChecked();
 
     obj->SetAlignedPointerInInternalField(0,
         static_cast<NativeObjectWrapper*>(nativeobj));

@@ -36,6 +36,7 @@ public:
         EVALUATE,
         TIMEOUT_EVENT,
         IRQ_RAISE,
+        SET_IMMEDIATE,
         FUNCTION_CALL,
         FUNCTION_RETURN_RESOLVE,
         FUNCTION_RETURN_REJECT,

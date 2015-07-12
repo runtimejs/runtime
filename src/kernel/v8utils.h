@@ -32,6 +32,7 @@
     RT_ASSERT(th);															\
     RuntimeStateScope<RuntimeState::NATIVE_CALL> native_call_state(th->thread_manager()); \
     v8::Isolate* iv8 = th->IsolateV8();										\
+    v8::Local<v8::Context> context = iv8->GetCurrentContext();				\
     RT_ASSERT(iv8)
 
 #define PROLOGUE_NOTHIS		 													\
@@ -39,6 +40,7 @@
     RT_ASSERT(th);															\
     RuntimeStateScope<RuntimeState::NATIVE_CALL> native_call_state(th->thread_manager()); \
     v8::Isolate* iv8 = th->IsolateV8();										\
+    v8::Local<v8::Context> context = iv8->GetCurrentContext();				\
     RT_ASSERT(iv8)
 
 #define USEARG(number)															\
@@ -55,7 +57,7 @@
     v8::String::NewFromUtf8(iv8, string)
 
 #define LOCAL_V8STRING(name, string)											\
-    v8::Local<v8::String> name { v8::String::NewFromUtf8(iv8, string) }
+    v8::Local<v8::String> name { v8::String::NewFromUtf8(iv8, string, v8::NewStringType::kNormal).ToLocalChecked() }
 
 #define THROW_ERROR(string)														\
     V8Utils::ThrowError(iv8, string);											\
@@ -106,8 +108,9 @@ public:
             return scope.Escape(v8::String::Empty(iv8));
         }
 
-        return scope.Escape(v8::String::NewFromUtf8(iv8, str.c_str(),
-                v8::String::kNormalString, str.length()));
+        v8::MaybeLocal<v8::String> s = v8::String::NewFromUtf8(iv8,
+            str.c_str(), v8::NewStringType::kNormal, str.length());
+        return scope.Escape(s.ToLocalChecked());
     }
 
     inline static Thread* GetThread(const v8::FunctionCallbackInfo<v8::Value>& args) {
@@ -144,24 +147,39 @@ public:
     inline static void ThrowError(v8::Isolate* iv8, const char* message) {
         RT_ASSERT(iv8);
         RT_ASSERT(message);
-        v8::Local<v8::String> m = v8::String::NewFromUtf8(iv8, message,
-                                                          v8::String::kNormalString);
+        v8::MaybeLocal<v8::String> maybe_m = v8::String::NewFromUtf8(iv8, message,
+            v8::NewStringType::kNormal);
+        v8::Local<v8::String> m;
+        if (!maybe_m.ToLocal(&m)) {
+            return;
+        }
+
         iv8->ThrowException(v8::Exception::Error(m));
     }
 
     inline static void ThrowTypeError(v8::Isolate* iv8, const char* message) {
         RT_ASSERT(iv8);
         RT_ASSERT(message);
-        v8::Local<v8::String> m = v8::String::NewFromUtf8(iv8, message,
-                                                          v8::String::kNormalString);
+        v8::MaybeLocal<v8::String> maybe_m = v8::String::NewFromUtf8(iv8, message,
+            v8::NewStringType::kNormal);
+        v8::Local<v8::String> m;
+        if (!maybe_m.ToLocal(&m)) {
+            return;
+        }
+
         iv8->ThrowException(v8::Exception::TypeError(m));
     }
 
     inline static void ThrowRangeError(v8::Isolate* iv8, const char* message) {
         RT_ASSERT(iv8);
         RT_ASSERT(message);
-        v8::Local<v8::String> m = v8::String::NewFromUtf8(iv8, message,
-                                                          v8::String::kNormalString);
+        v8::MaybeLocal<v8::String> maybe_m = v8::String::NewFromUtf8(iv8, message,
+            v8::NewStringType::kNormal);
+        v8::Local<v8::String> m;
+        if (!maybe_m.ToLocal(&m)) {
+            return;
+        }
+
         iv8->ThrowException(v8::Exception::RangeError(m));
     }
 };
