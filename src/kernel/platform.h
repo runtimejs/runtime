@@ -93,6 +93,14 @@ public:
         return platform_arch_.BootTimeMicroseconds();
     }
 
+    uint64_t RealTimeMicroseconds() const {
+        return platform_arch_.RealTimeMicroseconds();
+    }
+
+    int SetTimeMicroseconds(uint64_t new_t) const {
+        return platform_arch_.SetTimeMicroseconds(new_t);
+    }
+
     void SetCommandLine(std::string cmd) {
         command_line_ = cmd;
     }

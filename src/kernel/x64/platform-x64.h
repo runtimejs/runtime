@@ -43,10 +43,17 @@ public:
     uint64_t BootTimeMicroseconds() const {
         return acpi_.BootTimeMicroseconds();
     }
+
+    uint64_t RealTimeMicroseconds() const {
+        return acpi_.RealTimeMicroseconds();
+    }
+
+    int SetTimeMicroseconds(uint64_t new_t) const {
+        return acpi_.SetTimeMicroseconds(new_t);
+    }
 private:
     AcpiX64 acpi_;
     DELETE_COPY_AND_ASSIGN(PlatformArch);
 };
 
 } // namespace rt
-

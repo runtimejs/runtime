@@ -55,11 +55,24 @@ public:
         return *counter_;
     }
 
+    uint64_t ReadTime() const {
+      return *time_  * 546.83;
+    }
+
+    int SetTime(uint64_t newtime) {
+      *time_ = newtime;
+      return 0;
+    }
+
     /**
      * Reset counter (must be disabled)
      */
     void ResetCounter() {
         *counter_ = 0;
+    }
+
+    void ResetTime() {
+        *time_ = 0;
     }
 
     HPETTimerConfig* GetTimerConfig(uint8_t timer_index) {
@@ -74,6 +87,7 @@ private:
     void* address_;
     HPETRegisters* registers_;
     volatile uint64_t* counter_;
+    volatile uint64_t* time_;
     uint64_t frequency_;
     uint64_t us_div_;
 };

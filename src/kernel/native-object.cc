@@ -748,6 +748,17 @@ NATIVE_FUNCTION(NativesObject, StopVideoLog) {
     GLOBAL_boot_services()->logger()->DisableVideo();
 }
 
+NATIVE_FUNCTION(NativesObject, SetTime) {
+  PROLOGUE;
+  VALIDATEARG(0, STRING, "argument 0 is not a string value");
+  v8::String::Utf8Value arg0(args[0]->ToString());
+  std::string str = std::string(*arg0);
+  const char* cstr = str.c_str();
+  uint64_t val = strtoull(cstr, nullptr, 0);
+  GLOBAL_platform()->SetTimeMicroseconds(val);
+  args.GetReturnValue().SetUndefined();
+}
+
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
     PROLOGUE;
     USEARG(0);
@@ -1312,4 +1323,3 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
 }
 
 } // namespace rt
-

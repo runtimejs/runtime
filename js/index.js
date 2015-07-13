@@ -33,6 +33,7 @@ require('./service/dhcp-client');
 
 runtime.shell = require('./service/shell');
 runtime.dns = require('./service/dns-resolver');
+
 runtime.debug = isDebug;
 
 // Example shell command
@@ -64,4 +65,8 @@ runtime.shell.setCommand('reboot', function(args, env, cb) {
 require('./driver/ps2');
 require('./driver/virtio');
 
-module.exports = runtime;
+require('./core/set_time');
+
+setTimeout(function() {
+  module.exports = runtime;
+}, 5000);

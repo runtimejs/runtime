@@ -64,6 +64,14 @@ public:
     uint64_t BootTimeMicroseconds() const {
         return hpet_->ReadMicroseconds();
     }
+
+    uint64_t RealTimeMicroseconds() const {
+      return hpet_->ReadTime() + hpet_->ReadMicroseconds();
+    }
+
+    int SetTimeMicroseconds(uint64_t new_t) const {
+      return hpet_->SetTime(new_t);
+    }
 private:
     LocalApicX64* local_apic_;
     void* local_apic_address_;
