@@ -31,30 +31,31 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
   }
 
   var socket = new runtime.net.UDPSocket();
-  var uu8 = null;
   socket.onmessage = function(ip, port, u8) {
-    uu8 = u8;
     var dat = new Buffer(u8);
-    // This section of code was taken from https://github.com/moonpyk/node-ntp-client: {
-      var offset = 40,
-          intpart = 0,
-          fractpart = 0;
 
-      for (var i = 0; i <= 3; i++) {
-        intpart = 256 * intpart + dat[offset + 1];
-      }
+    var offset = 40,
+        intpart = 0,
+        fractpart = 0;
 
-      for (var i = 0; i <= 7; i++) {
-        fractpart = 256 * fractpart + dat[offset + 1];
-      }
+    for (let i = 0; i <= 3; i++) {
+      intpart = 256 * intpart + dat[offset + i];
+    }
 
-      var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);
-    // } the section has ended
+    for (let i = 4; i <= 7; i++) {
+      fractpart = 256 * fractpart + dat[offset + i];
+    }
 
-    var str = String(milli);
+    var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);
 
-    resources.natives.setTime(str);
+    var date = new Date("Jan 01 1900 GMT");
+    date.setTime(date.getTime() + milli);
+
+    var timet = String(date.getTime()) + "000";
+
+    resources.natives.setTime(timet);
   }
-
-  socket.send(ip, 123, data);
+  setTimeout(function() {
+    socket.send(ip, 123, data);
+  }, 1000);
 });

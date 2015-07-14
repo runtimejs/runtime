@@ -67,6 +67,4 @@ require('./driver/virtio');
 
 require('./core/set_time');
 
-setTimeout(function() {
-  module.exports = runtime;
-}, 5000);
+module.exports = runtime;

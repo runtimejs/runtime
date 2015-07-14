@@ -44,6 +44,8 @@ HpetX64::HpetX64(void* address)
     us_div_ = frequency_ / 1000000;
     RT_ASSERT(us_div_ > 0);
 
+    *time_ = time->GetCurrentMilliseconds();
+
 #if 0
     // Setup periodic profiler timer
     uint64_t interval = (100 * us_div_); /* 100 microseconds */
