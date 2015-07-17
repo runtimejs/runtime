@@ -58,6 +58,10 @@ IP4Address.BROADCAST = new IP4Address(255, 255, 255, 255);
 IP4Address.LOOPBACK = new IP4Address(127, 0, 0, 1);
 
 IP4Address.parse = function(str) {
+  if (str instanceof IP4Address) {
+    return str;
+  }
+
   if ('string' !== typeof str) {
     return null;
   }
