@@ -29,8 +29,6 @@
 #include <kernel/platform.h>
 #include <kernel/irqs.h>
 
-#include <test-framework.h>
-
 #define DEFINE_GLOBAL_OBJECT(name, type)                       \
     static uint8_t placement_##name[sizeof(type)] alignas(16); \
     type* intr_##name = nullptr
@@ -152,13 +150,6 @@ void KernelMain::InitSystemBSP(void* mbt) {
     printf("Found %d cpus.\n", cpus_found);
 
     const char* cmdline = parsed.cmdline();
-    if (nullptr != strstr(cmdline, " test")) {
-        GLOBAL_boot_services()->logger()->SetMode(LoggerMode::TEST);
-        test::TestFramework tests;
-        tests.RunTests();
-        Cpu::HangSystem();
-    }
-
     if (nullptr != strstr(cmdline, " snapshot")) {
         printf("Generating snapshot...\n");
         GLOBAL_boot_services()->logger()->SetMode(LoggerMode::SNAPSHOT);
