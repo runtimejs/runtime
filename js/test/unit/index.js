@@ -27,6 +27,7 @@ stream.on('data', function(v) {
 
 stream.on('end', shutdown);
 
+require('./script');
 require('./buffers');
 require('./platform');
 require('./timers');
