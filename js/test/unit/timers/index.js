@@ -21,7 +21,7 @@ test('setTimeout', function(t) {
 });
 
 test('setImmediate', function(t) {
-  setImmediate(t.end.bind(t), 0);
+  setImmediate(t.end.bind(t));
 });
 
 test('clearTimeout', function(t) {
