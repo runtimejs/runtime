@@ -23,3 +23,21 @@ test('setTimeout', function(t) {
 test('setImmediate', function(t) {
   setImmediate(t.end.bind(t), 0);
 });
+
+test('clearTimeout', function(t) {
+  var timer = setTimeout(function() {
+    t.fail('should not call callback');
+    throw new Error('should not call callback');
+  }, 0);
+  clearTimeout(timer);
+  setTimeout(t.end.bind(t), 0);
+});
+
+test('clearInterval', function(t) {
+  var timer = setInterval(function() {
+    t.fail('should not call callback')
+    throw new Error('should not call callback');
+  }, 0);
+  clearInterval(timer);
+  setTimeout(t.end.bind(t), 0);
+});
