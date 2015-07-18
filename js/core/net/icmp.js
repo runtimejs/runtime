@@ -17,9 +17,7 @@
 var icmpHeader = require('./icmp-header');
 var icmpTransmit = require('./icmp-transmit');
 var route = require('./route');
-
-var ICMP_TYPE_ECHO_REPLY = 0;
-var ICMP_TYPE_ECHO_REQUEST = 8;
+var Ping = require('./ping');
 
 function handleEchoRequest(intf, srcIP, u8, headerOffset) {
   if (srcIP.isBroadcast() || srcIP.isAny()) {
@@ -36,9 +34,18 @@ function handleEchoRequest(intf, srcIP, u8, headerOffset) {
   var id = icmpHeader.getEchoRequestIdentifier(u8, headerOffset);
   var seq = icmpHeader.getEchoRequestSequence(u8, headerOffset);
 
-  icmpTransmit(intf, srcIP, viaIP, ICMP_TYPE_ECHO_REPLY, 0,
+  icmpTransmit(intf, srcIP, viaIP, icmpHeader.ICMP_TYPE_ECHO_REPLY, 0,
                icmpHeader.headerValueEcho(id, seq),
                u8.subarray(headerOffset + icmpHeader.headerLength));
+}
+
+function handleEchoReply(intf, srcIP, u8, headerOffset) {
+  var id = icmpHeader.getEchoRequestIdentifier(u8, headerOffset);
+  var seq = icmpHeader.getEchoRequestSequence(u8, headerOffset);
+  var ping = Ping._receiveLookup(id);
+  if (ping) {
+    ping._receive(srcIP, seq, u8, headerOffset + icmpHeader.headerLength);
+  }
 }
 
 exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
@@ -47,8 +54,13 @@ exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
   var type = icmpHeader.getType(u8, headerOffset);
   var code = icmpHeader.getCode(u8, headerOffset);
 
-  if (type === ICMP_TYPE_ECHO_REQUEST) {
+  if (type === icmpHeader.ICMP_TYPE_ECHO_REQUEST) {
     handleEchoRequest(intf, srcIP, u8, headerOffset);
+    return;
+  }
+
+  if (type === icmpHeader.ICMP_TYPE_ECHO_REPLY) {
+    handleEchoReply(intf, srcIP, u8, headerOffset);
     return;
   }
 };

@@ -17,6 +17,9 @@ var u8view = require('u8-view');
 
 exports.headerLength = 8;
 
+exports.ICMP_TYPE_ECHO_REPLY = 0;
+exports.ICMP_TYPE_ECHO_REQUEST = 8;
+
 exports.getType = function(u8, headerOffset) {
   return u8[headerOffset];
 };
