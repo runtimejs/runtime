@@ -36,15 +36,11 @@ function isaacRound(n) {
 }
 
 var obj = {
-  queue: [],
-  init: function() {
-    return isaacRound(isaac.rand());
-  },
-  fillQueue: function(cb) {
+  fillBuffer: function(buffer, cb) {
     for (var i = 0; i < obj.queue[0].missing; i++) {
-      obj.queue[0].array[i] = isaacRound(isaac.rand());
+      buffer[i] = isaacRound(isaac.rand());
     }
-    cb();
+    cb(buffer);
   }
 };
 

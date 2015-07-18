@@ -41,10 +41,8 @@ var sources = {};
 module.exports = {
   addSource: function(name, obj) {
     sources[name] = obj;
-    // source.init() can do it's initialization stuff, BUT, it must return a seed for isaac.js
-    var seed = sources[name].init();
-    isaac.reset();
-    isaac.seed(seed);
+    // If the source needs to init some stuff, call it's init function
+    if (sources[name].init) sources[name].init();
   },
   setDefault: function(name) {
     if (!sources[name]) {
@@ -54,11 +52,16 @@ module.exports = {
     def = name;
     return true;
   },
-  getRandomValues: function(length, cb, method) {
+  getRandomValues: function(length, cb) {
     // Works like /dev/random, always waits for real randomness.
+    var variable = false;
+
+    if (length instanceof Uint8Array) {
+      variable = true;
+    }
 
     if (typeof length === 'undefined') {
-      length = 1;
+      throw new Error('runtime.random.getRandomValues: must have one or more arguments');
     }
 
     if (typeof length === 'function') {
@@ -67,52 +70,67 @@ module.exports = {
     }
 
     if (typeof cb === 'undefined') {
-      throw new Error('runtime.random.getRandomValues requires a callback');
+      throw new Error('runtime.random.getRandomValues: must pass a callback');
     }
 
-    // Don't use sources[method || def] (method may be defined,
-    // but it may not be a method in sources).
-    var method = sources[method || ''] || sources[def];
+    var method = sources[def];
 
-    method.queue.push({
-      missing: length,
-      array: new Uint8Array(length)
-    });
-    method.fillQueue(function() {
-      var arr = method.queue.shift();
-      cb(arr.array);
-    });
+    if (variable) {
+      method.fillBuffer(length, function() {
+        isaac.seed(length[0]);
+        cb(length);
+      });
+    } else {
+      if (length === 0) {
+        throw new Error('runtime.random.getRandomValues: length must be greater than 0');
+      }
+
+      method.fillBuffer(new Uint8Array(length), function(u8) {
+        isaac.seed(u8[0]);
+        cb(u8);
+      });
+    }
   },
-  getPseudoRandomValues: function(length, vari) {
-    // This function asks for a seed and uses isaac.js (a CSPRNG)
-    // to generate randomness from the seed to fill up the the request.
+  getPseudoRandomValues: function(value) {
+    // This function uses isaac.js (a CSPRNG) to
+    // generate randomness to fill up the the request.
 
-    if (typeof length === 'undefined') {
+    var length;
+    var u8;
+
+    if (typeof value === 'undefined') {
       length = 1;
+      u8 = null;
     }
 
-    if (length instanceof Uint8Array) {
-      vari = length;
+    if (typeof value === 'number') {
+      length = value;
+      u8 = null;
+    } else {
       length = 1;
+      u8 = value;
     }
 
-    if (vari) {
-      if (!vari instanceof Uint8Array) {
-        throw new Error('getPseudoRandomValues: variable must be an instance of Uint8Array');
-      } else {
-        for (var i = 0; i < vari.length; i++) {
-          vari[i] = isaacRound(isaac.rand());
-        }
-        return vari;
+    if (u8) {
+      if (!(u8 instanceof Uint8Array)) {
+        throw new Error('runtime.random.getPseudoRandomValues: variable must be an instance of Uint8Array');
+      }
+
+      for (var i = 0; i < u8.length; i++) {
+        u8[i] = isaacRound(isaac.rand());
       }
     } else {
-      var arr = [];
-
-      while (arr.length < length) {
-        arr.push(isaacRound(isaac.rand()));
+      if (length === 0) {
+        throw new Error('runtime.random.getPseudoRandomValues: length must be greater than 0');
       }
 
-      return new Uint8Array(arr);
+      u8 = new Uint8Array(length);
+
+      for (var i = 0; i < length; i++) {
+        u8[i] = isaacRound(isaac.rand());
+      }
     }
+
+    return u8;
   }
 };

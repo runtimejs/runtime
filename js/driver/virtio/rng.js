@@ -41,52 +41,24 @@ function initializeRNGDevice(pciDevice) {
 
   dev.setDriverReady();
 
+  var cbqueue = []
+
   var randobj = {
-    queue: [],
-    cbqueue: [],
     init: function() {
-      reqQueue.placeBuffers([new Uint8Array(1)], true);
-      if (reqQueue.isNotificationNeeded()) {
-        dev.queueNotify(QUEUE_ID_REQ);
-      }
-
-      var u8 = reqQueue.getBuffer();
-      // If it was requested too fast, fallback to Math.random instead.
-      if (u8 === null) {
-        var foo = Math.round(Math.random() * 0xffffffff);
-        if (foo < 0) foo = -foo;
-        while (foo > 256) foo /= 4;
-        foo = Math.round(foo);
-        u8 = [foo];
-      }
-
       irq.on(function() {
-        var j = 0;
-
         reqQueue.fetchBuffers(function(u8) {
-          randobj.queue[j].array = u8;
-          if (j === randobj.queue.length - 1) {
-            randobj.cbqueue.shift()();
-          }
-          j++;
+          cbqueue.shift()(u8);
         });
       });
-
-      return u8[0];
     },
-    fillQueue: function(cb) {
-      var array = [];
-      for (var i = 0; i < randobj.queue.length; i++) {
-        array.push(randobj.queue[i].array);
-      }
-
-      reqQueue.placeBuffers(array, true);
+    fillBuffer: function(buffer, cb) {
+      reqQueue.placeBuffers([buffer], true);
 
       if (reqQueue.isNotificationNeeded()) {
         dev.queueNotify(QUEUE_ID_REQ);
       }
 
-      randobj.cbqueue.push(cb);
+      cbqueue.push(cb);
     }
   }
 
