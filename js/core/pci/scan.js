@@ -177,11 +177,11 @@ var pciAccessorFactory = (function(addressPort, dataPort) {
       offsetCache.delete(field.offset);
 
       switch (field.mask) {
-        case 0xffffffff: writeRaw32(field.offset, value); break;
-        case 0xffff: writeRaw16(field.offset + field.shift, value); break;
-        case 0xff: writeRaw8(field.offset + field.shift, value); break;
-        default:
-          throw new Error('invalid pci space field mask');
+      case 0xffffffff: writeRaw32(field.offset, value); break;
+      case 0xffff: writeRaw16(field.offset + field.shift, value); break;
+      case 0xff: writeRaw8(field.offset + field.shift, value); break;
+      default:
+        throw new Error('invalid pci space field mask');
       }
     };
 

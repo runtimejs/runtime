@@ -21,12 +21,12 @@ var NATIVE_OptimizeFunctionOnNextCall = new Function('f', '%OptimizeFunctionOnNe
 
 exports.getOptimizationStatus = function(fn) {
   switch (NATIVE_GetOptimizationStatus(fn)) {
-    case 1: return 'optimized';
-    case 2: return 'not optimized';
-    case 3: return 'always optimized';
-    case 4: return 'never optimized';
-    case 6: return 'maybe deoptimized';
-    default: return 'unknown';
+  case 1: return 'optimized';
+  case 2: return 'not optimized';
+  case 3: return 'always optimized';
+  case 4: return 'never optimized';
+  case 6: return 'maybe deoptimized';
+  default: return 'unknown';
   }
 };
 

@@ -18,7 +18,7 @@ var test = require('tape');
 var stream = test.createStream();
 var shutdown = runtime.machine.shutdown;
 
-stream.on('data', function (v) {
+stream.on('data', function(v) {
   if (v[v.length - 1] === '\n') {
     v = v.slice(0, -1);
   }

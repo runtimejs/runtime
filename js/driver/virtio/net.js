@@ -158,7 +158,7 @@ function initializeNetworkDevice(pciDevice) {
 
   // Under high load we're missing interrupts. This needs to be fixed.
   // This setInterval hack clears pending IRQ flag and rechecks queues.
-  setInterval(function () {
+  setInterval(function() {
     dev.hasPendingIRQ();
     recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
