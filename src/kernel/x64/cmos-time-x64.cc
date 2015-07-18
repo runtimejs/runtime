@@ -15,8 +15,7 @@
 // Using code adapted from http://wiki.osdev.org/CMOS#Reading_All_RTC_Time_and_Date_Registers
 // OSDev disclaimer: http://wiki.osdev.org/OSDev_Wiki:General_disclaimer
 
-#include "cmos-time.h"
-#include <stdio.h>
+#include "cmos-time-x64.h"
 
 namespace rt {
 
@@ -31,7 +30,6 @@ int CMOSTime::GetRTCRegister(int reg) {
 };
 
 uint64_t CMOSTime::GetCurrentMilliseconds()  {
-  int century;
   int last_second;
   int last_minute;
   int last_hour;
@@ -49,8 +47,6 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
   month = GetRTCRegister(0x08);
   year = GetRTCRegister(0x09);
 
-  century = GetRTCRegister(century_register);
-
   do {
     last_second = second;
     last_minute = minute;
@@ -58,7 +54,6 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
     last_day = day;
     last_month = month;
     last_year = year;
-    last_century = century;
 
     while (GetUpdateProgressFlag());
     second = GetRTCRegister(0x00);
@@ -67,10 +62,8 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
     day = GetRTCRegister(0x07);
     month = GetRTCRegister(0x08);
     year = GetRTCRegister(0x09);
-    century = GetRTCRegister(century_register);
   } while ((last_second != second) || (last_minute != minute) || (last_hour != hour) ||
-           (last_day != day) || (last_month != month) || (last_year != year) ||
-           (last_century != century));
+           (last_day != day) || (last_month != month) || (last_year != year));
 
   registerB = GetRTCRegister(0x0B);
 
@@ -81,9 +74,6 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
     day = (day & 0x0F) + ((day / 16) * 10);
     month = (month & 0x0F) + ((month / 16) * 10);
     year = (year & 0x0F) + ((year / 16) * 10);
-    if (century_register != 0) {
-      century = (century & 0x0F) + ((century / 16) * 10);
-    }
   }
 
   // Convert 12 hour clock to 24 hour clock if necessary
@@ -92,18 +82,21 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
         hour = ((hour & 0x7F) + 12) % 24;
   }
 
+  // Get the full year
+  year = year + 2000;
+
   // Calculate the time since 1970
   uint64_t milli = 0;
 
+  // All to millisecond
   milli = milli + second * 1000;
   milli = milli + minute * 60000;
   milli = milli + hour * 3600000;
   milli = milli + day * 8640000;
   milli = milli + month * 259200000;
   milli = milli + year * 3110400000;
-  milli = milli + 21 * 3110400000000;
 
-  milli = milli * 21.98300000;
+  milli = milli * 229.245;
 
   return milli;
 };

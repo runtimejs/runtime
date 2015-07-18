@@ -22,7 +22,7 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
 
   rawip = res.results[0].address;
 
-  var ip = new runtime.net.IP4Address(String(rawip[0]), String(rawip[1]), String(rawip[2]), String(rawip[3]));
+  var ip = new runtime.net.IP4Address(rawip[0], rawip[1], rawip[2], rawip[3]);
 
   var data = new Uint8Array(48);
   data[0] = 0x1B;
@@ -49,11 +49,8 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
     var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);
 
     var date = new Date("Jan 01 1900 GMT");
-    date.setTime(date.getTime() + milli);
 
-    var timet = String(date.getTime()) + "000";
-
-    resources.natives.setTime(timet);
+    resources.natives.setTime((date.getTime() + milli) * 1000);
   }
   setTimeout(function() {
     socket.send(ip, 123, data);

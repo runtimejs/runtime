@@ -28,7 +28,6 @@ class CMOSTime {
 public:
   uint64_t GetCurrentMilliseconds();
 private:
-  int century_register = 0x00;
   int second;
   int minute;
   int hour;

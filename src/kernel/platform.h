@@ -21,6 +21,7 @@
 
 #ifdef RUNTIMEJS_PLATFORM_X64
 #include <kernel/x64/platform-x64.h>
+#include <kernel/x64/cmos-time-x64.h>
 #else
 #error Platform is not supported
 #endif
@@ -32,7 +33,10 @@ namespace rt {
  */
 class Platform {
 public:
-    Platform() {}
+    Platform() {
+      time_ = new CMOSTime;
+      time_int_ = time_->GetCurrentMilliseconds();
+    }
 
     /**
      * Start all other available CPUs
@@ -94,11 +98,11 @@ public:
     }
 
     uint64_t RealTimeMicroseconds() const {
-        return platform_arch_.RealTimeMicroseconds();
+        return time_int_ + platform_arch_.BootTimeMicroseconds();
     }
 
-    int SetTimeMicroseconds(uint64_t new_t) const {
-        return platform_arch_.SetTimeMicroseconds(new_t);
+    void SetTimeMicroseconds(uint64_t new_t) {
+        time_int_ = new_t;
     }
 
     void SetCommandLine(std::string cmd) {
@@ -121,6 +125,10 @@ private:
     Profiler profiler_;
     std::string command_line_;
     DELETE_COPY_AND_ASSIGN(Platform);
+
+    // Time stuff
+    CMOSTime* time_;
+    uint64_t time_int_;
 };
 
 } // namespace rt

@@ -15,9 +15,6 @@
 #pragma once
 
 #include <kernel/kernel.h>
-#include <kernel/cmos-time.h>
-#include <stdio.h>
-#include <inttypes.h>
 
 namespace rt {
 
@@ -58,24 +55,11 @@ public:
         return *counter_;
     }
 
-    uint64_t ReadTime() const {
-      return *time_;
-    }
-
-    int SetTime(uint64_t newtime) {
-      *time_ = newtime;
-      return 0;
-    }
-
     /**
      * Reset counter (must be disabled)
      */
     void ResetCounter() {
         *counter_ = 0;
-    }
-
-    void ResetTime() {
-        *time_ = time->GetCurrentMilliseconds();
     }
 
     HPETTimerConfig* GetTimerConfig(uint8_t timer_index) {
@@ -90,8 +74,6 @@ private:
     void* address_;
     HPETRegisters* registers_;
     volatile uint64_t* counter_;
-    CMOSTime* time = new CMOSTime;
-    volatile uint64_t* time_;
     uint64_t frequency_;
     uint64_t us_div_;
 };
