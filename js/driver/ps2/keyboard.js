@@ -18,22 +18,22 @@ var runtime = require('../../core');
 
 /* eslint-disable no-multi-spaces */
 var controlKeys = [
-/* 0x00 */  0, 'escape', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'backspace', 'tab',
-/* 0x10 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'leftctrl', 0, 0,
-/* 0x20 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'leftshift', 0, 0, 0, 0, 0,
-/* 0x30 */  0, 0, 0, 0, 0, 0, 'rightshift', 0, 'leftalt', 0, 'capslock', 'f1', 'f2', 'f3', 'f4', 'f5',
-/* 0x40 */  'f6', 'f7', 'f8', 'f9', 'f10', 'numlock', 'scrllock', 'kphome', 'kpup', 'kppageup', 0, 'kpleft', 'kp5', 'kpright', 0, 'kpend',
-/* 0x50 */  'kpdown', 'kppagedown', 'kpinsert', 'kpdel', 'sysreq', 0, 0, 'f11', 'f12', 0, 0, 0, 0, 0, 0, 0,
-/* 0x60 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* 0x70 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* 0x80 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* 0x90 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'rightctrl', 0, 0,
-/* 0xA0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* 0xB0 */  0, 0, 0, 0, 0, 'kpslash', 0, 'prntscrn', 'rightalt', 0, 0, 0, 0, 0, 0, 0,
-/* 0xC0 */  0, 0, 0, 0, 0, 0, 0, 'home', 'up', 'pageup', 0, 'left', 0, 'right', 0, 'end',
-/* 0xD0 */  'down', 'pagedown', 'insert', 'del', 0, 0, 0, 0, 0, 0, 0, 'leftsup', 'rightsup', 'menu', 0, 0,
-/* 0xE0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* 0xF0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  /* 0x00 */  0, 'escape', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'backspace', 'tab',
+  /* 0x10 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'leftctrl', 0, 0,
+  /* 0x20 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'leftshift', 0, 0, 0, 0, 0,
+  /* 0x30 */  0, 0, 0, 0, 0, 0, 'rightshift', 0, 'leftalt', 0, 'capslock', 'f1', 'f2', 'f3', 'f4', 'f5',
+  /* 0x40 */  'f6', 'f7', 'f8', 'f9', 'f10', 'numlock', 'scrllock', 'kphome', 'kpup', 'kppageup', 0, 'kpleft', 'kp5', 'kpright', 0, 'kpend',
+  /* 0x50 */  'kpdown', 'kppagedown', 'kpinsert', 'kpdel', 'sysreq', 0, 0, 'f11', 'f12', 0, 0, 0, 0, 0, 0, 0,
+  /* 0x60 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  /* 0x70 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  /* 0x80 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  /* 0x90 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'enter', 'rightctrl', 0, 0,
+  /* 0xA0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  /* 0xB0 */  0, 0, 0, 0, 0, 'kpslash', 0, 'prntscrn', 'rightalt', 0, 0, 0, 0, 0, 0, 0,
+  /* 0xC0 */  0, 0, 0, 0, 0, 0, 0, 'home', 'up', 'pageup', 0, 'left', 0, 'right', 0, 'end',
+  /* 0xD0 */  'down', 'pagedown', 'insert', 'del', 0, 0, 0, 0, 0, 0, 0, 'leftsup', 'rightsup', 'menu', 0, 0,
+  /* 0xE0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  /* 0xF0 */  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 ];
 
 var keymapNormal = [

@@ -326,22 +326,22 @@ class TCPSocket {
 
   _timerTick() {
     switch (this._state) {
-      case STATE_TIME_WAIT:
-        if (Date.now() > this._timeWaitTime + 2 * MSL_TIME) {
-          this._state = STATE_CLOSED;
-          this._destroy();
-        }
-        break;
-      case STATE_SYN_SENT:
-      case STATE_SYN_RECEIVED:
-        if (!this._configure()) {
-          return;
-        }
-        /* fall through */
-      case STATE_ESTABLISHED:
-      case STATE_FIN_WAIT_1:
-        this._sendTransmitQueue();
-        break;
+    case STATE_TIME_WAIT:
+      if (Date.now() > this._timeWaitTime + 2 * MSL_TIME) {
+        this._state = STATE_CLOSED;
+        this._destroy();
+      }
+      break;
+    case STATE_SYN_SENT:
+    case STATE_SYN_RECEIVED:
+      if (!this._configure()) {
+        return;
+      }
+      /* fall through */
+    case STATE_ESTABLISHED:
+    case STATE_FIN_WAIT_1:
+      this._sendTransmitQueue();
+      break;
     }
   }
 
@@ -426,14 +426,14 @@ class TCPSocket {
    */
   halfclose() {
     switch (this._state) {
-      case STATE_ESTABLISHED:
-        this._state = STATE_FIN_WAIT_1;
-        break;
-      case STATE_CLOSE_WAIT:
-        this._state = STATE_LAST_ACK;
-        break;
-      default:
-        throw netError.E_CANNOT_CLOSE;
+    case STATE_ESTABLISHED:
+      this._state = STATE_FIN_WAIT_1;
+      break;
+    case STATE_CLOSE_WAIT:
+      this._state = STATE_LAST_ACK;
+      break;
+    default:
+      throw netError.E_CANNOT_CLOSE;
     }
 
     this._queueTx.push(null);
@@ -457,14 +457,14 @@ class TCPSocket {
     }
 
     switch (this._state) {
-      case STATE_ESTABLISHED:
-        this._state = STATE_FIN_WAIT_1;
-        break;
-      case STATE_CLOSE_WAIT:
-        this._state = STATE_LAST_ACK;
-        break;
-      default:
-        throw netError.E_CANNOT_CLOSE;
+    case STATE_ESTABLISHED:
+      this._state = STATE_FIN_WAIT_1;
+      break;
+    case STATE_CLOSE_WAIT:
+      this._state = STATE_LAST_ACK;
+      break;
+    default:
+      throw netError.E_CANNOT_CLOSE;
     }
 
     this._queueTx.push(null);
@@ -592,76 +592,77 @@ class TCPSocket {
     var dataLength = u8.length - dataOffset;
 
     switch (this._state) {
-      case STATE_LISTEN:
-        var hash = connHash(srcIP, srcPort);
-        var socket = this._connections.get(hash);
-        if (socket) {
-          return socket._receive(u8, srcIP, srcPort, headerOffset);
-        } else {
-          if (flags & tcpHeader.FLAG_SYN) {
-            socket = new TCPSocket();
-            socket._serverSocket = this;
-            socket._intf = this._intf;
-            socket._viaIP = this._viaIP;
-            socket._receiveWindowSlideTo(seqNumber);
-            socket._receiveWindowSlideInc(); // SYN counts as 1 byte
-            socket._state = STATE_SYN_RECEIVED;
-            socket._destIP = srcIP;
-            socket._destPort = srcPort;
-            socket._port = this._port;
-            socket._sendSYN(true);
-            tcpTimer.addConnectionSocket(socket);
-            this._connections.set(hash, socket);
-            this._onconnect(socket);
-          }
-        }
+    case STATE_LISTEN:
+      var hash = connHash(srcIP, srcPort);
+      var socket = this._connections.get(hash);
+      if (socket) {
+        socket._receive(u8, srcIP, srcPort, headerOffset);
         return;
-        break;
-      case STATE_SYN_SENT:
-        this._acceptACK(ackNumber, windowSize);
-        if (flags & (tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK)) {
-          this._receiveWindowSlideTo(seqNumber);
-          this._receiveWindowSlideInc(); // SYN counts as 1 byte
-          this._ackRequired = true;
-          this._sendTransmitQueue();
-          this._state = STATE_ESTABLISHED;
-          if (this.onopen) {
-            this._emitOpen();
-          }
+      } else {
+        if (flags & tcpHeader.FLAG_SYN) {
+          socket = new TCPSocket();
+          socket._serverSocket = this;
+          socket._intf = this._intf;
+          socket._viaIP = this._viaIP;
+          socket._receiveWindowSlideTo(seqNumber);
+          socket._receiveWindowSlideInc(); // SYN counts as 1 byte
+          socket._state = STATE_SYN_RECEIVED;
+          socket._destIP = srcIP;
+          socket._destPort = srcPort;
+          socket._port = this._port;
+          socket._sendSYN(true);
+          tcpTimer.addConnectionSocket(socket);
+          this._connections.set(hash, socket);
+          this._onconnect(socket);
         }
-        break;
-      case STATE_SYN_RECEIVED:
-        this._acceptACK(ackNumber, windowSize);
-        if (flags & tcpHeader.FLAG_ACK) {
-          this._state = STATE_ESTABLISHED;
-          if (this.onopen) {
-            this._emitOpen();
-          }
+      }
+      return;
+      break;
+    case STATE_SYN_SENT:
+      this._acceptACK(ackNumber, windowSize);
+      if (flags & (tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK)) {
+        this._receiveWindowSlideTo(seqNumber);
+        this._receiveWindowSlideInc(); // SYN counts as 1 byte
+        this._ackRequired = true;
+        this._sendTransmitQueue();
+        this._state = STATE_ESTABLISHED;
+        if (this.onopen) {
+          this._emitOpen();
         }
-        break;
-      case STATE_LAST_ACK:
-        this._acceptACK(ackNumber, windowSize);
-        if (this._getTransmitPosition() === ackNumber) {
-          this._state = STATE_CLOSED;
-          if (this.onclose) {
-            this._emitClose();
-          }
-          this._destroy();
+      }
+      break;
+    case STATE_SYN_RECEIVED:
+      this._acceptACK(ackNumber, windowSize);
+      if (flags & tcpHeader.FLAG_ACK) {
+        this._state = STATE_ESTABLISHED;
+        if (this.onopen) {
+          this._emitOpen();
         }
-        break;
-      case STATE_FIN_WAIT_1:
-        this._acceptACK(ackNumber, windowSize);
-        if (this._getTransmitPosition() === ackNumber) {
-          this._state = STATE_FIN_WAIT_2;
+      }
+      break;
+    case STATE_LAST_ACK:
+      this._acceptACK(ackNumber, windowSize);
+      if (this._getTransmitPosition() === ackNumber) {
+        this._state = STATE_CLOSED;
+        if (this.onclose) {
+          this._emitClose();
         }
-        /* fall through */
-      case STATE_FIN_WAIT_2:
-      case STATE_ESTABLISHED:
-        this._acceptACK(ackNumber, windowSize);
-        if (dataLength > 0 && this._receiveWindowIsWithin(SEQ_INC(seqNumber, dataLength - 1), this._receiveWindowEdge)) {
-          this._insertReceiveQueue(seqNumber, dataLength, u8.subarray(dataOffset));
-        }
-        break;
+        this._destroy();
+      }
+      break;
+    case STATE_FIN_WAIT_1:
+      this._acceptACK(ackNumber, windowSize);
+      if (this._getTransmitPosition() === ackNumber) {
+        this._state = STATE_FIN_WAIT_2;
+      }
+      /* fall through */
+    case STATE_FIN_WAIT_2:
+    case STATE_ESTABLISHED:
+      this._acceptACK(ackNumber, windowSize);
+      if (dataLength > 0 && this._receiveWindowIsWithin(SEQ_INC(seqNumber, dataLength - 1), this._receiveWindowEdge)) {
+        this._insertReceiveQueue(seqNumber, dataLength, u8.subarray(dataOffset));
+      }
+      break;
     }
 
     if (flags & tcpHeader.FLAG_FIN) {

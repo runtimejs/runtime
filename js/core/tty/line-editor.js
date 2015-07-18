@@ -51,7 +51,7 @@ class LineEditor {
     printer.moveOffset(-1);
   };
 
-   putChar(char) {
+  putChar(char) {
     this.removeCursor();
     if (this.inputPosition >= this.inputText.length) {
       this.inputText += char;

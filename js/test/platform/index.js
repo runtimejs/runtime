@@ -15,6 +15,10 @@
 'use strict';
 var test = require('tape');
 
+/* global isolate */
+/* global TextEncoder */
+/* global TextDecoder */
+
 test('isolate.eval valid code', function(t) {
   global.a = 10;
   isolate.eval('a++');
@@ -43,7 +47,7 @@ test('isolate.eval throws', function(t) {
   }
 });
 
-test('TextEncoder and TextDecoder', function (t) {
+test('TextEncoder and TextDecoder', function(t) {
   var encoder = new TextEncoder('utf-8');
   var decoder = new TextDecoder('utf-8');
   var u8 = encoder.encode('test string');
@@ -52,7 +56,7 @@ test('TextEncoder and TextDecoder', function (t) {
   t.end();
 });
 
-test('TextEncoder and TextDecoder call as a function', function (t) {
+test('TextEncoder and TextDecoder call as a function', function(t) {
   t.throws(function() {
     TextEncoder('utf-8');
   });

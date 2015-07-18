@@ -129,22 +129,22 @@ exports.parseResponse = function(u8) {
     var bytes = [];
 
     switch (recordType) {
-      case 1: // A record
-        if (4 !== rdLen) {
-          return null;
-        }
+    case 1: // A record
+      if (4 !== rdLen) {
+        return null;
+      }
 
-        results.push({hostname: host, record: 'A', address: [reader.readUint8(), reader.readUint8(),
-          reader.readUint8(), reader.readUint8()], ttl: ttl });
-        break;
-      case 5: // CNAME record
-        results.push({hostname: host, record: 'CNAME', name: readHostname(reader).join('.')});
-        break;
-      default:
-        for (var b = 0; b < rdLen; ++b) {
-          reader.readUint8();
-        }
-        break;
+      results.push({hostname: host, record: 'A', address: [reader.readUint8(), reader.readUint8(),
+        reader.readUint8(), reader.readUint8()], ttl: ttl });
+      break;
+    case 5: // CNAME record
+      results.push({hostname: host, record: 'CNAME', name: readHostname(reader).join('.')});
+      break;
+    default:
+      for (var b = 0; b < rdLen; ++b) {
+        reader.readUint8();
+      }
+      break;
     }
   }
 
