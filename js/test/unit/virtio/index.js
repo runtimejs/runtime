@@ -14,11 +14,11 @@
 
 'use strict';
 var test = require('tape');
-var resources = require('../../core/resources');
+var resources = require('../../../core/resources');
 var allocator = resources.allocator;
 var mem = allocator.allocDMA();
-var VRing = require('../../driver/virtio/vring');
-var DescriptorTable = require('../../driver/virtio/vring/descriptor-table');
+var VRing = require('../../../driver/virtio/vring');
+var DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
 
 function clearBuffer(u8) {
   for (var i = 0; i < u8.length; ++i) {

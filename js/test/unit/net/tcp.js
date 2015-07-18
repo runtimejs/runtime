@@ -16,11 +16,11 @@
 
 var test = require('tape');
 var assert = require('assert');
-var TCPSocket = require('../../core/net/tcp-socket');
-var TCPServerSocket = require('../../core/net/tcp-server-socket');
-var IP4Address = require('../../core/net/ip4-address');
-var tcpHeader = require('../../core/net/tcp-header');
-var tcpSocketState = require('../../core/net/tcp-socket-state');
+var TCPSocket = require('../../../core/net/tcp-socket');
+var TCPServerSocket = require('../../../core/net/tcp-server-socket');
+var IP4Address = require('../../../core/net/ip4-address');
+var tcpHeader = require('../../../core/net/tcp-header');
+var tcpSocketState = require('../../../core/net/tcp-socket-state');
 
 function createTcpPacket(seq, ack, flags, window, u8data) {
   window = window || 8192;

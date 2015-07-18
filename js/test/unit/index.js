@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-var runtime = require('../');
+var runtime = require('../../');
 var test = require('tape');
 var stream = test.createStream();
 var shutdown = runtime.machine.shutdown;

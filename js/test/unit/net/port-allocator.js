@@ -16,7 +16,7 @@
 
 var test = require('tape');
 var assert = require('assert');
-var PortAllocator = require('../../core/net/port-allocator');
+var PortAllocator = require('../../../core/net/port-allocator');
 var EPHEMERAL_PORT_FIRST = 49152;
 
 test('ephemeral only: simple allocation', function(t) {

@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint .",
-    "test": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd",
-    "test-build": "runtimeify test/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
+    "test": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd",
+    "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
   },
   "repository": {
     "type": "git",

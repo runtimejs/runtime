@@ -16,7 +16,7 @@
 
 var test = require('tape');
 var assert = require('assert');
-var TCPSocket = require('../../core/net/tcp-socket');
+var TCPSocket = require('../../../core/net/tcp-socket');
 
 function receiveTest(opts, cb) {
   var initialSequenceNumber = opts.initialSequenceNumber;
