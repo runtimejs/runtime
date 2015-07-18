@@ -24,6 +24,7 @@ var IP4Address = require('./ip4-address');
 var loopback = require('./loopback');
 var TCPSocket = require('./tcp-socket');
 var TCPServerSocket = require('./tcp-server-socket');
+var Ping = require('./ping');
 var stat = require('./net-stat');
 
 var onInterfaceAdded = new EventController();
@@ -46,6 +47,7 @@ exports.UDPSocket = UDPSocket;
 exports.IP4Address = IP4Address;
 exports.MACAddress = MACAddress;
 exports.Interface = Interface;
+exports.Ping = Ping;
 exports.route = route;
 exports.stat = stat;
 
