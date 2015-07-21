@@ -33,6 +33,10 @@ class UDPSocket {
   }
 
   send(ip, port, u8) {
+    if (typeutils.isString(ip)) {
+      ip = IP4Address.parse(ip);
+    }
+
     assertError(ip instanceof IP4Address, netError.E_IPADDRESS_EXPECTED);
     assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
     assertError(u8 instanceof Uint8Array, netError.E_TYPEDARRAY_EXPECTED);
