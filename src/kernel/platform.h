@@ -34,7 +34,7 @@ namespace rt {
 class Platform {
 public:
     Platform() {
-      time_ = new CMOSTime;
+      time_ = CMOSTime();
       time_int_ = time_->GetCurrentMilliseconds();
     }
 
@@ -127,7 +127,7 @@ private:
     DELETE_COPY_AND_ASSIGN(Platform);
 
     // Time stuff
-    CMOSTime* time_;
+    CMOSTime time_;
     uint64_t time_int_;
 };
 

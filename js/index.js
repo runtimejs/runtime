@@ -65,6 +65,6 @@ runtime.shell.setCommand('reboot', function(args, env, cb) {
 require('./driver/ps2');
 require('./driver/virtio');
 
-require('./core/set_time');
+require('./core/set-time');
 
 module.exports = runtime;
