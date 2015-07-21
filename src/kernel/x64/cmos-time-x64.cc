@@ -79,12 +79,12 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
 
   // Convert 12 hour clock to 24 hour clock if necessary
 
-  if (!(registerB & 0x02) && (hour & 0x80)) {
-        hour = ((hour & 0x7F) + 12) % 24;
+  if (!(registerB & 0x02) && (hour_ & 0x80)) {
+        hour_ = ((hour_ & 0x7F) + 12) % 24;
   }
 
   // Get the full year
-  year = year + 2000;
+  year_ = year_ + 2000;
 
   // Calculate the time since 1970
   uint64_t milli = 0;
