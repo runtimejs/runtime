@@ -86,6 +86,12 @@ class UDPSocket {
     }
   }
 
+  close() {
+    if (this._port) {
+      ports.free(this._port);
+    }
+  }
+
   static lookupReceive(destPort) {
     return ports.lookup(destPort);
   }
