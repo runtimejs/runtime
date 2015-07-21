@@ -34,7 +34,6 @@ namespace rt {
 class Platform {
 public:
     Platform() {
-      time_ = CMOSTime();
       time_int_ = time_.GetCurrentMilliseconds();
     }
 
