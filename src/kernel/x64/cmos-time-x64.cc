@@ -19,6 +19,15 @@
 
 namespace rt {
 
+CMOSTime::CMOSTime() {
+  second = 0;
+  minute = 0;
+  hour = 0;
+  day = 0;
+  month = 0;
+  year = 0;
+}
+
 int CMOSTime::GetUpdateProgressFlag() {
   IoPortsX64::OutB((uint16_t)CMOSTimeRegisters::CMOSAddress, (uint8_t)0x0A);
   return ((int)IoPortsX64::InB((uint16_t)CMOSTimeRegisters::CMOSData) & 0x80);
@@ -36,7 +45,6 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
   int last_day;
   int last_month;
   int last_year;
-  int last_century;
   int registerB;
 
   while (GetUpdateProgressFlag());

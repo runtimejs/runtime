@@ -26,6 +26,7 @@ enum class CMOSTimeRegisters {
 
 class CMOSTime {
 public:
+  CMOSTime();
   uint64_t GetCurrentMilliseconds();
 private:
   int second;
@@ -33,7 +34,7 @@ private:
   int hour;
   int day;
   int month;
-  unsigned int year;
+  int year;
 
   int GetUpdateProgressFlag();
   int GetRTCRegister(int reg);
