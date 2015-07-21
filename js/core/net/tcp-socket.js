@@ -26,6 +26,7 @@ var tcpTimer = require('./tcp-timer');
 var tcpSocketState = require('./tcp-socket-state');
 var connHash = require('./tcp-hash');
 var tcpStat = require('./tcp-stat');
+var timeNow = require('../../utils').timeNow;
 
 var ports = new PortAllocator();
 
@@ -231,7 +232,7 @@ class TCPSocket {
       flags |= tcpHeader.FLAG_ACK;
     }
 
-    this._transmitQueue.push([0, Date.now(), this._getTransmitPosition(), 1, null, flags]);
+    this._transmitQueue.push([0, timeNow(), this._getTransmitPosition(), 1, null, flags]);
     this._incTransmitPosition();
 
     if (!this._configure()) {
@@ -295,11 +296,11 @@ class TCPSocket {
         }
 
         if (length === reserved) {
-          this._transmitQueue.push([0, Date.now(), position, reserved, buf, tcpHeader.FLAG_ACK | tcpHeader.FLAG_PSH]);
+          this._transmitQueue.push([0, timeNow(), position, reserved, buf, tcpHeader.FLAG_ACK | tcpHeader.FLAG_PSH]);
           this._bufferedAmount -= reserved;
           ++remove;
         } else {
-          this._transmitQueue.push([0, Date.now(), position, reserved, buf.subarray(0, reserved), tcpHeader.FLAG_ACK | tcpHeader.FLAG_PSH]);
+          this._transmitQueue.push([0, timeNow(), position, reserved, buf.subarray(0, reserved), tcpHeader.FLAG_ACK | tcpHeader.FLAG_PSH]);
           this._queueTx[i] = buf.subarray(reserved);
           this._bufferedAmount -= reserved;
           break;
@@ -311,7 +312,7 @@ class TCPSocket {
       } else {
         debug('fill pos', position, 'fin');
         this._incTransmitPosition();
-        this._transmitQueue.push([0, Date.now(), position, 1, null, tcpHeader.FLAG_ACK | tcpHeader.FLAG_FIN]);
+        this._transmitQueue.push([0, timeNow(), position, 1, null, tcpHeader.FLAG_ACK | tcpHeader.FLAG_FIN]);
         ++remove;
       }
 
@@ -327,7 +328,7 @@ class TCPSocket {
   _timerTick() {
     switch (this._state) {
     case STATE_TIME_WAIT:
-      if (Date.now() > this._timeWaitTime + 2 * MSL_TIME) {
+      if (timeNow() > this._timeWaitTime + 2 * MSL_TIME) {
         this._state = STATE_CLOSED;
         this._destroy();
       }
@@ -346,7 +347,7 @@ class TCPSocket {
   }
 
   _sendTransmitQueue() {
-    var now = Date.now();
+    var now = timeNow();
 
     if (this._transmitQueue.length > 0) {
       for (var i = 0, l = this._transmitQueue.length; i < l; ++i) {
@@ -670,7 +671,7 @@ class TCPSocket {
 
       if (this._state === STATE_FIN_WAIT_2) {
         this._state = STATE_TIME_WAIT;
-        this._timeWaitTime = Date.now();
+        this._timeWaitTime = timeNow();
         if (this.onend) {
           this._emitEnd();
         }
