@@ -19,14 +19,7 @@
 
 namespace rt {
 
-CMOSTime::CMOSTime() {
-  second = 0;
-  minute = 0;
-  hour = 0;
-  day = 0;
-  month = 0;
-  year = 0;
-}
+CMOSTime::CMOSTime() : second_(0), minute_(0), hour_(0), day_(0), month_(0), year_(0) {}
 
 int CMOSTime::GetUpdateProgressFlag() {
   IoPortsX64::OutB((uint16_t)CMOSTimeRegisters::CMOSAddress, (uint8_t)0x0A);
@@ -48,12 +41,12 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
   int registerB;
 
   while (GetUpdateProgressFlag());
-  second = GetRTCRegister(0x00);
-  minute = GetRTCRegister(0x02);
-  hour = GetRTCRegister(0x04);
-  day = GetRTCRegister(0x07);
-  month = GetRTCRegister(0x08);
-  year = GetRTCRegister(0x09);
+  second_ = GetRTCRegister(0x00);
+  minute_ = GetRTCRegister(0x02);
+  hour_ = GetRTCRegister(0x04);
+  day_ = GetRTCRegister(0x07);
+  month_ = GetRTCRegister(0x08);
+  year_ = GetRTCRegister(0x09);
 
   do {
     last_second = second;
@@ -64,24 +57,24 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
     last_year = year;
 
     while (GetUpdateProgressFlag());
-    second = GetRTCRegister(0x00);
-    minute = GetRTCRegister(0x02);
-    hour = GetRTCRegister(0x04);
-    day = GetRTCRegister(0x07);
-    month = GetRTCRegister(0x08);
-    year = GetRTCRegister(0x09);
-  } while ((last_second != second) || (last_minute != minute) || (last_hour != hour) ||
-           (last_day != day) || (last_month != month) || (last_year != year));
+    second_ = GetRTCRegister(0x00);
+    minute_ = GetRTCRegister(0x02);
+    hour_ = GetRTCRegister(0x04);
+    day_ = GetRTCRegister(0x07);
+    month_ = GetRTCRegister(0x08);
+    year_ = GetRTCRegister(0x09);
+  } while ((last_second != second_) || (last_minute != minute_) || (last_hour != hour_) ||
+           (last_day != day_) || (last_month != month_) || (last_year != year_));
 
   registerB = GetRTCRegister(0x0B);
 
   if (!(registerB & 0x04)) {
-    second = (second & 0x0F) + ((second / 16) * 10);
-    minute = (minute & 0x0F) + ((minute / 16) * 10);
-    hour = ( (hour & 0x0F) + (((hour & 0x70) / 16) * 10) ) | (hour & 0x80);
-    day = (day & 0x0F) + ((day / 16) * 10);
-    month = (month & 0x0F) + ((month / 16) * 10);
-    year = (year & 0x0F) + ((year / 16) * 10);
+    second_ = (second_ & 0x0F) + ((second_ / 16) * 10);
+    minute_ = (minute_ & 0x0F) + ((minute / 16) * 10);
+    hour_= ((hour_ & 0x0F) + (((hour_ & 0x70) / 16) * 10)) | (hour_ & 0x80);
+    day_ = (day_ & 0x0F) + ((day_ / 16) * 10);
+    month_= (month_ & 0x0F) + ((month_ / 16) * 10);
+    year_ = (year_ & 0x0F) + ((year_ / 16) * 10);
   }
 
   // Convert 12 hour clock to 24 hour clock if necessary
@@ -97,12 +90,12 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
   uint64_t milli = 0;
 
   // All to millisecond
-  milli = milli + second * 1000;
-  milli = milli + minute * 60000;
-  milli = milli + hour * 3600000;
-  milli = milli + day * 8640000;
-  milli = milli + month * 259200000;
-  milli = milli + year * 3110400000;
+  milli = milli + second_ * 1000;
+  milli = milli + minute_ * 60000;
+  milli = milli + hour_ * 3600000;
+  milli = milli + day_ * 8640000;
+  milli = milli + month_ * 259200000;
+  milli = milli + year_ * 3110400000;
 
   milli = milli * 229.245;
 

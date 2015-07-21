@@ -35,7 +35,7 @@ class Platform {
 public:
     Platform() {
       time_ = CMOSTime();
-      time_int_ = time_->GetCurrentMilliseconds();
+      time_int_ = time_.GetCurrentMilliseconds();
     }
 
     /**

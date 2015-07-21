@@ -29,12 +29,12 @@ public:
   CMOSTime();
   uint64_t GetCurrentMilliseconds();
 private:
-  int second;
-  int minute;
-  int hour;
-  int day;
-  int month;
-  int year;
+  int second_;
+  int minute_;
+  int hour_;
+  int day_;
+  int month_;
+  int year_;
 
   int GetUpdateProgressFlag();
   int GetRTCRegister(int reg);
