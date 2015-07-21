@@ -32,18 +32,16 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
 
   var socket = new runtime.net.UDPSocket();
   socket.onmessage = function(ip, port, u8) {
-    var dat = new Buffer(u8);
-
     var offset = 40,
         intpart = 0,
         fractpart = 0;
 
     for (let i = 0; i <= 3; i++) {
-      intpart = 256 * intpart + dat[offset + i];
+      intpart = 256 * intpart + u8[offset + i];
     }
 
     for (let i = 4; i <= 7; i++) {
-      fractpart = 256 * fractpart + dat[offset + i];
+      fractpart = 256 * fractpart + u8[offset + i];
     }
 
     var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);

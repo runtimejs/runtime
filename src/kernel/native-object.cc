@@ -750,8 +750,9 @@ NATIVE_FUNCTION(NativesObject, StopVideoLog) {
 
 NATIVE_FUNCTION(NativesObject, SetTime) {
   PROLOGUE;
-  VALIDATEARG(0, NUMBER, "argument 0 is not a string value");
-  uint64_t val = args[0]->NumberValue();
+  USEARG(0);
+  VALIDATEARG(0, NUMBER, "argument 0 is not a number value");
+  uint64_t val = (arg0.As<v8::Number>())->Value();
   GLOBAL_platform()->SetTimeMicroseconds(val);
   args.GetReturnValue().SetUndefined();
 }
