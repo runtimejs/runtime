@@ -49,12 +49,12 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
   year_ = GetRTCRegister(0x09);
 
   do {
-    last_second = second;
-    last_minute = minute;
-    last_hour = hour;
-    last_day = day;
-    last_month = month;
-    last_year = year;
+    last_second = second_;
+    last_minute = minute_;
+    last_hour = hour_;
+    last_day = day_;
+    last_month = month_;
+    last_year = year_;
 
     while (GetUpdateProgressFlag());
     second_ = GetRTCRegister(0x00);
@@ -70,7 +70,7 @@ uint64_t CMOSTime::GetCurrentMilliseconds()  {
 
   if (!(registerB & 0x04)) {
     second_ = (second_ & 0x0F) + ((second_ / 16) * 10);
-    minute_ = (minute_ & 0x0F) + ((minute / 16) * 10);
+    minute_ = (minute_ & 0x0F) + ((minute_ / 16) * 10);
     hour_= ((hour_ & 0x0F) + (((hour_ & 0x70) / 16) * 10)) | (hour_ & 0x80);
     day_ = (day_ & 0x0F) + ((day_ / 16) * 10);
     month_= (month_ & 0x0F) + ((month_ / 16) * 10);
