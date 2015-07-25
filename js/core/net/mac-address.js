@@ -42,4 +42,31 @@ MACAddress.prototype.equals = function(that) {
 MACAddress.BROADCAST = new MACAddress(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 MACAddress.ZERO = new MACAddress(0, 0, 0, 0, 0, 0);
 
+MACAddress.parse = function(str) {
+  if (str instanceof MACAddress) {
+    return str;
+  }
+
+  if ('string' !== typeof str) {
+    return null;
+  }
+
+  var p = str.trim().split(':');
+  if (6 !== p.length) {
+    return null;
+  }
+
+  var a = new Array(6);
+  for (var i = 0; i < 6; ++i) {
+    var v = parseInt(p[i], 16) | 0;
+    if (v !== parseInt(p[i], 16) || v < 0 || v > 255) {
+      return null;
+    }
+
+    a[i] = v;
+  }
+
+  return new MACAddress(a[0], a[1], a[2], a[3], a[4], a[5]);
+};
+
 module.exports = MACAddress;

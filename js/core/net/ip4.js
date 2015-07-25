@@ -15,20 +15,27 @@
 'use strict';
 var IP4Address = require('./ip4-address');
 var ip4header = require('./ip4-header');
-var udp = require('./udp');
-var tcp = require('./tcp');
-var icmp = require('./icmp');
+var ip4fragments = require('./ip4-fragments');
+var ip4receive = require('./ip4-receive');
 
-exports.receive = function(intf, u8, headerOffset) {
+function handleReceive(intf, u8, headerOffset) {
   var headerLength = ip4header.getHeaderLength(u8, headerOffset);
   var protocolId = ip4header.getProtocolId(u8, headerOffset);
   var srcIP = ip4header.getSrcIP(u8, headerOffset);
   var destIP = ip4header.getDestIP(u8, headerOffset);
   var nextOffset = headerOffset + headerLength;
+  ip4receive(intf, srcIP, destIP, protocolId, u8, nextOffset);
+}
 
-  switch (protocolId) {
-  case 0x01: return icmp.receive(intf, srcIP, destIP, u8, nextOffset);
-  case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
-  case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
+exports.receive = function(intf, u8, headerOffset) {
+  var fragmentData = ip4header.getFragmentationData(u8, headerOffset);
+  var isMoreFragments = ip4header.fragmentationDataIsMoreFragments(fragmentData);
+  var fragmentOffset = ip4header.fragmentationDataOffset(fragmentData);
+
+  if (!isMoreFragments && fragmentOffset === 0) {
+    handleReceive(intf, u8, headerOffset);
+    return;
   }
+
+  ip4fragments.addFragment(intf, u8, headerOffset, fragmentOffset, isMoreFragments);
 };

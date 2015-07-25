@@ -35,6 +35,7 @@ function Interface(macAddr) {
   this.bufferDataOffset = 0;
   this.arp = new ARPResolver(this);
   this.isNetworkEnabled = false;
+  this.fragments = new Map();
 }
 
 Interface.prototype.disableArp = function() {

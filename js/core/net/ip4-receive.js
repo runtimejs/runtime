@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,25 +13,15 @@
 // limitations under the License.
 
 'use strict';
-var runtime = require('../../');
-var test = require('tape');
-var stream = test.createStream();
-var shutdown = runtime.machine.shutdown;
 
-stream.on('data', function(v) {
-  if (v[v.length - 1] === '\n') {
-    v = v.slice(0, -1);
+var udp = require('./udp');
+var tcp = require('./tcp');
+var icmp = require('./icmp');
+
+module.exports = function(intf, srcIP, destIP, protocolId, u8, nextOffset) {
+  switch (protocolId) {
+  case 0x01: return icmp.receive(intf, srcIP, destIP, u8, nextOffset);
+  case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
+  case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
   }
-  console.log(v);
-});
-
-stream.on('end', shutdown);
-
-require('./script');
-require('./lib/test');
-require('./buffers');
-require('./platform');
-require('./timers');
-require('./virtio');
-require('./random');
-require('./net');
+};
