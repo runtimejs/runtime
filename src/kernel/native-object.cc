@@ -748,6 +748,15 @@ NATIVE_FUNCTION(NativesObject, StopVideoLog) {
     GLOBAL_boot_services()->logger()->DisableVideo();
 }
 
+NATIVE_FUNCTION(NativesObject, SetTime) {
+  PROLOGUE;
+  USEARG(0);
+  VALIDATEARG(0, NUMBER, "argument 0 is not a number value");
+  uint64_t val = (arg0.As<v8::Number>())->Value();
+  GLOBAL_platform()->SetTimeMicroseconds(val);
+  args.GetReturnValue().SetUndefined();
+}
+
 NATIVE_FUNCTION(IoPortX64Object, Write8) {
     PROLOGUE;
     USEARG(0);
@@ -1312,4 +1321,3 @@ NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
 }
 
 } // namespace rt
-

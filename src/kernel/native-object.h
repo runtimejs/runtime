@@ -103,6 +103,11 @@ public:
      */
     DECLARE_NATIVE(InitrdList);
 
+    /**
+     * Set the time
+     */
+    DECLARE_NATIVE(SetTime);
+
     void ObjectInit(ExportBuilder obj) {
         obj.SetCallback("kernelLog", KernelLog);
         obj.SetCallback("memoryBarrier", MemoryBarrier);
@@ -118,6 +123,7 @@ public:
         obj.SetCallback("bufferAddress", BufferAddress);
         obj.SetCallback("systemInfo", SystemInfo);
         obj.SetCallback("isolatesInfo", IsolatesInfo);
+        obj.SetCallback("setTime", SetTime);
     }
 
     JsObjectWrapperBase* Clone() const {

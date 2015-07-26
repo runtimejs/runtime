@@ -342,7 +342,7 @@ Time Time::Now() {
   // return Time(1);
 
   RT_ASSERT(GLOBAL_platform());
-  return Time(GLOBAL_platform()->BootTimeMicroseconds());
+  return Time(GLOBAL_platform()->RealTimeMicroseconds());
 }
 
 
