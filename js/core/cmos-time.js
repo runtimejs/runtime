@@ -83,22 +83,15 @@ do {
 registerB = getRTCRegister(0x0B);
 
 if (!(registerB & 0x04)) {
-  second = (second & 0x0F) + ((second / 16) * 10);
-  minute = (minute & 0x0F) + ((minute / 16) * 10);
-  hour = ((hour & 0x0F) + (((hour & 0x70) / 16) *10)) | (hour & 0x80);
-  day = (day & 0x0F) + ((day / 16) * 10);
-  month = (month & 0x0F) + ((month / 16) * 10);
-  year = (year & 0x0F) + ((year / 16) * 10);
+  second = (second & 0x0F) + ((second >>> 4) * 10);
+  minute = (minute & 0x0F) + ((minute >>> 4) * 10);
+  hour = ((hour & 0x0F) + (((hour & 0x70) >>> 4) * 10)) | (hour & 0x80);
+  day = (day & 0x0F) + ((day >>> 4) * 10);
+  month = (month & 0x0F) + ((month >>> 4) * 10);
+  year = (year & 0x0F) + ((year >>> 4) * 10);
 }
 
 year = year + 2000;
 
-second = Math.round(second);
-minute = Math.round(minute) - 3;
-hour = Math.round(hour);
-day = Math.round(day) - 4;
-month = Math.round(month) - 5;
-year = Math.round(year) - 3;
-
-var date = new Date(year, month, day, hour, minute, second, 0);
-resources.natives.setTime(date.getTime() * 1000);
+var utc = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+resources.natives.setTime(utc * 1000);
