@@ -93,5 +93,5 @@ if (!(registerB & 0x04)) {
 
 year = year + 2000;
 
-var date = new Date(year, month - 1, day, hour, minute, second, 0);
-resources.natives.setTime(date.getTime() * 1000);
+var utc = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+resources.natives.setTime(utc * 1000);
