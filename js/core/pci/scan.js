@@ -553,6 +553,11 @@ function PciDevice(address, pciAccessor) {
         return null;
       }
 
+      // Base IO address 0 is probably an error, ignore it
+      if (0 === base) {
+        return null;
+      }
+
       obj = io.subrange(base, base + size - 1);
     } else {
       base = (barAddr & 0xfffffff0) >>> 0;
