@@ -14,6 +14,8 @@
 
 'use strict';
 
+/* global runtime */
+
 var resources = require('./resources');
 var rawip = null;
 
@@ -32,9 +34,9 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
 
   var socket = new runtime.net.UDPSocket();
   socket.onmessage = function(ip, port, u8) {
-    var offset = 40,
-        intpart = 0,
-        fractpart = 0;
+    var offset = 40;
+    var intpart = 0;
+    var fractpart = 0;
 
     for (let i = 0; i <= 3; i++) {
       intpart = 256 * intpart + u8[offset + i];
@@ -46,7 +48,7 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
 
     var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);
 
-    var date = new Date("Jan 01 1900 GMT");
+    var date = new Date('Jan 01 1900 GMT');
 
     resources.natives.setTime((date.getTime() + milli) * 1000);
   }
