@@ -19,6 +19,7 @@ console.log = isolate.log;
 var resources = require('./resources');
 require('./polyfill');
 
+var random = require('./random');
 var keyboard = require('./keyboard');
 var ps2 = require('./ps2');
 var pci = require('./pci');
@@ -26,6 +27,7 @@ var net = require('./net');
 var stdio = require('./stdio');
 
 function Runtime() {
+  this.random = random;
   this.keyboard = keyboard;
   this.pci = pci;
   this.ps2 = ps2;
@@ -43,3 +45,6 @@ function Runtime() {
 }
 
 global.runtime = module.exports = new Runtime();
+
+// Add default random source
+require('./random/default');
