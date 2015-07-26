@@ -59,7 +59,6 @@ exports.getRandomValues = function(value, cb) {
     throw new Error('getRandomValues: no entropy source available');
   }
 
-  console.log('using', defaultSource.getName());
   defaultSource.getBytes(u8, function() {
     isaac.seed(u8);
     cb(u8);
