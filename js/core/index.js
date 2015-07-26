@@ -45,6 +45,3 @@ function Runtime() {
 }
 
 global.runtime = module.exports = new Runtime();
-
-// Add default random source
-require('./random/default');

@@ -27,7 +27,6 @@ function initializeRNGDevice(pciDevice) {
   dev.setDriverAck();
 
   var driverFeatures = {};
-
   var deviceFeatures = dev.readDeviceFeatures(driverFeatures);
 
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
@@ -38,32 +37,38 @@ function initializeRNGDevice(pciDevice) {
   var QUEUE_ID_REQ = 0;
 
   var reqQueue = dev.queueSetup(QUEUE_ID_REQ);
+  var cbqueue = [];
+
+  function recvBuffer() {
+    if (cbqueue.length === 0) {
+      return;
+    }
+
+    cbqueue.shift()();
+  }
+
+  irq.on(function() {
+    if (!dev.hasPendingIRQ()) {
+      return;
+    }
+
+    reqQueue.fetchBuffers(recvBuffer);
+  });
 
   dev.setDriverReady();
 
-  var cbqueue = []
+  var source = new runtime.random.EntropySource('virtio-rng');
 
-  var randobj = {
-    init: function() {
-      irq.on(function() {
-        reqQueue.fetchBuffers(function(u8) {
-          cbqueue.shift()(u8);
-        });
-      });
-    },
-    fillBuffer: function(buffer, cb) {
-      reqQueue.placeBuffers([buffer], true);
+  source.ongetbytes = function(u8, cb) {
+    cbqueue.push(cb);
+    reqQueue.placeBuffers([u8], true);
 
-      if (reqQueue.isNotificationNeeded()) {
-        dev.queueNotify(QUEUE_ID_REQ);
-      }
-
-      cbqueue.push(cb);
+    if (reqQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_REQ);
     }
-  }
+  };
 
-  var random = runtime.random.addSource('virtio-rng', randobj);
-  runtime.random.setDefault('virtio-rng');
+  runtime.random.addEntropySource(source);
 }
 
 module.exports = initializeRNGDevice;

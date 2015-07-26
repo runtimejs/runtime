@@ -141,6 +141,13 @@ module.exports = (function() {
         r[i & 0xff] += (typeof(s[i]) === 'number') ? s[i] : 0;
     }
 
+    if (s instanceof Uint8Array) {
+      self.reset();
+      for(i = 0; i < s.length; i++) {
+        r[i & 0xff] += s[i];
+      }
+    }
+
     /* private: seed mixer */
     function seed_mix() {
       a ^= b <<  11; d = add(d, a); b = add(b, c);
