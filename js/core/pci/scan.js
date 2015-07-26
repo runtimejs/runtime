@@ -340,7 +340,6 @@ var pciSpace = (function(pciAccessorFactoryArg) {
  */
 var codeNameResolver = (function() {
   var classCodes = [
-    'RNG Device',
     'Unclassified',
     'Mass Storage Controller',
     'Network Controller',
@@ -367,7 +366,7 @@ var codeNameResolver = (function() {
      */
     classCodeToName: function(code) {
       if ('undefined' === typeof classCodes[code]) {
-        return classCodes[1];
+        return classCodes[0];
       }
 
       return classCodes[code];
@@ -808,8 +807,28 @@ pciManager.each(function(pciDevice) {
   // });
 });
 
+// Print PCI devices debug info
+pciManager.each(function(pciDevice) {
+  var address = pciDevice.address();
+  var vector = pciDevice.getIRQVector();
+  var classData = pciDevice.classData();
+
+  var devicePin = 0;
+  if (!pciDevice.isBridge()) {
+    devicePin = pciDevice.interruptPin();
+  }
+
+  var pins = ['dont use', 'A', 'B', 'C', 'D'];
+
+  var info = address.bus.toString(16) + ':' + address.slot.toString(16) + '.' + address.func + ' ' +
+    pciDevice.vendorId().toString(16) + ':' + pciDevice.deviceId().toString(16) + ' ' +
+    classData.className + ' IRQ: ' + vector + ' PIN: ' + pins[devicePin];
+  debug(info);
+});
+
 function listPciDevices() {
   var results = [];
+
   pciManager.each(function(pciDevice) {
     if (pciDevice.isBridge()) {
       return;
