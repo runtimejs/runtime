@@ -41,4 +41,3 @@ function testDeviceId(deviceId) {
 }
 
 runtime.pci.addDriver(0x1af4, testDeviceId, driver);
-runtime.pci.addDriver(0x1af4, testDeviceId, driver);
