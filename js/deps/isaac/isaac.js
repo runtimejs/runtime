@@ -245,5 +245,5 @@ module.exports = (function() {
 
 /* public: output*/
 module.exports.random = function() {
-  return 0.5 + this.rand() * 2.3283064365386963e-10; // 2^-32
+  return 0.5 + module.exports.rand() * 2.3283064365386963e-10; // 2^-32
 }

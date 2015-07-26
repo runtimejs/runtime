@@ -18,6 +18,7 @@ var EntropySource = require('./entropy-source');
 var sources = require('./sources');
 var typeutils = require('typeutils');
 var getDefaultSource = sources.getDefaultSource;
+require('./default-source');
 
 exports.EntropySource = EntropySource;
 exports.addEntropySource = sources.addEntropySource;

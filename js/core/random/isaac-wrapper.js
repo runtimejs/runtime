@@ -29,7 +29,6 @@ function isaacToUint8(n) {
 }
 
 exports.seed = isaac.seed;
-exports.rand = isaac.rand;
 exports.getByte = function() {
   return isaacToUint8(isaac.rand());
 };
