@@ -32,4 +32,5 @@ require('./buffers');
 require('./platform');
 require('./timers');
 require('./virtio');
+require('./random');
 require('./net');
