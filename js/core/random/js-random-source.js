@@ -17,7 +17,9 @@ var isaac = require('./isaac-wrapper');
 var EntropySource = require('./entropy-source');
 var sources = require('./sources');
 
-var source = new EntropySource('default');
+// Low quality entropy source based on Math.random() seed
+// and isaac CSPRNG
+var source = new EntropySource('js-random');
 source.ongetbytes = function(u8, cb) {
   for (var i = 0; i < u8.length; i++) {
     u8[i] = isaac.getByte();

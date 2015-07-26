@@ -21,6 +21,7 @@ exports.addEntropySource = function(source) {
 
   // Set this source as the default one
   defaultSource = source;
+  console.log('[random] using entropy source', defaultSource.getName());
 };
 
 exports.getDefaultSource = function() {
