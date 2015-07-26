@@ -20,7 +20,7 @@ var sources = require('./sources');
 var source = new EntropySource('default');
 source.ongetbytes = function(u8, cb) {
   for (var i = 0; i < u8.length; i++) {
-    u8[i] = isaacRound(isaac.getByte());
+    u8[i] = isaac.getByte();
   }
   cb();
 };
