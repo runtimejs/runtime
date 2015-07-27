@@ -37,33 +37,33 @@ test('EntropySource', function(t) {
   });
 });
 
-test('getRandomValues buffer', function(t) {
+test('getTrueRandomValues buffer', function(t) {
   t.timeoutAfter(1000);
   var u8 = new Uint8Array([0, 0, 0]);
-  runtime.random.getRandomValues(u8, function(u8out) {
+  runtime.random.getTrueRandomValues(u8, function(u8out) {
     t.equal(u8, u8out);
     t.end();
   });
 });
 
-test('getRandomValues length', function(t) {
+test('getTrueRandomValues length', function(t) {
   t.timeoutAfter(1000);
-  runtime.random.getRandomValues(10, function(u8) {
+  runtime.random.getTrueRandomValues(4, function(u8) {
     t.ok(u8 instanceof Uint8Array);
-    t.equal(u8.length, 10);
+    t.equal(u8.length, 4);
     t.end();
   });
 });
 
-test('getPseudoRandomValues buffer', function(t) {
+test('getRandomValues buffer', function(t) {
   var u8 = new Uint8Array([0, 0, 0]);
-  var u8out = runtime.random.getPseudoRandomValues(u8);
+  var u8out = runtime.random.getRandomValues(u8);
   t.equal(u8, u8out);
   t.end();
 });
 
-test('getPseudoRandomValues length', function(t) {
-  var u8 = runtime.random.getPseudoRandomValues(10);
+test('getRandomValues length', function(t) {
+  var u8 = runtime.random.getRandomValues(10);
   t.ok(u8 instanceof Uint8Array);
   t.equal(u8.length, 10);
   t.end();
