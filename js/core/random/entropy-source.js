@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,24 +13,27 @@
 // limitations under the License.
 
 'use strict';
-var runtime = require('../../');
-var test = require('tape');
-var stream = test.createStream();
-var shutdown = runtime.machine.shutdown;
 
-stream.on('data', function(v) {
-  if (v[v.length - 1] === '\n') {
-    v = v.slice(0, -1);
+class EntropySource {
+  constructor(name) {
+    this._name = name || '';
+    this.ongetbytes = null;
   }
-  console.log(v);
-});
 
-stream.on('end', shutdown);
+  getName() {
+    return this._name;
+  }
 
-require('./script');
-require('./buffers');
-require('./platform');
-require('./timers');
-require('./virtio');
-require('./random');
-require('./net');
+  /**
+   * Request randomness from this entropy source
+   */
+  getBytes(u8, cb) {
+    if (!this.ongetbytes) {
+      throw new Error('entropy source was not initialized');
+    }
+
+    this.ongetbytes(u8, cb);
+  }
+}
+
+module.exports = EntropySource;

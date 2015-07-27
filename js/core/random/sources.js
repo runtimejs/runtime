@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,24 +13,22 @@
 // limitations under the License.
 
 'use strict';
-var runtime = require('../../');
-var test = require('tape');
-var stream = test.createStream();
-var shutdown = runtime.machine.shutdown;
+var isaac = require('./isaac-wrapper');
+var defaultSource = null;
+var availableSources = Object.create(null);
 
-stream.on('data', function(v) {
-  if (v[v.length - 1] === '\n') {
-    v = v.slice(0, -1);
-  }
-  console.log(v);
-});
+exports.addEntropySource = function(source) {
+  availableSources[source.getName()] = source;
 
-stream.on('end', shutdown);
+  source.getBytes(new Uint8Array(8), function(u8) {
+    isaac.seed(u8);
+    console.log('[random] using entropy source', source.getName());
+  });
 
-require('./script');
-require('./buffers');
-require('./platform');
-require('./timers');
-require('./virtio');
-require('./random');
-require('./net');
+  // Set this source as the default one
+  defaultSource = source;
+};
+
+exports.getDefaultSource = function() {
+  return defaultSource;
+};

@@ -14,7 +14,9 @@
 
 'use strict';
 var virtioNet = require('./net');
+var virtioRNG = require('./rng');
 var VIRTIO_SUBSYSTEM_NETWORK = 1;
+var VIRTIO_SUBSYSTEM_RNG = 4;
 var runtime = require('../../core');
 
 var driver = {
@@ -23,6 +25,10 @@ var driver = {
 
     if (subsystemId === VIRTIO_SUBSYSTEM_NETWORK) {
       return virtioNet(pciDevice);
+    }
+
+    if (subsystemId === VIRTIO_SUBSYSTEM_RNG) {
+      return virtioRNG(pciDevice);
     }
 
     debug(`[virtio] unknown virtio device (subsystem id ${subsystemId})`);
