@@ -44,6 +44,10 @@ Application, its dependencies and the core library are bundled up using <a href=
 
 runtime.js is a library operating system, because application uses it as its own dependency (library). Internal architecture is similar to [exokernels](https://en.wikipedia.org/wiki/Exokernel), where system exposes the hardware to application code and forces as few abstractions as possible.
 
+## DOCS
+
+[API docs](https://github.com/runtimejs/runtime/wiki/API-docs)
+
 License
 ----
 Apache License, Version 2.0
