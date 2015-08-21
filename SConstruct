@@ -76,6 +76,7 @@ config = {
             '-c',
             '-std=c99',
             '-D_XOPEN_SOURCE=700',
+            '-DSODIUM_STATIC',
         ]),
         "release": set([
         ]),
@@ -116,6 +117,7 @@ config = {
         'deps/concurrentqueue',
         'deps/acpica/source/include',
         'deps/printf',
+        'deps/libsodium/src/libsodium/include',
         'src',
         'test',
     ],
@@ -124,6 +126,7 @@ config = {
         'cxx',
         'acpica',
         'printf',
+        'sodium',
         'musl',
         'gcc',
     ],
