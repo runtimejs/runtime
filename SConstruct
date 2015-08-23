@@ -51,7 +51,6 @@ config = {
             '-nostdinc++',
             '-std=c++11',
             '-O3',
-            '-fno-rtti',
             '-U__STRICT_ANSI__',
             '-DENABLE_DEBUGGER_SUPPORT',
             '-DENABLE_DISASSEMBLER',
@@ -121,6 +120,7 @@ config = {
     ],
     "libs": [
         'v8',
+        'cxxrt',
         'cxx',
         'acpica',
         'printf',

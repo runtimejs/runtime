@@ -947,6 +947,19 @@ libs_config = {
             'musl/src/string/wmemset.c',
         ],
     },
+    "libcxxrt": {
+        "include": [
+            'musl/src/internal',
+            'musl/include',
+            'musl/arch/x86_64',
+            'musl/arch/x86_64/bits',
+        ],
+        "source": [
+            'libcxxrt/src/typeinfo.cc',
+            'libcxxrt/src/dynamic_cast.cc',
+            'libcxxrt/src/libelftc_dem_gnu3.c',
+        ],
+    },
     "printf": {
         "include": [
             'musl/src/internal',

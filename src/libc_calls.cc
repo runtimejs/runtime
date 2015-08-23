@@ -36,6 +36,15 @@ void __assert_fail(const char *expr, const char *file, int line, const char *fun
     GLOBAL_boot_services()->FatalError("Assertion failed: %s (%s: %s: %d)\n", expr, file, func, line);
 }
 
+void __cxa_bad_cast() {
+    GLOBAL_boot_services()->FatalError("__cxa_bad_cast: dynamic_cast failed");
+    abort();
+}
+
+void __cxa_bad_typeid() {
+    GLOBAL_boot_services()->FatalError("__cxa_bad_typeid");
+    abort();
+}
 
 struct tm {
     int tm_sec;
@@ -179,6 +188,14 @@ int feof(FILE *f) {
 
 int ferror(FILE *f) {
     GLOBAL_boot_services()->FatalError("ferror requested");
+}
+
+int asprintf(char** s, const char* fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    int count = vasprintf(s, fmt, va);
+    va_end(va);
+    return count;
 }
 
 int vasprintf(char** s, const char* fmt, va_list ap) {
