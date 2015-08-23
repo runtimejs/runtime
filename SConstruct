@@ -56,6 +56,16 @@ config = {
             '-DENABLE_DISASSEMBLER',
             '-DV8_HOST_ARCH_X64',
             '-DV8_TARGET_ARCH_X64',
+            '-DV8_I18N_SUPPORT',
+
+            '-DU_STATIC_IMPLEMENTATION',
+            '-DU_USING_ICU_NAMESPACE=0',
+            '-DU_ENABLE_DYLOAD=0',
+            '-DUCONFIG_NO_NON_HTML5_CONVERSION=1',
+            '-DU_CHARSET_IS_UTF8=1',
+            '-DHAVE_DLOPEN=0',
+            '-DU_ICUDATAENTRY_IN_COMMON',
+
             # '-DV8_DEPRECATION_WARNINGS',
             # '-DV8_IMMINENT_DEPRECATION_WARNINGS',
             # '-DVERIFY_HEAP',
