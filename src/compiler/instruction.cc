@@ -417,7 +417,8 @@ InstructionBlock::InstructionBlock(Zone* zone, RpoNumber rpo_number,
       handler_(handler),
       needs_frame_(false),
       must_construct_frame_(false),
-      must_deconstruct_frame_(false) {}
+      must_deconstruct_frame_(false),
+      last_deferred_(RpoNumber::Invalid()) {}
 
 
 size_t InstructionBlock::PredecessorIndexOf(RpoNumber rpo_number) const {
@@ -566,9 +567,12 @@ InstructionBlock* InstructionSequence::GetInstructionBlock(
     int instruction_index) const {
   DCHECK(instruction_blocks_->size() == block_starts_.size());
   auto begin = block_starts_.begin();
-  auto end = std::lower_bound(begin, block_starts_.end(), instruction_index,
-                              std::less_equal<int>());
-  size_t index = std::distance(begin, end) - 1;
+  auto end = std::lower_bound(begin, block_starts_.end(), instruction_index);
+  // Post condition of std::lower_bound:
+  DCHECK(end == block_starts_.end() || *end >= instruction_index);
+  if (end == block_starts_.end() || *end > instruction_index) --end;
+  DCHECK(*end <= instruction_index);
+  size_t index = std::distance(begin, end);
   auto block = instruction_blocks_->at(index);
   DCHECK(block->code_start() <= instruction_index &&
          instruction_index < block->code_end());

@@ -19,15 +19,11 @@ static void RunPipeline(Zone* zone, const char* source) {
   ParseInfo parse_info(zone, function);
   CHECK(Compiler::ParseAndAnalyze(&parse_info));
   CompilationInfo info(&parse_info);
+  info.SetOptimizing(BailoutId::None(), Handle<Code>(function->code()));
 
   Pipeline pipeline(&info);
-#if V8_TURBOFAN_TARGET
   Handle<Code> code = pipeline.GenerateCode();
-  CHECK(Pipeline::SupportedTarget());
   CHECK(!code.is_null());
-#else
-  USE(pipeline);
-#endif
 }
 
 

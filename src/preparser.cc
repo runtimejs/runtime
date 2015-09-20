@@ -91,18 +91,19 @@ PreParserExpression PreParserTraits::ParseV8Intrinsic(bool* ok) {
 
 PreParserExpression PreParserTraits::ParseFunctionLiteral(
     PreParserIdentifier name, Scanner::Location function_name_location,
-    bool name_is_strict_reserved, FunctionKind kind,
+    FunctionNameValidity function_name_validity, FunctionKind kind,
     int function_token_position, FunctionLiteral::FunctionType type,
-    FunctionLiteral::ArityRestriction arity_restriction, bool* ok) {
+    FunctionLiteral::ArityRestriction arity_restriction,
+    LanguageMode language_mode, bool* ok) {
   return pre_parser_->ParseFunctionLiteral(
-      name, function_name_location, name_is_strict_reserved, kind,
-      function_token_position, type, arity_restriction, ok);
+      name, function_name_location, function_name_validity, kind,
+      function_token_position, type, arity_restriction, language_mode, ok);
 }
 
 
 PreParser::PreParseResult PreParser::PreParseLazyFunction(
-    LanguageMode language_mode, FunctionKind kind, ParserRecorder* log,
-    Scanner::BookmarkScope* bookmark) {
+    LanguageMode language_mode, FunctionKind kind, bool has_simple_parameters,
+    ParserRecorder* log, Scanner::BookmarkScope* bookmark) {
   log_ = log;
   // Lazy functions always have trivial outer scopes (no with/catch scopes).
   Scope* top_scope = NewScope(scope_, SCRIPT_SCOPE);
@@ -112,6 +113,7 @@ PreParser::PreParseResult PreParser::PreParseLazyFunction(
   scope_->SetLanguageMode(language_mode);
   Scope* function_scope = NewScope(
       scope_, IsArrowFunction(kind) ? ARROW_SCOPE : FUNCTION_SCOPE, kind);
+  if (!has_simple_parameters) function_scope->SetHasNonSimpleParameters();
   PreParserFactory function_factory(NULL);
   FunctionState function_state(&function_state_, &scope_, function_scope, kind,
                                &function_factory);
@@ -197,7 +199,7 @@ PreParser::Statement PreParser::ParseStatementListItem(bool* ok) {
       }
       break;
     case Token::LET:
-      if (allow_let()) {
+      if (IsNextLetKeyword()) {
         return ParseVariableStatement(kStatementListItem, ok);
       }
       break;
@@ -250,14 +252,40 @@ void PreParser::ParseStatementList(int end_token, bool* ok,
     }
 
     if (directive_prologue) {
-      if (statement.IsUseStrictLiteral()) {
+      bool use_strict_found = statement.IsUseStrictLiteral();
+      bool use_strong_found =
+          statement.IsUseStrongLiteral() && allow_strong_mode();
+
+      if (use_strict_found) {
         scope_->SetLanguageMode(
-            static_cast<LanguageMode>(scope_->language_mode() | STRICT_BIT));
-      } else if (statement.IsUseStrongLiteral() && allow_strong_mode()) {
+            static_cast<LanguageMode>(scope_->language_mode() | STRICT));
+      } else if (use_strong_found) {
         scope_->SetLanguageMode(static_cast<LanguageMode>(
-            scope_->language_mode() | STRICT_BIT | STRONG_BIT));
+            scope_->language_mode() | STRONG));
+        if (i::IsConstructor(function_state_->kind())) {
+          // "use strong" cannot occur in a class constructor body, to avoid
+          // unintuitive strong class object semantics.
+          PreParserTraits::ReportMessageAt(
+              token_loc, MessageTemplate::kStrongConstructorDirective);
+          *ok = false;
+          return;
+        }
       } else if (!statement.IsStringLiteral()) {
         directive_prologue = false;
+      }
+
+      if ((use_strict_found || use_strong_found) &&
+          !scope_->HasSimpleParameters()) {
+        // TC39 deemed "use strict" directives to be an error when occurring
+        // in the body of a function with non-simple parameter list, on
+        // 29/7/2015. https://goo.gl/ueA7Ln
+        //
+        // In V8, this also applies to "use strong " directives.
+        PreParserTraits::ReportMessageAt(
+            token_loc, MessageTemplate::kIllegalLanguageModeDirective,
+            use_strict_found ? "use strict" : "use strong");
+        *ok = false;
+        return;
       }
     }
 
@@ -419,11 +447,14 @@ PreParser::Statement PreParser::ParseFunctionDeclaration(bool* ok) {
   bool is_strict_reserved = false;
   Identifier name = ParseIdentifierOrStrictReservedWord(
       &is_strict_reserved, CHECK_OK);
-  ParseFunctionLiteral(name, scanner()->location(), is_strict_reserved,
+  ParseFunctionLiteral(name, scanner()->location(),
+                       is_strict_reserved ? kFunctionNameIsStrictReserved
+                                          : kFunctionNameValidityUnknown,
                        is_generator ? FunctionKind::kGeneratorFunction
                                     : FunctionKind::kNormalFunction,
                        pos, FunctionLiteral::DECLARATION,
-                       FunctionLiteral::NORMAL_ARITY, CHECK_OK);
+                       FunctionLiteral::NORMAL_ARITY, language_mode(),
+                       CHECK_OK);
   return Statement::FunctionDeclaration();
 }
 
@@ -669,8 +700,9 @@ PreParser::Statement PreParser::ParseExpressionOrLabelledStatement(bool* ok) {
   }
   // Parsed expression statement.
   // Detect attempts at 'let' declarations in sloppy mode.
-  if (peek() == Token::IDENTIFIER && is_sloppy(language_mode()) &&
-      expr.IsIdentifier() && expr.AsIdentifier().IsLet()) {
+  if (!allow_harmony_sloppy_let() && peek() == Token::IDENTIFIER &&
+      is_sloppy(language_mode()) && expr.IsIdentifier() &&
+      expr.AsIdentifier().IsLet()) {
     ReportMessage(MessageTemplate::kSloppyLexical, NULL);
     *ok = false;
     return Statement::Default();
@@ -870,7 +902,7 @@ PreParser::Statement PreParser::ParseForStatement(bool* ok) {
   if (peek() != Token::SEMICOLON) {
     ForEachStatement::VisitMode mode;
     if (peek() == Token::VAR || (peek() == Token::CONST && allow_const()) ||
-        (peek() == Token::LET && allow_let())) {
+        (peek() == Token::LET && IsNextLetKeyword())) {
       int decl_count;
       Scanner::Location first_initializer_loc = Scanner::Location::invalid();
       Scanner::Location bindings_loc = Scanner::Location::invalid();
@@ -909,11 +941,16 @@ PreParser::Statement PreParser::ParseForStatement(bool* ok) {
         return Statement::Default();
       }
     } else {
+      int lhs_beg_pos = peek_position();
       Expression lhs = ParseExpression(false, CHECK_OK);
+      int lhs_end_pos = scanner()->location().end_pos;
       is_let_identifier_expression =
           lhs.IsIdentifier() && lhs.AsIdentifier().IsLet();
       if (CheckInOrOf(lhs.IsIdentifier(), &mode, ok)) {
         if (!*ok) return Statement::Default();
+        lhs = CheckAndRewriteReferenceExpression(
+            lhs, lhs_beg_pos, lhs_end_pos, MessageTemplate::kInvalidLhsInFor,
+            kSyntaxError, CHECK_OK);
         ParseExpression(true, CHECK_OK);
         Expect(Token::RPAREN, CHECK_OK);
         ParseSubStatement(CHECK_OK);
@@ -924,8 +961,8 @@ PreParser::Statement PreParser::ParseForStatement(bool* ok) {
 
   // Parsed initializer at this point.
   // Detect attempts at 'let' declarations in sloppy mode.
-  if (peek() == Token::IDENTIFIER && is_sloppy(language_mode()) &&
-      is_let_identifier_expression) {
+  if (!allow_harmony_sloppy_let() && peek() == Token::IDENTIFIER &&
+      is_sloppy(language_mode()) && is_let_identifier_expression) {
     ReportMessage(MessageTemplate::kSloppyLexical, NULL);
     *ok = false;
     return Statement::Default();
@@ -1028,15 +1065,17 @@ PreParser::Statement PreParser::ParseDebuggerStatement(bool* ok) {
 
 PreParser::Expression PreParser::ParseFunctionLiteral(
     Identifier function_name, Scanner::Location function_name_location,
-    bool name_is_strict_reserved, FunctionKind kind, int function_token_pos,
-    FunctionLiteral::FunctionType function_type,
-    FunctionLiteral::ArityRestriction arity_restriction, bool* ok) {
+    FunctionNameValidity function_name_validity, FunctionKind kind,
+    int function_token_pos, FunctionLiteral::FunctionType function_type,
+    FunctionLiteral::ArityRestriction arity_restriction,
+    LanguageMode language_mode, bool* ok) {
   // Function ::
   //   '(' FormalParameterList? ')' '{' FunctionBody '}'
 
   // Parse function body.
   bool outer_is_script_scope = scope_->is_script_scope();
   Scope* function_scope = NewScope(scope_, FUNCTION_SCOPE, kind);
+  function_scope->SetLanguageMode(language_mode);
   PreParserFactory factory(NULL);
   FunctionState function_state(&function_state_, &scope_, function_scope, kind,
                                &factory);
@@ -1046,14 +1085,13 @@ PreParser::Expression PreParser::ParseFunctionLiteral(
   Expect(Token::LPAREN, CHECK_OK);
   int start_position = scanner()->location().beg_pos;
   function_scope->set_start_position(start_position);
-  PreParserFormalParameterParsingState parsing_state(nullptr);
-  int num_parameters =
-      ParseFormalParameterList(&parsing_state, &formals_classifier, CHECK_OK);
+  PreParserFormalParameters formals(function_scope);
+  ParseFormalParameterList(&formals, &formals_classifier, CHECK_OK);
   Expect(Token::RPAREN, CHECK_OK);
   int formals_end_position = scanner()->location().end_pos;
 
-  CheckArityRestrictions(num_parameters, arity_restriction,
-                         parsing_state.has_rest, start_position,
+  CheckArityRestrictions(formals.arity, arity_restriction,
+                         formals.has_rest, start_position,
                          formals_end_position, CHECK_OK);
 
   // See Parser::ParseFunctionLiteral for more information about lazy parsing
@@ -1070,23 +1108,24 @@ PreParser::Expression PreParser::ParseFunctionLiteral(
   }
   Expect(Token::RBRACE, CHECK_OK);
 
+  // Parsing the body may change the language mode in our scope.
+  language_mode = function_scope->language_mode();
+
   // Validate name and parameter names. We can do this only after parsing the
   // function, since the function can declare itself strict.
-  CheckFunctionName(language_mode(), kind, function_name,
-                    name_is_strict_reserved, function_name_location, CHECK_OK);
-  const bool strict_formal_parameters =
-      !parsing_state.is_simple_parameter_list || IsConciseMethod(kind);
+  CheckFunctionName(language_mode, function_name, function_name_validity,
+                    function_name_location, CHECK_OK);
   const bool allow_duplicate_parameters =
-      is_sloppy(language_mode()) && !strict_formal_parameters;
-  ValidateFormalParameters(&formals_classifier, language_mode(),
+      is_sloppy(language_mode) && formals.is_simple && !IsConciseMethod(kind);
+  ValidateFormalParameters(&formals_classifier, language_mode,
                            allow_duplicate_parameters, CHECK_OK);
 
-  if (is_strict(language_mode())) {
+  if (is_strict(language_mode)) {
     int end_position = scanner()->location().end_pos;
     CheckStrictOctalLiteral(start_position, end_position, CHECK_OK);
   }
 
-  if (is_strong(language_mode()) && IsSubclassConstructor(kind)) {
+  if (is_strong(language_mode) && IsSubclassConstructor(kind)) {
     if (!function_state.super_location().IsValid()) {
       ReportMessageAt(function_name_location,
                       MessageTemplate::kStrongSuperCallMissing,
@@ -1142,7 +1181,7 @@ PreParserExpression PreParser::ParseClassLiteral(
   Scope* scope = NewScope(scope_, BLOCK_SCOPE);
   BlockState block_state(&scope_, scope);
   scope_->SetLanguageMode(
-      static_cast<LanguageMode>(class_language_mode | STRICT_BIT));
+      static_cast<LanguageMode>(class_language_mode | STRICT));
   // TODO(marja): Make PreParser use scope names too.
   // scope_->SetScopeName(name);
 

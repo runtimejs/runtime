@@ -112,14 +112,14 @@
   assertWeakArray({a: [], b: {}}.a);
 })();
 
-(function StrongArrayLiterals(...args) {
+(function StrongArrayLiterals() {
   'use strong';
   function assertStrongArray(x) {
     assertTrue(%IsStrong(x));
     assertSame(Array.prototype, Object.getPrototypeOf(x));
   }
   let [...r] = [];
-  assertStrongArray(args);
+  assertStrongArray((function(...a) { return a; })());
   assertStrongArray(r);
   assertStrongArray([]);
   assertStrongArray([1, 2, 3]);
@@ -285,24 +285,19 @@ let GeneratorPrototype = (function*(){}).__proto__;
   class D extends C {};
   class E extends Object {};
   // class F extends null {};
-  const S = (() => {'use strong'; return class {}})();
-  class G extends S {};
   assertWeakClass(C);
   assertWeakClass(D);
   assertWeakClass(E);
   // assertWeakClass(F);
-  assertWeakClass(G);
   assertWeakClass(class {});
   assertWeakClass(class extends Object {});
   // assertWeakClass(class extends null {});
   assertWeakClass(class extends C {});
-  assertWeakClass(class extends S {});
   assertWeakClass(class extends class {} {});
   assertWeakClass(class C {});
   assertWeakClass(class D extends Object {});
   // assertWeakClass(class D extends null {});
   assertWeakClass(class D extends C {});
-  assertWeakClass(class D extends S {});
   assertWeakClass(class D extends class {} {});
 })();
 
@@ -310,8 +305,8 @@ let GeneratorPrototype = (function*(){}).__proto__;
   'use strong';
   function assertStrongClass(x) {
     assertTrue(%IsStrong(x));
-    // TODO(rossberg): strongify class prototype and instance
-    // assertTrue(%IsStrong(x.prototype));
+    assertTrue(%IsStrong(x.prototype));
+    // TODO(rossberg): strongify class instance
     // assertTrue(%IsStrong(new x));
   }
   class C {};

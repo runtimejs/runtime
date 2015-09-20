@@ -277,10 +277,12 @@
                   }],
                 ],
               }],
-              # Disable LTO for v8
-              # v8 is optimized for speed, which takes precedence over
-              # size optimization in LTO.
-              ['use_lto==1', {
+              # Disable GCC LTO for v8
+              # v8 is optimized for speed. Because GCC LTO merges flags at link
+              # time, we disable LTO to prevent any -O2 flags from taking
+              # precedence over v8's -Os flag. However, LLVM LTO does not work
+              # this way so we keep LTO enabled under LLVM.
+              ['clang==0 and use_lto==1', {
                 'cflags!': [
                   '-flto',
                   '-ffat-lto-objects',
@@ -1149,7 +1151,9 @@
               }],
             ],
           }],
-          ['linux_use_gold_flags==1', {
+          # TODO(pcc): Re-enable in LTO builds once we've fixed the intermittent
+          # link failures (crbug.com/513074).
+          ['linux_use_gold_flags==1 and use_lto==0', {
             'target_conditions': [
               ['_toolset=="target"', {
                 'ldflags': [

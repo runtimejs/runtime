@@ -11,6 +11,8 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
+#include "src/counters.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -52,8 +54,6 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceIsInstanceType(node, JS_TYPED_ARRAY_TYPE);
     case Runtime::kInlineIsFunction:
       return ReduceIsInstanceType(node, JS_FUNCTION_TYPE);
-    case Runtime::kInlineIsNonNegativeSmi:
-      return ReduceIsNonNegativeSmi(node);
     case Runtime::kInlineIsRegExp:
       return ReduceIsInstanceType(node, JS_REGEXP_TYPE);
     case Runtime::kInlineIsSmi:
@@ -94,6 +94,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceGetTypeFeedbackVector(node);
     case Runtime::kInlineGetCallerJSFunction:
       return ReduceGetCallerJSFunction(node);
+    case Runtime::kInlineToObject:
+      return ReduceToObject(node);
     case Runtime::kInlineThrowNotDateError:
       return ReduceThrowNotDateError(node);
     case Runtime::kInlineCallFunction:
@@ -175,11 +177,11 @@ Reduction JSIntrinsicLowering::ReduceHeapObjectGetMap(Node* node) {
 Reduction JSIntrinsicLowering::ReduceIncrementStatsCounter(Node* node) {
   if (!FLAG_native_code_counters) return ChangeToUndefined(node);
   HeapObjectMatcher m(NodeProperties::GetValueInput(node, 0));
-  if (!m.HasValue() || !m.Value().handle()->IsString()) {
+  if (!m.HasValue() || !m.Value()->IsString()) {
     return ChangeToUndefined(node);
   }
-  SmartArrayPointer<char> name =
-      Handle<String>::cast(m.Value().handle())->ToCString();
+  base::SmartArrayPointer<char> name =
+      Handle<String>::cast(m.Value())->ToCString();
   StatsCounter counter(jsgraph()->isolate(), name.get());
   if (!counter.Enabled()) return ChangeToUndefined(node);
 
@@ -234,11 +236,6 @@ Reduction JSIntrinsicLowering::ReduceIsInstanceType(
 
   // Turn the {node} into a Phi.
   return Change(node, common()->Phi(type, 2), vtrue, vfalse, merge);
-}
-
-
-Reduction JSIntrinsicLowering::ReduceIsNonNegativeSmi(Node* node) {
-  return Change(node, simplified()->ObjectIsNonNegativeSmi());
 }
 
 
@@ -312,7 +309,7 @@ Reduction JSIntrinsicLowering::ReduceSeqStringSetChar(
   node->ReplaceInput(3, effect);
   node->ReplaceInput(4, control);
   node->TrimInputCount(5);
-  NodeProperties::RemoveBounds(node);
+  NodeProperties::RemoveType(node);
   ReplaceWithValue(node, string, node);
   return Changed(node);
 }
@@ -524,6 +521,12 @@ Reduction JSIntrinsicLowering::ReduceThrowNotDateError(Node* node) {
 
   node->set_op(common()->Dead());
   node->TrimInputCount(0);
+  return Changed(node);
+}
+
+
+Reduction JSIntrinsicLowering::ReduceToObject(Node* node) {
+  node->set_op(javascript()->ToObject());
   return Changed(node);
 }
 

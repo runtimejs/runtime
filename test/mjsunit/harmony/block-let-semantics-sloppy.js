@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --harmony-sloppy --no-legacy-const
+// Flags: --harmony-sloppy --no-legacy-const --harmony-sloppy-let --harmony-sloppy-function
 
 // Test temporal dead zone semantics of let bound variables in
 // function and block scopes.
@@ -70,6 +70,7 @@ TestAll('x += 1; let x;');
 TestAll('++x; let x;');
 TestAll('x++; let x;');
 TestAll('let y = x; const x = 1;');
+TestAll('let y = x; class x {}');
 
 TestAll('f(); let x; function f() { return x + 1; }');
 TestAll('f(); let x; function f() { x = 1; }');
@@ -77,6 +78,7 @@ TestAll('f(); let x; function f() { x += 1; }');
 TestAll('f(); let x; function f() { ++x; }');
 TestAll('f(); let x; function f() { x++; }');
 TestAll('f(); const x = 1; function f() { return x; }');
+TestAll('f(); class x { }; function f() { return x; }');
 
 TestAll('f()(); let x; function f() { return function() { return x + 1; } }');
 TestAll('f()(); let x; function f() { return function() { x = 1; } }');
@@ -84,22 +86,24 @@ TestAll('f()(); let x; function f() { return function() { x += 1; } }');
 TestAll('f()(); let x; function f() { return function() { ++x; } }');
 TestAll('f()(); let x; function f() { return function() { x++; } }');
 TestAll('f()(); const x = 1; function f() { return function() { return x; } }');
+TestAll('f()(); class x { }; function f() { return function() { return x; } }');
 
-// Use before initialization with a dynamic lookup.
-TestAll('eval("x + 1;"); let x;');
-TestAll('eval("x = 1;"); let x;');
-TestAll('eval("x += 1;"); let x;');
-TestAll('eval("++x;"); let x;');
-TestAll('eval("x++;"); let x;');
-TestAll('eval("x"); const x = 1;');
+for (var kw of ['let x = 2', 'const x = 2', 'class x { }']) {
+  // Use before initialization with a dynamic lookup.
+  TestAll(`eval("x"); ${kw};`);
+  TestAll(`eval("x + 1;"); ${kw};`);
+  TestAll(`eval("x = 1;"); ${kw};`);
+  TestAll(`eval("x += 1;"); ${kw};`);
+  TestAll(`eval("++x;"); ${kw};`);
+  TestAll(`eval("x++;"); ${kw};`);
 
-// Use before initialization with check for eval-shadowed bindings.
-TestAll('function f() { eval("var y = 2;"); x + 1; }; f(); let x;');
-// TODO(arv): https://code.google.com/p/v8/issues/detail?id=4284
-// TestAll('function f() { eval("var y = 2;"); x = 1; }; f(); let x;');
-TestAll('function f() { eval("var y = 2;"); x += 1; }; f(); let x;');
-TestAll('function f() { eval("var y = 2;"); ++x; }; f(); let x;');
-TestAll('function f() { eval("var y = 2;"); x++; }; f(); let x;');
+  // Use before initialization with check for eval-shadowed bindings.
+  TestAll(`function f() { eval("var y = 2;"); x + 1; }; f(); ${kw};`);
+  TestAll(`function f() { eval("var y = 2;"); x = 1; }; f(); ${kw};`);
+  TestAll(`function f() { eval("var y = 2;"); x += 1; }; f(); ${kw};`);
+  TestAll(`function f() { eval("var y = 2;"); ++x; }; f(); ${kw};`);
+  TestAll(`function f() { eval("var y = 2;"); x++; }; f(); ${kw};`);
+}
 
 // Test that variables introduced by function declarations are created and
 // initialized upon entering a function / block scope.

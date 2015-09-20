@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
+#include "src/runtime/runtime-utils.h"
 
 #include "src/allocation-site-scopes.h"
 #include "src/arguments.h"
 #include "src/ast.h"
+#include "src/isolate-inl.h"
 #include "src/parser.h"
 #include "src/runtime/runtime.h"
-#include "src/runtime/runtime-utils.h"
 
 namespace v8 {
 namespace internal {
@@ -424,10 +424,8 @@ RUNTIME_FUNCTION(Runtime_StoreArrayLiteralElement) {
                                            ? FAST_HOLEY_ELEMENTS
                                            : FAST_ELEMENTS;
       JSObject::TransitionElementsKind(object, transitioned_kind);
-      ElementsKind boilerplate_elements_kind =
-          boilerplate_object->GetElementsKind();
-      if (IsMoreGeneralElementsKindTransition(boilerplate_elements_kind,
-                                              transitioned_kind)) {
+      if (IsMoreGeneralElementsKindTransition(
+              boilerplate_object->GetElementsKind(), transitioned_kind)) {
         JSObject::TransitionElementsKind(boilerplate_object, transitioned_kind);
       }
     }

@@ -8,6 +8,7 @@
 #include "src/base/bits.h"
 #include "src/bootstrapper.h"
 #include "src/conversions.h"
+#include "src/isolate-inl.h"
 #include "src/macro-assembler.h"
 
 namespace v8 {
@@ -55,18 +56,31 @@ Handle<PrototypeInfo> Factory::NewPrototypeInfo() {
   Handle<PrototypeInfo> result =
       Handle<PrototypeInfo>::cast(NewStruct(PROTOTYPE_INFO_TYPE));
   result->set_prototype_users(WeakFixedArray::Empty());
+  result->set_registry_slot(PrototypeInfo::UNREGISTERED);
   result->set_validity_cell(Smi::FromInt(0));
   result->set_constructor_name(Smi::FromInt(0));
   return result;
 }
 
 
-Handle<Oddball> Factory::NewOddball(Handle<Map> map,
-                                    const char* to_string,
+Handle<SloppyBlockWithEvalContextExtension>
+Factory::NewSloppyBlockWithEvalContextExtension(
+    Handle<ScopeInfo> scope_info, Handle<JSObject> extension) {
+  DCHECK(scope_info->is_declaration_scope());
+  Handle<SloppyBlockWithEvalContextExtension> result =
+      Handle<SloppyBlockWithEvalContextExtension>::cast(
+          NewStruct(SLOPPY_BLOCK_WITH_EVAL_CONTEXT_EXTENSION_TYPE));
+  result->set_scope_info(*scope_info);
+  result->set_extension(*extension);
+  return result;
+}
+
+
+Handle<Oddball> Factory::NewOddball(Handle<Map> map, const char* to_string,
                                     Handle<Object> to_number,
-                                    byte kind) {
+                                    const char* type_of, byte kind) {
   Handle<Oddball> oddball = New<Oddball>(map, OLD_SPACE);
-  Oddball::Initialize(isolate(), oddball, to_string, to_number, kind);
+  Oddball::Initialize(isolate(), oddball, to_string, to_number, type_of, kind);
   return oddball;
 }
 
@@ -848,6 +862,7 @@ Handle<Script> Factory::NewScript(Handle<String> source) {
   script->set_shared_function_infos(Smi::FromInt(0));
   script->set_flags(Smi::FromInt(0));
 
+  heap->set_script_list(*WeakFixedArray::Add(script_list(), script));
   return script;
 }
 
@@ -873,18 +888,25 @@ Handle<ByteArray> Factory::NewByteArray(int length, PretenureFlag pretenure) {
 }
 
 
-Handle<ExternalArray> Factory::NewExternalArray(int length,
-                                                ExternalArrayType array_type,
-                                                void* external_pointer,
-                                                PretenureFlag pretenure) {
+Handle<BytecodeArray> Factory::NewBytecodeArray(
+    int length, const byte* raw_bytecodes, int frame_size, int parameter_count,
+    Handle<FixedArray> constant_pool) {
+  DCHECK(0 <= length);
+  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->AllocateBytecodeArray(
+                                    length, raw_bytecodes, frame_size,
+                                    parameter_count, *constant_pool),
+                     BytecodeArray);
+}
+
+
+Handle<FixedTypedArrayBase> Factory::NewFixedTypedArrayWithExternalPointer(
+    int length, ExternalArrayType array_type, void* external_pointer,
+    PretenureFlag pretenure) {
   DCHECK(0 <= length && length <= Smi::kMaxValue);
   CALL_HEAP_FUNCTION(
-      isolate(),
-      isolate()->heap()->AllocateExternalArray(length,
-                                               array_type,
-                                               external_pointer,
-                                               pretenure),
-      ExternalArray);
+      isolate(), isolate()->heap()->AllocateFixedTypedArrayWithExternalPointer(
+                     length, array_type, external_pointer, pretenure),
+      FixedTypedArrayBase);
 }
 
 
@@ -972,6 +994,15 @@ Handle<FixedArray> Factory::CopyFixedArrayWithMap(Handle<FixedArray> array,
 }
 
 
+Handle<FixedArray> Factory::CopyFixedArrayAndGrow(Handle<FixedArray> array,
+                                                  int grow_by,
+                                                  PretenureFlag pretenure) {
+  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->CopyFixedArrayAndGrow(
+                                    *array, grow_by, pretenure),
+                     FixedArray);
+}
+
+
 Handle<FixedArray> Factory::CopyFixedArray(Handle<FixedArray> array) {
   CALL_HEAP_FUNCTION(isolate(),
                      isolate()->heap()->CopyFixedArray(*array),
@@ -1041,43 +1072,41 @@ Handle<HeapNumber> Factory::NewHeapNumber(double value,
 }
 
 
-Handle<Float32x4> Factory::NewFloat32x4(float w, float x, float y, float z,
-                                        PretenureFlag pretenure) {
-  CALL_HEAP_FUNCTION(
-      isolate(), isolate()->heap()->AllocateFloat32x4(w, x, y, z, pretenure),
-      Float32x4);
-}
+#define SIMD128_NEW_DEF(TYPE, Type, type, lane_count, lane_type)               \
+  Handle<Type> Factory::New##Type(lane_type lanes[lane_count],                 \
+                                  PretenureFlag pretenure) {                   \
+    CALL_HEAP_FUNCTION(                                                        \
+        isolate(), isolate()->heap()->Allocate##Type(lanes, pretenure), Type); \
+  }
+SIMD128_TYPES(SIMD128_NEW_DEF)
+#undef SIMD128_NEW_DEF
 
 
-Handle<Object> Factory::NewError(const char* maker,
+Handle<Object> Factory::NewError(Handle<JSFunction> constructor,
                                  MessageTemplate::Template template_index,
                                  Handle<Object> arg0, Handle<Object> arg1,
                                  Handle<Object> arg2) {
   HandleScope scope(isolate());
-  Handle<String> error_maker = InternalizeUtf8String(maker);
   if (isolate()->bootstrapper()->IsActive()) {
-    // If this exception is being thrown during bootstrapping,
-    // js_builtins_object is unavailable. We return the error maker
-    // name's string as the exception since we have nothing better
-    // to do.
-    return scope.CloseAndEscape(error_maker);
+    // During bootstrapping we cannot construct error objects.
+    return scope.CloseAndEscape(NewStringFromAsciiChecked(
+        MessageTemplate::TemplateString(template_index)));
   }
-  Handle<Object> fun_obj = Object::GetProperty(isolate()->js_builtins_object(),
-                                               error_maker).ToHandleChecked();
 
-  Handle<JSFunction> fun = Handle<JSFunction>::cast(fun_obj);
+  Handle<JSFunction> fun = isolate()->make_error_function();
   Handle<Object> message_type(Smi::FromInt(template_index), isolate());
   if (arg0.is_null()) arg0 = undefined_value();
   if (arg1.is_null()) arg1 = undefined_value();
   if (arg2.is_null()) arg2 = undefined_value();
-  Handle<Object> argv[] = {message_type, arg0, arg1, arg2};
+  Handle<Object> argv[] = {constructor, message_type, arg0, arg1, arg2};
 
   // Invoke the JavaScript factory method. If an exception is thrown while
   // running the factory method, use the exception as the result.
   Handle<Object> result;
   MaybeHandle<Object> exception;
-  if (!Execution::TryCall(fun, isolate()->js_builtins_object(), arraysize(argv),
-                          argv, &exception).ToHandle(&result)) {
+  if (!Execution::TryCall(fun, undefined_value(), arraysize(argv), argv,
+                          &exception)
+           .ToHandle(&result)) {
     Handle<Object> exception_obj;
     if (exception.ToHandle(&exception_obj)) {
       result = exception_obj;
@@ -1089,137 +1118,39 @@ Handle<Object> Factory::NewError(const char* maker,
 }
 
 
-Handle<Object> Factory::NewError(MessageTemplate::Template template_index,
-                                 Handle<Object> arg0, Handle<Object> arg1,
-                                 Handle<Object> arg2) {
-  return NewError("MakeError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<Object> Factory::NewTypeError(MessageTemplate::Template template_index,
-                                     Handle<Object> arg0, Handle<Object> arg1,
-                                     Handle<Object> arg2) {
-  return NewError("MakeTypeError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<Object> Factory::NewSyntaxError(MessageTemplate::Template template_index,
-                                       Handle<Object> arg0, Handle<Object> arg1,
-                                       Handle<Object> arg2) {
-  return NewError("MakeSyntaxError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<Object> Factory::NewReferenceError(
-    MessageTemplate::Template template_index, Handle<Object> arg0,
-    Handle<Object> arg1, Handle<Object> arg2) {
-  return NewError("MakeReferenceError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<Object> Factory::NewRangeError(MessageTemplate::Template template_index,
-                                      Handle<Object> arg0, Handle<Object> arg1,
-                                      Handle<Object> arg2) {
-  return NewError("MakeRangeError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<Object> Factory::NewEvalError(MessageTemplate::Template template_index,
-                                     Handle<Object> arg0, Handle<Object> arg1,
-                                     Handle<Object> arg2) {
-  return NewError("MakeEvalError", template_index, arg0, arg1, arg2);
-}
-
-
-Handle<String> Factory::EmergencyNewError(const char* message,
-                                          Handle<JSArray> args) {
-  const int kBufferSize = 1000;
-  char buffer[kBufferSize];
-  size_t space = kBufferSize;
-  char* p = &buffer[0];
-
-  Vector<char> v(buffer, kBufferSize);
-  StrNCpy(v, message, space);
-  space -= Min(space, strlen(message));
-  p = &buffer[kBufferSize] - space;
-
-  for (int i = 0; i < Smi::cast(args->length())->value(); i++) {
-    if (space > 0) {
-      *p++ = ' ';
-      space--;
-      if (space > 0) {
-        Handle<String> arg_str = Handle<String>::cast(
-            Object::GetElement(isolate(), args, i).ToHandleChecked());
-        SmartArrayPointer<char> arg = arg_str->ToCString();
-        Vector<char> v2(p, static_cast<int>(space));
-        StrNCpy(v2, arg.get(), space);
-        space -= Min(space, strlen(arg.get()));
-        p = &buffer[kBufferSize] - space;
-      }
-    }
-  }
-  if (space > 0) {
-    *p = '\0';
-  } else {
-    buffer[kBufferSize - 1] = '\0';
-  }
-  return NewStringFromUtf8(CStrVector(buffer), TENURED).ToHandleChecked();
-}
-
-
-Handle<Object> Factory::NewError(const char* maker, const char* message,
-                                 Handle<JSArray> args) {
-  Handle<String> make_str = InternalizeUtf8String(maker);
-  Handle<Object> fun_obj = Object::GetProperty(
-      isolate()->js_builtins_object(), make_str).ToHandleChecked();
-  // If the builtins haven't been properly configured yet this error
-  // constructor may not have been defined.  Bail out.
-  if (!fun_obj->IsJSFunction()) {
-    return EmergencyNewError(message, args);
-  }
-  Handle<JSFunction> fun = Handle<JSFunction>::cast(fun_obj);
-  Handle<Object> message_obj = InternalizeUtf8String(message);
-  Handle<Object> argv[] = { message_obj, args };
-
-  // Invoke the JavaScript factory method. If an exception is thrown while
-  // running the factory method, use the exception as the result.
-  Handle<Object> result;
-  MaybeHandle<Object> exception;
-  if (!Execution::TryCall(fun,
-                          isolate()->js_builtins_object(),
-                          arraysize(argv),
-                          argv,
-                          &exception).ToHandle(&result)) {
-    Handle<Object> exception_obj;
-    if (exception.ToHandle(&exception_obj)) return exception_obj;
-    return undefined_value();
-  }
-  return result;
-}
-
-
-Handle<Object> Factory::NewError(const char* constructor,
+Handle<Object> Factory::NewError(Handle<JSFunction> constructor,
                                  Handle<String> message) {
-  Handle<String> constr = InternalizeUtf8String(constructor);
-  Handle<JSFunction> fun = Handle<JSFunction>::cast(Object::GetProperty(
-      isolate()->js_builtins_object(), constr).ToHandleChecked());
   Handle<Object> argv[] = { message };
 
   // Invoke the JavaScript factory method. If an exception is thrown while
   // running the factory method, use the exception as the result.
   Handle<Object> result;
   MaybeHandle<Object> exception;
-  if (!Execution::TryCall(fun,
-                          isolate()->js_builtins_object(),
-                          arraysize(argv),
-                          argv,
-                          &exception).ToHandle(&result)) {
+  if (!Execution::TryCall(constructor, undefined_value(), arraysize(argv), argv,
+                          &exception)
+           .ToHandle(&result)) {
     Handle<Object> exception_obj;
     if (exception.ToHandle(&exception_obj)) return exception_obj;
     return undefined_value();
   }
   return result;
 }
+
+
+#define DEFINE_ERROR(NAME, name)                                              \
+  Handle<Object> Factory::New##NAME(MessageTemplate::Template template_index, \
+                                    Handle<Object> arg0, Handle<Object> arg1, \
+                                    Handle<Object> arg2) {                    \
+    return NewError(isolate()->name##_function(), template_index, arg0, arg1, \
+                    arg2);                                                    \
+  }
+DEFINE_ERROR(Error, error)
+DEFINE_ERROR(EvalError, eval_error)
+DEFINE_ERROR(RangeError, range_error)
+DEFINE_ERROR(ReferenceError, reference_error)
+DEFINE_ERROR(SyntaxError, syntax_error)
+DEFINE_ERROR(TypeError, type_error)
+#undef DEFINE_ERROR
 
 
 void Factory::InitializeFunction(Handle<JSFunction> function,
@@ -1547,7 +1478,7 @@ Handle<GlobalObject> Factory::NewGlobalObject(Handle<JSFunction> constructor) {
   // Make sure we don't have a ton of pre-allocated slots in the
   // global objects. They will be unused once we normalize the object.
   DCHECK(map->unused_property_fields() == 0);
-  DCHECK(map->inobject_properties() == 0);
+  DCHECK(map->GetInObjectProperties() == 0);
 
   // Initial size of the backing store to avoid resize of the storage during
   // bootstrapping. The size differs between the JS global object ad the
@@ -1596,14 +1527,12 @@ Handle<GlobalObject> Factory::NewGlobalObject(Handle<JSFunction> constructor) {
 Handle<JSObject> Factory::NewJSObjectFromMap(
     Handle<Map> map,
     PretenureFlag pretenure,
-    bool alloc_props,
     Handle<AllocationSite> allocation_site) {
   CALL_HEAP_FUNCTION(
       isolate(),
       isolate()->heap()->AllocateJSObjectFromMap(
           *map,
           pretenure,
-          alloc_props,
           allocation_site.is_null() ? NULL : *allocation_site),
       JSObject);
 }
@@ -1697,15 +1626,15 @@ Handle<JSGeneratorObject> Factory::NewJSGeneratorObject(
 }
 
 
-Handle<JSArrayBuffer> Factory::NewJSArrayBuffer(SharedFlag shared) {
+Handle<JSArrayBuffer> Factory::NewJSArrayBuffer(SharedFlag shared,
+                                                PretenureFlag pretenure) {
   Handle<JSFunction> array_buffer_fun(
       shared == SharedFlag::kShared
           ? isolate()->native_context()->shared_array_buffer_fun()
           : isolate()->native_context()->array_buffer_fun());
-  CALL_HEAP_FUNCTION(
-      isolate(),
-      isolate()->heap()->AllocateJSObject(*array_buffer_fun),
-      JSArrayBuffer);
+  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->AllocateJSObject(
+                                    *array_buffer_fun, pretenure),
+                     JSArrayBuffer);
 }
 
 
@@ -1722,7 +1651,7 @@ Handle<JSDataView> Factory::NewJSDataView() {
 Handle<JSMap> Factory::NewJSMap() {
   Handle<Map> map(isolate()->native_context()->js_map_map());
   Handle<JSMap> js_map = Handle<JSMap>::cast(NewJSObjectFromMap(map));
-  Runtime::JSMapInitialize(isolate(), js_map);
+  JSMap::Initialize(js_map, isolate());
   return js_map;
 }
 
@@ -1730,7 +1659,7 @@ Handle<JSMap> Factory::NewJSMap() {
 Handle<JSSet> Factory::NewJSSet() {
   Handle<Map> map(isolate()->native_context()->js_set_map());
   Handle<JSSet> js_set = Handle<JSSet>::cast(NewJSObjectFromMap(map));
-  Runtime::JSSetInitialize(isolate(), js_set);
+  JSSet::Initialize(js_set, isolate());
   return js_set;
 }
 
@@ -1751,17 +1680,27 @@ Handle<JSSetIterator> Factory::NewJSSetIterator() {
 }
 
 
+Handle<JSIteratorResult> Factory::NewJSIteratorResult(Handle<Object> value,
+                                                      Handle<Object> done) {
+  Handle<JSIteratorResult> result = Handle<JSIteratorResult>::cast(
+      NewJSObjectFromMap(isolate()->iterator_result_map()));
+  result->set_value(*value);
+  result->set_done(*done);
+  return result;
+}
+
+
 namespace {
 
 ElementsKind GetExternalArrayElementsKind(ExternalArrayType type) {
   switch (type) {
 #define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size) \
   case kExternal##Type##Array:                          \
-    return EXTERNAL_##TYPE##_ELEMENTS;
+    return TYPE##_ELEMENTS;
     TYPED_ARRAYS(TYPED_ARRAY_CASE)
   }
   UNREACHABLE();
-  return FIRST_EXTERNAL_ARRAY_ELEMENTS_KIND;
+  return FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND;
 #undef TYPED_ARRAY_CASE
 }
 
@@ -1845,18 +1784,19 @@ JSFunction* GetTypedArrayFun(ElementsKind elements_kind, Isolate* isolate) {
 void SetupArrayBufferView(i::Isolate* isolate,
                           i::Handle<i::JSArrayBufferView> obj,
                           i::Handle<i::JSArrayBuffer> buffer,
-                          size_t byte_offset, size_t byte_length) {
+                          size_t byte_offset, size_t byte_length,
+                          PretenureFlag pretenure = NOT_TENURED) {
   DCHECK(byte_offset + byte_length <=
          static_cast<size_t>(buffer->byte_length()->Number()));
 
   obj->set_buffer(*buffer);
 
   i::Handle<i::Object> byte_offset_object =
-      isolate->factory()->NewNumberFromSize(byte_offset);
+      isolate->factory()->NewNumberFromSize(byte_offset, pretenure);
   obj->set_byte_offset(*byte_offset_object);
 
   i::Handle<i::Object> byte_length_object =
-      isolate->factory()->NewNumberFromSize(byte_length);
+      isolate->factory()->NewNumberFromSize(byte_length, pretenure);
   obj->set_byte_length(*byte_length_object);
 }
 
@@ -1864,31 +1804,32 @@ void SetupArrayBufferView(i::Isolate* isolate,
 }  // namespace
 
 
-Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type) {
+Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
+                                              PretenureFlag pretenure) {
   Handle<JSFunction> typed_array_fun_handle(GetTypedArrayFun(type, isolate()));
 
-  CALL_HEAP_FUNCTION(
-      isolate(),
-      isolate()->heap()->AllocateJSObject(*typed_array_fun_handle),
-      JSTypedArray);
+  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->AllocateJSObject(
+                                    *typed_array_fun_handle, pretenure),
+                     JSTypedArray);
 }
 
 
-Handle<JSTypedArray> Factory::NewJSTypedArray(ElementsKind elements_kind) {
+Handle<JSTypedArray> Factory::NewJSTypedArray(ElementsKind elements_kind,
+                                              PretenureFlag pretenure) {
   Handle<JSFunction> typed_array_fun_handle(
       GetTypedArrayFun(elements_kind, isolate()));
 
-  CALL_HEAP_FUNCTION(
-      isolate(), isolate()->heap()->AllocateJSObject(*typed_array_fun_handle),
-      JSTypedArray);
+  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->AllocateJSObject(
+                                    *typed_array_fun_handle, pretenure),
+                     JSTypedArray);
 }
 
 
 Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
                                               Handle<JSArrayBuffer> buffer,
-                                              size_t byte_offset,
-                                              size_t length) {
-  Handle<JSTypedArray> obj = NewJSTypedArray(type);
+                                              size_t byte_offset, size_t length,
+                                              PretenureFlag pretenure) {
+  Handle<JSTypedArray> obj = NewJSTypedArray(type, pretenure);
 
   size_t element_size = GetExternalArrayElementSize(type);
   ElementsKind elements_kind = GetExternalArrayElementsKind(type);
@@ -1898,14 +1839,15 @@ Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
   CHECK(length <= (std::numeric_limits<size_t>::max() / element_size));
   CHECK(length <= static_cast<size_t>(Smi::kMaxValue));
   size_t byte_length = length * element_size;
-  SetupArrayBufferView(isolate(), obj, buffer, byte_offset, byte_length);
+  SetupArrayBufferView(isolate(), obj, buffer, byte_offset, byte_length,
+                       pretenure);
 
-  Handle<Object> length_object = NewNumberFromSize(length);
+  Handle<Object> length_object = NewNumberFromSize(length, pretenure);
   obj->set_length(*length_object);
 
-  Handle<ExternalArray> elements = NewExternalArray(
+  Handle<FixedTypedArrayBase> elements = NewFixedTypedArrayWithExternalPointer(
       static_cast<int>(length), type,
-      static_cast<uint8_t*>(buffer->backing_store()) + byte_offset);
+      static_cast<uint8_t*>(buffer->backing_store()) + byte_offset, pretenure);
   Handle<Map> map = JSObject::GetElementsTransitionMap(obj, elements_kind);
   JSObject::SetMapAndElements(obj, map, elements);
   return obj;
@@ -1913,8 +1855,9 @@ Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
 
 
 Handle<JSTypedArray> Factory::NewJSTypedArray(ElementsKind elements_kind,
-                                              size_t number_of_elements) {
-  Handle<JSTypedArray> obj = NewJSTypedArray(elements_kind);
+                                              size_t number_of_elements,
+                                              PretenureFlag pretenure) {
+  Handle<JSTypedArray> obj = NewJSTypedArray(elements_kind, pretenure);
 
   size_t element_size = GetFixedTypedArraysElementSize(elements_kind);
   ExternalArrayType array_type = GetArrayTypeFromElementsKind(elements_kind);
@@ -1926,18 +1869,19 @@ Handle<JSTypedArray> Factory::NewJSTypedArray(ElementsKind elements_kind,
 
   obj->set_byte_offset(Smi::FromInt(0));
   i::Handle<i::Object> byte_length_object =
-      isolate()->factory()->NewNumberFromSize(byte_length);
+      NewNumberFromSize(byte_length, pretenure);
   obj->set_byte_length(*byte_length_object);
-  Handle<Object> length_object = NewNumberFromSize(number_of_elements);
+  Handle<Object> length_object =
+      NewNumberFromSize(number_of_elements, pretenure);
   obj->set_length(*length_object);
 
-  Handle<JSArrayBuffer> buffer = isolate()->factory()->NewJSArrayBuffer();
-  Runtime::SetupArrayBuffer(isolate(), buffer, true, NULL, byte_length,
-                            SharedFlag::kNotShared);
+  Handle<JSArrayBuffer> buffer =
+      NewJSArrayBuffer(SharedFlag::kNotShared, pretenure);
+  JSArrayBuffer::Setup(buffer, isolate(), true, NULL, byte_length,
+                       SharedFlag::kNotShared);
   obj->set_buffer(*buffer);
-  Handle<FixedTypedArrayBase> elements =
-      isolate()->factory()->NewFixedTypedArray(
-          static_cast<int>(number_of_elements), array_type, true);
+  Handle<FixedTypedArrayBase> elements = NewFixedTypedArray(
+      static_cast<int>(number_of_elements), array_type, true, pretenure);
   obj->set_elements(*elements);
   return obj;
 }
@@ -1970,7 +1914,7 @@ Handle<JSProxy> Factory::NewJSProxy(Handle<Object> handler,
 
 
 Handle<JSProxy> Factory::NewJSFunctionProxy(Handle<Object> handler,
-                                            Handle<Object> call_trap,
+                                            Handle<JSReceiver> call_trap,
                                             Handle<Object> construct_trap,
                                             Handle<Object> prototype) {
   // Allocate map.
@@ -1978,6 +1922,7 @@ Handle<JSProxy> Factory::NewJSFunctionProxy(Handle<Object> handler,
   // maps. Will probably depend on the identity of the handler object, too.
   Handle<Map> map = NewMap(JS_FUNCTION_PROXY_TYPE, JSFunctionProxy::kSize);
   Map::SetPrototype(map, prototype);
+  map->set_is_callable();
 
   // Allocate the proxy object.
   Handle<JSFunctionProxy> result = New<JSFunctionProxy>(map, NEW_SPACE);
@@ -2002,8 +1947,7 @@ void Factory::ReinitializeJSProxy(Handle<JSProxy> proxy, InstanceType type,
   DCHECK(size_difference >= 0);
 
   // Allocate the backing storage for the properties.
-  int prop_size = map->InitialPropertiesLength();
-  Handle<FixedArray> properties = NewFixedArray(prop_size, TENURED);
+  Handle<FixedArray> properties = empty_fixed_array();
 
   Heap* heap = isolate()->heap();
   MaybeHandle<SharedFunctionInfo> shared;
@@ -2022,7 +1966,7 @@ void Factory::ReinitializeJSProxy(Handle<JSProxy> proxy, InstanceType type,
   if (size_difference > 0) {
     Address address = proxy->address();
     heap->CreateFillerObjectAt(address + map->instance_size(), size_difference);
-    heap->AdjustLiveBytes(address, -size_difference,
+    heap->AdjustLiveBytes(*proxy, -size_difference,
                           Heap::CONCURRENT_TO_SWEEPER);
   }
 
@@ -2041,6 +1985,7 @@ void Factory::ReinitializeJSProxy(Handle<JSProxy> proxy, InstanceType type,
   // Functions require some minimal initialization.
   if (type == JS_FUNCTION_TYPE) {
     map->set_function_with_prototype(true);
+    map->set_is_callable();
     Handle<JSFunction> js_function = Handle<JSFunction>::cast(proxy);
     InitializeFunction(js_function, shared.ToHandleChecked(), context);
   } else {
@@ -2056,9 +2001,9 @@ Handle<JSGlobalProxy> Factory::NewUninitializedJSGlobalProxy() {
   Handle<Map> map = NewMap(JS_GLOBAL_PROXY_TYPE, JSGlobalProxy::kSize);
   // Maintain invariant expected from any JSGlobalProxy.
   map->set_is_access_check_needed(true);
-  CALL_HEAP_FUNCTION(isolate(), isolate()->heap()->AllocateJSObjectFromMap(
-                                    *map, NOT_TENURED, false),
-                     JSGlobalProxy);
+  CALL_HEAP_FUNCTION(
+      isolate(), isolate()->heap()->AllocateJSObjectFromMap(*map, NOT_TENURED),
+      JSGlobalProxy);
 }
 
 
@@ -2076,8 +2021,7 @@ void Factory::ReinitializeJSGlobalProxy(Handle<JSGlobalProxy> object,
   DCHECK(map->instance_type() == object->map()->instance_type());
 
   // Allocate the backing storage for the properties.
-  int prop_size = map->InitialPropertiesLength();
-  Handle<FixedArray> properties = NewFixedArray(prop_size, TENURED);
+  Handle<FixedArray> properties = empty_fixed_array();
 
   // In order to keep heap in consistent state there must be no allocations
   // before object re-initialization is finished.
@@ -2273,13 +2217,6 @@ Handle<String> Factory::NumberToString(Handle<Object> number,
 
 
 Handle<DebugInfo> Factory::NewDebugInfo(Handle<SharedFunctionInfo> shared) {
-  // Get the original code of the function.
-  Handle<Code> code(shared->code());
-
-  // Create a copy of the code before allocating the debug info object to avoid
-  // allocation while setting up the debug info object.
-  Handle<Code> original_code(*Factory::CopyCode(code));
-
   // Allocate initial fixed array for active break points before allocating the
   // debug info object to avoid allocation while setting up the debug info
   // object.
@@ -2292,8 +2229,7 @@ Handle<DebugInfo> Factory::NewDebugInfo(Handle<SharedFunctionInfo> shared) {
   Handle<DebugInfo> debug_info =
       Handle<DebugInfo>::cast(NewStruct(DEBUG_INFO_TYPE));
   debug_info->set_shared(*shared);
-  debug_info->set_original_code(*original_code);
-  debug_info->set_code(*code);
+  debug_info->set_code(shared->code());
   debug_info->set_break_points(*break_points);
 
   // Link debug info to function.
@@ -2306,10 +2242,9 @@ Handle<DebugInfo> Factory::NewDebugInfo(Handle<SharedFunctionInfo> shared) {
 Handle<JSObject> Factory::NewArgumentsObject(Handle<JSFunction> callee,
                                              int length) {
   bool strict_mode_callee = is_strict(callee->shared()->language_mode()) ||
-                            !callee->is_simple_parameter_list();
+                            !callee->has_simple_parameters();
   Handle<Map> map = strict_mode_callee ? isolate()->strict_arguments_map()
                                        : isolate()->sloppy_arguments_map();
-
   AllocationSiteUsageContext context(isolate(), Handle<AllocationSite>(),
                                      false);
   DCHECK(!isolate()->has_pending_exception());

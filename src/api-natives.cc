@@ -5,7 +5,7 @@
 #include "src/api-natives.h"
 
 #include "src/api.h"
-#include "src/isolate.h"
+#include "src/isolate-inl.h"
 #include "src/lookup.h"
 #include "src/messages.h"
 
@@ -150,15 +150,6 @@ MaybeHandle<JSObject> ConfigureInstance(Isolate* isolate, Handle<JSObject> obj,
     PropertyDetails details(Smi::cast(properties.get(i++)));
     PropertyAttributes attributes = details.attributes();
     PropertyKind kind = details.kind();
-
-    if (obj->map()->owns_descriptors() &&
-        obj->map()->instance_descriptors()->length() != 0 &&
-        obj->map()->instance_descriptors()->NumberOfSlackDescriptors() == 0 &&
-        TransitionArray::SearchTransition(obj->map(), kind, *name,
-                                          attributes) == NULL) {
-      Map::EnsureDescriptorSlack(handle(obj->map()),
-                                 data->number_of_properties() - c);
-    }
 
     if (kind == kData) {
       auto prop_data = handle(properties.get(i++), isolate);
@@ -500,9 +491,9 @@ Handle<JSFunction> ApiNatives::CreateApiFunction(
     map->set_has_indexed_interceptor();
   }
 
-  // Set instance call-as-function information in the map.
+  // Mark instance as callable in the map.
   if (!obj->instance_call_handler()->IsUndefined()) {
-    map->set_has_instance_call_handler();
+    map->set_is_callable();
   }
 
   // Recursively copy parent instance templates' accessors,

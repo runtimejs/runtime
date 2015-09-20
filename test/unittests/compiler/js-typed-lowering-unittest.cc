@@ -10,6 +10,7 @@
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
+#include "src/isolate-inl.h"
 #include "test/unittests/compiler/compiler-test-utils.h"
 #include "test/unittests/compiler/graph-unittest.h"
 #include "test/unittests/compiler/node-test-utils.h"
@@ -88,7 +89,7 @@ class JSTypedLoweringTest : public TypedGraphTest {
 
   Handle<JSArrayBuffer> NewArrayBuffer(void* bytes, size_t byte_length) {
     Handle<JSArrayBuffer> buffer = factory()->NewJSArrayBuffer();
-    Runtime::SetupArrayBuffer(isolate(), buffer, true, bytes, byte_length);
+    JSArrayBuffer::Setup(buffer, isolate(), true, bytes, byte_length);
     return buffer;
   }
 
@@ -235,14 +236,12 @@ TEST_F(JSTypedLoweringTest, ParameterWithNull) {
   {
     Reduction r = Reduce(Parameter(Type::Constant(null, zone())));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsHeapConstant(Unique<HeapObject>::CreateImmovable(null)));
+    EXPECT_THAT(r.replacement(), IsHeapConstant(null));
   }
   {
     Reduction r = Reduce(Parameter(Type::Null()));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsHeapConstant(Unique<HeapObject>::CreateImmovable(null)));
+    EXPECT_THAT(r.replacement(), IsHeapConstant(null));
   }
 }
 
@@ -291,14 +290,12 @@ TEST_F(JSTypedLoweringTest, ParameterWithUndefined) {
   {
     Reduction r = Reduce(Parameter(Type::Undefined()));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsHeapConstant(Unique<HeapObject>::CreateImmovable(undefined)));
+    EXPECT_THAT(r.replacement(), IsHeapConstant(undefined));
   }
   {
     Reduction r = Reduce(Parameter(Type::Constant(undefined, zone())));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(),
-                IsHeapConstant(Unique<HeapObject>::CreateImmovable(undefined)));
+    EXPECT_THAT(r.replacement(), IsHeapConstant(undefined));
   }
 }
 
@@ -874,15 +871,19 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithSafeKey) {
 }
 
 
-TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
+// -----------------------------------------------------------------------------
+// JSLoadGlobal
+
+
+TEST_F(JSTypedLoweringTest, JSLoadGlobalConstants) {
   Handle<String> names[] = {
       Handle<String>(isolate()->heap()->undefined_string(), isolate()),
       Handle<String>(isolate()->heap()->infinity_string(), isolate()),
       Handle<String>(isolate()->heap()->nan_string(), isolate())  // --
   };
   Matcher<Node*> matches[] = {
-      IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-          Handle<HeapObject>(isolate()->heap()->undefined_value(), isolate()))),
+      IsHeapConstant(
+          Handle<HeapObject>(isolate()->heap()->undefined_value(), isolate())),
       IsNumberConstant(std::numeric_limits<double>::infinity()),
       IsNumberConstant(IsNaN())  // --
   };
@@ -895,13 +896,37 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedGlobalConstants) {
   Node* control = graph()->start();
 
   for (size_t i = 0; i < arraysize(names); i++) {
-    Unique<Name> name = Unique<Name>::CreateImmovable(names[i]);
     Reduction r = Reduce(graph()->NewNode(
-        javascript()->LoadGlobal(name, feedback), global, vector, context,
-        EmptyFrameState(), EmptyFrameState(), effect, control));
+        javascript()->LoadGlobal(names[i], feedback), context, global, vector,
+        context, EmptyFrameState(), EmptyFrameState(), effect, control));
 
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(r.replacement(), matches[i]);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// JSLoadNamed
+
+
+TEST_F(JSTypedLoweringTest, JSLoadNamedStringLength) {
+  VectorSlotPair feedback;
+  Handle<Name> name = factory()->length_string();
+  Node* const receiver = Parameter(Type::String(), 0);
+  Node* const vector = Parameter(Type::Internal(), 1);
+  Node* const context = UndefinedConstant();
+  Node* const effect = graph()->start();
+  Node* const control = graph()->start();
+  TRACED_FOREACH(LanguageMode, language_mode, kLanguageModes) {
+    Reduction const r = Reduce(
+        graph()->NewNode(javascript()->LoadNamed(name, feedback, language_mode),
+                         receiver, vector, context, EmptyFrameState(),
+                         EmptyFrameState(), effect, control));
+    ASSERT_TRUE(r.Changed());
+    EXPECT_THAT(r.replacement(),
+                IsLoadField(AccessBuilder::ForStringLength(zone()), receiver,
+                            effect, control));
   }
 }
 
@@ -921,7 +946,8 @@ TEST_F(JSTypedLoweringTest, JSLoadDynamicGlobal) {
   for (int i = 0; i < DynamicGlobalAccess::kMaxCheckDepth; ++i) {
     uint32_t bitset = 1 << i;  // Only single check.
     Reduction r = Reduce(graph()->NewNode(
-        javascript()->LoadDynamicGlobal(name, bitset, feedback, NOT_CONTEXTUAL),
+        javascript()->LoadDynamicGlobal(name, bitset, feedback,
+                                        NOT_INSIDE_TYPEOF),
         vector, context, context, frame_state, frame_state, effect, control));
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(
@@ -974,7 +1000,6 @@ TEST_F(JSTypedLoweringTest, JSLoadDynamicContext) {
   }
 }
 
-#if V8_TURBOFAN_TARGET
 
 // -----------------------------------------------------------------------------
 // JSAdd
@@ -993,12 +1018,11 @@ TEST_F(JSTypedLoweringTest, JSAddWithString) {
                                           rhs, context, frame_state0,
                                           frame_state1, effect, control));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(
-        r.replacement(),
-        IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-                      CodeFactory::StringAdd(isolate(), STRING_ADD_CHECK_NONE,
-                                             NOT_TENURED).code())),
-               lhs, rhs, context, frame_state0, effect, control));
+    EXPECT_THAT(r.replacement(),
+                IsCall(_, IsHeapConstant(CodeFactory::StringAdd(
+                                             isolate(), STRING_ADD_CHECK_NONE,
+                                             NOT_TENURED).code()),
+                       lhs, rhs, context, frame_state0, effect, control));
   }
 }
 
@@ -1014,16 +1038,13 @@ TEST_F(JSTypedLoweringTest, JSCreateClosure) {
   Handle<SharedFunctionInfo> shared(isolate()->object_function()->shared());
   Reduction r =
       Reduce(graph()->NewNode(javascript()->CreateClosure(shared, NOT_TENURED),
-                              context, context, effect, control));
+                              context, effect, control));
   ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(
-      r.replacement(),
-      IsCall(_,
-             IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-                 CodeFactory::FastNewClosure(isolate(), shared->language_mode(),
-                                             shared->kind()).code())),
-             IsHeapConstant(Unique<HeapObject>::CreateImmovable(shared)),
-             effect, control));
+  EXPECT_THAT(r.replacement(),
+              IsCall(_, IsHeapConstant(CodeFactory::FastNewClosure(
+                                           isolate(), shared->language_mode(),
+                                           shared->kind()).code()),
+                     IsHeapConstant(shared), effect, control));
 }
 
 
@@ -1045,8 +1066,8 @@ TEST_F(JSTypedLoweringTest, JSCreateLiteralArray) {
   ASSERT_TRUE(r.Changed());
   EXPECT_THAT(
       r.replacement(),
-      IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-                    CodeFactory::FastCloneShallowArray(isolate()).code())),
+      IsCall(_, IsHeapConstant(
+                    CodeFactory::FastCloneShallowArray(isolate()).code()),
              input0, input1, input2, context, frame_state, effect, control));
 }
 
@@ -1069,12 +1090,10 @@ TEST_F(JSTypedLoweringTest, JSCreateLiteralObject) {
   ASSERT_TRUE(r.Changed());
   EXPECT_THAT(
       r.replacement(),
-      IsCall(_, IsHeapConstant(Unique<HeapObject>::CreateImmovable(
-                    CodeFactory::FastCloneShallowObject(isolate(), 6).code())),
+      IsCall(_, IsHeapConstant(
+                    CodeFactory::FastCloneShallowObject(isolate(), 6).code()),
              input0, input1, input2, _, context, frame_state, effect, control));
 }
-
-#endif  // V8_TURBOFAN_TARGET
 
 
 // -----------------------------------------------------------------------------

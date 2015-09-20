@@ -11,9 +11,11 @@
 #include "src/execution.h"
 #include "src/factory.h"
 #include "src/global-handles.h"
+#include "src/heap/slots-buffer.h"
 #include "src/ic/ic.h"
 #include "src/macro-assembler.h"
 #include "test/cctest/cctest.h"
+#include "test/cctest/heap-tester.h"
 
 using namespace v8::base;
 using namespace v8::internal;
@@ -634,7 +636,7 @@ static Handle<LayoutDescriptor> TestLayoutDescriptorAppend(
       descriptors->Append(&f);
 
       int field_index = f.GetDetails().field_index();
-      bool is_inobject = field_index < map->inobject_properties();
+      bool is_inobject = field_index < map->GetInObjectProperties();
       for (int bit = 0; bit < field_width_in_words; bit++) {
         CHECK_EQ(is_inobject && (kind == PROP_DOUBLE),
                  !layout_descriptor->IsTagged(field_index + bit));
@@ -763,7 +765,7 @@ static Handle<LayoutDescriptor> TestLayoutDescriptorAppendIfFastOrUseFull(
         int field_index = details.field_index();
         int field_width_in_words = details.field_width_in_words();
 
-        bool is_inobject = field_index < map->inobject_properties();
+        bool is_inobject = field_index < map->GetInObjectProperties();
         for (int bit = 0; bit < field_width_in_words; bit++) {
           CHECK_EQ(is_inobject && details.representation().IsDouble(),
                    !layout_desc->IsTagged(field_index + bit));
@@ -1017,7 +1019,7 @@ TEST(DoScavenge) {
                            INSERT_TRANSITION).ToHandleChecked();
 
   // Create object in new space.
-  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED, false);
+  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED);
 
   Handle<HeapNumber> heap_number = factory->NewHeapNumber(42.5);
   obj->WriteToField(0, *heap_number);
@@ -1094,7 +1096,7 @@ TEST(DoScavengeWithIncrementalWriteBarrier) {
   }
 
   // Create object in new space.
-  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED, false);
+  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED);
 
   Handle<HeapNumber> heap_number = factory->NewHeapNumber(42.5);
   obj->WriteToField(0, *heap_number);
@@ -1351,7 +1353,7 @@ TEST(StoreBufferScanOnScavenge) {
                            INSERT_TRANSITION).ToHandleChecked();
 
   // Create object in new space.
-  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED, false);
+  Handle<JSObject> obj = factory->NewJSObjectFromMap(map, NOT_TENURED);
 
   Handle<HeapNumber> heap_number = factory->NewHeapNumber(42.5);
   obj->WriteToField(0, *heap_number);
@@ -1402,11 +1404,11 @@ static int LenFromSize(int size) {
 }
 
 
-TEST(WriteBarriersInCopyJSObject) {
+HEAP_TEST(WriteBarriersInCopyJSObject) {
   FLAG_max_semi_space_size = 1;  // Ensure new space is not growing.
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
-  TestHeap* heap = CcTest::test_heap();
+  Heap* heap = CcTest::heap();
 
   v8::HandleScope scope(CcTest::isolate());
 
@@ -1423,9 +1425,6 @@ TEST(WriteBarriersInCopyJSObject) {
   my_map = Map::CopyWithField(my_map, name, HeapType::Any(isolate), NONE,
                               Representation::Double(),
                               INSERT_TRANSITION).ToHandleChecked();
-  my_map->set_pre_allocated_property_fields(1);
-  int n_properties = my_map->InitialPropertiesLength();
-  CHECK_GE(n_properties, 0);
 
   int object_size = my_map->instance_size();
 
@@ -1503,7 +1502,7 @@ static void TestWriteBarrier(Handle<Map> map, Handle<Map> new_map,
   Handle<HeapObject> obj_value;
   {
     AlwaysAllocateScope always_allocate(isolate);
-    obj = factory->NewJSObjectFromMap(map, TENURED, false);
+    obj = factory->NewJSObjectFromMap(map, TENURED);
     CHECK(old_space->Contains(*obj));
 
     obj_value = factory->NewJSArray(32 * KB, FAST_HOLEY_ELEMENTS);
@@ -1568,7 +1567,7 @@ static void TestIncrementalWriteBarrier(Handle<Map> map, Handle<Map> new_map,
   Page* ec_page;
   {
     AlwaysAllocateScope always_allocate(isolate);
-    obj = factory->NewJSObjectFromMap(map, TENURED, false);
+    obj = factory->NewJSObjectFromMap(map, TENURED);
     CHECK(old_space->Contains(*obj));
 
     // Make sure |obj_value| is placed on an old-space evacuation candidate.

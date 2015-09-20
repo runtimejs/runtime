@@ -61,7 +61,8 @@ class AllocationBuilder final {
   void AllocateArray(int length, Handle<Map> map) {
     Allocate(FixedArray::SizeFor(length));
     Store(AccessBuilder::ForMap(), map);
-    Store(AccessBuilder::ForFixedArrayLength(), jsgraph()->Constant(length));
+    Store(AccessBuilder::ForFixedArrayLength(graph()->zone()),
+          jsgraph()->Constant(length));
   }
 
   // Compound store of a constant into a field.
@@ -166,8 +167,8 @@ class JSBinopReduction final {
 
     // TODO(jarin): Replace the explicit typing hack with a call to some method
     // that encapsulates changing the operator and re-typing.
-    Bounds const bounds = NodeProperties::GetBounds(node_);
-    NodeProperties::SetBounds(node_, Bounds::NarrowUpper(bounds, type, zone()));
+    Type* node_type = NodeProperties::GetType(node_);
+    NodeProperties::SetType(node_, Type::Intersect(node_type, type, zone()));
 
     if (invert) {
       // Insert an boolean not to invert the value.
@@ -205,12 +206,8 @@ class JSBinopReduction final {
   Node* context() { return NodeProperties::GetContextInput(node_); }
   Node* left() { return NodeProperties::GetValueInput(node_, 0); }
   Node* right() { return NodeProperties::GetValueInput(node_, 1); }
-  Type* left_type() {
-    return NodeProperties::GetBounds(node_->InputAt(0)).upper;
-  }
-  Type* right_type() {
-    return NodeProperties::GetBounds(node_->InputAt(1)).upper;
-  }
+  Type* left_type() { return NodeProperties::GetType(node_->InputAt(0)); }
+  Type* right_type() { return NodeProperties::GetType(node_->InputAt(1)); }
 
   SimplifiedOperatorBuilder* simplified() { return lowering_->simplified(); }
   Graph* graph() const { return lowering_->graph(); }
@@ -304,7 +301,7 @@ class JSBinopReduction final {
   }
 
   Node* ConvertPlainPrimitiveToNumber(Node* node) {
-    DCHECK(NodeProperties::GetBounds(node).upper->Is(Type::PlainPrimitive()));
+    DCHECK(NodeProperties::GetType(node)->Is(Type::PlainPrimitive()));
     // Avoid inserting too many eager ToNumber() operations.
     Reduction const reduction = lowering_->ReduceJSToNumberInput(node);
     if (reduction.Changed()) return reduction.replacement();
@@ -315,7 +312,7 @@ class JSBinopReduction final {
   }
 
   Node* ConvertSingleInputToNumber(Node* node, Node* frame_state) {
-    DCHECK(!NodeProperties::GetBounds(node).upper->Is(Type::PlainPrimitive()));
+    DCHECK(!NodeProperties::GetType(node)->Is(Type::PlainPrimitive()));
     Node* const n = graph()->NewNode(javascript()->ToNumber(), node, context(),
                                      frame_state, effect(), control());
     NodeProperties::ReplaceUses(node_, node_, node_, n, n);
@@ -362,7 +359,7 @@ class JSBinopReduction final {
       if (NodeProperties::IsEffectEdge(edge)) edge.UpdateTo(exception_effect);
       if (NodeProperties::IsValueEdge(edge)) edge.UpdateTo(exception_value);
     }
-    NodeProperties::RemoveBounds(exception_merge);
+    NodeProperties::RemoveType(exception_merge);
     exception_merge->ReplaceInput(0, left_exception);
     exception_merge->ReplaceInput(1, right_exception);
     exception_merge->set_op(common()->Merge(2));
@@ -373,7 +370,7 @@ class JSBinopReduction final {
 
   Node* ConvertToUI32(Node* node, Signedness signedness) {
     // Avoid introducing too many eager NumberToXXnt32() operations.
-    Type* type = NodeProperties::GetBounds(node).upper;
+    Type* type = NodeProperties::GetType(node);
     if (signedness == kSigned) {
       if (!type->Is(Type::Signed32())) {
         node = graph()->NewNode(simplified()->NumberToInt32(), node);
@@ -629,7 +626,7 @@ Reduction JSTypedLowering::ReduceJSStrictEqual(Node* node, bool invert) {
 
 Reduction JSTypedLowering::ReduceJSUnaryNot(Node* node) {
   Node* const input = node->InputAt(0);
-  Type* const input_type = NodeProperties::GetBounds(input).upper;
+  Type* const input_type = NodeProperties::GetType(input);
   if (input_type->Is(Type::Boolean())) {
     // JSUnaryNot(x:boolean) => BooleanNot(x)
     node->set_op(simplified()->BooleanNot());
@@ -661,7 +658,7 @@ Reduction JSTypedLowering::ReduceJSUnaryNot(Node* node) {
 
 Reduction JSTypedLowering::ReduceJSToBoolean(Node* node) {
   Node* const input = node->InputAt(0);
-  Type* const input_type = NodeProperties::GetBounds(input).upper;
+  Type* const input_type = NodeProperties::GetType(input);
   if (input_type->Is(Type::Boolean())) {
     // JSToBoolean(x:boolean) => x
     return Replace(input);
@@ -697,7 +694,7 @@ Reduction JSTypedLowering::ReduceJSToNumberInput(Node* input) {
     return Changed(input);  // JSToNumber(JSToNumber(x)) => JSToNumber(x)
   }
   // Check if we have a cached conversion.
-  Type* input_type = NodeProperties::GetBounds(input).upper;
+  Type* input_type = NodeProperties::GetType(input);
   if (input_type->Is(Type::Number())) {
     // JSToNumber(x:number) => x
     return Changed(input);
@@ -727,7 +724,7 @@ Reduction JSTypedLowering::ReduceJSToNumber(Node* node) {
     ReplaceWithValue(node, reduction.replacement());
     return reduction;
   }
-  Type* const input_type = NodeProperties::GetBounds(input).upper;
+  Type* const input_type = NodeProperties::GetType(input);
   if (input_type->Is(Type::PlainPrimitive())) {
     if (NodeProperties::GetContextInput(node) !=
             jsgraph()->NoContextConstant() ||
@@ -756,7 +753,7 @@ Reduction JSTypedLowering::ReduceJSToStringInput(Node* input) {
     if (result.Changed()) return result;
     return Changed(input);  // JSToString(JSToString(x)) => JSToString(x)
   }
-  Type* input_type = NodeProperties::GetBounds(input).upper;
+  Type* input_type = NodeProperties::GetType(input);
   if (input_type->Is(Type::String())) {
     return Changed(input);  // JSToString(x:string) => x
   }
@@ -786,7 +783,7 @@ Reduction JSTypedLowering::ReduceJSToString(Node* node) {
 
 Reduction JSTypedLowering::ReduceJSLoadGlobal(Node* node) {
   // Optimize global constants like "undefined", "Infinity", and "NaN".
-  Handle<Name> name = LoadGlobalParametersOf(node->op()).name().handle();
+  Handle<Name> name = LoadGlobalParametersOf(node->op()).name();
   Handle<Object> constant_value = factory()->GlobalConstantFor(name);
   if (!constant_value.is_null()) {
     Node* constant = jsgraph()->Constant(constant_value);
@@ -797,25 +794,45 @@ Reduction JSTypedLowering::ReduceJSLoadGlobal(Node* node) {
 }
 
 
+Reduction JSTypedLowering::ReduceJSLoadNamed(Node* node) {
+  DCHECK_EQ(IrOpcode::kJSLoadNamed, node->opcode());
+  Node* receiver = NodeProperties::GetValueInput(node, 0);
+  Type* receiver_type = NodeProperties::GetType(receiver);
+  Node* effect = NodeProperties::GetEffectInput(node);
+  Node* control = NodeProperties::GetControlInput(node);
+  Handle<Name> name = LoadNamedParametersOf(node->op()).name();
+  // Optimize "length" property of strings.
+  if (name.is_identical_to(factory()->length_string()) &&
+      receiver_type->Is(Type::String())) {
+    Node* value = effect =
+        graph()->NewNode(simplified()->LoadField(
+                             AccessBuilder::ForStringLength(graph()->zone())),
+                         receiver, effect, control);
+    ReplaceWithValue(node, value, effect);
+    return Replace(value);
+  }
+  return NoChange();
+}
+
+
 Reduction JSTypedLowering::ReduceJSLoadProperty(Node* node) {
   Node* key = NodeProperties::GetValueInput(node, 1);
   Node* base = NodeProperties::GetValueInput(node, 0);
-  Type* key_type = NodeProperties::GetBounds(key).upper;
+  Type* key_type = NodeProperties::GetType(key);
   HeapObjectMatcher mbase(base);
-  if (mbase.HasValue() && mbase.Value().handle()->IsJSTypedArray()) {
+  if (mbase.HasValue() && mbase.Value()->IsJSTypedArray()) {
     Handle<JSTypedArray> const array =
-        Handle<JSTypedArray>::cast(mbase.Value().handle());
+        Handle<JSTypedArray>::cast(mbase.Value());
     if (!array->GetBuffer()->was_neutered()) {
       array->GetBuffer()->set_is_neuterable(false);
       BufferAccess const access(array->type());
       size_t const k = ElementSizeLog2Of(access.machine_type());
       double const byte_length = array->byte_length()->Number();
       CHECK_LT(k, arraysize(shifted_int32_ranges_));
-      if (IsExternalArrayElementsKind(array->map()->elements_kind()) &&
-          key_type->Is(shifted_int32_ranges_[k]) && byte_length <= kMaxInt) {
+      if (key_type->Is(shifted_int32_ranges_[k]) && byte_length <= kMaxInt) {
         // JSLoadProperty(typed-array, int32)
-        Handle<ExternalArray> elements =
-            Handle<ExternalArray>::cast(handle(array->elements()));
+        Handle<FixedTypedArrayBase> elements =
+            Handle<FixedTypedArrayBase>::cast(handle(array->elements()));
         Node* buffer = jsgraph()->PointerConstant(elements->external_pointer());
         Node* length = jsgraph()->Constant(byte_length);
         Node* effect = NodeProperties::GetEffectInput(node);
@@ -846,24 +863,23 @@ Reduction JSTypedLowering::ReduceJSStoreProperty(Node* node) {
   Node* key = NodeProperties::GetValueInput(node, 1);
   Node* base = NodeProperties::GetValueInput(node, 0);
   Node* value = NodeProperties::GetValueInput(node, 2);
-  Type* key_type = NodeProperties::GetBounds(key).upper;
-  Type* value_type = NodeProperties::GetBounds(value).upper;
+  Type* key_type = NodeProperties::GetType(key);
+  Type* value_type = NodeProperties::GetType(value);
   HeapObjectMatcher mbase(base);
-  if (mbase.HasValue() && mbase.Value().handle()->IsJSTypedArray()) {
+  if (mbase.HasValue() && mbase.Value()->IsJSTypedArray()) {
     Handle<JSTypedArray> const array =
-        Handle<JSTypedArray>::cast(mbase.Value().handle());
+        Handle<JSTypedArray>::cast(mbase.Value());
     if (!array->GetBuffer()->was_neutered()) {
       array->GetBuffer()->set_is_neuterable(false);
       BufferAccess const access(array->type());
       size_t const k = ElementSizeLog2Of(access.machine_type());
       double const byte_length = array->byte_length()->Number();
       CHECK_LT(k, arraysize(shifted_int32_ranges_));
-      if (IsExternalArrayElementsKind(array->map()->elements_kind()) &&
-          access.external_array_type() != kExternalUint8ClampedArray &&
+      if (access.external_array_type() != kExternalUint8ClampedArray &&
           key_type->Is(shifted_int32_ranges_[k]) && byte_length <= kMaxInt) {
         // JSLoadProperty(typed-array, int32)
-        Handle<ExternalArray> elements =
-            Handle<ExternalArray>::cast(handle(array->elements()));
+        Handle<FixedTypedArrayBase> elements =
+            Handle<FixedTypedArrayBase>::cast(handle(array->elements()));
         Node* buffer = jsgraph()->PointerConstant(elements->external_pointer());
         Node* length = jsgraph()->Constant(byte_length);
         Node* context = NodeProperties::GetContextInput(node);
@@ -997,19 +1013,19 @@ Reduction JSTypedLowering::ReduceJSLoadDynamicGlobal(Node* node) {
   }
 
   // Fast case, because variable is not shadowed. Perform global object load.
-  Unique<Name> name = Unique<Name>::CreateUninitialized(access.name());
   Node* global = graph()->NewNode(
       javascript()->LoadContext(0, Context::GLOBAL_OBJECT_INDEX, true), context,
       context, effect);
   Node* fast = graph()->NewNode(
-      javascript()->LoadGlobal(name, access.feedback(), access.mode()), global,
-      vector, context, state1, state2, global, check_true);
+      javascript()->LoadGlobal(access.name(), access.feedback(),
+                               access.typeof_mode()),
+      context, global, vector, context, state1, state2, global, check_true);
 
   // Slow case, because variable potentially shadowed. Perform dynamic lookup.
   uint32_t check_bitset = DynamicGlobalAccess::kFullCheckRequired;
   Node* slow = graph()->NewNode(
       javascript()->LoadDynamicGlobal(access.name(), check_bitset,
-                                      access.feedback(), access.mode()),
+                                      access.feedback(), access.typeof_mode()),
       vector, context, context, state1, state2, effect, check_false);
 
   // Replace value, effect and control uses accordingly.
@@ -1097,8 +1113,8 @@ Reduction JSTypedLowering::ReduceJSCreateClosure(Node* node) {
         CallDescriptor::kNoFlags);
     const Operator* new_op = common()->Call(desc);
     Node* stub_code = jsgraph()->HeapConstant(callable.code());
-    node->ReplaceInput(0, jsgraph()->HeapConstant(shared));
     node->InsertInput(graph()->zone(), 0, stub_code);
+    node->InsertInput(graph()->zone(), 1, jsgraph()->HeapConstant(shared));
     node->set_op(new_op);
     return Changed(node);
   }
@@ -1110,7 +1126,7 @@ Reduction JSTypedLowering::ReduceJSCreateClosure(Node* node) {
 Reduction JSTypedLowering::ReduceJSCreateLiteralArray(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateLiteralArray, node->opcode());
   HeapObjectMatcher mconst(NodeProperties::GetValueInput(node, 2));
-  int length = Handle<FixedArray>::cast(mconst.Value().handle())->length();
+  int length = Handle<FixedArray>::cast(mconst.Value())->length();
   int flags = OpParameter<int>(node->op());
 
   // Use the FastCloneShallowArrayStub only for shallow boilerplates up to the
@@ -1141,7 +1157,7 @@ Reduction JSTypedLowering::ReduceJSCreateLiteralObject(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateLiteralObject, node->opcode());
   HeapObjectMatcher mconst(NodeProperties::GetValueInput(node, 2));
   // Constants are pairs, see ObjectLiteral::properties_count().
-  int length = Handle<FixedArray>::cast(mconst.Value().handle())->length() / 2;
+  int length = Handle<FixedArray>::cast(mconst.Value())->length() / 2;
   int flags = OpParameter<int>(node->op());
 
   // Use the FastCloneShallowObjectStub only for shallow boilerplates without
@@ -1170,7 +1186,7 @@ Reduction JSTypedLowering::ReduceJSCreateLiteralObject(Node* node) {
 Reduction JSTypedLowering::ReduceJSCreateWithContext(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateWithContext, node->opcode());
   Node* const input = NodeProperties::GetValueInput(node, 0);
-  Type* input_type = NodeProperties::GetBounds(input).upper;
+  Type* input_type = NodeProperties::GetType(input);
   if (FLAG_turbo_allocate && input_type->Is(Type::Receiver())) {
     // JSCreateWithContext(o:receiver, f)
     Node* const effect = NodeProperties::GetEffectInput(node);
@@ -1189,7 +1205,7 @@ Reduction JSTypedLowering::ReduceJSCreateWithContext(Node* node) {
     a.Store(AccessBuilder::ForContextSlot(Context::EXTENSION_INDEX), input);
     a.Store(AccessBuilder::ForContextSlot(Context::GLOBAL_OBJECT_INDEX), load);
     // TODO(mstarzinger): We could mutate {node} into the allocation instead.
-    NodeProperties::SetBounds(a.allocation(), NodeProperties::GetBounds(node));
+    NodeProperties::SetType(a.allocation(), NodeProperties::GetType(node));
     ReplaceWithValue(node, node, a.effect());
     node->ReplaceInput(0, a.allocation());
     node->ReplaceInput(1, a.effect());
@@ -1206,8 +1222,7 @@ Reduction JSTypedLowering::ReduceJSCreateBlockContext(Node* node) {
   Node* const input = NodeProperties::GetValueInput(node, 0);
   HeapObjectMatcher minput(input);
   DCHECK(minput.HasValue());  // TODO(mstarzinger): Make ScopeInfo static.
-  int context_length =
-      Handle<ScopeInfo>::cast(minput.Value().handle())->ContextLength();
+  int context_length = Handle<ScopeInfo>::cast(minput.Value())->ContextLength();
   if (FLAG_turbo_allocate && context_length < kBlockContextAllocationLimit) {
     // JSCreateBlockContext(s:scope[length < limit], f)
     Node* const effect = NodeProperties::GetEffectInput(node);
@@ -1229,7 +1244,7 @@ Reduction JSTypedLowering::ReduceJSCreateBlockContext(Node* node) {
       a.Store(AccessBuilder::ForContextSlot(i), jsgraph()->TheHoleConstant());
     }
     // TODO(mstarzinger): We could mutate {node} into the allocation instead.
-    NodeProperties::SetBounds(a.allocation(), NodeProperties::GetBounds(node));
+    NodeProperties::SetType(a.allocation(), NodeProperties::GetType(node));
     ReplaceWithValue(node, node, a.effect());
     node->ReplaceInput(0, a.allocation());
     node->ReplaceInput(1, a.effect());
@@ -1246,9 +1261,9 @@ Reduction JSTypedLowering::ReduceJSCallFunction(Node* node) {
   CallFunctionParameters const& p = CallFunctionParametersOf(node->op());
   int const arity = static_cast<int>(p.arity() - 2);
   Node* const function = NodeProperties::GetValueInput(node, 0);
-  Type* const function_type = NodeProperties::GetBounds(function).upper;
+  Type* const function_type = NodeProperties::GetType(function);
   Node* const receiver = NodeProperties::GetValueInput(node, 1);
-  Type* const receiver_type = NodeProperties::GetBounds(receiver).upper;
+  Type* const receiver_type = NodeProperties::GetType(receiver);
   Node* const effect = NodeProperties::GetEffectInput(node);
   Node* const control = NodeProperties::GetControlInput(node);
 
@@ -1391,7 +1406,8 @@ Reduction JSTypedLowering::ReduceJSForInPrepare(Node* node) {
 
     cache_array_false0 = cache_type;
     cache_length_false0 = efalse0 = graph()->NewNode(
-        simplified()->LoadField(AccessBuilder::ForFixedArrayLength()),
+        simplified()->LoadField(
+            AccessBuilder::ForFixedArrayLength(graph()->zone())),
         cache_array_false0, efalse0, if_false0);
   }
 
@@ -1547,7 +1563,7 @@ Reduction JSTypedLowering::Reduce(Node* node) {
   // result value and can simply replace the node if it's eliminable.
   if (!NodeProperties::IsConstant(node) && NodeProperties::IsTyped(node) &&
       node->op()->HasProperty(Operator::kEliminatable)) {
-    Type* upper = NodeProperties::GetBounds(node).upper;
+    Type* upper = NodeProperties::GetType(node);
     if (upper->IsConstant()) {
       Node* replacement = jsgraph()->Constant(upper->AsConstant()->Value());
       ReplaceWithValue(node, replacement);
@@ -1621,6 +1637,8 @@ Reduction JSTypedLowering::Reduce(Node* node) {
       return ReduceJSToString(node);
     case IrOpcode::kJSLoadGlobal:
       return ReduceJSLoadGlobal(node);
+    case IrOpcode::kJSLoadNamed:
+      return ReduceJSLoadNamed(node);
     case IrOpcode::kJSLoadProperty:
       return ReduceJSLoadProperty(node);
     case IrOpcode::kJSStoreProperty:

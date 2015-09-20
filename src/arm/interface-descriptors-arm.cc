@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
+#include "src/arm/interface-descriptors-arm.h"
 
 #if V8_TARGET_ARCH_ARM
 
@@ -33,14 +33,27 @@ const Register VectorStoreICTrampolineDescriptor::SlotRegister() { return r4; }
 const Register VectorStoreICDescriptor::VectorRegister() { return r3; }
 
 
+const Register VectorStoreTransitionDescriptor::SlotRegister() { return r4; }
+const Register VectorStoreTransitionDescriptor::VectorRegister() { return r3; }
+const Register VectorStoreTransitionDescriptor::MapRegister() { return r5; }
+
+
 const Register StoreTransitionDescriptor::MapRegister() { return r3; }
 
 
-const Register ElementTransitionAndStoreDescriptor::MapRegister() { return r3; }
+const Register LoadGlobalViaContextDescriptor::SlotRegister() { return r2; }
 
 
-const Register InstanceofDescriptor::left() { return r0; }
-const Register InstanceofDescriptor::right() { return r1; }
+const Register StoreGlobalViaContextDescriptor::SlotRegister() { return r2; }
+const Register StoreGlobalViaContextDescriptor::ValueRegister() { return r0; }
+
+
+const Register InstanceOfDescriptor::LeftRegister() { return r1; }
+const Register InstanceOfDescriptor::RightRegister() { return r0; }
+
+
+const Register StringCompareDescriptor::LeftRegister() { return r1; }
+const Register StringCompareDescriptor::RightRegister() { return r0; }
 
 
 const Register ArgumentsAccessReadDescriptor::index() { return r1; }
@@ -62,6 +75,14 @@ const Register GrowArrayElementsDescriptor::ObjectRegister() { return r0; }
 const Register GrowArrayElementsDescriptor::KeyRegister() { return r3; }
 
 
+void VectorStoreTransitionDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  Register registers[] = {ReceiverRegister(), NameRegister(),   ValueRegister(),
+                          SlotRegister(),     VectorRegister(), MapRegister()};
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+
 void FastNewClosureDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {r2};
@@ -81,6 +102,14 @@ void ToNumberDescriptor::InitializePlatformSpecific(
   Register registers[] = {r0};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
+
+
+// static
+const Register ToStringDescriptor::ReceiverRegister() { return r0; }
+
+
+// static
+const Register ToObjectDescriptor::ReceiverRegister() { return r0; }
 
 
 void NumberToStringDescriptor::InitializePlatformSpecific(
@@ -158,11 +187,20 @@ void CallConstructDescriptor::InitializePlatformSpecific(
   // r0 : number of arguments
   // r1 : the function to call
   // r2 : feedback vector
-  // r3 : (only if r2 is not the megamorphic symbol) slot in feedback
-  //      vector (Smi)
+  // r3 : slot in feedback vector (Smi, for RecordCallTarget)
+  // r4 : original constructor (for IsSuperConstructorCall)
   // TODO(turbofan): So far we don't gather type feedback and hence skip the
   // slot parameter, but ArrayConstructStub needs the vector to be undefined.
-  Register registers[] = {r0, r1, r2};
+  Register registers[] = {r0, r1, r4, r2};
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+
+void CallTrampolineDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  // r0 : number of arguments
+  // r1 : the target to call
+  Register registers[] = {r1, r0};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
@@ -372,6 +410,18 @@ void MathRoundVariantCallFromOptimizedCodeDescriptor::
   };
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
+
+
+void PushArgsAndCallDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  Register registers[] = {
+      r0,  // argument count (including receiver)
+      r2,  // address of first argument
+      r1   // the target callable to be call
+  };
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
 }  // namespace internal
 }  // namespace v8
 

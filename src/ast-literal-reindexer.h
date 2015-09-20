@@ -5,8 +5,6 @@
 #ifndef V8_AST_LITERAL_REINDEXER
 #define V8_AST_LITERAL_REINDEXER
 
-#include "src/v8.h"
-
 #include "src/ast.h"
 #include "src/scopes.h"
 
@@ -19,6 +17,7 @@ class AstLiteralReindexer final : public AstVisitor {
 
   int count() const { return next_index_; }
   void Reindex(Expression* pattern);
+  int NextIndex() { return next_index_++; }
 
  private:
 #define DEFINE_VISIT(type) virtual void Visit##type(type* node) override;

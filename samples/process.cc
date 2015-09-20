@@ -666,11 +666,13 @@ StringHttpRequest kSampleRequests[kSampleSize] = {
 };
 
 
-bool ProcessEntries(HttpRequestProcessor* processor, int count,
-                    StringHttpRequest* reqs) {
+bool ProcessEntries(v8::Platform* platform, HttpRequestProcessor* processor,
+                    int count, StringHttpRequest* reqs) {
   for (int i = 0; i < count; i++) {
-    if (!processor->Process(&reqs[i]))
-      return false;
+    bool result = processor->Process(&reqs[i]);
+    while (v8::platform::PumpMessageLoop(platform, Isolate::GetCurrent()))
+      continue;
+    if (!result) return false;
   }
   return true;
 }
@@ -686,6 +688,7 @@ void PrintMap(map<string, string>* m) {
 
 int main(int argc, char* argv[]) {
   v8::V8::InitializeICU();
+  v8::V8::InitializeExternalStartupData(argv[0]);
   v8::Platform* platform = v8::platform::CreateDefaultPlatform();
   v8::V8::InitializePlatform(platform);
   v8::V8::Initialize();
@@ -713,7 +716,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Error initializing processor.\n");
     return 1;
   }
-  if (!ProcessEntries(&processor, kSampleSize, kSampleRequests))
+  if (!ProcessEntries(platform, &processor, kSampleSize, kSampleRequests))
     return 1;
   PrintMap(&output);
 }

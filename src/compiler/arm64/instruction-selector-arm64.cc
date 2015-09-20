@@ -458,6 +458,9 @@ void InstructionSelector::VisitCheckedLoad(Node* node) {
     case kRepWord32:
       opcode = kCheckedLoadWord32;
       break;
+    case kRepWord64:
+      opcode = kCheckedLoadWord64;
+      break;
     case kRepFloat32:
       opcode = kCheckedLoadFloat32;
       break;
@@ -490,6 +493,9 @@ void InstructionSelector::VisitCheckedStore(Node* node) {
       break;
     case kRepWord32:
       opcode = kCheckedStoreWord32;
+      break;
+    case kRepWord64:
+      opcode = kCheckedStoreWord64;
       break;
     case kRepFloat32:
       opcode = kCheckedStoreFloat32;
@@ -1876,6 +1882,14 @@ void InstructionSelector::VisitWord32Equal(Node* const node) {
         case IrOpcode::kWord32And:
           return VisitWordCompare(this, value, kArm64Tst32, &cont, true,
                                   kLogical32Imm);
+        case IrOpcode::kWord32Equal: {
+          // Word32Equal(Word32Equal(x, y), 0) => Word32Compare(x, y, ne).
+          Int32BinopMatcher mequal(value);
+          node->ReplaceInput(0, mequal.left().node());
+          node->ReplaceInput(1, mequal.right().node());
+          cont.Negate();
+          return VisitWord32Compare(this, node, &cont);
+        }
         default:
           break;
       }

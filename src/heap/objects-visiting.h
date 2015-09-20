@@ -6,6 +6,8 @@
 #define V8_OBJECTS_VISITING_H_
 
 #include "src/allocation.h"
+#include "src/heap/heap.h"
+#include "src/heap/spaces.h"
 #include "src/layout-descriptor.h"
 
 // This file provides base classes and auxiliary methods for defining
@@ -29,6 +31,7 @@ class StaticVisitorBase : public AllStatic {
   V(SeqTwoByteString)      \
   V(ShortcutCandidate)     \
   V(ByteArray)             \
+  V(BytecodeArray)         \
   V(FreeSpace)             \
   V(FixedArray)            \
   V(FixedDoubleArray)      \
@@ -97,7 +100,6 @@ class StaticVisitorBase : public AllStatic {
     kVisitDataObject = kVisitDataObject2,
     kVisitJSObject = kVisitJSObject2,
     kVisitStruct = kVisitStruct2,
-    kMinObjectSizeInWords = 2
   };
 
   // Visitor ID should fit in one byte.
@@ -109,11 +111,7 @@ class StaticVisitorBase : public AllStatic {
                                 bool has_unboxed_fields);
 
   // Determine which specialized visitor should be used for given map.
-  static VisitorId GetVisitorId(Map* map) {
-    return GetVisitorId(
-        map->instance_type(), map->instance_size(),
-        FLAG_unbox_double_fields && !map->HasFastPointerLayout());
-  }
+  static VisitorId GetVisitorId(Map* map);
 
   // For visitors that allow specialization by size calculate VisitorId based
   // on size, base visitor id and generic visitor id.
@@ -123,15 +121,15 @@ class StaticVisitorBase : public AllStatic {
     DCHECK((base == kVisitDataObject) || (base == kVisitStruct) ||
            (base == kVisitJSObject));
     DCHECK(IsAligned(object_size, kPointerSize));
-    DCHECK(kMinObjectSizeInWords * kPointerSize <= object_size);
+    DCHECK(Heap::kMinObjectSizeInWords * kPointerSize <= object_size);
     DCHECK(object_size <= Page::kMaxRegularHeapObjectSize);
     DCHECK(!has_unboxed_fields || (base == kVisitJSObject));
 
     if (has_unboxed_fields) return generic;
 
-    int visitor_id =
-        Min(base + (object_size >> kPointerSizeLog2) - kMinObjectSizeInWords,
-            static_cast<int>(generic));
+    int visitor_id = Min(
+        base + (object_size >> kPointerSizeLog2) - Heap::kMinObjectSizeInWords,
+        static_cast<int>(generic));
 
     return static_cast<VisitorId>(visitor_id);
   }
@@ -150,12 +148,10 @@ class VisitorDispatchTable {
     }
   }
 
+  inline Callback GetVisitor(Map* map);
+
   inline Callback GetVisitorById(StaticVisitorBase::VisitorId id) {
     return reinterpret_cast<Callback>(callbacks_[id]);
-  }
-
-  inline Callback GetVisitor(Map* map) {
-    return reinterpret_cast<Callback>(callbacks_[map->visitor_id()]);
   }
 
   void Register(StaticVisitorBase::VisitorId id, Callback callback) {
@@ -175,8 +171,7 @@ class VisitorDispatchTable {
   template <typename Visitor, StaticVisitorBase::VisitorId base,
             StaticVisitorBase::VisitorId generic>
   void RegisterSpecializations() {
-    STATIC_ASSERT((generic - base + StaticVisitorBase::kMinObjectSizeInWords) ==
-                  10);
+    STATIC_ASSERT((generic - base + Heap::kMinObjectSizeInWords) == 10);
     RegisterSpecialization<Visitor, base, generic, 2>();
     RegisterSpecialization<Visitor, base, generic, 3>();
     RegisterSpecialization<Visitor, base, generic, 4>();
@@ -214,7 +209,7 @@ class BodyVisitorBase : public AllStatic {
  private:
   INLINE(static void IterateRawPointers(Heap* heap, HeapObject* object,
                                         int start_offset, int end_offset)) {
-    StaticVisitor::VisitPointers(heap,
+    StaticVisitor::VisitPointers(heap, object,
                                  HeapObject::RawField(object, start_offset),
                                  HeapObject::RawField(object, end_offset));
   }
@@ -296,22 +291,23 @@ class StaticNewSpaceVisitor : public StaticVisitorBase {
     return table_.GetVisitor(map)(map, obj);
   }
 
-  INLINE(static void VisitPointers(Heap* heap, Object** start, Object** end)) {
+  INLINE(static void VisitPointers(Heap* heap, HeapObject* object,
+                                   Object** start, Object** end)) {
     for (Object** p = start; p < end; p++) StaticVisitor::VisitPointer(heap, p);
   }
 
  private:
   INLINE(static int VisitJSFunction(Map* map, HeapObject* object)) {
     Heap* heap = map->GetHeap();
-    VisitPointers(heap,
+    VisitPointers(heap, object,
                   HeapObject::RawField(object, JSFunction::kPropertiesOffset),
                   HeapObject::RawField(object, JSFunction::kCodeEntryOffset));
 
     // Don't visit code entry. We are using this visitor only during scavenges.
 
     VisitPointers(
-        heap, HeapObject::RawField(object,
-                                   JSFunction::kCodeEntryOffset + kPointerSize),
+        heap, object, HeapObject::RawField(
+                          object, JSFunction::kCodeEntryOffset + kPointerSize),
         HeapObject::RawField(object, JSFunction::kNonWeakFieldsEndOffset));
     return JSFunction::kSize;
   }
@@ -350,6 +346,7 @@ class StaticNewSpaceVisitor : public StaticVisitorBase {
   INLINE(static int VisitJSArrayBuffer(Map* map, HeapObject* object));
   INLINE(static int VisitJSTypedArray(Map* map, HeapObject* object));
   INLINE(static int VisitJSDataView(Map* map, HeapObject* object));
+  INLINE(static int VisitBytecodeArray(Map* map, HeapObject* object));
 
   class DataObjectVisitor {
    public:
@@ -405,7 +402,8 @@ class StaticMarkingVisitor : public StaticVisitorBase {
 
   INLINE(static void VisitPropertyCell(Map* map, HeapObject* object));
   INLINE(static void VisitWeakCell(Map* map, HeapObject* object));
-  INLINE(static void VisitCodeEntry(Heap* heap, Address entry_address));
+  INLINE(static void VisitCodeEntry(Heap* heap, HeapObject* object,
+                                    Address entry_address));
   INLINE(static void VisitEmbeddedPointer(Heap* heap, RelocInfo* rinfo));
   INLINE(static void VisitCell(Heap* heap, RelocInfo* rinfo));
   INLINE(static void VisitDebugTarget(Heap* heap, RelocInfo* rinfo));
@@ -417,7 +415,6 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   // Skip the weak next code link in a code object.
   INLINE(static void VisitNextCodeLink(Heap* heap, Object** slot)) {}
 
-  // TODO(mstarzinger): This should be made protected once refactoring is done.
   // Mark non-optimize code for functions inlined into the given optimized
   // code. This will prevent it from being flushed.
   static void MarkInlinedFunctionsCode(Heap* heap, Code* code);
@@ -434,11 +431,16 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   INLINE(static void VisitJSTypedArray(Map* map, HeapObject* object));
   INLINE(static void VisitJSDataView(Map* map, HeapObject* object));
   INLINE(static void VisitNativeContext(Map* map, HeapObject* object));
+  INLINE(static void VisitBytecodeArray(Map* map, HeapObject* object));
 
   // Mark pointers in a Map and its TransitionArray together, possibly
   // treating transitions or back pointers weak.
   static void MarkMapContents(Heap* heap, Map* map);
   static void MarkTransitionArray(Heap* heap, TransitionArray* transitions);
+
+  // Mark pointers in the optimized code map that should act as strong
+  // references, possibly treating some entries weak.
+  static void MarkOptimizedCodeMap(Heap* heap, FixedArray* code_map);
 
   // Code flushing support.
   INLINE(static bool IsFlushable(Heap* heap, JSFunction* function));

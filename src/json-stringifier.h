@@ -5,9 +5,8 @@
 #ifndef V8_JSON_STRINGIFIER_H_
 #define V8_JSON_STRINGIFIER_H_
 
-#include "src/v8.h"
-
 #include "src/conversions.h"
+#include "src/lookup.h"
 #include "src/messages.h"
 #include "src/string-builder.h"
 #include "src/utils.h"
@@ -360,16 +359,11 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeGeneric(
     Handle<Object> key,
     bool deferred_comma,
     bool deferred_key) {
-  Handle<JSObject> builtins(isolate_->native_context()->builtins(), isolate_);
-  Handle<JSFunction> builtin = Handle<JSFunction>::cast(
-      Object::GetProperty(isolate_, builtins, "$jsonSerializeAdapter")
-          .ToHandleChecked());
-
+  Handle<JSFunction> fun = isolate_->json_serialize_adapter();
   Handle<Object> argv[] = { key, object };
   Handle<Object> result;
   ASSIGN_RETURN_ON_EXCEPTION_VALUE(
-      isolate_, result,
-      Execution::Call(isolate_, builtin, object, 2, argv),
+      isolate_, result, Execution::Call(isolate_, fun, object, 2, argv),
       EXCEPTION);
   if (result->IsUndefined()) return UNCHANGED;
   if (deferred_key) {
@@ -388,12 +382,12 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSValue(
   if (class_name == isolate_->heap()->String_string()) {
     Handle<Object> value;
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
-        isolate_, value, Execution::ToString(isolate_, object), EXCEPTION);
+        isolate_, value, Object::ToString(isolate_, object), EXCEPTION);
     SerializeString(Handle<String>::cast(value));
   } else if (class_name == isolate_->heap()->Number_string()) {
     Handle<Object> value;
-    ASSIGN_RETURN_ON_EXCEPTION_VALUE(
-        isolate_, value, Execution::ToNumber(isolate_, object), EXCEPTION);
+    ASSIGN_RETURN_ON_EXCEPTION_VALUE(isolate_, value, Object::ToNumber(object),
+                                     EXCEPTION);
     if (value->IsSmi()) return SerializeSmi(Smi::cast(*value));
     SerializeHeapNumber(Handle<HeapNumber>::cast(value));
   } else if (class_name == isolate_->heap()->Boolean_string()) {
