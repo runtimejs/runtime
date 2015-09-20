@@ -13,10 +13,9 @@ namespace internal {
 enum GCIdleTimeActionType {
   DONE,
   DO_NOTHING,
-  DO_INCREMENTAL_MARKING,
+  DO_INCREMENTAL_STEP,
   DO_SCAVENGE,
   DO_FULL_GC,
-  DO_FINALIZE_SWEEPING
 };
 
 
@@ -25,7 +24,6 @@ class GCIdleTimeAction {
   static GCIdleTimeAction Done() {
     GCIdleTimeAction result;
     result.type = DONE;
-    result.parameter = 0;
     result.additional_work = false;
     return result;
   }
@@ -33,15 +31,13 @@ class GCIdleTimeAction {
   static GCIdleTimeAction Nothing() {
     GCIdleTimeAction result;
     result.type = DO_NOTHING;
-    result.parameter = 0;
     result.additional_work = false;
     return result;
   }
 
-  static GCIdleTimeAction IncrementalMarking(intptr_t step_size) {
+  static GCIdleTimeAction IncrementalStep() {
     GCIdleTimeAction result;
-    result.type = DO_INCREMENTAL_MARKING;
-    result.parameter = step_size;
+    result.type = DO_INCREMENTAL_STEP;
     result.additional_work = false;
     return result;
   }
@@ -49,7 +45,6 @@ class GCIdleTimeAction {
   static GCIdleTimeAction Scavenge() {
     GCIdleTimeAction result;
     result.type = DO_SCAVENGE;
-    result.parameter = 0;
     result.additional_work = false;
     return result;
   }
@@ -57,15 +52,6 @@ class GCIdleTimeAction {
   static GCIdleTimeAction FullGC() {
     GCIdleTimeAction result;
     result.type = DO_FULL_GC;
-    result.parameter = 0;
-    result.additional_work = false;
-    return result;
-  }
-
-  static GCIdleTimeAction FinalizeSweeping() {
-    GCIdleTimeAction result;
-    result.type = DO_FINALIZE_SWEEPING;
-    result.parameter = 0;
     result.additional_work = false;
     return result;
   }
@@ -73,7 +59,6 @@ class GCIdleTimeAction {
   void Print();
 
   GCIdleTimeActionType type;
-  intptr_t parameter;
   bool additional_work;
 };
 
@@ -123,6 +108,10 @@ class GCIdleTimeHandler {
   // We conservatively assume that in the next kTimeUntilNextIdleEvent ms
   // no idle notification happens.
   static const size_t kTimeUntilNextIdleEvent = 100;
+
+  // An allocation throughput below kLowAllocationThroughput bytes/ms is
+  // considered low
+  static const size_t kLowAllocationThroughput = 1000;
 
   // If we haven't recorded any scavenger events yet, we use a conservative
   // lower bound for the scavenger speed.
@@ -198,7 +187,7 @@ class GCIdleTimeHandler {
       size_t new_space_allocation_throughput_in_bytes_per_ms);
 
  private:
-  GCIdleTimeAction NothingOrDone();
+  GCIdleTimeAction NothingOrDone(double idle_time_in_ms);
 
   // Idle notifications with no progress.
   int idle_times_which_made_no_progress_;

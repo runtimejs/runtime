@@ -120,8 +120,13 @@ class StandardFrameConstants : public AllStatic {
   static const int kCPSlotSize =
       FLAG_enable_embedded_constant_pool ? kPointerSize : 0;
   static const int kFixedFrameSizeFromFp =  2 * kPointerSize + kCPSlotSize;
+  static const int kFixedFrameSizeAboveFp = kPCOnStackSize + kFPOnStackSize;
   static const int kFixedFrameSize =
-      kPCOnStackSize + kFPOnStackSize + kFixedFrameSizeFromFp;
+      kFixedFrameSizeAboveFp + kFixedFrameSizeFromFp;
+  static const int kFixedSlotCountAboveFp =
+      kFixedFrameSizeAboveFp / kPointerSize;
+  static const int kFixedSlotCount = kFixedFrameSize / kPointerSize;
+  static const int kCPSlotCount = kCPSlotSize / kPointerSize;
   static const int kExpressionsOffset = -3 * kPointerSize - kCPSlotSize;
   static const int kMarkerOffset = -2 * kPointerSize - kCPSlotSize;
   static const int kContextOffset = -1 * kPointerSize - kCPSlotSize;
@@ -155,16 +160,27 @@ class ConstructFrameConstants : public AllStatic {
  public:
   // FP-relative.
   static const int kImplicitReceiverOffset =
-      StandardFrameConstants::kExpressionsOffset - 2 * kPointerSize;
+      StandardFrameConstants::kExpressionsOffset - 4 * kPointerSize;
   static const int kOriginalConstructorOffset =
-      StandardFrameConstants::kExpressionsOffset - 2 * kPointerSize;
+      StandardFrameConstants::kExpressionsOffset - 3 * kPointerSize;
   static const int kLengthOffset =
+      StandardFrameConstants::kExpressionsOffset - 2 * kPointerSize;
+  static const int kAllocationSiteOffset =
       StandardFrameConstants::kExpressionsOffset - 1 * kPointerSize;
   static const int kCodeOffset =
       StandardFrameConstants::kExpressionsOffset - 0 * kPointerSize;
 
   static const int kFrameSize =
-      StandardFrameConstants::kFixedFrameSize + 3 * kPointerSize;
+      StandardFrameConstants::kFixedFrameSize + 5 * kPointerSize;
+};
+
+
+class InterpreterFrameConstants : public AllStatic {
+ public:
+  // Register file pointer relative.
+  static const int kLastParamFromRegisterPointer =
+      StandardFrameConstants::kFixedFrameSize + kPointerSize;
+  static const int kFunctionFromRegisterPointer = kPointerSize;
 };
 
 
@@ -508,16 +524,9 @@ class StandardFrame: public StackFrame {
 
 class FrameSummary BASE_EMBEDDED {
  public:
-  FrameSummary(Object* receiver,
-               JSFunction* function,
-               Code* code,
-               int offset,
-               bool is_constructor)
-      : receiver_(receiver, function->GetIsolate()),
-        function_(function),
-        code_(code),
-        offset_(offset),
-        is_constructor_(is_constructor) { }
+  FrameSummary(Object* receiver, JSFunction* function, Code* code, int offset,
+               bool is_constructor);
+
   Handle<Object> receiver() { return receiver_; }
   Handle<JSFunction> function() { return function_; }
   Handle<Code> code() { return code_; }
@@ -566,6 +575,10 @@ class JavaScriptFrame: public StandardFrame {
 
   // Check if this frame is a constructor frame invoked through 'new'.
   bool IsConstructor() const;
+
+  // Determines whether this frame includes inlined activations. To get details
+  // about the inlined frames use {GetFunctions} and {Summarize}.
+  bool HasInlinedFrames();
 
   // Returns the original constructor function that was used in the constructor
   // call to this frame. Note that this is only valid on constructor frames.
@@ -675,6 +688,8 @@ class OptimizedFrame : public JavaScriptFrame {
       int* stack_slots, HandlerTable::CatchPrediction* prediction);
 
   DeoptimizationInputData* GetDeoptimizationData(int* deopt_index);
+
+  static int StackSlotOffsetRelativeToFp(int slot_index);
 
  protected:
   inline explicit OptimizedFrame(StackFrameIteratorBase* iterator);

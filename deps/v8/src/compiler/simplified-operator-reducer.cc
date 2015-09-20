@@ -8,6 +8,7 @@
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/operator-properties.h"
+#include "src/conversions-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -25,8 +26,7 @@ Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
     case IrOpcode::kBooleanNot: {
       HeapObjectMatcher m(node->InputAt(0));
       if (m.HasValue()) {
-        return Replace(
-            jsgraph()->BooleanConstant(!m.Value().handle()->BooleanValue()));
+        return Replace(jsgraph()->BooleanConstant(!m.Value()->BooleanValue()));
       }
       if (m.IsBooleanNot()) return Replace(m.InputAt(0));
       break;
@@ -40,7 +40,7 @@ Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
     }
     case IrOpcode::kChangeBoolToBit: {
       HeapObjectMatcher m(node->InputAt(0));
-      if (m.HasValue()) return ReplaceInt32(m.Value().handle()->BooleanValue());
+      if (m.HasValue()) return ReplaceInt32(m.Value()->BooleanValue());
       if (m.IsChangeBitToBool()) return Replace(m.InputAt(0));
       break;
     }

@@ -4,6 +4,10 @@
 
 #include "src/extensions/externalize-string-extension.h"
 
+#include "src/api.h"
+#include "src/handles.h"
+#include "src/isolate.h"
+
 namespace v8 {
 namespace internal {
 
@@ -94,7 +98,7 @@ void ExternalizeStringExtension::Externalize(
     result = string->MakeExternal(resource);
     if (result) {
       i::Isolate* isolate = reinterpret_cast<i::Isolate*>(args.GetIsolate());
-      isolate->heap()->external_string_table()->AddString(*string);
+      isolate->heap()->RegisterExternalString(*string);
     }
     if (!result) delete resource;
   } else {
@@ -105,7 +109,7 @@ void ExternalizeStringExtension::Externalize(
     result = string->MakeExternal(resource);
     if (result) {
       i::Isolate* isolate = reinterpret_cast<i::Isolate*>(args.GetIsolate());
-      isolate->heap()->external_string_table()->AddString(*string);
+      isolate->heap()->RegisterExternalString(*string);
     }
     if (!result) delete resource;
   }

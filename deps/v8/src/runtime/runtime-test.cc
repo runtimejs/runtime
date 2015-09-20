@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
+#include "src/runtime/runtime-utils.h"
 
 #include "src/arguments.h"
 #include "src/deoptimizer.h"
-#include "src/full-codegen.h"
-#include "src/runtime/runtime-utils.h"
+#include "src/frames-inl.h"
+#include "src/full-codegen/full-codegen.h"
 #include "src/snapshot/natives.h"
 
 namespace v8 {
@@ -342,7 +342,7 @@ RUNTIME_FUNCTION(Runtime_SetFlags) {
   SealHandleScope shs(isolate);
   DCHECK(args.length() == 1);
   CONVERT_ARG_CHECKED(String, arg, 0);
-  SmartArrayPointer<char> flags =
+  base::SmartArrayPointer<char> flags =
       arg->ToCString(DISALLOW_NULLS, ROBUST_STRING_TRAVERSAL);
   FlagList::SetFlagsFromString(flags.get(), StrLength(flags.get()));
   return isolate->heap()->undefined_value();
@@ -378,7 +378,8 @@ RUNTIME_FUNCTION(Runtime_AbortJS) {
 RUNTIME_FUNCTION(Runtime_NativeScriptsCount) {
   DCHECK(args.length() == 0);
   return Smi::FromInt(Natives::GetBuiltinsCount() +
-                      ExtraNatives::GetBuiltinsCount());
+                      ExtraNatives::GetBuiltinsCount() +
+                      CodeStubNatives::GetBuiltinsCount());
 }
 
 
@@ -399,7 +400,7 @@ RUNTIME_FUNCTION(Runtime_DisassembleFunction) {
   DCHECK(args.length() == 1);
   // Get the function and make sure it is compiled.
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, func, 0);
-  if (!Compiler::EnsureCompiled(func, KEEP_EXCEPTION)) {
+  if (!Compiler::Compile(func, KEEP_EXCEPTION)) {
     return isolate->heap()->exception();
   }
   OFStream os(stdout);
@@ -466,6 +467,14 @@ RUNTIME_FUNCTION(Runtime_HaveSameMap) {
 }
 
 
+RUNTIME_FUNCTION(Runtime_InNewSpace) {
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 1);
+  CONVERT_ARG_CHECKED(Object, obj, 0);
+  return isolate->heap()->ToBoolean(isolate->heap()->InNewSpace(obj));
+}
+
+
 #define ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(Name)       \
   RUNTIME_FUNCTION(Runtime_Has##Name) {                  \
     CONVERT_ARG_CHECKED(JSObject, obj, 0);               \
@@ -479,22 +488,11 @@ ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(FastDoubleElements)
 ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(FastHoleyElements)
 ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(DictionaryElements)
 ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(SloppyArgumentsElements)
-ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(ExternalArrayElements)
+ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(FixedTypedArrayElements)
 // Properties test sitting with elements tests - not fooling anyone.
 ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(FastProperties)
 
 #undef ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION
-
-
-#define TYPED_ARRAYS_CHECK_RUNTIME_FUNCTION(Type, type, TYPE, ctype, size) \
-  RUNTIME_FUNCTION(Runtime_HasExternal##Type##Elements) {                  \
-    CONVERT_ARG_CHECKED(JSObject, obj, 0);                                 \
-    return isolate->heap()->ToBoolean(obj->HasExternal##Type##Elements()); \
-  }
-
-TYPED_ARRAYS(TYPED_ARRAYS_CHECK_RUNTIME_FUNCTION)
-
-#undef TYPED_ARRAYS_CHECK_RUNTIME_FUNCTION
 
 
 #define FIXED_TYPED_ARRAYS_CHECK_RUNTIME_FUNCTION(Type, type, TYPE, ctype, s) \

@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
-#include "src/cpu-profiler-inl.h"
+#include "src/cpu-profiler.h"
 
 #include "src/compiler.h"
+#include "src/cpu-profiler-inl.h"
 #include "src/deoptimizer.h"
 #include "src/frames-inl.h"
 #include "src/hashmap.h"
@@ -31,6 +30,9 @@ ProfilerEventsProcessor::ProfilerEventsProcessor(ProfileGenerator* generator,
       period_(period),
       last_code_event_id_(0),
       last_processed_code_event_id_(0) {}
+
+
+ProfilerEventsProcessor::~ProfilerEventsProcessor() {}
 
 
 void ProfilerEventsProcessor::Enqueue(const CodeEventsContainer& event) {
@@ -198,18 +200,7 @@ void CpuProfiler::DeleteProfile(CpuProfile* profile) {
 }
 
 
-static bool FilterOutCodeCreateEvent(Logger::LogEventsAndTags tag) {
-  return FLAG_prof_browser_mode
-      && (tag != Logger::CALLBACK_TAG
-          && tag != Logger::FUNCTION_TAG
-          && tag != Logger::LAZY_COMPILE_TAG
-          && tag != Logger::REG_EXP_TAG
-          && tag != Logger::SCRIPT_TAG);
-}
-
-
 void CpuProfiler::CallbackEvent(Name* name, Address entry_point) {
-  if (FilterOutCodeCreateEvent(Logger::CALLBACK_TAG)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = entry_point;
@@ -224,7 +215,6 @@ void CpuProfiler::CallbackEvent(Name* name, Address entry_point) {
 void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                   Code* code,
                                   const char* name) {
-  if (FilterOutCodeCreateEvent(tag)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -240,7 +230,6 @@ void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag,
 void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                   Code* code,
                                   Name* name) {
-  if (FilterOutCodeCreateEvent(tag)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -256,7 +245,6 @@ void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag,
 void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag, Code* code,
                                   SharedFunctionInfo* shared,
                                   CompilationInfo* info, Name* script_name) {
-  if (FilterOutCodeCreateEvent(tag)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -279,7 +267,6 @@ void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag, Code* code,
                                   SharedFunctionInfo* shared,
                                   CompilationInfo* info, Name* script_name,
                                   int line, int column) {
-  if (FilterOutCodeCreateEvent(tag)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -316,7 +303,6 @@ void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag, Code* code,
 void CpuProfiler::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                   Code* code,
                                   int args_count) {
-  if (FilterOutCodeCreateEvent(tag)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -365,7 +351,6 @@ void CpuProfiler::CodeDeleteEvent(Address from) {
 
 
 void CpuProfiler::GetterCallbackEvent(Name* name, Address entry_point) {
-  if (FilterOutCodeCreateEvent(Logger::CALLBACK_TAG)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = entry_point;
@@ -379,7 +364,6 @@ void CpuProfiler::GetterCallbackEvent(Name* name, Address entry_point) {
 
 
 void CpuProfiler::RegExpCodeCreateEvent(Code* code, String* source) {
-  if (FilterOutCodeCreateEvent(Logger::REG_EXP_TAG)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = code->address();
@@ -393,7 +377,6 @@ void CpuProfiler::RegExpCodeCreateEvent(Code* code, String* source) {
 
 
 void CpuProfiler::SetterCallbackEvent(Name* name, Address entry_point) {
-  if (FilterOutCodeCreateEvent(Logger::CALLBACK_TAG)) return;
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->start = entry_point;

@@ -34,8 +34,10 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
                             p2, p3, p4)),
         RawMachineAssembler(
             main_isolate(), new (main_zone()) Graph(main_zone()),
-            CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p0, p1,
-                            p2, p3, p4),
+            Linkage::GetSimplifiedCDescriptor(
+                main_zone(),
+                CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p0,
+                                p1, p2, p3, p4)),
             kMachPtr, InstructionSelector::SupportedMachineOperatorFlags()) {}
 
   void CheckNumber(double expected, Object* number) {
@@ -56,8 +58,9 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
       Schedule* schedule = this->Export();
       CallDescriptor* call_descriptor = this->call_descriptor();
       Graph* graph = this->graph();
-      code_ = Pipeline::GenerateCodeForTesting(this->isolate(), call_descriptor,
-                                               graph, schedule);
+      CompilationInfo info("testing", main_isolate(), main_zone());
+      code_ = Pipeline::GenerateCodeForTesting(&info, call_descriptor, graph,
+                                               schedule);
     }
     return this->code_.ToHandleChecked()->entry();
   }

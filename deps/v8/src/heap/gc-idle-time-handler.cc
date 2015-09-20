@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/flags.h"
 #include "src/heap/gc-idle-time-handler.h"
+
+#include "src/flags.h"
 #include "src/heap/gc-tracer.h"
 #include "src/utils.h"
 
@@ -25,9 +26,8 @@ void GCIdleTimeAction::Print() {
     case DO_NOTHING:
       PrintF("no action");
       break;
-    case DO_INCREMENTAL_MARKING:
-      PrintF("incremental marking with step %" V8_PTR_PREFIX "d / ms",
-             parameter);
+    case DO_INCREMENTAL_STEP:
+      PrintF("incremental step");
       if (additional_work) {
         PrintF("; finalized marking");
       }
@@ -37,9 +37,6 @@ void GCIdleTimeAction::Print() {
       break;
     case DO_FULL_GC:
       PrintF("full GC");
-      break;
-    case DO_FINALIZE_SWEEPING:
-      PrintF("finalize sweeping");
       break;
   }
 }
@@ -114,42 +111,66 @@ bool GCIdleTimeHandler::ShouldDoScavenge(
     size_t idle_time_in_ms, size_t new_space_size, size_t used_new_space_size,
     size_t scavenge_speed_in_bytes_per_ms,
     size_t new_space_allocation_throughput_in_bytes_per_ms) {
-  size_t new_space_allocation_limit =
-      kMaxScheduledIdleTime * scavenge_speed_in_bytes_per_ms;
+  if (idle_time_in_ms >= kMinBackgroundIdleTime) {
+    // It is better to do full GC for the background tab.
+    return false;
+  }
+
+  // Calculates how much memory are we able to scavenge in
+  // kMaxFrameRenderingIdleTime ms. If scavenge_speed_in_bytes_per_ms is 0 we
+  // will take care of this later.
+  size_t idle_new_space_allocation_limit =
+      kMaxFrameRenderingIdleTime * scavenge_speed_in_bytes_per_ms;
 
   // If the limit is larger than the new space size, then scavenging used to be
   // really fast. We can take advantage of the whole new space.
-  if (new_space_allocation_limit > new_space_size) {
-    new_space_allocation_limit = new_space_size;
+  if (idle_new_space_allocation_limit > new_space_size) {
+    idle_new_space_allocation_limit = new_space_size;
   }
 
   // We do not know the allocation throughput before the first scavenge.
   // TODO(hpayer): Estimate allocation throughput before the first scavenge.
-  if (new_space_allocation_throughput_in_bytes_per_ms == 0) {
-    new_space_allocation_limit =
-        static_cast<size_t>(new_space_size * kConservativeTimeRatio);
-  } else {
+  if (new_space_allocation_throughput_in_bytes_per_ms > 0) {
     // We have to trigger scavenge before we reach the end of new space.
     size_t adjust_limit = new_space_allocation_throughput_in_bytes_per_ms *
                           kTimeUntilNextIdleEvent;
-    if (adjust_limit > new_space_allocation_limit) {
-      new_space_allocation_limit = 0;
+    if (adjust_limit > idle_new_space_allocation_limit) {
+      idle_new_space_allocation_limit = 0;
     } else {
-      new_space_allocation_limit -= adjust_limit;
+      idle_new_space_allocation_limit -= adjust_limit;
     }
   }
 
   // The allocated new space limit to trigger a scavange has to be at least
   // kMinimumNewSpaceSizeToPerformScavenge.
-  if (new_space_allocation_limit < kMinimumNewSpaceSizeToPerformScavenge) {
-    new_space_allocation_limit = kMinimumNewSpaceSizeToPerformScavenge;
+  if (idle_new_space_allocation_limit < kMinimumNewSpaceSizeToPerformScavenge) {
+    idle_new_space_allocation_limit = kMinimumNewSpaceSizeToPerformScavenge;
   }
 
+  // Set an initial scavenge speed if it is unknown.
   if (scavenge_speed_in_bytes_per_ms == 0) {
     scavenge_speed_in_bytes_per_ms = kInitialConservativeScavengeSpeed;
   }
 
-  if (new_space_allocation_limit <= used_new_space_size) {
+  // We apply a max factor to the new space size to make sure that a slowly
+  // allocating application still leaves enough of wiggle room to schedule a
+  // scavenge.
+  size_t max_limit;
+  const double kMaxNewSpaceSizeFactorLongIdleTimes = 0.5;
+  const double kMaxNewSpaceSizeFactorShortIdleTimes = 0.8;
+  if (idle_time_in_ms > kMaxFrameRenderingIdleTime) {
+    max_limit = static_cast<size_t>(new_space_size *
+                                    kMaxNewSpaceSizeFactorLongIdleTimes);
+  } else {
+    max_limit = static_cast<size_t>(new_space_size *
+                                    kMaxNewSpaceSizeFactorShortIdleTimes);
+  }
+  idle_new_space_allocation_limit =
+      Min(idle_new_space_allocation_limit, max_limit);
+
+  // We perform a scavenge if we are over the idle new space limit and
+  // a scavenge fits into the given idle time bucket.
+  if (idle_new_space_allocation_limit <= used_new_space_size) {
     if (used_new_space_size / scavenge_speed_in_bytes_per_ms <=
         idle_time_in_ms) {
       return true;
@@ -193,7 +214,10 @@ bool GCIdleTimeHandler::ShouldDoOverApproximateWeakClosure(
 }
 
 
-GCIdleTimeAction GCIdleTimeHandler::NothingOrDone() {
+GCIdleTimeAction GCIdleTimeHandler::NothingOrDone(double idle_time_in_ms) {
+  if (idle_time_in_ms >= kMinBackgroundIdleTime) {
+    return GCIdleTimeAction::Nothing();
+  }
   if (idle_times_which_made_no_progress_ >= kMaxNoProgressIdleTimes) {
     return GCIdleTimeAction::Done();
   } else {
@@ -232,7 +256,7 @@ GCIdleTimeAction GCIdleTimeHandler::Compute(double idle_time_in_ms,
   // get the right idle signal.
   if (ShouldDoContextDisposalMarkCompact(heap_state.contexts_disposed,
                                          heap_state.contexts_disposal_rate)) {
-    return NothingOrDone();
+    return NothingOrDone(idle_time_in_ms);
   }
 
   if (ShouldDoScavenge(
@@ -243,22 +267,11 @@ GCIdleTimeAction GCIdleTimeHandler::Compute(double idle_time_in_ms,
     return GCIdleTimeAction::Scavenge();
   }
 
-  if (heap_state.sweeping_in_progress) {
-    if (heap_state.sweeping_completed) {
-      return GCIdleTimeAction::FinalizeSweeping();
-    } else {
-      return NothingOrDone();
-    }
-  }
-
   if (!FLAG_incremental_marking || heap_state.incremental_marking_stopped) {
     return GCIdleTimeAction::Done();
   }
 
-  size_t step_size = EstimateMarkingStepSize(
-      static_cast<size_t>(kIncrementalMarkingStepTimeInMs),
-      heap_state.incremental_marking_speed_in_bytes_per_ms);
-  return GCIdleTimeAction::IncrementalMarking(step_size);
+  return GCIdleTimeAction::IncrementalStep();
 }
 
 

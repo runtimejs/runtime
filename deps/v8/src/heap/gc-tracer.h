@@ -6,6 +6,7 @@
 #define V8_HEAP_GC_TRACER_H_
 
 #include "src/base/platform/platform.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -117,6 +118,13 @@ class GCTracer {
       MC_WEAKCOLLECTION_CLEAR,
       MC_WEAKCOLLECTION_ABORT,
       MC_FLUSH_CODE,
+      SCAVENGER_CODE_FLUSH_CANDIDATES,
+      SCAVENGER_OBJECT_GROUPS,
+      SCAVENGER_OLD_TO_NEW_POINTERS,
+      SCAVENGER_ROOTS,
+      SCAVENGER_SCAVENGE,
+      SCAVENGER_SEMISPACE,
+      SCAVENGER_WEAK,
       NUMBER_OF_SCOPES
     };
 
@@ -291,6 +299,8 @@ class GCTracer {
 
   typedef RingBuffer<SurvivalEvent, kRingBufferMaxSize> SurvivalEventBuffer;
 
+  static const int kThroughputTimeFrameMs = 5000;
+
   explicit GCTracer(Heap* heap);
 
   // Start collecting data.
@@ -408,8 +418,13 @@ class GCTracer {
   // Returns 0 if no allocation events have been recorded.
   size_t AllocationThroughputInBytesPerMillisecond(double time_ms) const;
 
-  // Allocation throughput in old generation in bytes/milliseconds in
-  // the last five seconds.
+  // Allocation throughput in heap in bytes/milliseconds in the last
+  // kThroughputTimeFrameMs seconds.
+  // Returns 0 if no allocation events have been recorded.
+  size_t CurrentAllocationThroughputInBytesPerMillisecond() const;
+
+  // Allocation throughput in old generation in bytes/milliseconds in the last
+  // kThroughputTimeFrameMs seconds.
   // Returns 0 if no allocation events have been recorded.
   size_t CurrentOldGenerationAllocationThroughputInBytesPerMillisecond() const;
 

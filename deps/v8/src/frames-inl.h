@@ -7,6 +7,7 @@
 
 #include "src/frames.h"
 #include "src/isolate.h"
+#include "src/objects-inl.h"
 #include "src/v8memory.h"
 
 #if V8_TARGET_ARCH_IA32
@@ -214,6 +215,12 @@ inline bool JavaScriptFrame::has_adapted_arguments() const {
 
 inline JSFunction* JavaScriptFrame::function() const {
   return JSFunction::cast(function_slot_object());
+}
+
+
+inline Object* JavaScriptFrame::function_slot_object() const {
+  const int offset = JavaScriptFrameConstants::kFunctionOffset;
+  return Memory::Object_at(fp() + offset);
 }
 
 

@@ -9,7 +9,7 @@
 #include "src/compiler/linkage.h"
 #include "src/compiler/opcodes.h"
 #include "src/compiler/operator.h"
-#include "src/unique.h"
+#include "src/handles-inl.h"
 #include "src/zone.h"
 
 namespace v8 {
@@ -575,12 +575,14 @@ const Operator* CommonOperatorBuilder::NumberConstant(volatile double value) {
 
 
 const Operator* CommonOperatorBuilder::HeapConstant(
-    const Unique<HeapObject>& value) {
-  return new (zone()) Operator1<Unique<HeapObject>>(  // --
-      IrOpcode::kHeapConstant, Operator::kPure,       // opcode
-      "HeapConstant",                                 // name
-      0, 0, 0, 1, 0, 0,                               // counts
-      value);                                         // parameter
+    const Handle<HeapObject>& value) {
+  return new (zone())
+      Operator1<Handle<HeapObject>, Handle<HeapObject>::equal_to,
+                Handle<HeapObject>::hash>(           // --
+          IrOpcode::kHeapConstant, Operator::kPure,  // opcode
+          "HeapConstant",                            // name
+          0, 0, 0, 1, 0, 0,                          // counts
+          value);                                    // parameter
 }
 
 
@@ -776,9 +778,11 @@ const Operator* CommonOperatorBuilder::ResizeMergeOrPhi(const Operator* op,
 const FrameStateFunctionInfo*
 CommonOperatorBuilder::CreateFrameStateFunctionInfo(
     FrameStateType type, int parameter_count, int local_count,
-    Handle<SharedFunctionInfo> shared_info) {
+    Handle<SharedFunctionInfo> shared_info,
+    ContextCallingMode context_calling_mode) {
   return new (zone()->New(sizeof(FrameStateFunctionInfo)))
-      FrameStateFunctionInfo(type, parameter_count, local_count, shared_info);
+      FrameStateFunctionInfo(type, parameter_count, local_count, shared_info,
+                             context_calling_mode);
 }
 
 }  // namespace compiler

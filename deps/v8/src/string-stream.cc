@@ -250,11 +250,11 @@ void StringStream::Add(const char* format, FmtElm arg0, FmtElm arg1,
 }
 
 
-SmartArrayPointer<const char> StringStream::ToCString() const {
+base::SmartArrayPointer<const char> StringStream::ToCString() const {
   char* str = NewArray<char>(length_ + 1);
   MemCopy(str, buffer_, length_);
   str[length_] = '\0';
-  return SmartArrayPointer<const char>(str);
+  return base::SmartArrayPointer<const char>(str);
 }
 
 
@@ -531,7 +531,7 @@ void StringStream::PrintPrototype(JSFunction* fun, Object* receiver) {
                               PrototypeIterator::START_AT_RECEIVER);
        !iter.IsAtEnd(); iter.Advance()) {
     if (iter.GetCurrent()->IsJSObject()) {
-      Object* key = JSObject::cast(iter.GetCurrent())->SlowReverseLookup(fun);
+      Object* key = iter.GetCurrent<JSObject>()->SlowReverseLookup(fun);
       if (key != isolate->heap()->undefined_value()) {
         if (!name->IsString() ||
             !key->IsString() ||

@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #if V8_TARGET_ARCH_ARM
 
 #include "src/assembler.h"
@@ -12,6 +10,7 @@
 
 #include "src/arm/assembler-arm-inl.h"
 #include "src/arm/assembler-arm.h"
+#include "src/arm/frames-arm.h"
 #include "src/arm/macro-assembler-arm.h"
 
 namespace v8 {

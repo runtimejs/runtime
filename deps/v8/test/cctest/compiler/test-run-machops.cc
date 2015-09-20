@@ -13,8 +13,6 @@
 #include "test/cctest/compiler/codegen-tester.h"
 #include "test/cctest/compiler/value-helper.h"
 
-#if V8_TURBOFAN_TARGET
-
 using namespace v8::base;
 using namespace v8::internal;
 using namespace v8::internal::compiler;
@@ -82,7 +80,14 @@ TEST(CodeGenInt32Binop) {
 }
 
 
-#if V8_TURBOFAN_BACKEND_64
+TEST(CodeGenNop) {
+  RawMachineAssemblerTester<void> m;
+  m.Return(m.Int32Constant(0));
+  m.GenerateCode();
+}
+
+
+#if V8_TARGET_ARCH_64_BIT
 static Node* Int64Input(RawMachineAssemblerTester<int64_t>* m, int index) {
   switch (index) {
     case 0:
@@ -136,7 +141,7 @@ TEST(CodeGenInt64Binop) {
 
 
 // TODO(titzer): add tests that run 64-bit integer operations.
-#endif  // V8_TURBOFAN_BACKEND_64
+#endif  // V8_TARGET_ARCH_64_BIT
 
 
 TEST(RunGoto) {
@@ -5272,7 +5277,49 @@ TEST(RunCallCFunction8) {
     CHECK_EQ(x * 8, m.Call(x));
   }
 }
-
 #endif  // USE_SIMULATOR
 
-#endif  // V8_TURBOFAN_TARGET
+#if V8_TARGET_ARCH_64_BIT
+TEST(RunCheckedLoadInt64) {
+  int64_t buffer[] = {0x66bbccddeeff0011LL, 0x1122334455667788LL};
+  RawMachineAssemblerTester<int64_t> m(kMachInt32);
+  Node* base = m.PointerConstant(buffer);
+  Node* index = m.Parameter(0);
+  Node* length = m.Int32Constant(16);
+  Node* load =
+      m.NewNode(m.machine()->CheckedLoad(kMachInt64), base, index, length);
+  m.Return(load);
+
+  CHECK_EQ(buffer[0], m.Call(0));
+  CHECK_EQ(buffer[1], m.Call(8));
+  CHECK_EQ(0, m.Call(16));
+}
+
+
+TEST(RunCheckedStoreInt64) {
+  const int64_t write = 0x5566778899aabbLL;
+  const int64_t before = 0x33bbccddeeff0011LL;
+  int64_t buffer[] = {before, before};
+  RawMachineAssemblerTester<int32_t> m(kMachInt32);
+  Node* base = m.PointerConstant(buffer);
+  Node* index = m.Parameter(0);
+  Node* length = m.Int32Constant(16);
+  Node* value = m.Int64Constant(write);
+  Node* store = m.NewNode(m.machine()->CheckedStore(kMachInt64), base, index,
+                          length, value);
+  USE(store);
+  m.Return(m.Int32Constant(11));
+
+  CHECK_EQ(11, m.Call(16));
+  CHECK_EQ(before, buffer[0]);
+  CHECK_EQ(before, buffer[1]);
+
+  CHECK_EQ(11, m.Call(0));
+  CHECK_EQ(write, buffer[0]);
+  CHECK_EQ(before, buffer[1]);
+
+  CHECK_EQ(11, m.Call(8));
+  CHECK_EQ(write, buffer[0]);
+  CHECK_EQ(write, buffer[1]);
+}
+#endif

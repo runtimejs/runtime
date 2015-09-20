@@ -7,7 +7,7 @@
 
 #include "src/compiler/frame-states.h"
 #include "src/compiler/machine-type.h"
-#include "src/unique.h"
+#include "src/zone-containers.h"
 
 namespace v8 {
 namespace internal {
@@ -139,7 +139,7 @@ class CommonOperatorBuilder final : public ZoneObject {
   const Operator* Float64Constant(volatile double);
   const Operator* ExternalConstant(const ExternalReference&);
   const Operator* NumberConstant(volatile double);
-  const Operator* HeapConstant(const Unique<HeapObject>&);
+  const Operator* HeapConstant(const Handle<HeapObject>&);
 
   const Operator* Select(MachineType, BranchHint = BranchHint::kNone);
   const Operator* Phi(MachineType type, int value_input_count);
@@ -163,7 +163,8 @@ class CommonOperatorBuilder final : public ZoneObject {
   // Constructs function info for frame state construction.
   const FrameStateFunctionInfo* CreateFrameStateFunctionInfo(
       FrameStateType type, int parameter_count, int local_count,
-      Handle<SharedFunctionInfo> shared_info);
+      Handle<SharedFunctionInfo> shared_info,
+      ContextCallingMode context_calling_mode);
 
  private:
   Zone* zone() const { return zone_; }

@@ -6,7 +6,8 @@
 #define V8_DATEPARSER_H_
 
 #include "src/allocation.h"
-#include "src/char-predicates-inl.h"
+#include "src/char-predicates.h"
+#include "src/scanner.h"
 
 namespace v8 {
 namespace internal {
@@ -98,24 +99,8 @@ class DateParser : public AllStatic {
       return false;
     }
 
-    bool SkipWhiteSpace() {
-      if (unicode_cache_->IsWhiteSpaceOrLineTerminator(ch_)) {
-        Next();
-        return true;
-      }
-      return false;
-    }
-
-    bool SkipParentheses() {
-      if (ch_ != '(') return false;
-      int balance = 0;
-      do {
-        if (ch_ == ')') --balance;
-        else if (ch_ == '(') ++balance;
-        Next();
-      } while (balance > 0 && ch_);
-      return true;
-    }
+    inline bool SkipWhiteSpace();
+    inline bool SkipParentheses();
 
     // Character testing/classification. Non-ASCII digits are not supported.
     bool Is(uint32_t c) const { return ch_ == c; }
@@ -367,13 +352,13 @@ class DateParser : public AllStatic {
     bool is_iso_date_;
   };
 
-  // Tries to parse an ES5 Date Time String. Returns the next token
+  // Tries to parse an ES6 Date Time String. Returns the next token
   // to continue with in the legacy date string parser. If parsing is
   // complete, returns DateToken::EndOfInput(). If terminally unsuccessful,
   // returns DateToken::Invalid(). Otherwise parsing continues in the
   // legacy parser.
   template <typename Char>
-  static DateParser::DateToken ParseES5DateTime(
+  static DateParser::DateToken ParseES6DateTime(
       DateStringTokenizer<Char>* scanner,
       DayComposer* day,
       TimeComposer* time,

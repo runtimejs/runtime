@@ -6,12 +6,14 @@
 #define V8_HEAP_SPACES_H_
 
 #include "src/allocation.h"
+#include "src/atomic-utils.h"
 #include "src/base/atomicops.h"
 #include "src/base/bits.h"
 #include "src/base/platform/mutex.h"
+#include "src/flags.h"
 #include "src/hashmap.h"
 #include "src/list.h"
-#include "src/log.h"
+#include "src/objects.h"
 #include "src/utils.h"
 
 namespace v8 {
@@ -90,13 +92,13 @@ class Isolate;
 #define DCHECK_MAP_PAGE_INDEX(index) \
   DCHECK((0 <= index) && (index <= MapSpace::kMaxMapPageIndex))
 
-
-class PagedSpace;
-class MemoryAllocator;
 class AllocationInfo;
-class Space;
+class CompactionSpace;
 class FreeList;
+class MemoryAllocator;
 class MemoryChunk;
+class PagedSpace;
+class Space;
 
 class MarkBit {
  public:
@@ -266,6 +268,32 @@ class SlotsBuffer;
 // any heap object.
 class MemoryChunk {
  public:
+  // |kCompactionDone|: Initial compaction state of a |MemoryChunk|.
+  // |kCompactingInProgress|:  Parallel compaction is currently in progress.
+  // |kCompactingFinalize|: Parallel compaction is done but the chunk needs to
+  //   be finalized.
+  // |kCompactingAborted|: Parallel compaction has been aborted, which should
+  //   for now only happen in OOM scenarios.
+  enum ParallelCompactingState {
+    kCompactingDone,
+    kCompactingInProgress,
+    kCompactingFinalize,
+    kCompactingAborted,
+  };
+
+  // |kSweepingDone|: The page state when sweeping is complete or sweeping must
+  //   not be performed on that page.
+  // |kSweepingFinalize|: A sweeper thread is done sweeping this page and will
+  //   not touch the page memory anymore.
+  // |kSweepingInProgress|: This page is currently swept by a sweeper thread.
+  // |kSweepingPending|: This page is ready for parallel sweeping.
+  enum ParallelSweepingState {
+    kSweepingDone,
+    kSweepingFinalize,
+    kSweepingInProgress,
+    kSweepingPending
+  };
+
   // Only works if the pointer is in the first kPageSize of the MemoryChunk.
   static MemoryChunk* FromAddress(Address a) {
     return reinterpret_cast<MemoryChunk*>(OffsetFrom(a) & ~kAlignmentMask);
@@ -385,6 +413,10 @@ class MemoryChunk {
     // candidates selection cycle.
     FORCE_EVACUATION_CANDIDATE_FOR_TESTING,
 
+    // The memory chunk is already logically freed, however the actual freeing
+    // still has to be performed.
+    PRE_FREED,
+
     // Last flag, keep at bottom.
     NUM_MEMORY_CHUNK_FLAGS
   };
@@ -429,36 +461,30 @@ class MemoryChunk {
   // Return all current flags.
   intptr_t GetFlags() { return flags_; }
 
-
-  // SWEEPING_DONE - The page state when sweeping is complete or sweeping must
-  // not be performed on that page.
-  // SWEEPING_FINALIZE - A sweeper thread is done sweeping this page and will
-  // not touch the page memory anymore.
-  // SWEEPING_IN_PROGRESS - This page is currently swept by a sweeper thread.
-  // SWEEPING_PENDING - This page is ready for parallel sweeping.
-  enum ParallelSweepingState {
-    SWEEPING_DONE,
-    SWEEPING_FINALIZE,
-    SWEEPING_IN_PROGRESS,
-    SWEEPING_PENDING
-  };
-
-  ParallelSweepingState parallel_sweeping() {
-    return static_cast<ParallelSweepingState>(
-        base::Acquire_Load(&parallel_sweeping_));
+  AtomicValue<ParallelSweepingState>& parallel_sweeping_state() {
+    return parallel_sweeping_;
   }
 
-  void set_parallel_sweeping(ParallelSweepingState state) {
-    base::Release_Store(&parallel_sweeping_, state);
+  AtomicValue<ParallelCompactingState>& parallel_compaction_state() {
+    return parallel_compaction_;
   }
 
-  bool TryParallelSweeping() {
-    return base::Acquire_CompareAndSwap(&parallel_sweeping_, SWEEPING_PENDING,
-                                        SWEEPING_IN_PROGRESS) ==
-           SWEEPING_PENDING;
+  bool TryLock() { return mutex_->TryLock(); }
+
+  base::Mutex* mutex() { return mutex_; }
+
+  // WaitUntilSweepingCompleted only works when concurrent sweeping is in
+  // progress. In particular, when we know that right before this call a
+  // sweeper thread was sweeping this page.
+  void WaitUntilSweepingCompleted() {
+    mutex_->Lock();
+    mutex_->Unlock();
+    DCHECK(SweepingCompleted());
   }
 
-  bool SweepingCompleted() { return parallel_sweeping() <= SWEEPING_FINALIZE; }
+  bool SweepingCompleted() {
+    return parallel_sweeping_state().Value() <= kSweepingFinalize;
+  }
 
   // Manage live byte count (count of bytes known to be live,
   // because they are marked black).
@@ -515,11 +541,11 @@ class MemoryChunk {
            progress_bar();
   }
 
-  static void IncrementLiveBytesFromGC(Address address, int by) {
-    MemoryChunk::FromAddress(address)->IncrementLiveBytes(by);
+  static void IncrementLiveBytesFromGC(HeapObject* object, int by) {
+    MemoryChunk::FromAddress(object->address())->IncrementLiveBytes(by);
   }
 
-  static void IncrementLiveBytesFromMutator(Address address, int by);
+  static void IncrementLiveBytesFromMutator(HeapObject* object, int by);
 
   static const intptr_t kAlignment =
       (static_cast<uintptr_t>(1) << kPageSizeBits);
@@ -529,17 +555,39 @@ class MemoryChunk {
   static const intptr_t kSizeOffset = 0;
 
   static const intptr_t kLiveBytesOffset =
-      kSizeOffset + kPointerSize + kPointerSize + kPointerSize + kPointerSize +
-      kPointerSize + kPointerSize + kPointerSize + kPointerSize + kIntSize;
+      kSizeOffset + kPointerSize  // size_t size
+      + kIntptrSize               // intptr_t flags_
+      + kPointerSize              // Address area_start_
+      + kPointerSize              // Address area_end_
+      + 2 * kPointerSize          // base::VirtualMemory reservation_
+      + kPointerSize              // Address owner_
+      + kPointerSize              // Heap* heap_
+      + kIntSize;                 // int store_buffer_counter_
 
-  static const size_t kSlotsBufferOffset = kLiveBytesOffset + kIntSize;
+
+  static const size_t kSlotsBufferOffset =
+      kLiveBytesOffset + kIntSize;  // int live_byte_count_
 
   static const size_t kWriteBarrierCounterOffset =
-      kSlotsBufferOffset + kPointerSize + kPointerSize;
+      kSlotsBufferOffset + kPointerSize  // SlotsBuffer* slots_buffer_;
+      + kPointerSize;                    // SkipList* skip_list_;
 
-  static const size_t kHeaderSize =
-      kWriteBarrierCounterOffset + kPointerSize + kIntSize + kIntSize +
-      kPointerSize + 5 * kPointerSize + kPointerSize + kPointerSize;
+  static const size_t kMinHeaderSize =
+      kWriteBarrierCounterOffset +
+      kIntptrSize         // intptr_t write_barrier_counter_
+      + kIntSize          // int progress_bar_
+      + kPointerSize      // AtomicValue high_water_mark_
+      + kPointerSize      // base::Mutex* mutex_
+      + kPointerSize      // base::AtomicWord parallel_sweeping_
+      + kPointerSize      // AtomicValue parallel_compaction_
+      + 5 * kPointerSize  // AtomicNumber free-list statistics
+      + kPointerSize      // base::AtomicWord next_chunk_
+      + kPointerSize;     // base::AtomicWord prev_chunk_
+
+  // We add some more space to the computed header size to amount for missing
+  // alignment requirements in our computation.
+  // Try to get kHeaderSize properly aligned on 32-bit and 64-bit machines.
+  static const size_t kHeaderSize = kMinHeaderSize + kIntSize;
 
   static const int kBodyOffset =
       CODE_POINTER_ALIGN(kHeaderSize + Bitmap::kSize);
@@ -641,9 +689,24 @@ class MemoryChunk {
   bool CommitArea(size_t requested);
 
   // Approximate amount of physical memory committed for this chunk.
-  size_t CommittedPhysicalMemory() { return high_water_mark_; }
+  size_t CommittedPhysicalMemory() { return high_water_mark_.Value(); }
 
-  static inline void UpdateHighWaterMark(Address mark);
+  // Should be called when memory chunk is about to be freed.
+  void ReleaseAllocatedMemory();
+
+  static inline void UpdateHighWaterMark(Address mark) {
+    if (mark == nullptr) return;
+    // Need to subtract one from the mark because when a chunk is full the
+    // top points to the next address after the chunk, which effectively belongs
+    // to another chunk. See the comment to Page::FromAllocationTop.
+    MemoryChunk* chunk = MemoryChunk::FromAddress(mark - 1);
+    intptr_t new_mark = static_cast<intptr_t>(mark - chunk->address());
+    intptr_t old_mark = 0;
+    do {
+      old_mark = chunk->high_water_mark_.Value();
+    } while ((new_mark > old_mark) &&
+             !chunk->high_water_mark_.TrySetValue(old_mark, new_mark));
+  }
 
  protected:
   size_t size_;
@@ -673,32 +736,32 @@ class MemoryChunk {
   int progress_bar_;
   // Assuming the initial allocation on a page is sequential,
   // count highest number of bytes ever allocated on the page.
-  int high_water_mark_;
+  AtomicValue<intptr_t> high_water_mark_;
 
-  base::AtomicWord parallel_sweeping_;
+  base::Mutex* mutex_;
+  AtomicValue<ParallelSweepingState> parallel_sweeping_;
+  AtomicValue<ParallelCompactingState> parallel_compaction_;
 
   // PagedSpace free-list statistics.
-  int available_in_small_free_list_;
-  int available_in_medium_free_list_;
-  int available_in_large_free_list_;
-  int available_in_huge_free_list_;
-  int non_available_small_blocks_;
+  AtomicNumber<intptr_t> available_in_small_free_list_;
+  AtomicNumber<intptr_t> available_in_medium_free_list_;
+  AtomicNumber<intptr_t> available_in_large_free_list_;
+  AtomicNumber<intptr_t> available_in_huge_free_list_;
+  AtomicNumber<intptr_t> non_available_small_blocks_;
+
+  // next_chunk_ holds a pointer of type MemoryChunk
+  base::AtomicWord next_chunk_;
+  // prev_chunk_ holds a pointer of type MemoryChunk
+  base::AtomicWord prev_chunk_;
 
   static MemoryChunk* Initialize(Heap* heap, Address base, size_t size,
                                  Address area_start, Address area_end,
                                  Executability executable, Space* owner);
 
  private:
-  // next_chunk_ holds a pointer of type MemoryChunk
-  base::AtomicWord next_chunk_;
-  // prev_chunk_ holds a pointer of type MemoryChunk
-  base::AtomicWord prev_chunk_;
-
   friend class MemoryAllocator;
+  friend class MemoryChunkValidator;
 };
-
-
-STATIC_ASSERT(sizeof(MemoryChunk) <= MemoryChunk::kHeaderSize);
 
 
 // -----------------------------------------------------------------------------
@@ -727,8 +790,14 @@ class Page : public MemoryChunk {
   }
 
   // Returns the next page in the chain of pages owned by a space.
-  inline Page* next_page();
-  inline Page* prev_page();
+  inline Page* next_page() {
+    DCHECK(next_chunk()->owner() == owner());
+    return static_cast<Page*>(next_chunk());
+  }
+  inline Page* prev_page() {
+    DCHECK(prev_chunk()->owner() == owner());
+    return static_cast<Page*>(prev_chunk());
+  }
   inline void set_next_page(Page* page);
   inline void set_prev_page(Page* page);
 
@@ -777,21 +846,22 @@ class Page : public MemoryChunk {
   void ResetFreeListStatistics();
 
   int LiveBytesFromFreeList() {
-    return area_size() - non_available_small_blocks_ -
-           available_in_small_free_list_ - available_in_medium_free_list_ -
-           available_in_large_free_list_ - available_in_huge_free_list_;
+    return static_cast<int>(
+        area_size() - non_available_small_blocks() -
+        available_in_small_free_list() - available_in_medium_free_list() -
+        available_in_large_free_list() - available_in_huge_free_list());
   }
 
-#define FRAGMENTATION_STATS_ACCESSORS(type, name) \
-  type name() { return name##_; }                 \
-  void set_##name(type name) { name##_ = name; }  \
-  void add_##name(type name) { name##_ += name; }
+#define FRAGMENTATION_STATS_ACCESSORS(type, name)        \
+  type name() { return name##_.Value(); }                \
+  void set_##name(type name) { name##_.SetValue(name); } \
+  void add_##name(type name) { name##_.Increment(name); }
 
-  FRAGMENTATION_STATS_ACCESSORS(int, non_available_small_blocks)
-  FRAGMENTATION_STATS_ACCESSORS(int, available_in_small_free_list)
-  FRAGMENTATION_STATS_ACCESSORS(int, available_in_medium_free_list)
-  FRAGMENTATION_STATS_ACCESSORS(int, available_in_large_free_list)
-  FRAGMENTATION_STATS_ACCESSORS(int, available_in_huge_free_list)
+  FRAGMENTATION_STATS_ACCESSORS(intptr_t, non_available_small_blocks)
+  FRAGMENTATION_STATS_ACCESSORS(intptr_t, available_in_small_free_list)
+  FRAGMENTATION_STATS_ACCESSORS(intptr_t, available_in_medium_free_list)
+  FRAGMENTATION_STATS_ACCESSORS(intptr_t, available_in_large_free_list)
+  FRAGMENTATION_STATS_ACCESSORS(intptr_t, available_in_huge_free_list)
 
 #undef FRAGMENTATION_STATS_ACCESSORS
 
@@ -801,9 +871,6 @@ class Page : public MemoryChunk {
 
   friend class MemoryAllocator;
 };
-
-
-STATIC_ASSERT(sizeof(Page) <= MemoryChunk::kHeaderSize);
 
 
 class LargePage : public MemoryChunk {
@@ -822,7 +889,6 @@ class LargePage : public MemoryChunk {
   friend class MemoryAllocator;
 };
 
-STATIC_ASSERT(sizeof(LargePage) <= MemoryChunk::kHeaderSize);
 
 // ----------------------------------------------------------------------------
 // Space is the abstract superclass for all allocation spaces.
@@ -876,6 +942,23 @@ class Space : public Malloced {
 };
 
 
+class MemoryChunkValidator {
+  // Computed offsets should match the compiler generated ones.
+  STATIC_ASSERT(MemoryChunk::kSizeOffset == offsetof(MemoryChunk, size_));
+  STATIC_ASSERT(MemoryChunk::kLiveBytesOffset ==
+                offsetof(MemoryChunk, live_byte_count_));
+  STATIC_ASSERT(MemoryChunk::kSlotsBufferOffset ==
+                offsetof(MemoryChunk, slots_buffer_));
+  STATIC_ASSERT(MemoryChunk::kWriteBarrierCounterOffset ==
+                offsetof(MemoryChunk, write_barrier_counter_));
+
+  // Validate our estimates on the header size.
+  STATIC_ASSERT(sizeof(MemoryChunk) <= MemoryChunk::kHeaderSize);
+  STATIC_ASSERT(sizeof(LargePage) <= MemoryChunk::kHeaderSize);
+  STATIC_ASSERT(sizeof(Page) <= MemoryChunk::kHeaderSize);
+};
+
+
 // ----------------------------------------------------------------------------
 // All heap objects containing executable code (code objects) must be allocated
 // from a 2 GB range of memory, so that they can call each other using 32-bit
@@ -892,10 +975,6 @@ class CodeRange {
   // Can only be called once, at heap initialization time.
   // Returns false on failure.
   bool SetUp(size_t requested_size);
-
-  // Frees the range of virtual memory, and frees the data structures used to
-  // manage it.
-  void TearDown();
 
   bool valid() { return code_range_ != NULL; }
   Address start() {
@@ -922,10 +1001,11 @@ class CodeRange {
   bool UncommitRawMemory(Address start, size_t length);
   void FreeRawMemory(Address buf, size_t length);
 
-  void ReserveEmergencyBlock();
-  void ReleaseEmergencyBlock();
-
  private:
+  // Frees the range of virtual memory, and frees the data structures used to
+  // manage it.
+  void TearDown();
+
   Isolate* isolate_;
 
   // The reserved range of virtual memory that all code objects are put in.
@@ -949,20 +1029,19 @@ class CodeRange {
     size_t size;
   };
 
+  // The global mutex guards free_list_ and allocation_list_ as GC threads may
+  // access both lists concurrently to the main thread.
+  base::Mutex code_range_mutex_;
+
   // Freed blocks of memory are added to the free list.  When the allocation
   // list is exhausted, the free list is sorted and merged to make the new
   // allocation list.
   List<FreeBlock> free_list_;
+
   // Memory is allocated from the free blocks on the allocation list.
   // The block at current_allocation_block_index_ is the current block.
   List<FreeBlock> allocation_list_;
   int current_allocation_block_index_;
-
-  // Emergency block guarantees that we can always allocate a page for
-  // evacuation candidates when code space is compacted. Emergency block is
-  // reserved immediately after GC and is released immedietely before
-  // allocating a page for evacuation.
-  FreeBlock emergency_block_;
 
   // Finds a block on the allocation list that contains at least the
   // requested amount of memory.  If none is found, sorts and merges
@@ -1048,22 +1127,35 @@ class MemoryAllocator {
   LargePage* AllocateLargePage(intptr_t object_size, Space* owner,
                                Executability executable);
 
+  // PreFree logically frees the object, i.e., it takes care of the size
+  // bookkeeping and calls the allocation callback.
+  void PreFreeMemory(MemoryChunk* chunk);
+
+  // FreeMemory can be called concurrently when PreFree was executed before.
+  void PerformFreeMemory(MemoryChunk* chunk);
+
+  // Free is a wrapper method, which calls PreFree and PerformFreeMemory
+  // together.
   void Free(MemoryChunk* chunk);
 
-  // Returns the maximum available bytes of heaps.
-  intptr_t Available() { return capacity_ < size_ ? 0 : capacity_ - size_; }
-
   // Returns allocated spaces in bytes.
-  intptr_t Size() { return size_; }
+  intptr_t Size() { return size_.Value(); }
+
+  // Returns allocated executable spaces in bytes.
+  intptr_t SizeExecutable() { return size_executable_.Value(); }
+
+  // Returns the maximum available bytes of heaps.
+  intptr_t Available() {
+    intptr_t size = Size();
+    return capacity_ < size ? 0 : capacity_ - size;
+  }
 
   // Returns the maximum available executable bytes of heaps.
   intptr_t AvailableExecutable() {
-    if (capacity_executable_ < size_executable_) return 0;
-    return capacity_executable_ - size_executable_;
+    intptr_t executable_size = SizeExecutable();
+    if (capacity_executable_ < executable_size) return 0;
+    return capacity_executable_ - executable_size;
   }
-
-  // Returns allocated executable spaces in bytes.
-  intptr_t SizeExecutable() { return size_executable_; }
 
   // Returns maximum available bytes that the old space can have.
   intptr_t MaxAvailable() {
@@ -1072,9 +1164,9 @@ class MemoryAllocator {
 
   // Returns an indication of whether a pointer is in a space that has
   // been allocated by this MemoryAllocator.
-  V8_INLINE bool IsOutsideAllocatedSpace(const void* address) const {
-    return address < lowest_ever_allocated_ ||
-           address >= highest_ever_allocated_;
+  V8_INLINE bool IsOutsideAllocatedSpace(const void* address) {
+    return address < lowest_ever_allocated_.Value() ||
+           address >= highest_ever_allocated_.Value();
   }
 
 #ifdef DEBUG
@@ -1097,6 +1189,8 @@ class MemoryAllocator {
 
   bool CommitMemory(Address addr, size_t size, Executability executable);
 
+  void FreeNewSpaceMemory(Address addr, base::VirtualMemory* reservation,
+                          Executability executable);
   void FreeMemory(base::VirtualMemory* reservation, Executability executable);
   void FreeMemory(Address addr, size_t size, Executability executable);
 
@@ -1152,22 +1246,22 @@ class MemoryAllocator {
   Isolate* isolate_;
 
   // Maximum space size in bytes.
-  size_t capacity_;
+  intptr_t capacity_;
   // Maximum subset of capacity_ that can be executable
-  size_t capacity_executable_;
+  intptr_t capacity_executable_;
 
   // Allocated space size in bytes.
-  size_t size_;
+  AtomicNumber<intptr_t> size_;
   // Allocated executable space size in bytes.
-  size_t size_executable_;
+  AtomicNumber<intptr_t> size_executable_;
 
   // We keep the lowest and highest addresses allocated as a quick way
   // of determining that pointers are outside the heap. The estimate is
   // conservative, i.e. not all addrsses in 'allocated' space are allocated
   // to our heap. The range is [lowest, highest[, inclusive on the low end
   // and exclusive on the high end.
-  void* lowest_ever_allocated_;
-  void* highest_ever_allocated_;
+  AtomicValue<void*> lowest_ever_allocated_;
+  AtomicValue<void*> highest_ever_allocated_;
 
   struct MemoryAllocationCallbackRegistration {
     MemoryAllocationCallbackRegistration(MemoryAllocationCallback callback,
@@ -1190,8 +1284,16 @@ class MemoryAllocator {
                                PagedSpace* owner);
 
   void UpdateAllocatedSpaceLimits(void* low, void* high) {
-    lowest_ever_allocated_ = Min(lowest_ever_allocated_, low);
-    highest_ever_allocated_ = Max(highest_ever_allocated_, high);
+    // The use of atomic primitives does not guarantee correctness (wrt.
+    // desired semantics) by default. The loop here ensures that we update the
+    // values only if they did not change in between.
+    void* ptr = nullptr;
+    do {
+      ptr = lowest_ever_allocated_.Value();
+    } while ((low < ptr) && !lowest_ever_allocated_.TrySetValue(ptr, low));
+    do {
+      ptr = highest_ever_allocated_.Value();
+    } while ((high > ptr) && !highest_ever_allocated_.TrySetValue(ptr, high));
   }
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(MemoryAllocator);
@@ -1226,31 +1328,20 @@ class ObjectIterator : public Malloced {
 class HeapObjectIterator : public ObjectIterator {
  public:
   // Creates a new object iterator in a given space.
-  // If the size function is not given, the iterator calls the default
-  // Object::Size().
   explicit HeapObjectIterator(PagedSpace* space);
-  HeapObjectIterator(PagedSpace* space, HeapObjectCallback size_func);
-  HeapObjectIterator(Page* page, HeapObjectCallback size_func);
+  explicit HeapObjectIterator(Page* page);
 
   // Advance to the next object, skipping free spaces and other fillers and
   // skipping the special garbage section of which there is one per space.
   // Returns NULL when the iteration has ended.
-  inline HeapObject* Next() {
-    do {
-      HeapObject* next_obj = FromCurrentPage();
-      if (next_obj != NULL) return next_obj;
-    } while (AdvanceToNextPage());
-    return NULL;
-  }
-
-  virtual HeapObject* next_object() { return Next(); }
+  inline HeapObject* Next();
+  virtual inline HeapObject* next_object();
 
  private:
   enum PageMode { kOnePageOnly, kAllPagesInSpace };
 
   Address cur_addr_;              // Current iteration point.
   Address cur_end_;               // End iteration point.
-  HeapObjectCallback size_func_;  // Size function or NULL.
   PagedSpace* space_;
   PageMode page_mode_;
 
@@ -1263,7 +1354,7 @@ class HeapObjectIterator : public ObjectIterator {
 
   // Initializes fields.
   inline void Initialize(PagedSpace* owner, Address start, Address end,
-                         PageMode mode, HeapObjectCallback size_func);
+                         PageMode mode);
 };
 
 
@@ -1423,6 +1514,23 @@ class AllocationStats BASE_EMBEDDED {
     waste_ += size_in_bytes;
   }
 
+  // Merge {other} into {this}.
+  void Merge(const AllocationStats& other) {
+    capacity_ += other.capacity_;
+    size_ += other.size_;
+    waste_ += other.waste_;
+    if (other.max_capacity_ > max_capacity_) {
+      max_capacity_ = other.max_capacity_;
+    }
+  }
+
+  void DecreaseCapacity(intptr_t size_in_bytes) {
+    capacity_ -= size_in_bytes;
+    DCHECK_GE(capacity_, 0);
+  }
+
+  void IncreaseCapacity(intptr_t size_in_bytes) { capacity_ += size_in_bytes; }
+
  private:
   intptr_t capacity_;
   intptr_t max_capacity_;
@@ -1438,7 +1546,8 @@ class AllocationStats BASE_EMBEDDED {
 // the end element of the linked list of free memory blocks.
 class FreeListCategory {
  public:
-  FreeListCategory() : top_(0), end_(NULL), available_(0) {}
+  explicit FreeListCategory(FreeList* owner)
+      : top_(0), end_(NULL), available_(0), owner_(owner) {}
 
   intptr_t Concatenate(FreeListCategory* category);
 
@@ -1478,6 +1587,8 @@ class FreeListCategory {
   int FreeListLength();
 #endif
 
+  FreeList* owner() { return owner_; }
+
  private:
   // top_ points to the top FreeSpace* in the free list category.
   base::AtomicWord top_;
@@ -1486,6 +1597,8 @@ class FreeListCategory {
 
   // Total available bytes in all blocks of this free list category.
   int available_;
+
+  FreeList* owner_;
 };
 
 
@@ -1538,7 +1651,7 @@ class FreeList {
   // This method returns how much memory can be allocated after freeing
   // maximum_freed memory.
   static inline int GuaranteedAllocatable(int maximum_freed) {
-    if (maximum_freed < kSmallListMin) {
+    if (maximum_freed <= kSmallListMin) {
       return 0;
     } else if (maximum_freed <= kSmallListMax) {
       return kSmallAllocationMax;
@@ -1578,24 +1691,25 @@ class FreeList {
   FreeListCategory* large_list() { return &large_list_; }
   FreeListCategory* huge_list() { return &huge_list_; }
 
-  static const int kSmallListMin = 0x20 * kPointerSize;
+  PagedSpace* owner() { return owner_; }
 
  private:
   // The size range of blocks, in bytes.
   static const int kMinBlockSize = 3 * kPointerSize;
   static const int kMaxBlockSize = Page::kMaxRegularHeapObjectSize;
 
+  static const int kSmallListMin = 0x1f * kPointerSize;
+  static const int kSmallListMax = 0xff * kPointerSize;
+  static const int kMediumListMax = 0x7ff * kPointerSize;
+  static const int kLargeListMax = 0x3fff * kPointerSize;
+  static const int kSmallAllocationMax = kSmallListMin;
+  static const int kMediumAllocationMax = kSmallListMax;
+  static const int kLargeAllocationMax = kMediumListMax;
+
   FreeSpace* FindNodeFor(int size_in_bytes, int* node_size);
 
   PagedSpace* owner_;
   Heap* heap_;
-
-  static const int kSmallListMax = 0xff * kPointerSize;
-  static const int kMediumListMax = 0x7ff * kPointerSize;
-  static const int kLargeListMax = 0x3fff * kPointerSize;
-  static const int kSmallAllocationMax = kSmallListMin - kPointerSize;
-  static const int kMediumAllocationMax = kSmallListMax;
-  static const int kLargeAllocationMax = kMediumListMax;
   FreeListCategory small_list_;
   FreeListCategory medium_list_;
   FreeListCategory large_list_;
@@ -1635,10 +1749,7 @@ class AllocationResult {
     return object_;
   }
 
-  AllocationSpace RetrySpace() {
-    DCHECK(IsRetry());
-    return static_cast<AllocationSpace>(Smi::cast(object_)->value());
-  }
+  inline AllocationSpace RetrySpace();
 
  private:
   explicit AllocationResult(AllocationSpace space)
@@ -1653,11 +1764,10 @@ STATIC_ASSERT(sizeof(AllocationResult) == kPointerSize);
 
 class PagedSpace : public Space {
  public:
-  // Creates a space with a maximum capacity, and an id.
-  PagedSpace(Heap* heap, intptr_t max_capacity, AllocationSpace id,
-             Executability executable);
+  // Creates a space with an id.
+  PagedSpace(Heap* heap, AllocationSpace id, Executability executable);
 
-  virtual ~PagedSpace() {}
+  virtual ~PagedSpace() { TearDown(); }
 
   // Set up the space using the given address range of virtual memory (from
   // the memory allocator's initial chunk) if possible.  If the block of
@@ -1669,13 +1779,9 @@ class PagedSpace : public Space {
   // subsequently torn down.
   bool HasBeenSetUp();
 
-  // Cleans up the space, frees all pages in this space except those belonging
-  // to the initial chunk, uncommits addresses in the initial chunk.
-  void TearDown();
-
   // Checks whether an object/address is in this space.
   inline bool Contains(Address a);
-  bool Contains(HeapObject* o) { return Contains(o->address()); }
+  inline bool Contains(HeapObject* o);
   // Unlike Contains() methods it is safe to call this one even for addresses
   // of unmapped memory.
   bool ContainsSafe(Address addr);
@@ -1759,6 +1865,9 @@ class PagedSpace : public Space {
   // Allocate the requested number of bytes in the space if possible, return a
   // failure object if not.
   MUST_USE_RESULT inline AllocationResult AllocateRawUnaligned(
+      int size_in_bytes);
+
+  MUST_USE_RESULT inline AllocationResult AllocateRawUnalignedSynchronized(
       int size_in_bytes);
 
   // Allocate the requested number of bytes in the space double aligned if
@@ -1872,7 +1981,7 @@ class PagedSpace : public Space {
 
   void EvictEvacuationCandidatesFromFreeLists();
 
-  bool CanExpand();
+  bool CanExpand(size_t size);
 
   // Returns the number of total pages in this space.
   int CountTotalPages();
@@ -1880,47 +1989,26 @@ class PagedSpace : public Space {
   // Return size of allocatable area on a page in this space.
   inline int AreaSize() { return area_size_; }
 
-  void CreateEmergencyMemory();
-  void FreeEmergencyMemory();
-  void UseEmergencyMemory();
-  intptr_t MaxEmergencyMemoryAllocated();
+  // Merges {other} into the current space. Note that this modifies {other},
+  // e.g., removes its bump pointer area and resets statistics.
+  void MergeCompactionSpace(CompactionSpace* other);
 
-  bool HasEmergencyMemory() { return emergency_memory_ != NULL; }
+  void MoveOverFreeMemory(PagedSpace* other);
+
+  virtual bool is_local() { return false; }
 
  protected:
+  // PagedSpaces that should be included in snapshots have different, i.e.,
+  // smaller, initial pages.
+  virtual bool snapshotable() { return true; }
+
   FreeList* free_list() { return &free_list_; }
 
-  int area_size_;
+  bool HasPages() { return anchor_.next_page() != &anchor_; }
 
-  // Maximum capacity of this space.
-  intptr_t max_capacity_;
-
-  // Accounting information for this space.
-  AllocationStats accounting_stats_;
-
-  // The dummy page that anchors the double linked list of pages.
-  Page anchor_;
-
-  // The space's free list.
-  FreeList free_list_;
-
-  // Normal allocation information.
-  AllocationInfo allocation_info_;
-
-  // The number of free bytes which could be reclaimed by advancing the
-  // concurrent sweeper threads.
-  intptr_t unswept_free_bytes_;
-
-  // The sweeper threads iterate over the list of pointer and data space pages
-  // and sweep these pages concurrently. They will stop sweeping after the
-  // end_of_unswept_pages_ page.
-  Page* end_of_unswept_pages_;
-
-  // Emergency memory is the memory of a full page for a given space, allocated
-  // conservatively before evacuating a page. If compaction fails due to out
-  // of memory error the emergency memory can be used to complete compaction.
-  // If not used, the emergency memory is released after compaction.
-  MemoryChunk* emergency_memory_;
+  // Cleans up the space, frees all pages in this space except those belonging
+  // to the initial chunk, uncommits addresses in the initial chunk.
+  void TearDown();
 
   // Expands the space by allocating a fixed number of pages. Returns false if
   // it cannot allocate requested number of pages from OS, or if the hard heap
@@ -1946,8 +2034,34 @@ class PagedSpace : public Space {
   // Slow path of AllocateRaw.  This function is space-dependent.
   MUST_USE_RESULT HeapObject* SlowAllocateRaw(int size_in_bytes);
 
-  friend class PageIterator;
+  int area_size_;
+
+  // Accounting information for this space.
+  AllocationStats accounting_stats_;
+
+  // The dummy page that anchors the double linked list of pages.
+  Page anchor_;
+
+  // The space's free list.
+  FreeList free_list_;
+
+  // Normal allocation information.
+  AllocationInfo allocation_info_;
+
+  // The number of free bytes which could be reclaimed by advancing the
+  // concurrent sweeper threads.
+  intptr_t unswept_free_bytes_;
+
+  // The sweeper threads iterate over the list of pointer and data space pages
+  // and sweep these pages concurrently. They will stop sweeping after the
+  // end_of_unswept_pages_ page.
+  Page* end_of_unswept_pages_;
+
+  // Mutex guarding any concurrent access to the space.
+  base::Mutex space_mutex_;
+
   friend class MarkCompactCollector;
+  friend class PageIterator;
 };
 
 
@@ -2264,49 +2378,21 @@ class SemiSpace : public Space {
 // iterator is created are not iterated.
 class SemiSpaceIterator : public ObjectIterator {
  public:
-  // Create an iterator over the objects in the given space.  If no start
-  // address is given, the iterator starts from the bottom of the space.  If
-  // no size function is given, the iterator calls Object::Size().
-
-  // Iterate over all of allocated to-space.
+  // Create an iterator over the allocated objects in the given to-space.
   explicit SemiSpaceIterator(NewSpace* space);
-  // Iterate over all of allocated to-space, with a custome size function.
-  SemiSpaceIterator(NewSpace* space, HeapObjectCallback size_func);
-  // Iterate over part of allocated to-space, from start to the end
-  // of allocation.
-  SemiSpaceIterator(NewSpace* space, Address start);
-  // Iterate from one address to another in the same semi-space.
-  SemiSpaceIterator(Address from, Address to);
 
-  HeapObject* Next() {
-    if (current_ == limit_) return NULL;
-    if (NewSpacePage::IsAtEnd(current_)) {
-      NewSpacePage* page = NewSpacePage::FromLimit(current_);
-      page = page->next_page();
-      DCHECK(!page->is_anchor());
-      current_ = page->area_start();
-      if (current_ == limit_) return NULL;
-    }
-
-    HeapObject* object = HeapObject::FromAddress(current_);
-    int size = (size_func_ == NULL) ? object->Size() : size_func_(object);
-
-    current_ += size;
-    return object;
-  }
+  inline HeapObject* Next();
 
   // Implementation of the ObjectIterator functions.
-  virtual HeapObject* next_object() { return Next(); }
+  virtual inline HeapObject* next_object();
 
  private:
-  void Initialize(Address start, Address end, HeapObjectCallback size_func);
+  void Initialize(Address start, Address end);
 
   // The current iteration point.
   Address current_;
   // The end of iteration.
   Address limit_;
-  // The callback function.
-  HeapObjectCallback size_func_;
 };
 
 
@@ -2352,7 +2438,8 @@ class NewSpace : public Space {
         to_space_(heap, kToSpace),
         from_space_(heap, kFromSpace),
         reservation_(),
-        inline_allocation_limit_step_(0) {}
+        inline_allocation_limit_step_(0),
+        top_on_previous_step_(0) {}
 
   // Sets up the new space using the given chunk.
   bool SetUp(int reserved_semispace_size_, int max_semi_space_size);
@@ -2534,7 +2621,7 @@ class NewSpace : public Space {
   void LowerInlineAllocationLimit(intptr_t step) {
     inline_allocation_limit_step_ = step;
     UpdateInlineAllocationLimit(0);
-    top_on_previous_step_ = allocation_info_.top();
+    top_on_previous_step_ = step ? allocation_info_.top() : 0;
   }
 
   // Get the extent of the inactive semispace (for use as a marking stack,
@@ -2644,10 +2731,56 @@ class NewSpace : public Space {
   HistogramInfo* allocated_histogram_;
   HistogramInfo* promoted_histogram_;
 
-  MUST_USE_RESULT AllocationResult
-  SlowAllocateRaw(int size_in_bytes, AllocationAlignment alignment);
+  bool EnsureAllocation(int size_in_bytes, AllocationAlignment alignment);
 
   friend class SemiSpaceIterator;
+};
+
+// -----------------------------------------------------------------------------
+// Compaction space that is used temporarily during compaction.
+
+class CompactionSpace : public PagedSpace {
+ public:
+  CompactionSpace(Heap* heap, AllocationSpace id, Executability executable)
+      : PagedSpace(heap, id, executable) {}
+
+  // Adds external memory starting at {start} of {size_in_bytes} to the space.
+  void AddExternalMemory(Address start, int size_in_bytes) {
+    IncreaseCapacity(size_in_bytes);
+    Free(start, size_in_bytes);
+  }
+
+  virtual bool is_local() { return true; }
+
+ protected:
+  // The space is temporary and not included in any snapshots.
+  virtual bool snapshotable() { return false; }
+};
+
+
+// A collection of |CompactionSpace|s used by a single compaction task.
+class CompactionSpaceCollection : public Malloced {
+ public:
+  explicit CompactionSpaceCollection(Heap* heap)
+      : old_space_(heap, OLD_SPACE, Executability::NOT_EXECUTABLE),
+        code_space_(heap, CODE_SPACE, Executability::EXECUTABLE) {}
+
+  CompactionSpace* Get(AllocationSpace space) {
+    switch (space) {
+      case OLD_SPACE:
+        return &old_space_;
+      case CODE_SPACE:
+        return &code_space_;
+      default:
+        UNREACHABLE();
+    }
+    UNREACHABLE();
+    return nullptr;
+  }
+
+ private:
+  CompactionSpace old_space_;
+  CompactionSpace code_space_;
 };
 
 
@@ -2656,11 +2789,10 @@ class NewSpace : public Space {
 
 class OldSpace : public PagedSpace {
  public:
-  // Creates an old space object with a given maximum capacity.
-  // The constructor does not allocate pages from OS.
-  OldSpace(Heap* heap, intptr_t max_capacity, AllocationSpace id,
-           Executability executable)
-      : PagedSpace(heap, max_capacity, id, executable) {}
+  // Creates an old space object. The constructor does not allocate pages
+  // from OS.
+  OldSpace(Heap* heap, AllocationSpace id, Executability executable)
+      : PagedSpace(heap, id, executable) {}
 };
 
 
@@ -2677,9 +2809,9 @@ class OldSpace : public PagedSpace {
 
 class MapSpace : public PagedSpace {
  public:
-  // Creates a map space object with a maximum capacity.
-  MapSpace(Heap* heap, intptr_t max_capacity, AllocationSpace id)
-      : PagedSpace(heap, max_capacity, id, NOT_EXECUTABLE),
+  // Creates a map space object.
+  MapSpace(Heap* heap, AllocationSpace id)
+      : PagedSpace(heap, id, NOT_EXECUTABLE),
         max_map_space_pages_(kMaxMapPageIndex - 1) {}
 
   // Given an index, returns the page address.
@@ -2718,8 +2850,8 @@ class MapSpace : public PagedSpace {
 
 class LargeObjectSpace : public Space {
  public:
-  LargeObjectSpace(Heap* heap, intptr_t max_capacity, AllocationSpace id);
-  virtual ~LargeObjectSpace() {}
+  LargeObjectSpace(Heap* heap, AllocationSpace id);
+  virtual ~LargeObjectSpace();
 
   // Initializes internal data structures.
   bool SetUp();
@@ -2736,8 +2868,6 @@ class LargeObjectSpace : public Space {
   // AllocateRawFixedArray.
   MUST_USE_RESULT AllocationResult
       AllocateRaw(int object_size, Executability executable);
-
-  bool CanAllocateSize(int size) { return Size() + size <= max_capacity_; }
 
   // Available bytes for objects in this space.
   inline intptr_t Available() override;
@@ -2762,6 +2892,9 @@ class LargeObjectSpace : public Space {
   // Finds a large object page containing the given address, returns NULL
   // if such a page doesn't exist.
   LargePage* FindPage(Address a);
+
+  // Clears the marking state of live objects.
+  void ClearMarkingStateOfLiveObjects();
 
   // Frees unmarked objects.
   void FreeUnmarkedObjects();
@@ -2788,7 +2921,6 @@ class LargeObjectSpace : public Space {
   bool SlowContains(Address addr) { return FindObject(addr)->IsHeapObject(); }
 
  private:
-  intptr_t max_capacity_;
   intptr_t maximum_committed_;
   // The head of the linked list of large object chunks.
   LargePage* first_page_;
@@ -2805,7 +2937,6 @@ class LargeObjectSpace : public Space {
 class LargeObjectIterator : public ObjectIterator {
  public:
   explicit LargeObjectIterator(LargeObjectSpace* space);
-  LargeObjectIterator(LargeObjectSpace* space, HeapObjectCallback size_func);
 
   HeapObject* Next();
 
@@ -2814,7 +2945,6 @@ class LargeObjectIterator : public ObjectIterator {
 
  private:
   LargePage* current_;
-  HeapObjectCallback size_func_;
 };
 
 
@@ -2825,45 +2955,7 @@ class PointerChunkIterator BASE_EMBEDDED {
   inline explicit PointerChunkIterator(Heap* heap);
 
   // Return NULL when the iterator is done.
-  MemoryChunk* next() {
-    switch (state_) {
-      case kOldSpaceState: {
-        if (old_iterator_.has_next()) {
-          return old_iterator_.next();
-        }
-        state_ = kMapState;
-        // Fall through.
-      }
-      case kMapState: {
-        if (map_iterator_.has_next()) {
-          return map_iterator_.next();
-        }
-        state_ = kLargeObjectState;
-        // Fall through.
-      }
-      case kLargeObjectState: {
-        HeapObject* heap_object;
-        do {
-          heap_object = lo_iterator_.Next();
-          if (heap_object == NULL) {
-            state_ = kFinishedState;
-            return NULL;
-          }
-          // Fixed arrays are the only pointer-containing objects in large
-          // object space.
-        } while (!heap_object->IsFixedArray());
-        MemoryChunk* answer = MemoryChunk::FromAddress(heap_object->address());
-        return answer;
-      }
-      case kFinishedState:
-        return NULL;
-      default:
-        break;
-    }
-    UNREACHABLE();
-    return NULL;
-  }
-
+  inline MemoryChunk* next();
 
  private:
   enum State { kOldSpaceState, kMapState, kLargeObjectState, kFinishedState };

@@ -85,6 +85,8 @@
   'ecma/String/15.5.4.8-1': [FAIL],
   'ecma/String/15.5.4.9-1': [FAIL],
 
+  # Date.prototype is an Object, not a Date
+  'ecma/Date/15.9.5': [FAIL],
 
   ##################### SKIPPED TESTS #####################
 
@@ -847,6 +849,15 @@
   'js1_5/decompilation/regress-406555': [PASS, FAIL],
   'js1_5/decompilation/regress-460870': [PASS, FAIL],
 }],  # ALWAYS
+
+
+['no_i18n == True and mode == debug', {
+  # Tests too slow for no18n debug.
+  'ecma_3/Statements/regress-302439': [PASS, FAST_VARIANTS],
+  'js1_5/Regress/regress-98901': [SKIP],
+  'ecma_3/RegExp/perlstress-001': [PASS, FAST_VARIANTS],
+  'js1_5/extensions/regress-311161': [FAIL_OK, FAST_VARIANTS],
+}],  # 'no_i18n == True and mode == debug'
 
 
 ['arch == arm or arch == arm64', {

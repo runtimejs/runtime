@@ -6,13 +6,14 @@
 #define V8_SNAPSHOT_SERIALIZE_H_
 
 #include "src/hashmap.h"
-#include "src/heap-profiler.h"
-#include "src/isolate.h"
+#include "src/heap/heap.h"
+#include "src/objects.h"
 #include "src/snapshot/snapshot-source-sink.h"
 
 namespace v8 {
 namespace internal {
 
+class Isolate;
 class ScriptData;
 
 static const int kDeoptTableSerializeEntryCount = 64;
@@ -156,6 +157,8 @@ class BackReference {
                          ChunkOffsetBits::encode(index));
   }
 
+  static BackReference DummyReference() { return BackReference(kDummyValue); }
+
   static BackReference Reference(AllocationSpace space, uint32_t chunk_index,
                                  uint32_t chunk_offset) {
     DCHECK(IsAligned(chunk_offset, kObjectAlignment));
@@ -201,6 +204,7 @@ class BackReference {
   static const uint32_t kInvalidValue = 0xFFFFFFFF;
   static const uint32_t kSourceValue = 0xFFFFFFFE;
   static const uint32_t kGlobalProxyValue = 0xFFFFFFFD;
+  static const uint32_t kDummyValue = 0xFFFFFFFC;
   static const int kChunkOffsetSize = kPageSizeBits - kObjectAlignmentBits;
   static const int kChunkIndexSize = 32 - kChunkOffsetSize - kSpaceTagSize;
 
@@ -306,9 +310,7 @@ class SerializerDeserializer: public ObjectVisitor {
   static const int kNumberOfSpaces = LAST_SPACE + 1;
 
  protected:
-  static bool CanBeDeferred(HeapObject* o) {
-    return !o->IsString() && !o->IsScript();
-  }
+  static bool CanBeDeferred(HeapObject* o);
 
   // ---------- byte code range 0x00..0x7f ----------
   // Byte codes in this range represent Where, HowToCode and WhereToPoint.
@@ -381,23 +383,29 @@ class SerializerDeserializer: public ObjectVisitor {
   static const int kNextChunk = 0x3e;
   // Deferring object content.
   static const int kDeferred = 0x3f;
+  // Used for the source code of the natives, which is in the executable, but
+  // is referred to from external strings in the snapshot.
+  static const int kNativesStringResource = 0x5d;
+  // Used for the source code for compiled stubs, which is in the executable,
+  // but is referred to from external strings in the snapshot.
+  static const int kCodeStubNativesStringResource = 0x5e;
+  // Used for the source code for V8 extras, which is in the executable,
+  // but is referred to from external strings in the snapshot.
+  static const int kExtraNativesStringResource = 0x5f;
   // A tag emitted at strategic points in the snapshot to delineate sections.
   // If the deserializer does not find these at the expected moments then it
   // is an indication that the snapshot and the VM do not fit together.
   // Examine the build process for architecture, version or configuration
   // mismatches.
   static const int kSynchronize = 0x17;
-  // Used for the source code of the natives, which is in the executable, but
-  // is referred to from external strings in the snapshot.
-  static const int kNativesStringResource = 0x37;
+  // Repeats of variable length.
+  static const int kVariableRepeat = 0x37;
   // Raw data of variable length.
   static const int kVariableRawData = 0x57;
-  // Repeats of variable length.
-  static const int kVariableRepeat = 0x77;
   // Alignment prefixes 0x7d..0x7f
   static const int kAlignmentPrefix = 0x7d;
 
-  // 0x5d..0x5f unused
+  // 0x77 unused
 
   // ---------- byte code range 0x80..0xff ----------
   // First 32 root array items.
@@ -539,8 +547,6 @@ class Deserializer: public SerializerDeserializer {
   // Deserialize a shared function info. Fail gracefully.
   MaybeHandle<SharedFunctionInfo> DeserializeCode(Isolate* isolate);
 
-  void FlushICacheForNewCodeObjects();
-
   // Pass a vector of externally-provided objects referenced by the snapshot.
   // The ownership to its backing store is handed over as well.
   void SetAttachedObjects(Vector<Handle<Object> > attached_objects) {
@@ -568,7 +574,10 @@ class Deserializer: public SerializerDeserializer {
 
   void DeserializeDeferredObjects();
 
-  void CommitNewInternalizedStrings(Isolate* isolate);
+  void FlushICacheForNewIsolate();
+  void FlushICacheForNewCodeObjects();
+
+  void CommitPostProcessedObjects(Isolate* isolate);
 
   // Fills in some heap data in an area from start to end (non-inclusive).  The
   // space id is used for the write barrier.  The object_address is the address
@@ -586,6 +595,9 @@ class Deserializer: public SerializerDeserializer {
   // This returns the address of an object that has been described in the
   // snapshot by chunk index and offset.
   HeapObject* GetBackReferencedObject(int space);
+
+  Object** CopyInNativesSource(Vector<const char> source_vector,
+                               Object** current);
 
   // Cached current isolate.
   Isolate* isolate_;
@@ -609,6 +621,7 @@ class Deserializer: public SerializerDeserializer {
   List<HeapObject*> deserialized_large_objects_;
   List<Code*> new_code_objects_;
   List<Handle<String> > new_internalized_strings_;
+  List<Handle<Script> > new_scripts_;
 
   bool deserializing_user_code_;
 
@@ -641,60 +654,7 @@ class Serializer : public SerializerDeserializer {
 #endif  // OBJECT_PRINT
 
  protected:
-  class ObjectSerializer : public ObjectVisitor {
-   public:
-    ObjectSerializer(Serializer* serializer, Object* o, SnapshotByteSink* sink,
-                     HowToCode how_to_code, WhereToPoint where_to_point)
-        : serializer_(serializer),
-          object_(HeapObject::cast(o)),
-          sink_(sink),
-          reference_representation_(how_to_code + where_to_point),
-          bytes_processed_so_far_(0),
-          is_code_object_(o->IsCode()),
-          code_has_been_output_(false) {}
-    void Serialize();
-    void SerializeDeferred();
-    void VisitPointers(Object** start, Object** end);
-    void VisitEmbeddedPointer(RelocInfo* target);
-    void VisitExternalReference(Address* p);
-    void VisitExternalReference(RelocInfo* rinfo);
-    void VisitInternalReference(RelocInfo* rinfo);
-    void VisitCodeTarget(RelocInfo* target);
-    void VisitCodeEntry(Address entry_address);
-    void VisitCell(RelocInfo* rinfo);
-    void VisitRuntimeEntry(RelocInfo* reloc);
-    // Used for seralizing the external strings that hold the natives source.
-    void VisitExternalOneByteString(
-        v8::String::ExternalOneByteStringResource** resource);
-    // We can't serialize a heap with external two byte strings.
-    void VisitExternalTwoByteString(
-        v8::String::ExternalStringResource** resource) {
-      UNREACHABLE();
-    }
-
-   private:
-    void SerializePrologue(AllocationSpace space, int size, Map* map);
-
-    enum ReturnSkip { kCanReturnSkipInsteadOfSkipping, kIgnoringReturn };
-    // This function outputs or skips the raw data between the last pointer and
-    // up to the current position.  It optionally can just return the number of
-    // bytes to skip instead of performing a skip instruction, in case the skip
-    // can be merged into the next instruction.
-    int OutputRawData(Address up_to, ReturnSkip return_skip = kIgnoringReturn);
-    // External strings are serialized in a way to resemble sequential strings.
-    void SerializeExternalString();
-
-    Address PrepareCode();
-
-    Serializer* serializer_;
-    HeapObject* object_;
-    SnapshotByteSink* sink_;
-    int reference_representation_;
-    int bytes_processed_so_far_;
-    bool is_code_object_;
-    bool code_has_been_output_;
-  };
-
+  class ObjectSerializer;
   class RecursionScope {
    public:
     explicit RecursionScope(Serializer* serializer) : serializer_(serializer) {
@@ -833,17 +793,7 @@ class PartialSerializer : public Serializer {
 
  private:
   int PartialSnapshotCacheIndex(HeapObject* o);
-  bool ShouldBeInThePartialSnapshotCache(HeapObject* o) {
-    // Scripts should be referred only through shared function infos.  We can't
-    // allow them to be part of the partial snapshot because they contain a
-    // unique ID, and deserializing several partial snapshots containing script
-    // would cause dupes.
-    DCHECK(!o->IsScript());
-    return o->IsName() || o->IsSharedFunctionInfo() || o->IsHeapNumber() ||
-           o->IsCode() || o->IsScopeInfo() || o->IsExecutableAccessorInfo() ||
-           o->map() ==
-               startup_serializer_->isolate()->heap()->fixed_cow_array_map();
-  }
+  bool ShouldBeInThePartialSnapshotCache(HeapObject* o);
 
   void SerializeOutdatedContextsAsFixedArray();
 
@@ -857,16 +807,7 @@ class PartialSerializer : public Serializer {
 
 class StartupSerializer : public Serializer {
  public:
-  StartupSerializer(Isolate* isolate, SnapshotByteSink* sink)
-      : Serializer(isolate, sink), root_index_wave_front_(0) {
-    // Clear the cache of objects used by the partial snapshot.  After the
-    // strong roots have been serialized we can create a partial snapshot
-    // which will repopulate the cache with objects needed by that partial
-    // snapshot.
-    isolate->partial_snapshot_cache()->Clear();
-    InitializeCodeAddressMap();
-  }
-
+  StartupSerializer(Isolate* isolate, SnapshotByteSink* sink);
   ~StartupSerializer() { OutputStatistics("StartupSerializer"); }
 
   // The StartupSerializer has to serialize the root array, which is slightly
@@ -1013,7 +954,7 @@ class SerializedCodeData : public SerializedData {
 
   SanityCheckResult SanityCheck(Isolate* isolate, String* source) const;
 
-  uint32_t SourceHash(String* source) const { return source->length(); }
+  uint32_t SourceHash(String* source) const;
 
   // The data header consists of uint32_t-sized entries:
   // [0] magic number and external reference count

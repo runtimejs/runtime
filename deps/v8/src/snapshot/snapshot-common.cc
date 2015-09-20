@@ -4,12 +4,11 @@
 
 // The common functionality when building with or without snapshots.
 
-#include "src/v8.h"
+#include "src/snapshot/snapshot.h"
 
 #include "src/api.h"
 #include "src/base/platform/platform.h"
-#include "src/full-codegen.h"
-#include "src/snapshot/snapshot.h"
+#include "src/full-codegen/full-codegen.h"
 
 namespace v8 {
 namespace internal {
@@ -20,6 +19,13 @@ bool Snapshot::SnapshotIsValid(v8::StartupData* snapshot_blob) {
          !Snapshot::ExtractContextData(snapshot_blob).is_empty();
 }
 #endif  // DEBUG
+
+
+bool Snapshot::HaveASnapshotToStartFrom(Isolate* isolate) {
+  // Do not use snapshots if the isolate is used to create snapshots.
+  return isolate->snapshot_blob() != NULL &&
+         isolate->snapshot_blob()->data != NULL;
+}
 
 
 bool Snapshot::EmbedsScript(Isolate* isolate) {
@@ -137,7 +143,7 @@ void CalculateFirstPageSizes(bool is_default_snapshot,
                   2 * context_reservations[context_index].chunk_size()) +
                  Page::kObjectStartOffset;
       // Add a small allowance to the code space for small scripts.
-      if (space == CODE_SPACE) required += 64 * KB;
+      if (space == CODE_SPACE) required += 32 * KB;
     } else {
       // We expect the vanilla snapshot to only require on page per space.
       DCHECK(!is_default_snapshot);

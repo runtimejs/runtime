@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #include "src/allocation-tracker.h"
+
 #include "src/frames-inl.h"
-#include "src/heap-snapshot-generator.h"
+#include "src/heap-snapshot-generator-inl.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -176,8 +176,7 @@ void AddressToTraceMap::RemoveRange(Address start, Address end) {
       break;
     }
     ++it;
-  }
-  while (it != ranges_.end());
+  } while (it != ranges_.end());
 
   ranges_.erase(to_remove_begin, it);
 

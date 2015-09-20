@@ -778,9 +778,13 @@ class RpoNumber final {
     return other.index_ == this->index_ + 1;
   }
 
-  bool operator==(RpoNumber other) const {
-    return this->index_ == other.index_;
-  }
+  // Comparison operators.
+  bool operator==(RpoNumber other) const { return index_ == other.index_; }
+  bool operator!=(RpoNumber other) const { return index_ != other.index_; }
+  bool operator>(RpoNumber other) const { return index_ > other.index_; }
+  bool operator<(RpoNumber other) const { return index_ < other.index_; }
+  bool operator<=(RpoNumber other) const { return index_ <= other.index_; }
+  bool operator>=(RpoNumber other) const { return index_ >= other.index_; }
 
  private:
   explicit RpoNumber(int32_t index) : index_(index) {}
@@ -992,6 +996,9 @@ class InstructionBlock final : public ZoneObject {
   bool must_deconstruct_frame() const { return must_deconstruct_frame_; }
   void mark_must_deconstruct_frame() { must_deconstruct_frame_ = true; }
 
+  void set_last_deferred(RpoNumber last) { last_deferred_ = last; }
+  RpoNumber last_deferred() const { return last_deferred_; }
+
  private:
   Successors successors_;
   Predecessors predecessors_;
@@ -1007,6 +1014,7 @@ class InstructionBlock final : public ZoneObject {
   bool needs_frame_;
   bool must_construct_frame_;
   bool must_deconstruct_frame_;
+  RpoNumber last_deferred_;
 };
 
 typedef ZoneDeque<Constant> ConstantDeque;
@@ -1023,7 +1031,6 @@ struct PrintableInstructionSequence;
 
 // Represents architecture-specific generated code before, during, and after
 // register allocation.
-// TODO(titzer): s/IsDouble/IsFloat64/
 class InstructionSequence final : public ZoneObject {
  public:
   static InstructionBlocks* InstructionBlocksFor(Zone* zone,
@@ -1085,6 +1092,9 @@ class InstructionSequence final : public ZoneObject {
   const_iterator begin() const { return instructions_.begin(); }
   const_iterator end() const { return instructions_.end(); }
   const InstructionDeque& instructions() const { return instructions_; }
+  int LastInstructionIndex() const {
+    return static_cast<int>(instructions().size()) - 1;
+  }
 
   Instruction* InstructionAt(int index) const {
     DCHECK(index >= 0);

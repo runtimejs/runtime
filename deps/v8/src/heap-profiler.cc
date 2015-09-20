@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #include "src/heap-profiler.h"
 
 #include "src/allocation-tracker.h"
+#include "src/api.h"
 #include "src/heap-snapshot-generator-inl.h"
 
 namespace v8 {
@@ -136,6 +135,7 @@ SnapshotObjectId HeapProfiler::GetSnapshotObjectId(Handle<Object> obj) {
 
 
 void HeapProfiler::ObjectMoveEvent(Address from, Address to, int size) {
+  base::LockGuard<base::Mutex> guard(&profiler_mutex_);
   bool known_object = ids_->MoveObject(from, to, size);
   if (!known_object && !allocation_tracker_.is_empty()) {
     allocation_tracker_->address_to_trace()->MoveObject(from, to, size);
@@ -184,6 +184,9 @@ void HeapProfiler::ClearHeapObjectMap() {
   ids_.Reset(new HeapObjectsMap(heap()));
   if (!is_tracking_allocations()) is_tracking_object_moves_ = false;
 }
+
+
+Heap* HeapProfiler::heap() const { return ids_->heap(); }
 
 
 }  // namespace internal

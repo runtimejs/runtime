@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #if V8_TARGET_ARCH_PPC
 
 #include "src/interface-descriptors.h"
@@ -33,14 +31,27 @@ const Register VectorStoreICTrampolineDescriptor::SlotRegister() { return r7; }
 const Register VectorStoreICDescriptor::VectorRegister() { return r6; }
 
 
+const Register VectorStoreTransitionDescriptor::SlotRegister() { return r7; }
+const Register VectorStoreTransitionDescriptor::VectorRegister() { return r6; }
+const Register VectorStoreTransitionDescriptor::MapRegister() { return r8; }
+
+
 const Register StoreTransitionDescriptor::MapRegister() { return r6; }
 
 
-const Register ElementTransitionAndStoreDescriptor::MapRegister() { return r6; }
+const Register LoadGlobalViaContextDescriptor::SlotRegister() { return r5; }
 
 
-const Register InstanceofDescriptor::left() { return r3; }
-const Register InstanceofDescriptor::right() { return r4; }
+const Register StoreGlobalViaContextDescriptor::SlotRegister() { return r5; }
+const Register StoreGlobalViaContextDescriptor::ValueRegister() { return r3; }
+
+
+const Register InstanceOfDescriptor::LeftRegister() { return r4; }
+const Register InstanceOfDescriptor::RightRegister() { return r3; }
+
+
+const Register StringCompareDescriptor::LeftRegister() { return r4; }
+const Register StringCompareDescriptor::RightRegister() { return r3; }
 
 
 const Register ArgumentsAccessReadDescriptor::index() { return r4; }
@@ -62,6 +73,14 @@ const Register GrowArrayElementsDescriptor::ObjectRegister() { return r3; }
 const Register GrowArrayElementsDescriptor::KeyRegister() { return r6; }
 
 
+void VectorStoreTransitionDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  Register registers[] = {ReceiverRegister(), NameRegister(),   ValueRegister(),
+                          SlotRegister(),     VectorRegister(), MapRegister()};
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+
 void FastNewClosureDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {r5};
@@ -81,6 +100,14 @@ void ToNumberDescriptor::InitializePlatformSpecific(
   Register registers[] = {r3};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
+
+
+// static
+const Register ToStringDescriptor::ReceiverRegister() { return r3; }
+
+
+// static
+const Register ToObjectDescriptor::ReceiverRegister() { return r3; }
 
 
 void NumberToStringDescriptor::InitializePlatformSpecific(
@@ -158,11 +185,20 @@ void CallConstructDescriptor::InitializePlatformSpecific(
   // r3 : number of arguments
   // r4 : the function to call
   // r5 : feedback vector
-  // r6 : (only if r5 is not the megamorphic symbol) slot in feedback
-  //      vector (Smi)
+  // r6 : slot in feedback vector (Smi, for RecordCallTarget)
+  // r7 : original constructor (for IsSuperConstructorCall)
   // TODO(turbofan): So far we don't gather type feedback and hence skip the
   // slot parameter, but ArrayConstructStub needs the vector to be undefined.
-  Register registers[] = {r3, r4, r5};
+  Register registers[] = {r3, r4, r7, r5};
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+
+void CallTrampolineDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  // r3 : number of arguments
+  // r4 : the target to call
+  Register registers[] = {r4, r3};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
@@ -345,6 +381,17 @@ void MathRoundVariantCallFromOptimizedCodeDescriptor::
       r4,  // math rounding function
       r6,  // vector slot id
       r7,  // type vector
+  };
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+
+void PushArgsAndCallDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  Register registers[] = {
+      r3,  // argument count (including receiver)
+      r5,  // address of first argument
+      r4   // the target callable to be call
   };
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }

@@ -9,41 +9,29 @@
 // -------------------------------------------------------------------
 // Imports
 
+var ArrayIndexOf;
+var ArrayJoin;
 var GlobalRegExp = global.RegExp;
 var GlobalString = global.String;
 var InternalArray = utils.InternalArray;
 var InternalPackedArray = utils.InternalPackedArray;
-
-var ArrayIndexOf;
-var ArrayJoin;
-var MathMax;
-var MathMin;
 var RegExpExec;
 var RegExpExecNoTests;
 var RegExpLastMatchInfo;
+var ToNumber;
+var ToString;
 
 utils.Import(function(from) {
   ArrayIndexOf = from.ArrayIndexOf;
   ArrayJoin = from.ArrayJoin;
-  MathMax = from.MathMax;
-  MathMin = from.MathMin;
   RegExpExec = from.RegExpExec;
   RegExpExecNoTests = from.RegExpExecNoTests;
   RegExpLastMatchInfo = from.RegExpLastMatchInfo;
+  ToNumber = from.ToNumber;
+  ToString = from.ToString;
 });
 
 //-------------------------------------------------------------------
-
-function StringConstructor(x) {
-  if (%_ArgumentsLength() == 0) x = '';
-  if (%_IsConstructCall()) {
-    %_SetValueOf(this, TO_STRING_INLINE(x));
-  } else {
-    return IS_SYMBOL(x) ?
-        %_CallFunction(x, $symbolToString) : TO_STRING_INLINE(x);
-  }
-}
-
 
 // ECMA-262 section 15.5.4.2
 function StringToString() {
@@ -132,7 +120,7 @@ function StringLastIndexOfJS(pat /* position */) {  // length == 1
   var patLength = pat.length;
   var index = subLength - patLength;
   if (%_ArgumentsLength() > 1) {
-    var position = $toNumber(%_Arguments(1));
+    var position = ToNumber(%_Arguments(1));
     if (!NUMBER_IS_NAN(position)) {
       position = TO_INTEGER(position);
       if (position < 0) {
@@ -189,10 +177,12 @@ function StringMatchJS(regexp) {
 // For now we do nothing, as proper normalization requires big tables.
 // If Intl is enabled, then i18n.js will override it and provide the the
 // proper functionality.
-function StringNormalizeJS(form) {
+function StringNormalizeJS() {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.normalize");
+  var s = TO_STRING_INLINE(this);
 
-  var form = form ? TO_STRING_INLINE(form) : 'NFC';
+  var formArg = %_Arguments(0);
+  var form = IS_UNDEFINED(formArg) ? 'NFC' : TO_STRING_INLINE(formArg);
 
   var NORMALIZATION_FORMS = ['NFC', 'NFD', 'NFKC', 'NFKD'];
   var normalizationForm =
@@ -202,7 +192,7 @@ function StringNormalizeJS(form) {
                          %_CallFunction(NORMALIZATION_FORMS, ', ', ArrayJoin));
   }
 
-  return %_ValueOf(this);
+  return s;
 }
 
 
@@ -243,7 +233,7 @@ function StringReplace(search, replace) {
     var lastIndex = search.lastIndex;
     TO_INTEGER_FOR_SIDE_EFFECT(lastIndex);
 
-    if (!IS_SPEC_FUNCTION(replace)) {
+    if (!IS_CALLABLE(replace)) {
       replace = TO_STRING_INLINE(replace);
 
       if (!search.global) {
@@ -310,9 +300,8 @@ function StringReplace(search, replace) {
   var result = %_SubString(subject, 0, start);
 
   // Compute the string to replace with.
-  if (IS_SPEC_FUNCTION(replace)) {
-    var receiver = UNDEFINED;
-    result += %_CallFunction(receiver, search, start, subject, replace);
+  if (IS_CALLABLE(replace)) {
+    result += replace(search, start, subject);
   } else {
     reusableMatchInfo[CAPTURE0] = start;
     reusableMatchInfo[CAPTURE1] = end;
@@ -475,8 +464,7 @@ function StringReplaceGlobalRegExpWithFunction(subject, regexp, replace) {
         override[0] = elem;
         override[1] = match_start;
         $regexpLastMatchInfoOverride = override;
-        var func_result =
-            %_CallFunction(UNDEFINED, elem, match_start, subject, replace);
+        var func_result = replace(elem, match_start, subject);
         // Overwrite the i'th element in the results with the string we got
         // back from the callback function.
         res[i] = TO_STRING_INLINE(func_result);
@@ -522,7 +510,7 @@ function StringReplaceNonGlobalRegExpWithFunction(subject, regexp, replace) {
     // No captures, only the match, which is always valid.
     var s = %_SubString(subject, index, endOfMatch);
     // Don't call directly to avoid exposing the built-in global object.
-    replacement = %_CallFunction(UNDEFINED, s, index, subject, replace);
+    replacement = replace(s, index, subject);
   } else {
     var parameters = new InternalArray(m + 2);
     for (var j = 0; j < m; j++) {
@@ -546,9 +534,7 @@ function StringSearch(re) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.search");
 
   var regexp;
-  if (IS_STRING(re)) {
-    regexp = %_GetFromCache(STRING_TO_REGEXP_CACHE_ID, re);
-  } else if (IS_REGEXP(re)) {
+  if (IS_REGEXP(re)) {
     regexp = re;
   } else {
     regexp = new GlobalRegExp(re);
@@ -823,7 +809,7 @@ function StringTrimRight() {
 function StringFromCharCode(code) {
   var n = %_ArgumentsLength();
   if (n == 1) {
-    if (!%_IsSmi(code)) code = $toNumber(code);
+    if (!%_IsSmi(code)) code = ToNumber(code);
     return %_StringCharFromCode(code & 0xffff);
   }
 
@@ -831,7 +817,7 @@ function StringFromCharCode(code) {
   var i;
   for (i = 0; i < n; i++) {
     var code = %_Arguments(i);
-    if (!%_IsSmi(code)) code = $toNumber(code) & 0xffff;
+    if (!%_IsSmi(code)) code = ToNumber(code) & 0xffff;
     if (code < 0) code = code & 0xffff;
     if (code > 0xff) break;
     %_OneByteSeqStringSetChar(i, code, one_byte);
@@ -842,7 +828,7 @@ function StringFromCharCode(code) {
   var two_byte = %NewString(n - i, NEW_TWO_BYTE_STRING);
   for (var j = 0; i < n; i++, j++) {
     var code = %_Arguments(i);
-    if (!%_IsSmi(code)) code = $toNumber(code) & 0xffff;
+    if (!%_IsSmi(code)) code = ToNumber(code) & 0xffff;
     %_TwoByteSeqStringSetChar(j, code, two_byte);
   }
   return one_byte + two_byte;
@@ -981,18 +967,28 @@ function StringStartsWith(searchString /* position */) {  // length == 1
   var ss = TO_STRING_INLINE(searchString);
   var pos = 0;
   if (%_ArgumentsLength() > 1) {
-    pos = %_Arguments(1);  // position
-    pos = $toInteger(pos);
+    var arg = %_Arguments(1);  // position
+    if (!IS_UNDEFINED(arg)) {
+      pos = $toInteger(arg);
+    }
   }
 
   var s_len = s.length;
-  var start = MathMin(MathMax(pos, 0), s_len);
+  if (pos < 0) pos = 0;
+  if (pos > s_len) pos = s_len;
   var ss_len = ss.length;
-  if (ss_len + start > s_len) {
+
+  if (ss_len + pos > s_len) {
     return false;
   }
 
-  return %StringIndexOf(s, ss, start) === start;
+  for (var i = 0; i < ss_len; i++) {
+    if (%_StringCharCodeAt(s, pos + i) !== %_StringCharCodeAt(ss, i)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 
@@ -1016,14 +1012,22 @@ function StringEndsWith(searchString /* position */) {  // length == 1
     }
   }
 
-  var end = MathMin(MathMax(pos, 0), s_len);
+  if (pos < 0) pos = 0;
+  if (pos > s_len) pos = s_len;
   var ss_len = ss.length;
-  var start = end - ss_len;
-  if (start < 0) {
+  pos = pos - ss_len;
+
+  if (pos < 0) {
     return false;
   }
 
-  return %StringLastIndexOf(s, ss, start) === start;
+  for (var i = 0; i < ss_len; i++) {
+    if (%_StringCharCodeAt(s, pos + i) !== %_StringCharCodeAt(ss, i)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 
@@ -1031,27 +1035,29 @@ function StringEndsWith(searchString /* position */) {  // length == 1
 function StringIncludes(searchString /* position */) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.includes");
 
-  var s = TO_STRING_INLINE(this);
+  var string = TO_STRING_INLINE(this);
 
   if (IS_REGEXP(searchString)) {
     throw MakeTypeError(kFirstArgumentNotRegExp, "String.prototype.includes");
   }
 
-  var ss = TO_STRING_INLINE(searchString);
+  searchString = TO_STRING_INLINE(searchString);
   var pos = 0;
   if (%_ArgumentsLength() > 1) {
     pos = %_Arguments(1);  // position
-    pos = $toInteger(pos);
+    pos = TO_INTEGER(pos);
   }
 
-  var s_len = s.length;
-  var start = MathMin(MathMax(pos, 0), s_len);
-  var ss_len = ss.length;
-  if (ss_len + start > s_len) {
+  var stringLength = string.length;
+  if (pos < 0) pos = 0;
+  if (pos > stringLength) pos = stringLength;
+  var searchStringLength = searchString.length;
+
+  if (searchStringLength + pos > stringLength) {
     return false;
   }
 
-  return %StringIndexOf(s, ss, start) !== -1;
+  return %StringIndexOf(string, searchString, pos) !== -1;
 }
 
 
@@ -1086,7 +1092,7 @@ function StringFromCodePoint(_) {  // length = 1
   for (index = 0; index < length; index++) {
     code = %_Arguments(index);
     if (!%_IsSmi(code)) {
-      code = $toNumber(code);
+      code = ToNumber(code);
     }
     if (code < 0 || code > 0x10FFFF || code !== TO_INTEGER(code)) {
       throw MakeRangeError(kInvalidCodePoint, code);
@@ -1110,18 +1116,18 @@ function StringFromCodePoint(_) {  // length = 1
 function StringRaw(callSite) {
   // TODO(caitp): Use rest parameters when implemented
   var numberOfSubstitutions = %_ArgumentsLength();
-  var cooked = $toObject(callSite);
-  var raw = $toObject(cooked.raw);
+  var cooked = TO_OBJECT(callSite);
+  var raw = TO_OBJECT(cooked.raw);
   var literalSegments = $toLength(raw.length);
   if (literalSegments <= 0) return "";
 
-  var result = $toString(raw[0]);
+  var result = ToString(raw[0]);
 
   for (var i = 1; i < literalSegments; ++i) {
     if (i < numberOfSubstitutions) {
-      result += $toString(%_Arguments(i));
+      result += ToString(%_Arguments(i));
     }
-    result += $toString(raw[i]);
+    result += ToString(raw[i]);
   }
 
   return result;
@@ -1130,7 +1136,6 @@ function StringRaw(callSite) {
 // -------------------------------------------------------------------
 
 // Set the String function and constructor.
-%SetCode(GlobalString, StringConstructor);
 %FunctionSetPrototype(GlobalString, new GlobalString());
 
 // Set up the constructor property on the String prototype object.
@@ -1199,6 +1204,7 @@ utils.Export(function(to) {
   to.StringLastIndexOf = StringLastIndexOfJS;
   to.StringMatch = StringMatchJS;
   to.StringReplace = StringReplace;
+  to.StringSlice = StringSlice;
   to.StringSplit = StringSplitJS;
   to.StringSubstr = StringSubstr;
   to.StringSubstring = StringSubstring;

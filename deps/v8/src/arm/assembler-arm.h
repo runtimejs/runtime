@@ -737,9 +737,6 @@ class Assembler : public AssemblerBase {
   // in the instruction stream that the call will return from.
   INLINE(static Address return_address_from_call_start(Address pc));
 
-  // Return the code target address of the patch debug break slot
-  INLINE(static Address break_address_from_return_address(Address pc));
-
   // This sets the branch destination (which is in the constant pool on ARM).
   // This is for calls and branches within generated code.
   inline static void deserialization_set_special_target_at(
@@ -758,30 +755,18 @@ class Assembler : public AssemblerBase {
   // Size of an instruction.
   static const int kInstrSize = sizeof(Instr);
 
-  // Distance between start of patched return sequence and the emitted address
-  // to jump to.
-  // Patched return sequence is:
-  //  ldr  ip, [pc, #0]   @ emited address and start
-  //  blx  ip
-  static const int kPatchReturnSequenceAddressOffset =  0 * kInstrSize;
-
   // Distance between start of patched debug break slot and the emitted address
   // to jump to.
   // Patched debug break slot code is:
   //  ldr  ip, [pc, #0]   @ emited address and start
   //  blx  ip
-  static const int kPatchDebugBreakSlotAddressOffset =  0 * kInstrSize;
-
-  static const int kPatchDebugBreakSlotReturnOffset = 2 * kInstrSize;
+  static const int kPatchDebugBreakSlotAddressOffset = 2 * kInstrSize;
 
   // Difference between address of current opcode and value read from pc
   // register.
   static const int kPcLoadDelta = 8;
 
-  static const int kJSReturnSequenceInstructions = 4;
-  static const int kJSReturnSequenceLength =
-      kJSReturnSequenceInstructions * kInstrSize;
-  static const int kDebugBreakSlotInstructions = 3;
+  static const int kDebugBreakSlotInstructions = 4;
   static const int kDebugBreakSlotLength =
       kDebugBreakSlotInstructions * kInstrSize;
 
@@ -1354,11 +1339,11 @@ class Assembler : public AssemblerBase {
 
   // Debugging
 
-  // Mark address of the ExitJSFrame code.
-  void RecordJSReturn();
+  // Mark generator continuation.
+  void RecordGeneratorContinuation();
 
   // Mark address of a debug break slot.
-  void RecordDebugBreakSlot();
+  void RecordDebugBreakSlot(RelocInfo::Mode mode, int argc = 0);
 
   // Record the AST id of the CallIC being compiled, so that it can be placed
   // in the relocation information.
@@ -1480,6 +1465,7 @@ class Assembler : public AssemblerBase {
   static const int kMaxDistToIntPool = 4*KB;
   static const int kMaxDistToFPPool = 1*KB;
   // All relocations could be integer, it therefore acts as the limit.
+  static const int kMinNumPendingConstants = 4;
   static const int kMaxNumPending32Constants = kMaxDistToIntPool / kInstrSize;
   static const int kMaxNumPending64Constants = kMaxDistToFPPool / kInstrSize;
 
@@ -1489,6 +1475,12 @@ class Assembler : public AssemblerBase {
 
   // Check if is time to emit a constant pool.
   void CheckConstPool(bool force_emit, bool require_jump);
+
+  void MaybeCheckConstPool() {
+    if (pc_offset() >= next_buffer_check_) {
+      CheckConstPool(false, true);
+    }
+  }
 
   int EmitEmbeddedConstantPool() {
     DCHECK(FLAG_enable_embedded_constant_pool);
@@ -1607,8 +1599,10 @@ class Assembler : public AssemblerBase {
   // pending relocation entry per instruction.
 
   // The buffers of pending constant pool entries.
-  ConstantPoolEntry pending_32_bit_constants_[kMaxNumPending32Constants];
-  ConstantPoolEntry pending_64_bit_constants_[kMaxNumPending64Constants];
+  ConstantPoolEntry pending_32_bit_constants_buffer_[kMinNumPendingConstants];
+  ConstantPoolEntry pending_64_bit_constants_buffer_[kMinNumPendingConstants];
+  ConstantPoolEntry* pending_32_bit_constants_;
+  ConstantPoolEntry* pending_64_bit_constants_;
   // Number of pending constant pool entries in the 32 bits buffer.
   int num_pending_32_bit_constants_;
   // Number of pending constant pool entries in the 64 bits buffer.

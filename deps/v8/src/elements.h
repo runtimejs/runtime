@@ -38,17 +38,13 @@ class ElementsAccessor {
     return HasElement(holder, index, handle(holder->elements()));
   }
 
-  // Returns the element with the specified index or undefined if there is no
-  // such element. This method doesn't iterate up the prototype chain.  The
-  // caller can optionally pass in the backing store to use for the check, which
-  // must be compatible with the ElementsKind of the ElementsAccessor. If
-  // backing_store is NULL, the holder->elements() is used as the backing store.
-  virtual Handle<Object> Get(Handle<JSObject> holder, uint32_t index,
-                             Handle<FixedArrayBase> backing_store) = 0;
+  // Returns true if the backing store is compact in the given range
+  virtual bool IsPacked(Handle<JSObject> holder,
+                        Handle<FixedArrayBase> backing_store, uint32_t start,
+                        uint32_t end) = 0;
 
-  inline Handle<Object> Get(Handle<JSObject> holder, uint32_t index) {
-    return Get(holder, index, handle(holder->elements()));
-  }
+  virtual Handle<Object> Get(Handle<FixedArrayBase> backing_store,
+                             uint32_t entry) = 0;
 
   // Modifies the length data property as specified for JSArrays and resizes the
   // underlying backing store accordingly. The method honors the semantics of
@@ -104,9 +100,9 @@ class ElementsAccessor {
   virtual void GrowCapacityAndConvert(Handle<JSObject> object,
                                       uint32_t capacity) = 0;
 
-  virtual Handle<FixedArray> AddElementsToFixedArray(
-      Handle<JSObject> receiver, Handle<FixedArray> to,
-      FixedArray::KeyFilter filter) = 0;
+  virtual void AddElementsToKeyAccumulator(Handle<JSObject> receiver,
+                                           KeyAccumulator* accumulator,
+                                           FixedArray::KeyFilter filter) = 0;
 
   // Returns a shared ElementsAccessor for the specified ElementsKind.
   static ElementsAccessor* ForKind(ElementsKind elements_kind) {
@@ -119,15 +115,43 @@ class ElementsAccessor {
   static void InitializeOncePerProcess();
   static void TearDown();
 
-  virtual void Set(FixedArrayBase* backing_store, uint32_t index,
+  virtual void Set(FixedArrayBase* backing_store, uint32_t entry,
                    Object* value) = 0;
+
   virtual void Reconfigure(Handle<JSObject> object,
                            Handle<FixedArrayBase> backing_store, uint32_t entry,
                            Handle<Object> value,
                            PropertyAttributes attributes) = 0;
-  virtual void Add(Handle<JSObject> object, uint32_t entry,
+
+  virtual void Add(Handle<JSObject> object, uint32_t index,
                    Handle<Object> value, PropertyAttributes attributes,
                    uint32_t new_capacity) = 0;
+
+  static Handle<JSArray> Concat(Isolate* isolate, Arguments* args,
+                                uint32_t concat_size);
+
+  virtual uint32_t Push(Handle<JSArray> receiver,
+                        Handle<FixedArrayBase> backing_store, Arguments* args,
+                        uint32_t push_size) = 0;
+
+  virtual uint32_t Unshift(Handle<JSArray> receiver,
+                           Handle<FixedArrayBase> backing_store,
+                           Arguments* args, uint32_t unshift_size) = 0;
+
+  virtual Handle<JSArray> Slice(Handle<JSObject> receiver,
+                                Handle<FixedArrayBase> backing_store,
+                                uint32_t start, uint32_t end) = 0;
+
+  virtual Handle<JSArray> Splice(Handle<JSArray> receiver,
+                                 Handle<FixedArrayBase> backing_store,
+                                 uint32_t start, uint32_t delete_count,
+                                 Arguments* args, uint32_t add_count) = 0;
+
+  virtual Handle<Object> Pop(Handle<JSArray> receiver,
+                             Handle<FixedArrayBase> backing_store) = 0;
+
+  virtual Handle<Object> Shift(Handle<JSArray> receiver,
+                               Handle<FixedArrayBase> backing_store) = 0;
 
  protected:
   friend class LookupIterator;

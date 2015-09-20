@@ -22,6 +22,7 @@
 #include "src/compiler/schedule.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/ostreams.h"
+#include "src/types-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -51,7 +52,7 @@ class Verifier::Visitor {
 
  private:
   // TODO(rossberg): Get rid of these once we got rid of NodeProperties.
-  Bounds bounds(Node* node) { return NodeProperties::GetBounds(node); }
+  Type* type_of(Node* node) { return NodeProperties::GetType(node); }
   Node* ValueInput(Node* node, int i = 0) {
     return NodeProperties::GetValueInput(node, i);
   }
@@ -64,22 +65,22 @@ class Verifier::Visitor {
     }
   }
   void CheckUpperIs(Node* node, Type* type) {
-    if (typing == TYPED && !bounds(node).upper->Is(type)) {
+    if (typing == TYPED && !type_of(node)->Is(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
-          << " upper bound ";
-      bounds(node).upper->PrintTo(str);
+          << " type ";
+      type_of(node)->PrintTo(str);
       str << " is not ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
     }
   }
   void CheckUpperMaybe(Node* node, Type* type) {
-    if (typing == TYPED && !bounds(node).upper->Maybe(type)) {
+    if (typing == TYPED && !type_of(node)->Maybe(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
-          << " upper bound ";
-      bounds(node).upper->PrintTo(str);
+          << " type ";
+      type_of(node)->PrintTo(str);
       str << " must intersect ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
@@ -87,12 +88,12 @@ class Verifier::Visitor {
   }
   void CheckValueInputIs(Node* node, int i, Type* type) {
     Node* input = ValueInput(node, i);
-    if (typing == TYPED && !bounds(input).upper->Is(type)) {
+    if (typing == TYPED && !type_of(input)->Is(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
           << "(input @" << i << " = " << input->opcode() << ":"
-          << input->op()->mnemonic() << ") upper bound ";
-      bounds(input).upper->PrintTo(str);
+          << input->op()->mnemonic() << ") type ";
+      type_of(input)->PrintTo(str);
       str << " is not ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
@@ -397,9 +398,7 @@ void Verifier::Visitor::Check(Node* node) {
       // TODO(rossberg): for now at least, narrowing does not really hold.
       /*
       for (int i = 0; i < value_count; ++i) {
-        // TODO(rossberg, jarin): Figure out what to do about lower bounds.
-        // CHECK(bounds(node).lower->Is(bounds(ValueInput(node, i)).lower));
-        CHECK(bounds(ValueInput(node, i)).upper->Is(bounds(node).upper));
+        CHECK(type_of(ValueInput(node, i))->Is(type_of(node)));
       }
       */
       break;
@@ -426,8 +425,7 @@ void Verifier::Visitor::Check(Node* node) {
       // TODO(rossberg): what are the constraints on these?
       // Type must be subsumed by input type.
       if (typing == TYPED) {
-        CHECK(bounds(ValueInput(node)).lower->Is(bounds(node).lower));
-        CHECK(bounds(ValueInput(node)).upper->Is(bounds(node).upper));
+        CHECK(type_of(ValueInput(node))->Is(type_of(node)));
       }
       break;
     }
@@ -510,6 +508,10 @@ void Verifier::Visitor::Check(Node* node) {
       // Type is Object.
       CheckUpperIs(node, Type::Object());
       break;
+    case IrOpcode::kJSCreateArguments:
+      // Type is OtherObject.
+      CheckUpperIs(node, Type::OtherObject());
+      break;
     case IrOpcode::kJSCreateClosure:
       // Type is Function.
       CheckUpperIs(node, Type::OtherObject());
@@ -563,7 +565,7 @@ void Verifier::Visitor::Check(Node* node) {
       // TODO(rossberg): This should really be Is(Internal), but the typer
       // currently can't do backwards propagation.
       CheckUpperMaybe(context, Type::Internal());
-      if (typing == TYPED) CHECK(bounds(node).upper->IsContext());
+      if (typing == TYPED) CHECK(type_of(node)->IsContext());
       break;
     }
 
@@ -590,7 +592,7 @@ void Verifier::Visitor::Check(Node* node) {
       break;
     }
     case IrOpcode::kJSForInNext: {
-      CheckUpperIs(node, Type::Union(Type::Name(), Type::Undefined()));
+      CheckUpperIs(node, Type::Union(Type::Name(), Type::Undefined(), zone));
       break;
     }
     case IrOpcode::kJSForInStep: {
@@ -680,10 +682,6 @@ void Verifier::Visitor::Check(Node* node) {
       break;
     }
     case IrOpcode::kObjectIsSmi:
-      CheckValueInputIs(node, 0, Type::Any());
-      CheckUpperIs(node, Type::Boolean());
-      break;
-    case IrOpcode::kObjectIsNonNegativeSmi:
       CheckValueInputIs(node, 0, Type::Any());
       CheckUpperIs(node, Type::Boolean());
       break;

@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/arguments.h"
 #include "src/runtime/runtime-utils.h"
-#include "src/v8.h"
+
+#include "src/arguments.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -27,7 +28,7 @@ RUNTIME_FUNCTION(Runtime_ForInFilter) {
   CONVERT_ARG_HANDLE_CHECKED(Object, key, 1);
   // TODO(turbofan): Fast case for array indices.
   Handle<Name> name;
-  if (!Runtime::ToName(isolate, key).ToHandle(&name)) {
+  if (!Object::ToName(isolate, key).ToHandle(&name)) {
     return isolate->heap()->exception();
   }
   Maybe<bool> result = JSReceiver::HasProperty(receiver, name);
@@ -52,7 +53,7 @@ RUNTIME_FUNCTION(Runtime_ForInNext) {
   }
   // TODO(turbofan): Fast case for array indices.
   Handle<Name> name;
-  if (!Runtime::ToName(isolate, key).ToHandle(&name)) {
+  if (!Object::ToName(isolate, key).ToHandle(&name)) {
     return isolate->heap()->exception();
   }
   Maybe<bool> result = JSReceiver::HasProperty(receiver, name);

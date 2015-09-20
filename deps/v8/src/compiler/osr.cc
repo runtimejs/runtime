@@ -99,7 +99,7 @@ static void PeelOuterLoopsForOsr(Graph* graph, CommonOperatorBuilder* common,
       }
       copy = graph->NewNode(orig->op(), orig->InputCount(), &tmp_inputs[0]);
       if (NodeProperties::IsTyped(orig)) {
-        NodeProperties::SetBounds(copy, NodeProperties::GetBounds(orig));
+        NodeProperties::SetType(copy, NodeProperties::GetType(orig));
       }
       mapping->at(orig->id()) = copy;
       TRACE(" copy #%d:%s -> #%d\n", orig->id(), orig->op()->mnemonic(),
@@ -328,8 +328,6 @@ void OsrHelper::SetupFrame(Frame* frame) {
   // The optimized frame will subsume the unoptimized frame. Do so by reserving
   // the first spill slots.
   frame->ReserveSpillSlots(UnoptimizedFrameSlots());
-  // The frame needs to be adjusted by the number of unoptimized frame slots.
-  frame->SetOsrStackSlotCount(static_cast<int>(UnoptimizedFrameSlots()));
 }
 
 }  // namespace compiler
