@@ -30,32 +30,76 @@ V8Platform::~V8Platform() {
 void V8Platform::CallOnBackgroundThread(v8::Task* task, v8::Platform::ExpectedRuntime expected_runtime) {
     RT_ASSERT(task);
 
-//    RuntimeStateScope<RuntimeState::CALL_ON_BACKGROUND> cb_state(GLOBAL_engines()->cpu_engine()->thread_manager());
-#ifdef RUNTIME_DEBUG
-    printf("[V8 Platform] call on background\n");
-#endif
-
     // TODO: do not run task immediately here
-    // TODO: ensure locking works correctly (implement samaphores)
+    // (requires sched() implementation to avoid deadlocks)
+    // background_tasks_.push(task);
     task->Run();
 }
 
 void V8Platform::CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) {
     RT_ASSERT(isolate);
     RT_ASSERT(task);
+    foreground_tasks_.push(task);
+}
 
-#ifdef RUNTIME_DEBUG
-    printf("[V8 Platform] call on foreground\n");
-#endif
+void V8Platform::CallDelayedOnForegroundThread(v8::Isolate* isolate, v8::Task* task,
+                                    double delay_in_seconds) {
+    RT_ASSERT(isolate);
+    RT_ASSERT(task);
+    double microsecondsPerSecond = 1000 * 1000;
+    uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
+    uint64_t when = time_now + delay_in_seconds * microsecondsPerSecond;
+    foreground_delayed_tasks_.Set(task, when);
+}
 
-    // TODO: do not run task immediately here
-    // TODO: ensure locking works correctly (implement samaphores)
-    task->Run();
+void V8Platform::CallIdleOnForegroundThread(v8::Isolate* isolate, v8::IdleTask* task) {
+    RT_ASSERT(isolate);
+    RT_ASSERT(task);
+    printf("[v8] idle task ignored\n");
+}
+
+bool V8Platform::IdleTasksEnabled(v8::Isolate* isolate) {
+    RT_ASSERT(isolate);
+    return false;
 }
 
 double V8Platform::MonotonicallyIncreasingTime() {
     double microsecondsPerSecond = 1000 * 1000;
     return GLOBAL_platform()->BootTimeMicroseconds() / microsecondsPerSecond;
+}
+
+void V8Platform::RunBackgroundTasks() {
+    while (!background_tasks_.empty()) {
+        v8::Task* task = background_tasks_.front();
+        RT_ASSERT(task);
+        background_tasks_.pop();
+#ifdef RUNTIME_DEBUG
+        printf("v8 run background\n");
+#endif
+        task->Run();
+    }
+}
+
+void V8Platform::RunForegroundTasks() {
+    while (!foreground_tasks_.empty()) {
+        v8::Task* task = foreground_tasks_.front();
+        RT_ASSERT(task);
+        foreground_tasks_.pop();
+#ifdef RUNTIME_DEBUG
+        printf("v8 run foreground\n");
+#endif
+        task->Run();
+    }
+
+    uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
+    while (foreground_delayed_tasks_.Elapsed(ticks_now)) {
+        v8::Task* task = foreground_delayed_tasks_.Take();
+        RT_ASSERT(task);
+#ifdef RUNTIME_DEBUG
+        printf("v8 run delayed foreground\n");
+#endif
+        task->Run();
+    }
 }
 
 } // namespace rt

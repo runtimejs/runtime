@@ -103,6 +103,8 @@ void ThreadManager::Preempt() {
 
     ProcessNewThreads();
     ProcessTimeouts();
+    GLOBAL_engines()->v8_platform()->RunBackgroundTasks();
+    GLOBAL_engines()->v8_platform()->RunForegroundTasks();
 
     if (curr_thread == new_thread) {
         return;

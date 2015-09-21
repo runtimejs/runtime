@@ -258,6 +258,8 @@ public:
     uint64_t buffers_size() const { return buffers_size_; }
     uint64_t buffers_count() const { return buffers_count_; }
 
+    V8Platform* v8_platform() const { return v8_platform_; }
+
     ~Engines() = delete;
     DELETE_COPY_AND_ASSIGN(Engines);
 private:
@@ -269,7 +271,7 @@ private:
     uint64_t buffers_count_;
     volatile uint64_t _non_isolate_ticks;
 
-    v8::Platform* v8_platform_;
+    V8Platform* v8_platform_;
     std::atomic<uint64_t> global_ticks_counter_;
 };
 

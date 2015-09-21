@@ -17,6 +17,7 @@
 #include <unwind.h>
 #include <acpi.h>
 #include <accommon.h>
+#include <kernel/engines.h>
 
 namespace threadlib {
   void sched() {

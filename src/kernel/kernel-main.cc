@@ -131,7 +131,7 @@ void KernelMain::MakeV8Snapshot() {
     argv[0] = new char[16];
     argv[1] = new char[16];
     strcpy(argv[0], "mksnapshot");
-    strcpy(argv[1], "snapshot");
+    strcpy(argv[1], "--startup_src=snapshot");
     mksnapshot_main(2, argv);
 }
 
