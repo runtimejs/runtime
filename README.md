@@ -48,6 +48,8 @@ runtime.js is a library operating system, because application uses it as its own
 
 [API docs](https://github.com/runtimejs/runtime/wiki/API-docs)
 
+[Blog post: runtime.js — JavaScript library OS](https://medium.com/@iefserge/runtime-js-javascript-library-os-823ada1cc3c)
+
 License
 ----
 Apache License, Version 2.0
