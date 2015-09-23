@@ -1,5 +1,11 @@
 language: cpp
 compiler: gcc
+sudo: false
+
+addons:
+  apt:
+    packages:
+      - qemu
 
 before_script:
     - cd tools
@@ -10,4 +16,4 @@ before_script:
     - cd ..
     - export PATH=$PWD/tools/x86_64-elf-4.9.1-Linux-x86_64/bin:$PWD/tools/fasm:$PATH
 
-script: scons
+script: scons && (cd js && npm install && npm run test-build)
