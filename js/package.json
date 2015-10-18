@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "eslint .",
     "test": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd",
-    "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
+    "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime --nographic"
   },
   "repository": {
     "type": "git",
