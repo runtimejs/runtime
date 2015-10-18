@@ -16,6 +16,7 @@
 
 var test = require('tape');
 var runtime = require('../../..');
+var ip4fragments = require('../../../core/net/ip4-fragments');
 var interfaceMock = require('../lib/interface-mock');
 var packetBuilder = require('../lib/packet-builder');
 
@@ -198,5 +199,43 @@ test('receive ip4 fragmented too big', function(t) {
     { offset: 65528, len: 7 + 1 }
   ];
   ipFragmentsTest(t, 'max-size + 1', 65535 - 8 + 1, slices, [0, 1], true);
+  t.end();
+});
+
+test('too many fragment queues and timeouts', function(t) {
+  t.timeoutAfter(1000);
+  var intf = interfaceMock();
+  var originalNow = performance.now;
+
+  performance.now = function() {
+    return 100;
+  };
+
+  for (var i = 0; i < 150; ++i) {
+    var fragments = packetBuilder.createFragmentedIP4({
+      srcPort: 999,
+      destPort: 65432,
+      srcIP: '33.44.55.' + String(i)
+    }, 64 + 8 /* 8 bytes udp header */, [{ offset: 0, len: 8 }]);
+    intf.receive(fragments[0]);
+  }
+
+  t.equal(intf.fragments.size, 100);
+
+  performance.now = function() {
+    return 20100;
+  };
+
+  ip4fragments.tick(intf);
+  t.equal(intf.fragments.size, 100);
+
+  performance.now = function() {
+    return 30100;
+  };
+
+  ip4fragments.tick(intf);
+  t.equal(intf.fragments.size, 0);
+
+  performance.now = originalNow;
   t.end();
 });

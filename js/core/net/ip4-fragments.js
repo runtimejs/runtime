@@ -16,6 +16,9 @@
 
 var ip4header = require('./ip4-header');
 var ip4receive = require('./ip4-receive');
+var timeNow = require('../../utils').timeNow;
+var FRAGMENT_QUEUE_MAX_AGE_MS = 30000;
+var FRAGMENT_QUEUE_MAX_COUNT = 100;
 
 function fragmentHash(srcIP, destIP, protocolId, packetId) {
   return srcIP.toInteger() + '-' + destIP.toInteger() + '-' + (packetId + (protocolId << 16));
@@ -38,10 +41,16 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
   var firstFragment = false;
   var fragmentQueue = intf.fragments.get(hash);
   if (!fragmentQueue) {
+    if (intf.fragments.size >= FRAGMENT_QUEUE_MAX_COUNT) {
+      // too many fragment queues
+      return;
+    }
+
     firstFragment = true;
     fragmentQueue = {
       receivedLength: 0,
       totalLength: 0,
+      createdAt: timeNow(),
       fragments: []
     };
   }
@@ -160,5 +169,22 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
     dropFragmentQueue(intf, hash);
     ip4receive(intf, srcIP, destIP, protocolId, u8asm, 0);
     return;
+  }
+};
+
+/**
+ * Timer tick
+ *
+ * @param {Interface} intf Network interface
+ */
+exports.tick = function(intf) {
+  var time = timeNow();
+
+  for (var pair of intf.fragments) {
+    var hash = pair[0];
+    var fragmentQueue = pair[1];
+    if (fragmentQueue.createdAt + FRAGMENT_QUEUE_MAX_AGE_MS <= time) {
+      dropFragmentQueue(intf, hash);
+    }
   }
 };

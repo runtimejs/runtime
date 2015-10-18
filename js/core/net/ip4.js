@@ -17,6 +17,12 @@ var IP4Address = require('./ip4-address');
 var ip4header = require('./ip4-header');
 var ip4fragments = require('./ip4-fragments');
 var ip4receive = require('./ip4-receive');
+var timers = require('../timers');
+var interfaces = require('./interfaces');
+
+timers.scheduleTask5s(function() {
+  interfaces.forEach(ip4fragments.tick);
+});
 
 function handleReceive(intf, u8, headerOffset) {
   var headerLength = ip4header.getHeaderLength(u8, headerOffset);
