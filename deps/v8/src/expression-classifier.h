@@ -5,8 +5,6 @@
 #ifndef V8_EXPRESSION_CLASSIFIER_H
 #define V8_EXPRESSION_CLASSIFIER_H
 
-#include "src/v8.h"
-
 #include "src/messages.h"
 #include "src/scanner.h"
 #include "src/token.h"
@@ -30,28 +28,37 @@ class ExpressionClassifier {
 
   enum TargetProduction {
     ExpressionProduction = 1 << 0,
-    BindingPatternProduction = 1 << 1,
-    AssignmentPatternProduction = 1 << 2,
-    DistinctFormalParametersProduction = 1 << 3,
-    StrictModeFormalParametersProduction = 1 << 4,
-    StrongModeFormalParametersProduction = 1 << 5,
-    ArrowFormalParametersProduction = 1 << 6,
+    FormalParameterInitializerProduction = 1 << 1,
+    BindingPatternProduction = 1 << 2,
+    AssignmentPatternProduction = 1 << 3,
+    DistinctFormalParametersProduction = 1 << 4,
+    StrictModeFormalParametersProduction = 1 << 5,
+    StrongModeFormalParametersProduction = 1 << 6,
+    ArrowFormalParametersProduction = 1 << 7,
 
+    ExpressionProductions =
+        (ExpressionProduction | FormalParameterInitializerProduction),
     PatternProductions =
         (BindingPatternProduction | AssignmentPatternProduction),
     FormalParametersProductions = (DistinctFormalParametersProduction |
                                    StrictModeFormalParametersProduction |
                                    StrongModeFormalParametersProduction),
-    StandardProductions = ExpressionProduction | PatternProductions,
+    StandardProductions = ExpressionProductions | PatternProductions,
     AllProductions = (StandardProductions | FormalParametersProductions |
                       ArrowFormalParametersProduction)
   };
 
+  enum FunctionProperties { NonSimpleParameter = 1 << 0 };
+
   ExpressionClassifier()
-      : invalid_productions_(0), duplicate_finder_(nullptr) {}
+      : invalid_productions_(0),
+        function_properties_(0),
+        duplicate_finder_(nullptr) {}
 
   explicit ExpressionClassifier(DuplicateFinder* duplicate_finder)
-      : invalid_productions_(0), duplicate_finder_(duplicate_finder) {}
+      : invalid_productions_(0),
+        function_properties_(0),
+        duplicate_finder_(duplicate_finder) {}
 
   bool is_valid(unsigned productions) const {
     return (invalid_productions_ & productions) == 0;
@@ -60,6 +67,10 @@ class ExpressionClassifier {
   DuplicateFinder* duplicate_finder() const { return duplicate_finder_; }
 
   bool is_valid_expression() const { return is_valid(ExpressionProduction); }
+
+  bool is_valid_formal_parameter_initializer() const {
+    return is_valid(FormalParameterInitializerProduction);
+  }
 
   bool is_valid_binding_pattern() const {
     return is_valid(BindingPatternProduction);
@@ -91,6 +102,10 @@ class ExpressionClassifier {
 
   const Error& expression_error() const { return expression_error_; }
 
+  const Error& formal_parameter_initializer_error() const {
+    return formal_parameter_initializer_error_;
+  }
+
   const Error& binding_pattern_error() const { return binding_pattern_error_; }
 
   const Error& assignment_pattern_error() const {
@@ -113,6 +128,14 @@ class ExpressionClassifier {
     return strong_mode_formal_parameter_error_;
   }
 
+  bool is_simple_parameter_list() const {
+    return !(function_properties_ & NonSimpleParameter);
+  }
+
+  void RecordNonSimpleParameter() {
+    function_properties_ |= NonSimpleParameter;
+  }
+
   void RecordExpressionError(const Scanner::Location& loc,
                              MessageTemplate::Template message,
                              const char* arg = nullptr) {
@@ -121,6 +144,16 @@ class ExpressionClassifier {
     expression_error_.location = loc;
     expression_error_.message = message;
     expression_error_.arg = arg;
+  }
+
+  void RecordFormalParameterInitializerError(const Scanner::Location& loc,
+                                             MessageTemplate::Template message,
+                                             const char* arg = nullptr) {
+    if (!is_valid_formal_parameter_initializer()) return;
+    invalid_productions_ |= FormalParameterInitializerProduction;
+    formal_parameter_initializer_error_.location = loc;
+    formal_parameter_initializer_error_.message = message;
+    formal_parameter_initializer_error_.arg = arg;
   }
 
   void RecordBindingPatternError(const Scanner::Location& loc,
@@ -157,8 +190,7 @@ class ExpressionClassifier {
     if (!is_valid_formal_parameter_list_without_duplicates()) return;
     invalid_productions_ |= DistinctFormalParametersProduction;
     duplicate_formal_parameter_error_.location = loc;
-    duplicate_formal_parameter_error_.message =
-        MessageTemplate::kStrictParamDupe;
+    duplicate_formal_parameter_error_.message = MessageTemplate::kParamDupe;
     duplicate_formal_parameter_error_.arg = nullptr;
   }
 
@@ -201,6 +233,9 @@ class ExpressionClassifier {
       invalid_productions_ |= errors;
       if (errors & ExpressionProduction)
         expression_error_ = inner.expression_error_;
+      if (errors & FormalParameterInitializerProduction)
+        formal_parameter_initializer_error_ =
+            inner.formal_parameter_initializer_error_;
       if (errors & BindingPatternProduction)
         binding_pattern_error_ = inner.binding_pattern_error_;
       if (errors & AssignmentPatternProduction)
@@ -219,28 +254,23 @@ class ExpressionClassifier {
     // As an exception to the above, the result continues to be a valid arrow
     // formal parameters if the inner expression is a valid binding pattern.
     if (productions & ArrowFormalParametersProduction &&
-        is_valid_arrow_formal_parameters() &&
-        !inner.is_valid_binding_pattern()) {
-      invalid_productions_ |= ArrowFormalParametersProduction;
-      arrow_formal_parameters_error_ = inner.binding_pattern_error_;
-    }
-  }
+        is_valid_arrow_formal_parameters()) {
+      // Also copy function properties if expecting an arrow function
+      // parameter.
+      function_properties_ |= inner.function_properties_;
 
-  void AccumulateReclassifyingAsPattern(const ExpressionClassifier& inner) {
-    Accumulate(inner, AllProductions & ~PatternProductions);
-    if (!inner.is_valid_expression()) {
-      if (is_valid_binding_pattern()) {
-        binding_pattern_error_ = inner.expression_error();
-      }
-      if (is_valid_assignment_pattern()) {
-        assignment_pattern_error_ = inner.expression_error();
+      if (!inner.is_valid_binding_pattern()) {
+        invalid_productions_ |= ArrowFormalParametersProduction;
+        arrow_formal_parameters_error_ = inner.binding_pattern_error_;
       }
     }
   }
 
  private:
   unsigned invalid_productions_;
+  unsigned function_properties_;
   Error expression_error_;
+  Error formal_parameter_initializer_error_;
   Error binding_pattern_error_;
   Error assignment_pattern_error_;
   Error arrow_formal_parameters_error_;

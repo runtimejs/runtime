@@ -220,6 +220,7 @@ const MachInst2 kFPArithInstructions[] = {
 struct FPCmp {
   MachInst2 mi;
   FlagsCondition cond;
+  FlagsCondition commuted_cond;
 };
 
 
@@ -232,13 +233,22 @@ std::ostream& operator<<(std::ostream& os, const FPCmp& cmp) {
 const FPCmp kFPCmpInstructions[] = {
     {{&RawMachineAssembler::Float64Equal, "Float64Equal", kArm64Float64Cmp,
       kMachFloat64},
-     kEqual},
+     kEqual, kEqual},
     {{&RawMachineAssembler::Float64LessThan, "Float64LessThan",
       kArm64Float64Cmp, kMachFloat64},
-     kUnsignedLessThan},
+     kFloatLessThan, kFloatGreaterThan},
     {{&RawMachineAssembler::Float64LessThanOrEqual, "Float64LessThanOrEqual",
       kArm64Float64Cmp, kMachFloat64},
-     kUnsignedLessThanOrEqual}};
+     kFloatLessThanOrEqual, kFloatGreaterThanOrEqual},
+    {{&RawMachineAssembler::Float32Equal, "Float32Equal", kArm64Float32Cmp,
+      kMachFloat32},
+     kEqual, kEqual},
+    {{&RawMachineAssembler::Float32LessThan, "Float32LessThan",
+      kArm64Float32Cmp, kMachFloat32},
+     kFloatLessThan, kFloatGreaterThan},
+    {{&RawMachineAssembler::Float32LessThanOrEqual, "Float32LessThanOrEqual",
+      kArm64Float32Cmp, kMachFloat32},
+     kFloatLessThanOrEqual, kFloatGreaterThanOrEqual}};
 
 
 struct Conversion {
@@ -1913,7 +1923,11 @@ TEST_P(InstructionSelectorFPCmpTest, Parameter) {
 TEST_P(InstructionSelectorFPCmpTest, WithImmediateZeroOnRight) {
   const FPCmp cmp = GetParam();
   StreamBuilder m(this, kMachInt32, cmp.mi.machine_type);
-  m.Return((m.*cmp.mi.constructor)(m.Parameter(0), m.Float64Constant(0.0)));
+  if (cmp.mi.machine_type == kMachFloat64) {
+    m.Return((m.*cmp.mi.constructor)(m.Parameter(0), m.Float64Constant(0.0)));
+  } else {
+    m.Return((m.*cmp.mi.constructor)(m.Parameter(0), m.Float32Constant(0.0f)));
+  }
   Stream s = m.Build();
   ASSERT_EQ(1U, s.size());
   EXPECT_EQ(cmp.mi.arch_opcode, s[0]->arch_opcode());
@@ -1925,22 +1939,27 @@ TEST_P(InstructionSelectorFPCmpTest, WithImmediateZeroOnRight) {
 }
 
 
-INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorFPCmpTest,
-                        ::testing::ValuesIn(kFPCmpInstructions));
-
-
-TEST_F(InstructionSelectorTest, Float64EqualWithImmediateZeroOnLeft) {
-  StreamBuilder m(this, kMachInt32, kMachFloat64);
-  m.Return(m.Float64Equal(m.Float64Constant(0.0), m.Parameter(0)));
+TEST_P(InstructionSelectorFPCmpTest, WithImmediateZeroOnLeft) {
+  const FPCmp cmp = GetParam();
+  StreamBuilder m(this, kMachInt32, cmp.mi.machine_type);
+  if (cmp.mi.machine_type == kMachFloat64) {
+    m.Return((m.*cmp.mi.constructor)(m.Float64Constant(0.0), m.Parameter(0)));
+  } else {
+    m.Return((m.*cmp.mi.constructor)(m.Float32Constant(0.0f), m.Parameter(0)));
+  }
   Stream s = m.Build();
   ASSERT_EQ(1U, s.size());
-  EXPECT_EQ(kArm64Float64Cmp, s[0]->arch_opcode());
+  EXPECT_EQ(cmp.mi.arch_opcode, s[0]->arch_opcode());
   EXPECT_EQ(2U, s[0]->InputCount());
   EXPECT_TRUE(s[0]->InputAt(1)->IsImmediate());
   EXPECT_EQ(1U, s[0]->OutputCount());
   EXPECT_EQ(kFlags_set, s[0]->flags_mode());
-  EXPECT_EQ(kEqual, s[0]->flags_condition());
+  EXPECT_EQ(cmp.commuted_cond, s[0]->flags_condition());
 }
+
+
+INSTANTIATE_TEST_CASE_P(InstructionSelectorTest, InstructionSelectorFPCmpTest,
+                        ::testing::ValuesIn(kFPCmpInstructions));
 
 
 // -----------------------------------------------------------------------------
@@ -2417,6 +2436,40 @@ TEST_F(InstructionSelectorTest, Word32EqualWithSignedExtendHalfword) {
     EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
     EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
     ASSERT_EQ(1U, s[0]->OutputCount());
+  }
+}
+
+
+TEST_F(InstructionSelectorTest, Word32EqualZeroWithWord32Equal) {
+  {
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Word32Equal(p0, p1), m.Int32Constant(0)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64Cmp32, s[0]->arch_opcode());
+    ASSERT_EQ(2U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(kFlags_set, s[0]->flags_mode());
+    EXPECT_EQ(kNotEqual, s[0]->flags_condition());
+  }
+  {
+    StreamBuilder m(this, kMachInt32, kMachInt32, kMachInt32);
+    Node* const p0 = m.Parameter(0);
+    Node* const p1 = m.Parameter(1);
+    m.Return(m.Word32Equal(m.Int32Constant(0), m.Word32Equal(p0, p1)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64Cmp32, s[0]->arch_opcode());
+    ASSERT_EQ(2U, s[0]->InputCount());
+    EXPECT_EQ(s.ToVreg(p0), s.ToVreg(s[0]->InputAt(0)));
+    EXPECT_EQ(s.ToVreg(p1), s.ToVreg(s[0]->InputAt(1)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(kFlags_set, s[0]->flags_mode());
+    EXPECT_EQ(kNotEqual, s[0]->flags_condition());
   }
 }
 

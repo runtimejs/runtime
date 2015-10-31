@@ -75,10 +75,12 @@
   'bit-not': [PASS, NO_VARIANTS],
   'json2': [PASS, NO_VARIANTS],
   'packed-elements': [PASS, NO_VARIANTS],
+  'string-indexof-1': [PASS, NO_VARIANTS],
   'unbox-double-arrays': [PASS, NO_VARIANTS],
   'unicode-test': [PASS, NO_VARIANTS],
   'whitespaces': [PASS, NO_VARIANTS],
   'compiler/osr-assert': [PASS, NO_VARIANTS],
+  'es6/string-fromcodepoint': [PASS, NO_VARIANTS],
   'regress/regress-2185-2': [PASS, NO_VARIANTS],
   'regress/regress-2612': [PASS, NO_VARIANTS],
 
@@ -132,6 +134,7 @@
   # TODO(jarin/mstarzinger): Investigate debugger issues with TurboFan.
   'debug-evaluate-const': [PASS, NO_VARIANTS],
   'debug-evaluate-locals': [PASS, NO_VARIANTS],
+  'debug-evaluate-locals-capturing': [PASS, NO_VARIANTS],
   'debug-liveedit-check-stack': [PASS, NO_VARIANTS],  # only in no-snap mode.
   'debug-liveedit-double-call': [PASS, NO_VARIANTS],
   'debug-set-variable-value': [PASS, NO_VARIANTS],
@@ -181,8 +184,8 @@
   'array-constructor': [PASS, TIMEOUT],
 
   # Very slow on ARM and MIPS, contains no architecture dependent code.
-  'unicode-case-overoptimization': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', TIMEOUT]],
-  'regress/regress-3976': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
+  'unicode-case-overoptimization': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips64 or arch == mips', TIMEOUT]],
+  'regress/regress-3976': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips64 or arch == mips', SKIP]],
   'regress/regress-crbug-482998': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
 
   ##############################################################################
@@ -277,6 +280,7 @@
   'regress/regress-crbug-137689': [SKIP],
   'regress/regress-165637': [SKIP],
   'regress/regress-2249': [SKIP],
+  'regress/regress-4121': [SKIP],
   # Tests taking too long
   'debug-stepout-scope-part8': [SKIP],
   'mirror-object': [SKIP],
@@ -300,17 +304,30 @@
   'unicodelctest': [PASS, NO_VARIANTS],
   'unicodelctest-no-optimization': [PASS, NO_VARIANTS],
 
+  # TODO(jkummerow): Doesn't work correctly in GC stress.
+  'regress/regress-crbug-500497': [SKIP],
+
   # Too slow for gc stress.
   'asm/embenchen/box2d': [SKIP],
 
   # Issue 3723.
   'regress/regress-3717': [SKIP],
-  # Issue 478788.
-  'es7/object-observe': [SKIP],
 
   # BUG(v8:4237)
   'regress/regress-3976': [SKIP],
+
+  # BUG(v8:4359)
+  'strong/load-proxy': [SKIP],
+
+  # BUG(v8:4381)
+  'for-in-opt': [PASS, FAIL],
 }],  # 'gc_stress == True'
+
+##############################################################################
+['no_i18n == True and mode == debug', {
+  # Tests too slow for no18n debug.
+  'regress/regress-1200351': [SKIP],
+}],  # 'no_i18n == True and mode == debug'
 
 ##############################################################################
 ['byteorder == big', {
@@ -489,9 +506,6 @@
 ##############################################################################
 ['arch == mipsel or arch == mips', {
 
-  # Bug in zlib due to 35eb3a0260d349cb4201fed66ff62a438962bd47
-  'asm/embenchen/zlib': [SKIP],
-
   # Slow tests which times out in debug mode.
   'try': [PASS, ['mode == debug', SKIP]],
   'debug-scripts-request': [PASS, ['mode == debug', SKIP]],
@@ -529,10 +543,7 @@
 }],  # 'arch == mips'
 
 ##############################################################################
-['arch == mips64el', {
-
-  # Bug in zlib due to 35eb3a0260d349cb4201fed66ff62a438962bd47
-  'asm/embenchen/zlib': [SKIP],
+['arch == mips64el or arch == mips64', {
 
   # Slow tests which times out in debug mode.
   'try': [PASS, ['mode == debug', SKIP]],
@@ -580,7 +591,7 @@
 
   # Currently always deopt on minus zero
   'math-floor-of-div-minus-zero': [SKIP],
-}],  # 'arch == mips64el'
+}],  # 'arch == mips64el or arch == mips64'
 
 ##############################################################################
 ['system == windows', {
@@ -657,7 +668,6 @@
   'assert-opt-and-deopt': [SKIP],
   'never-optimize': [SKIP],
   'regress/regress-2185-2': [SKIP],
-  'harmony/object-observe': [SKIP],
   'readonly': [SKIP],
   'array-feedback': [SKIP],
 
@@ -667,6 +677,13 @@
   # Deopt every n garbage collections collides with deopt every n times.
   'regress/regress-2653': [SKIP],
 }],  # 'deopt_fuzzer == True'
+
+##############################################################################
+['predictable == True', {
+
+  # Skip tests that are known to be non-deterministic.
+  'd8-worker-sharedarraybuffer': [SKIP],
+}],  # 'predictable == True'
 
 ##############################################################################
 ['arch == ppc and simulator_run == True or arch == ppc64 and simulator_run == True', {

@@ -7,10 +7,11 @@
 #include <vector>
 
 #include "src/assembler.h"
+#include "src/compiler/common-operator.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
-#include "src/unique.h"
+#include "src/handles-inl.h"
 
 using testing::_;
 using testing::MakeMatcher;
@@ -20,6 +21,11 @@ using testing::StringMatchResultListener;
 
 namespace v8 {
 namespace internal {
+
+bool operator==(Handle<HeapObject> const& lhs, Handle<HeapObject> const& rhs) {
+  return lhs.is_identical_to(rhs);
+}
+
 namespace compiler {
 
 namespace {
@@ -406,8 +412,8 @@ class IsSelectMatcher final : public NodeMatcher {
 
   bool MatchAndExplain(Node* node, MatchResultListener* listener) const final {
     return (NodeMatcher::MatchAndExplain(node, listener) &&
-            PrintMatchAndExplain(OpParameter<MachineType>(node), "type",
-                                 type_matcher_, listener) &&
+            PrintMatchAndExplain(OpParameter<SelectParameters>(node).type(),
+                                 "type", type_matcher_, listener) &&
             PrintMatchAndExplain(NodeProperties::GetValueInput(node, 0),
                                  "value0", value0_matcher_, listener) &&
             PrintMatchAndExplain(NodeProperties::GetValueInput(node, 1),
@@ -635,7 +641,7 @@ class IsProjectionMatcher final : public NodeMatcher {
 
 class IsCallMatcher final : public NodeMatcher {
  public:
-  IsCallMatcher(const Matcher<CallDescriptor*>& descriptor_matcher,
+  IsCallMatcher(const Matcher<const CallDescriptor*>& descriptor_matcher,
                 const std::vector<Matcher<Node*>>& value_matchers,
                 const Matcher<Node*>& effect_matcher,
                 const Matcher<Node*>& control_matcher)
@@ -664,8 +670,8 @@ class IsCallMatcher final : public NodeMatcher {
 
   bool MatchAndExplain(Node* node, MatchResultListener* listener) const final {
     if (!NodeMatcher::MatchAndExplain(node, listener) ||
-        !PrintMatchAndExplain(OpParameter<CallDescriptor*>(node), "descriptor",
-                              descriptor_matcher_, listener)) {
+        !PrintMatchAndExplain(OpParameter<const CallDescriptor*>(node),
+                              "descriptor", descriptor_matcher_, listener)) {
       return false;
     }
     for (size_t i = 0; i < value_matchers_.size(); ++i) {
@@ -684,7 +690,7 @@ class IsCallMatcher final : public NodeMatcher {
   }
 
  private:
-  const Matcher<CallDescriptor*> descriptor_matcher_;
+  const Matcher<const CallDescriptor*> descriptor_matcher_;
   const std::vector<Matcher<Node*>> value_matchers_;
   const Matcher<Node*> effect_matcher_;
   const Matcher<Node*> control_matcher_;
@@ -1375,6 +1381,27 @@ class IsUnopMatcher final : public NodeMatcher {
   const Matcher<Node*> input_matcher_;
 };
 
+class IsParameterMatcher final : public NodeMatcher {
+ public:
+  explicit IsParameterMatcher(const Matcher<int>& index_matcher)
+      : NodeMatcher(IrOpcode::kParameter), index_matcher_(index_matcher) {}
+
+  void DescribeTo(std::ostream* os) const override {
+    *os << "is a Parameter node with index(";
+    index_matcher_.DescribeTo(os);
+    *os << ")";
+  }
+
+  bool MatchAndExplain(Node* node, MatchResultListener* listener) const final {
+    return (NodeMatcher::MatchAndExplain(node, listener) &&
+            PrintMatchAndExplain(ParameterIndexOf(node->op()), "index",
+                                 index_matcher_, listener));
+  }
+
+ private:
+  const Matcher<int> index_matcher_;
+};
+
 }  // namespace
 
 
@@ -1506,10 +1533,9 @@ Matcher<Node*> IsExternalConstant(
 }
 
 
-Matcher<Node*> IsHeapConstant(
-    const Matcher<Unique<HeapObject> >& value_matcher) {
-  return MakeMatcher(new IsConstantMatcher<Unique<HeapObject> >(
-      IrOpcode::kHeapConstant, value_matcher));
+Matcher<Node*> IsHeapConstant(Handle<HeapObject> value) {
+  return MakeMatcher(new IsConstantMatcher<Handle<HeapObject>>(
+      IrOpcode::kHeapConstant, value));
 }
 
 
@@ -1592,7 +1618,7 @@ Matcher<Node*> IsProjection(const Matcher<size_t>& index_matcher,
 }
 
 
-Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
+Matcher<Node*> IsCall(const Matcher<const CallDescriptor*>& descriptor_matcher,
                       const Matcher<Node*>& value0_matcher,
                       const Matcher<Node*>& value1_matcher,
                       const Matcher<Node*>& effect_matcher,
@@ -1605,7 +1631,39 @@ Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
 }
 
 
-Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
+Matcher<Node*> IsCall(const Matcher<const CallDescriptor*>& descriptor_matcher,
+                      const Matcher<Node*>& value0_matcher,
+                      const Matcher<Node*>& value1_matcher,
+                      const Matcher<Node*>& value2_matcher,
+                      const Matcher<Node*>& effect_matcher,
+                      const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  return MakeMatcher(new IsCallMatcher(descriptor_matcher, value_matchers,
+                                       effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsCall(const Matcher<const CallDescriptor*>& descriptor_matcher,
+                      const Matcher<Node*>& value0_matcher,
+                      const Matcher<Node*>& value1_matcher,
+                      const Matcher<Node*>& value2_matcher,
+                      const Matcher<Node*>& value3_matcher,
+                      const Matcher<Node*>& effect_matcher,
+                      const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  return MakeMatcher(new IsCallMatcher(descriptor_matcher, value_matchers,
+                                       effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsCall(const Matcher<const CallDescriptor*>& descriptor_matcher,
                       const Matcher<Node*>& value0_matcher,
                       const Matcher<Node*>& value1_matcher,
                       const Matcher<Node*>& value2_matcher,
@@ -1624,7 +1682,7 @@ Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
 }
 
 
-Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
+Matcher<Node*> IsCall(const Matcher<const CallDescriptor*>& descriptor_matcher,
                       const Matcher<Node*>& value0_matcher,
                       const Matcher<Node*>& value1_matcher,
                       const Matcher<Node*>& value2_matcher,
@@ -1646,7 +1704,7 @@ Matcher<Node*> IsCall(const Matcher<CallDescriptor*>& descriptor_matcher,
 
 
 Matcher<Node*> IsCall(
-    const Matcher<CallDescriptor*>& descriptor_matcher,
+    const Matcher<const CallDescriptor*>& descriptor_matcher,
     const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
     const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
     const Matcher<Node*>& value4_matcher, const Matcher<Node*>& value5_matcher,
@@ -1673,6 +1731,114 @@ Matcher<Node*> IsTailCall(
   std::vector<Matcher<Node*>> value_matchers;
   value_matchers.push_back(value0_matcher);
   value_matchers.push_back(value1_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
+    const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
+    const Matcher<Node*>& value4_matcher, const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  value_matchers.push_back(value4_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
+    const Matcher<Node*>& value4_matcher, const Matcher<Node*>& value5_matcher,
+    const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  value_matchers.push_back(value4_matcher);
+  value_matchers.push_back(value5_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
+    const Matcher<Node*>& value4_matcher, const Matcher<Node*>& value5_matcher,
+    const Matcher<Node*>& value6_matcher, const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  value_matchers.push_back(value4_matcher);
+  value_matchers.push_back(value5_matcher);
+  value_matchers.push_back(value6_matcher);
+  return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
+                                           effect_matcher, control_matcher));
+}
+
+
+Matcher<Node*> IsTailCall(
+    const Matcher<CallDescriptor const*>& descriptor_matcher,
+    const Matcher<Node*>& value0_matcher, const Matcher<Node*>& value1_matcher,
+    const Matcher<Node*>& value2_matcher, const Matcher<Node*>& value3_matcher,
+    const Matcher<Node*>& value4_matcher, const Matcher<Node*>& value5_matcher,
+    const Matcher<Node*>& value6_matcher, const Matcher<Node*>& value7_matcher,
+    const Matcher<Node*>& effect_matcher,
+    const Matcher<Node*>& control_matcher) {
+  std::vector<Matcher<Node*>> value_matchers;
+  value_matchers.push_back(value0_matcher);
+  value_matchers.push_back(value1_matcher);
+  value_matchers.push_back(value2_matcher);
+  value_matchers.push_back(value3_matcher);
+  value_matchers.push_back(value4_matcher);
+  value_matchers.push_back(value5_matcher);
+  value_matchers.push_back(value6_matcher);
+  value_matchers.push_back(value7_matcher);
   return MakeMatcher(new IsTailCallMatcher(descriptor_matcher, value_matchers,
                                            effect_matcher, control_matcher));
 }
@@ -1799,6 +1965,16 @@ Matcher<Node*> IsLoadContext(const Matcher<ContextAccess>& access_matcher,
 }
 
 
+Matcher<Node*> IsParameter(const Matcher<int> index_matcher) {
+  return MakeMatcher(new IsParameterMatcher(index_matcher));
+}
+
+
+Matcher<Node*> IsLoadFramePointer() {
+  return MakeMatcher(new NodeMatcher(IrOpcode::kLoadFramePointer));
+}
+
+
 #define IS_BINOP_MATCHER(Name)                                            \
   Matcher<Node*> Is##Name(const Matcher<Node*>& lhs_matcher,              \
                           const Matcher<Node*>& rhs_matcher) {            \
@@ -1830,8 +2006,14 @@ IS_BINOP_MATCHER(Int32MulHigh)
 IS_BINOP_MATCHER(Int32LessThan)
 IS_BINOP_MATCHER(Uint32LessThan)
 IS_BINOP_MATCHER(Uint32LessThanOrEqual)
+IS_BINOP_MATCHER(Int64Add)
+IS_BINOP_MATCHER(Int64Sub)
+IS_BINOP_MATCHER(JSAdd)
 IS_BINOP_MATCHER(Float32Max)
 IS_BINOP_MATCHER(Float32Min)
+IS_BINOP_MATCHER(Float32Equal)
+IS_BINOP_MATCHER(Float32LessThan)
+IS_BINOP_MATCHER(Float32LessThanOrEqual)
 IS_BINOP_MATCHER(Float64Max)
 IS_BINOP_MATCHER(Float64Min)
 IS_BINOP_MATCHER(Float64Sub)
@@ -1865,7 +2047,6 @@ IS_UNOP_MATCHER(Float64ExtractHighWord32)
 IS_UNOP_MATCHER(NumberToInt32)
 IS_UNOP_MATCHER(NumberToUint32)
 IS_UNOP_MATCHER(ObjectIsSmi)
-IS_UNOP_MATCHER(ObjectIsNonNegativeSmi)
 IS_UNOP_MATCHER(Word32Clz)
 #undef IS_UNOP_MATCHER
 

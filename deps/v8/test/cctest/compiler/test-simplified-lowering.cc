@@ -82,7 +82,7 @@ class SimplifiedLoweringTester : public GraphBuilderTester<ReturnType> {
     Handle<JSFunction> fun = FunctionTester::ForMachineGraph(this->graph());
     Handle<Object>* args = NULL;
     MaybeHandle<Object> result = Execution::Call(
-        this->isolate(), fun, factory()->undefined_value(), 0, args, false);
+        this->isolate(), fun, factory()->undefined_value(), 0, args);
     return T::cast(*result.ToHandleChecked());
   }
 
@@ -101,7 +101,7 @@ TEST(RunNumberToInt32_float64) {
   FieldAccess load = {kUntaggedBase, 0, Handle<Name>(), Type::Number(),
                       kMachFloat64};
   Node* loaded = t.LoadField(load, t.PointerConstant(&input));
-  NodeProperties::SetBounds(loaded, Bounds(Type::Number()));
+  NodeProperties::SetType(loaded, Type::Number());
   Node* convert = t.NumberToInt32(loaded);
   FieldAccess store = {kUntaggedBase, 0, Handle<Name>(), Type::Signed32(),
                        kMachInt32};
@@ -110,14 +110,12 @@ TEST(RunNumberToInt32_float64) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     FOR_FLOAT64_INPUTS(i) {
       input = *i;
       int32_t expected = DoubleToInt32(*i);
       t.Call();
       CHECK_EQ(expected, result);
     }
-  }
 }
 
 
@@ -130,7 +128,7 @@ TEST(RunNumberToUint32_float64) {
   FieldAccess load = {kUntaggedBase, 0, Handle<Name>(), Type::Number(),
                       kMachFloat64};
   Node* loaded = t.LoadField(load, t.PointerConstant(&input));
-  NodeProperties::SetBounds(loaded, Bounds(Type::Number()));
+  NodeProperties::SetType(loaded, Type::Number());
   Node* convert = t.NumberToUint32(loaded);
   FieldAccess store = {kUntaggedBase, 0, Handle<Name>(), Type::Unsigned32(),
                        kMachUint32};
@@ -139,7 +137,6 @@ TEST(RunNumberToUint32_float64) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     FOR_FLOAT64_INPUTS(i) {
       input = *i;
       uint32_t expected = DoubleToUint32(*i);
@@ -147,7 +144,6 @@ TEST(RunNumberToUint32_float64) {
       CHECK_EQ(static_cast<int32_t>(expected), static_cast<int32_t>(result));
     }
   }
-}
 
 
 // Create a simple JSObject with a unique map.
@@ -168,12 +164,10 @@ TEST(RunLoadMap) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
-    Handle<JSObject> src = TestObject();
-    Handle<Map> src_map(src->map());
-    Object* result = t.Call(*src);  // TODO(titzer): raw pointers in call
-    CHECK_EQ(*src_map, result);
-  }
+  Handle<JSObject> src = TestObject();
+  Handle<Map> src_map(src->map());
+  Object* result = t.Call(*src);  // TODO(titzer): raw pointers in call
+  CHECK_EQ(*src_map, result);
 }
 
 
@@ -186,7 +180,6 @@ TEST(RunStoreMap) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     Handle<JSObject> src = TestObject();
     Handle<Map> src_map(src->map());
     Handle<JSObject> dst = TestObject();
@@ -194,7 +187,6 @@ TEST(RunStoreMap) {
     t.Call(*src_map, *dst);  // TODO(titzer): raw pointers in call
     CHECK(*src_map == dst->map());
   }
-}
 
 
 TEST(RunLoadProperties) {
@@ -206,12 +198,10 @@ TEST(RunLoadProperties) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     Handle<JSObject> src = TestObject();
     Handle<FixedArray> src_props(src->properties());
     Object* result = t.Call(*src);  // TODO(titzer): raw pointers in call
     CHECK_EQ(*src_props, result);
-  }
 }
 
 
@@ -225,7 +215,6 @@ TEST(RunLoadStoreMap) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     Handle<JSObject> src = TestObject();
     Handle<Map> src_map(src->map());
     Handle<JSObject> dst = TestObject();
@@ -234,7 +223,6 @@ TEST(RunLoadStoreMap) {
     CHECK(result->IsMap());
     CHECK_EQ(*src_map, result);
     CHECK(*src_map == dst->map());
-  }
 }
 
 
@@ -248,7 +236,6 @@ TEST(RunLoadStoreFixedArrayIndex) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     Handle<FixedArray> array = t.factory()->NewFixedArray(2);
     Handle<JSObject> src = TestObject();
     Handle<JSObject> dst = TestObject();
@@ -258,7 +245,6 @@ TEST(RunLoadStoreFixedArrayIndex) {
     CHECK_EQ(*src, result);
     CHECK_EQ(*src, array->get(0));
     CHECK_EQ(*src, array->get(1));
-  }
 }
 
 
@@ -279,9 +265,8 @@ TEST(RunLoadStoreArrayBuffer) {
   t.LowerAllNodes();
   t.GenerateCode();
 
-  if (Pipeline::SupportedTarget()) {
     Handle<JSArrayBuffer> array = t.factory()->NewJSArrayBuffer();
-    Runtime::SetupArrayBufferAllocatingData(t.isolate(), array, array_length);
+    JSArrayBuffer::SetupAllocatingData(array, t.isolate(), array_length);
     uint8_t* data = reinterpret_cast<uint8_t*>(array->backing_store());
     for (int i = 0; i < array_length; i++) {
       data[i] = i;
@@ -296,7 +281,6 @@ TEST(RunLoadStoreArrayBuffer) {
       CHECK_EQ(data[i], expected);
     }
   }
-}
 
 
 TEST(RunLoadFieldFromUntaggedBase) {
@@ -311,8 +295,6 @@ TEST(RunLoadFieldFromUntaggedBase) {
     Node* load = t.LoadField(access, t.PointerConstant(smis));
     t.Return(load);
     t.LowerAllNodes();
-
-    if (!Pipeline::SupportedTarget()) continue;
 
     for (int j = -5; j <= 5; j++) {
       Smi* expected = Smi::FromInt(j);
@@ -336,8 +318,6 @@ TEST(RunStoreFieldToUntaggedBase) {
     t.StoreField(access, t.PointerConstant(smis), p0);
     t.Return(p0);
     t.LowerAllNodes();
-
-    if (!Pipeline::SupportedTarget()) continue;
 
     for (int j = -5; j <= 5; j++) {
       Smi* expected = Smi::FromInt(j);
@@ -365,8 +345,6 @@ TEST(RunLoadElementFromUntaggedBase) {
       t.Return(load);
       t.LowerAllNodes();
 
-      if (!Pipeline::SupportedTarget()) continue;
-
       for (int k = -5; k <= 5; k++) {
         Smi* expected = Smi::FromInt(k);
         smis[i + j] = expected;
@@ -393,8 +371,6 @@ TEST(RunStoreElementFromUntaggedBase) {
                      t.Int32Constant(static_cast<int>(j)), p0);
       t.Return(p0);
       t.LowerAllNodes();
-
-      if (!Pipeline::SupportedTarget()) continue;
 
       for (int k = -5; k <= 5; k++) {
         Smi* expected = Smi::FromInt(k);
@@ -462,10 +438,8 @@ class AccessTester : public HandleAndZoneScope {
     t.LowerAllNodes();
     t.GenerateCode();
 
-    if (Pipeline::SupportedTarget()) {
       Object* result = t.Call();
       CHECK_EQ(t.isolate()->heap()->true_value(), result);
-    }
   }
 
   // Create and run code that copies the field in either {untagged_array}
@@ -484,10 +458,8 @@ class AccessTester : public HandleAndZoneScope {
     t.LowerAllNodes();
     t.GenerateCode();
 
-    if (Pipeline::SupportedTarget()) {
       Object* result = t.Call();
       CHECK_EQ(t.isolate()->heap()->true_value(), result);
-    }
   }
 
   // Create and run code that copies the elements from {this} to {that}.
@@ -525,10 +497,8 @@ class AccessTester : public HandleAndZoneScope {
     t.LowerAllNodes();
     t.GenerateCode();
 
-    if (Pipeline::SupportedTarget()) {
       Object* result = t.Call();
       CHECK_EQ(t.isolate()->heap()->true_value(), result);
-    }
 #endif
   }
 
@@ -596,13 +566,11 @@ static void RunAccessTest(MachineType rep, E* original_elements, size_t num) {
         } else {
           a.RunCopyElement(i, i + 1);  // Test element read/write.
         }
-        if (Pipeline::SupportedTarget()) {  // verify.
           for (int j = 0; j < num_elements; j++) {
             E expect =
                 j == (i + 1) ? original_elements[i] : original_elements[j];
             CHECK_EQ(expect, a.GetElement(j));
           }
-        }
       }
     }
   }
@@ -612,10 +580,8 @@ static void RunAccessTest(MachineType rep, E* original_elements, size_t num) {
       AccessTester<E> a(tf == 1, rep, original_elements, num);
       AccessTester<E> b(tt == 1, rep, original_elements, num);
       a.RunCopyElements(&b);
-      if (Pipeline::SupportedTarget()) {  // verify.
         for (int i = 0; i < num_elements; i++) {
           CHECK_EQ(a.GetElement(i), b.GetElement(i));
-        }
       }
     }
   }
@@ -668,7 +634,7 @@ TEST(RunAccessTests_Smi) {
   RunAccessTest<Smi*>(kMachAnyTagged, data, arraysize(data));
 }
 
-#if V8_TURBOFAN_TARGET
+
 TEST(RunAllocate) {
   PretenureFlag flag[] = {NOT_TENURED, TENURED};
 
@@ -684,15 +650,13 @@ TEST(RunAllocate) {
     t.LowerAllNodes();
     t.GenerateCode();
 
-    if (Pipeline::SupportedTarget()) {
       HeapObject* result = t.CallWithPotentialGC<HeapObject>();
       CHECK(t.heap()->new_space()->Contains(result) || flag[i] == TENURED);
       CHECK(t.heap()->old_space()->Contains(result) || flag[i] == NOT_TENURED);
       CHECK(result->IsHeapNumber());
-    }
   }
 }
-#endif
+
 
 // Fills in most of the nodes of the graph in order to make tests shorter.
 class TestingGraph : public HandleAndZoneScope, public GraphAndBuilders {
@@ -723,13 +687,20 @@ class TestingGraph : public HandleAndZoneScope, public GraphAndBuilders {
     p1 = graph()->NewNode(common()->Parameter(1), start);
     p2 = graph()->NewNode(common()->Parameter(2), start);
     typer.Run();
-    NodeProperties::SetBounds(p0, Bounds(p0_type));
-    NodeProperties::SetBounds(p1, Bounds(p1_type));
-    NodeProperties::SetBounds(p2, Bounds(p2_type));
+    NodeProperties::SetType(p0, p0_type);
+    NodeProperties::SetType(p1, p1_type);
+    NodeProperties::SetType(p2, p2_type);
   }
 
   void CheckLoweringBinop(IrOpcode::Value expected, const Operator* op) {
     Node* node = Return(graph()->NewNode(op, p0, p1));
+    Lower();
+    CHECK_EQ(expected, node->opcode());
+  }
+
+  void CheckLoweringStringBinop(IrOpcode::Value expected, const Operator* op) {
+    Node* node = Return(
+        graph()->NewNode(op, p0, p1, graph()->start(), graph()->start()));
     Lower();
     CHECK_EQ(expected, node->opcode());
   }
@@ -779,17 +750,6 @@ class TestingGraph : public HandleAndZoneScope, public GraphAndBuilders {
       CHECK(type & kRepTagged);
       return p0;
     }
-  }
-
-  Node* ExampleWithTypeAndRep(Type* type, MachineType mach_type) {
-    FieldAccess access = {kUntaggedBase, 0, Handle<Name>::null(), type,
-                          mach_type};
-    // TODO(titzer): using loads here just to force the representation is ugly.
-    Node* node = graph()->NewNode(simplified()->LoadField(access),
-                                  jsgraph.IntPtrConstant(0), graph()->start(),
-                                  graph()->start());
-    NodeProperties::SetBounds(node, Bounds(type));
-    return node;
   }
 
   Node* Use(Node* node, MachineType type) {
@@ -1105,7 +1065,7 @@ TEST(LowerNumberToInt32_to_ChangeTaggedToInt32) {
 TEST(LowerNumberToInt32_to_TruncateFloat64ToInt32) {
   // NumberToInt32(x: kRepFloat64) used as kMachInt32
   TestingGraph t(Type::Number());
-  Node* p0 = t.ExampleWithTypeAndRep(Type::Number(), kMachFloat64);
+  Node* p0 = t.ExampleWithOutput(kMachFloat64);
   Node* trunc = t.graph()->NewNode(t.simplified()->NumberToInt32(), p0);
   Node* use = t.Use(trunc, kMachInt32);
   t.Return(use);
@@ -1167,7 +1127,7 @@ TEST(LowerNumberToUint32_to_TruncateFloat64ToInt32) {
   TestingGraph t(Type::Number());
   Node* p0 = t.ExampleWithOutput(kMachFloat64);
   // TODO(titzer): run the typer here, or attach machine type to param.
-  NodeProperties::SetBounds(p0, Bounds(Type::Number()));
+  NodeProperties::SetType(p0, Type::Number());
   Node* trunc = t.graph()->NewNode(t.simplified()->NumberToUint32(), p0);
   Node* use = t.Use(trunc, kMachUint32);
   t.Return(use);
@@ -1194,64 +1154,12 @@ TEST(LowerNumberToUint32_to_TruncateFloat64ToInt32_with_change) {
 TEST(LowerNumberToUint32_to_TruncateFloat64ToInt32_uint32) {
   // NumberToUint32(x: kRepFloat64) used as kRepWord32
   TestingGraph t(Type::Unsigned32());
-  Node* input = t.ExampleWithTypeAndRep(Type::Number(), kMachFloat64);
+  Node* input = t.ExampleWithOutput(kMachFloat64);
   Node* trunc = t.graph()->NewNode(t.simplified()->NumberToUint32(), input);
   Node* use = t.Use(trunc, kRepWord32);
   t.Return(use);
   t.Lower();
   CheckChangeOf(IrOpcode::kTruncateFloat64ToInt32, input, use->InputAt(0));
-}
-
-
-TEST(LowerNumberToUI32_of_Float64_used_as_word32) {
-  // NumberTo(Int,Uint)32(x: kRepFloat64 | kType(Int,Uint)32) used as
-  // kType(Int,Uint)32 | kRepWord32
-  Type* types[] = {Type::Signed32(), Type::Unsigned32()};
-  MachineType mach[] = {kTypeInt32, kTypeUint32, kMachNone};
-
-  for (int i = 0; i < 2; i++) {
-    for (int u = 0; u < 3; u++) {
-      TestingGraph t(types[i]);
-      Node* input = t.ExampleWithTypeAndRep(
-          types[i], static_cast<MachineType>(kRepFloat64 | mach[i]));
-      const Operator* op = i == 0 ? t.simplified()->NumberToInt32()
-                                  : t.simplified()->NumberToUint32();
-      Node* trunc = t.graph()->NewNode(op, input);
-      Node* use = t.Use(trunc, static_cast<MachineType>(kRepWord32 | mach[u]));
-      t.Return(use);
-      t.Lower();
-      IrOpcode::Value opcode = i == 0 ? IrOpcode::kChangeFloat64ToInt32
-                                      : IrOpcode::kChangeFloat64ToUint32;
-      CheckChangeOf(opcode, input, use->InputAt(0));
-    }
-  }
-}
-
-
-TEST(LowerNumberToUI32_of_Float64_used_as_tagged) {
-  // NumberTo(Int,Uint)32(x: kRepFloat64 | kType(Int,Uint)32) used as
-  // kType(Int,Uint)32 | kRepTagged
-  Type* types[] = {Type::Signed32(), Type::Unsigned32(), Type::Any()};
-  MachineType mach[] = {kTypeInt32, kTypeUint32, kMachNone};
-
-  for (int i = 0; i < 2; i++) {
-    for (int u = 0; u < 3; u++) {
-      TestingGraph t(types[i]);
-      Node* input = t.ExampleWithTypeAndRep(
-          types[i], static_cast<MachineType>(kRepFloat64 | mach[i]));
-      const Operator* op = i == 0 ? t.simplified()->NumberToInt32()
-                                  : t.simplified()->NumberToUint32();
-      Node* trunc = t.graph()->NewNode(op, input);
-      // TODO(titzer): we use the store here to force the representation.
-      FieldAccess access = {kTaggedBase, 0, Handle<Name>(), types[u],
-                            static_cast<MachineType>(mach[u] | kRepTagged)};
-      Node* store = t.graph()->NewNode(t.simplified()->StoreField(access), t.p0,
-                                       trunc, t.start, t.start);
-      t.Effect(store);
-      t.Lower();
-      CheckChangeOf(IrOpcode::kChangeFloat64ToTagged, input, store->InputAt(2));
-    }
-  }
 }
 
 
@@ -1264,7 +1172,6 @@ TEST(LowerReferenceEqual_to_wordeq) {
 
 
 TEST(LowerStringOps_to_call_and_compare) {
-  if (Pipeline::SupportedTarget()) {
     // These tests need linkage for the calls.
     TestingGraph t(Type::String(), Type::String());
     IrOpcode::Value compare_eq =
@@ -1273,11 +1180,11 @@ TEST(LowerStringOps_to_call_and_compare) {
         static_cast<IrOpcode::Value>(t.machine()->IntLessThan()->opcode());
     IrOpcode::Value compare_le = static_cast<IrOpcode::Value>(
         t.machine()->IntLessThanOrEqual()->opcode());
-    t.CheckLoweringBinop(compare_eq, t.simplified()->StringEqual());
-    t.CheckLoweringBinop(compare_lt, t.simplified()->StringLessThan());
-    t.CheckLoweringBinop(compare_le, t.simplified()->StringLessThanOrEqual());
+    t.CheckLoweringStringBinop(compare_eq, t.simplified()->StringEqual());
+    t.CheckLoweringStringBinop(compare_lt, t.simplified()->StringLessThan());
+    t.CheckLoweringStringBinop(compare_le,
+                               t.simplified()->StringLessThanOrEqual());
   }
-}
 
 
 void CheckChangeInsertion(IrOpcode::Value expected, MachineType from,
@@ -1320,7 +1227,10 @@ TEST(InsertBasicChanges) {
 static void CheckChangesAroundBinop(TestingGraph* t, const Operator* op,
                                     IrOpcode::Value input_change,
                                     IrOpcode::Value output_change) {
-  Node* binop = t->graph()->NewNode(op, t->p0, t->p1);
+  Node* binop =
+      op->ControlInputCount() == 0
+          ? t->graph()->NewNode(op, t->p0, t->p1)
+          : t->graph()->NewNode(op, t->p0, t->p1, t->graph()->start());
   t->Return(binop);
   t->Lower();
   CHECK_EQ(input_change, binop->InputAt(0)->opcode());
@@ -1435,8 +1345,8 @@ Node* CheckElementAccessArithmetic(ElementAccess access, Node* load_or_store) {
 }
 
 
-const MachineType kMachineReps[] = {kRepBit,       kMachInt8,  kMachInt16,
-                                    kMachInt32,    kMachInt64, kMachFloat64,
+const MachineType kMachineReps[] = {kMachInt8,     kMachInt16, kMachInt32,
+                                    kMachUint32,   kMachInt64, kMachFloat64,
                                     kMachAnyTagged};
 
 }  // namespace
@@ -1490,8 +1400,10 @@ TEST(LowerStoreField_to_store) {
     }
   }
   {
-    TestingGraph t(Type::Any(),
-                   Type::Intersect(Type::SignedSmall(), Type::TaggedSigned()));
+    HandleAndZoneScope scope;
+    Zone* z = scope.main_zone();
+    TestingGraph t(Type::Any(), Type::Intersect(Type::SignedSmall(),
+                                                Type::TaggedSigned(), z));
     FieldAccess access = {kTaggedBase, FixedArrayBase::kHeaderSize,
                           Handle<Name>::null(), Type::Any(), kMachAnyTagged};
     Node* store = t.graph()->NewNode(t.simplified()->StoreField(access), t.p0,
@@ -1553,8 +1465,11 @@ TEST(LowerStoreElement_to_store) {
     }
   }
   {
-    TestingGraph t(Type::Any(), Type::Signed32(),
-                   Type::Intersect(Type::SignedSmall(), Type::TaggedSigned()));
+    HandleAndZoneScope scope;
+    Zone* z = scope.main_zone();
+    TestingGraph t(
+        Type::Any(), Type::Signed32(),
+        Type::Intersect(Type::SignedSmall(), Type::TaggedSigned(), z));
     ElementAccess access = {kTaggedBase, FixedArrayBase::kHeaderSize,
                             Type::Any(), kMachAnyTagged};
     Node* store = t.graph()->NewNode(t.simplified()->StoreElement(access), t.p0,
@@ -1708,7 +1623,6 @@ TEST(RunNumberDivide_minus_1_TruncatingToInt32) {
   Node* trunc = t.NumberToInt32(div);
   t.Return(trunc);
 
-  if (Pipeline::SupportedTarget()) {
     t.LowerAllNodesAndLowerChanges();
     t.GenerateCode();
 
@@ -1716,7 +1630,6 @@ TEST(RunNumberDivide_minus_1_TruncatingToInt32) {
       int32_t x = 0 - *i;
       t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
     }
-  }
 }
 
 
@@ -1747,7 +1660,6 @@ TEST(RunNumberMultiply_TruncatingToInt32) {
     Node* trunc = t.NumberToInt32(mul);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
@@ -1756,7 +1668,6 @@ TEST(RunNumberMultiply_TruncatingToInt32) {
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
       }
     }
-  }
 }
 
 
@@ -1771,14 +1682,12 @@ TEST(RunNumberMultiply_TruncatingToUint32) {
     Node* trunc = t.NumberToUint32(mul);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
       FOR_UINT32_INPUTS(i) {
         uint32_t x = DoubleToUint32(static_cast<double>(*i) * k);
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
-      }
     }
   }
 }
@@ -1791,7 +1700,6 @@ TEST(RunNumberDivide_2_TruncatingToUint32) {
   Node* trunc = t.NumberToUint32(div);
   t.Return(trunc);
 
-  if (Pipeline::SupportedTarget()) {
     t.LowerAllNodesAndLowerChanges();
     t.GenerateCode();
 
@@ -1799,7 +1707,6 @@ TEST(RunNumberDivide_2_TruncatingToUint32) {
       uint32_t x = DoubleToUint32(static_cast<double>(*i / 2.0));
       t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
     }
-  }
 }
 
 
@@ -1853,7 +1760,6 @@ TEST(RunNumberDivide_TruncatingToInt32) {
     Node* trunc = t.NumberToInt32(div);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
@@ -1861,7 +1767,6 @@ TEST(RunNumberDivide_TruncatingToInt32) {
         if (*i == INT_MAX) continue;  // exclude max int.
         int32_t x = DoubleToInt32(static_cast<double>(*i) / k);
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
-      }
     }
   }
 }
@@ -1894,14 +1799,12 @@ TEST(RunNumberDivide_TruncatingToUint32) {
     Node* trunc = t.NumberToUint32(div);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
       FOR_UINT32_INPUTS(i) {
         uint32_t x = *i / k;
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
-      }
     }
   }
 }
@@ -1972,7 +1875,6 @@ TEST(RunNumberModulus_TruncatingToInt32) {
     Node* trunc = t.NumberToInt32(mod);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
@@ -1980,7 +1882,6 @@ TEST(RunNumberModulus_TruncatingToInt32) {
         if (*i == INT_MAX) continue;  // exclude max int.
         int32_t x = DoubleToInt32(std::fmod(static_cast<double>(*i), k));
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
-      }
     }
   }
 }
@@ -2014,14 +1915,12 @@ TEST(RunNumberModulus_TruncatingToUint32) {
     Node* trunc = t.NumberToUint32(mod);
     t.Return(trunc);
 
-    if (Pipeline::SupportedTarget()) {
       t.LowerAllNodesAndLowerChanges();
       t.GenerateCode();
 
       FOR_UINT32_INPUTS(i) {
         uint32_t x = *i % k;
         t.CheckNumberCall(static_cast<double>(x), static_cast<double>(*i));
-      }
     }
   }
 }
@@ -2093,8 +1992,8 @@ TEST(PhiRepresentation) {
     Node* phi =
         t.graph()->NewNode(t.common()->Phi(kMachAnyTagged, 2), t.p0, t.p1, m);
 
-    Bounds phi_bounds = Bounds::Either(Bounds(d.arg1), Bounds(d.arg2), z);
-    NodeProperties::SetBounds(phi, phi_bounds);
+    Type* phi_type = Type::Union(d.arg1, d.arg2, z);
+    NodeProperties::SetType(phi, phi_type);
 
     Node* use = t.Use(phi, d.use);
     t.Return(use);

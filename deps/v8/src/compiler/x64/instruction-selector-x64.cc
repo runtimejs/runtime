@@ -233,6 +233,9 @@ void InstructionSelector::VisitCheckedLoad(Node* node) {
     case kRepWord32:
       opcode = kCheckedLoadWord32;
       break;
+    case kRepWord64:
+      opcode = kCheckedLoadWord64;
+      break;
     case kRepFloat32:
       opcode = kCheckedLoadFloat32;
       break;
@@ -279,6 +282,9 @@ void InstructionSelector::VisitCheckedStore(Node* node) {
       break;
     case kRepWord32:
       opcode = kCheckedStoreWord32;
+      break;
+    case kRepWord64:
+      opcode = kCheckedStoreWord64;
       break;
     case kRepFloat32:
       opcode = kCheckedStoreFloat32;
@@ -900,6 +906,30 @@ void InstructionSelector::VisitTruncateInt64ToInt32(Node* node) {
 }
 
 
+void InstructionSelector::VisitBitcastFloat32ToInt32(Node* node) {
+  X64OperandGenerator g(this);
+  Emit(kX64BitcastFI, g.DefineAsRegister(node), g.Use(node->InputAt(0)));
+}
+
+
+void InstructionSelector::VisitBitcastFloat64ToInt64(Node* node) {
+  X64OperandGenerator g(this);
+  Emit(kX64BitcastDL, g.DefineAsRegister(node), g.Use(node->InputAt(0)));
+}
+
+
+void InstructionSelector::VisitBitcastInt32ToFloat32(Node* node) {
+  X64OperandGenerator g(this);
+  Emit(kX64BitcastIF, g.DefineAsRegister(node), g.Use(node->InputAt(0)));
+}
+
+
+void InstructionSelector::VisitBitcastInt64ToFloat64(Node* node) {
+  X64OperandGenerator g(this);
+  Emit(kX64BitcastLD, g.DefineAsRegister(node), g.Use(node->InputAt(0)));
+}
+
+
 void InstructionSelector::VisitFloat32Add(Node* node) {
   VisitFloatBinop(this, node, kAVXFloat32Add, kSSEFloat32Add);
 }
@@ -1053,21 +1083,26 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
 
     // Poke any stack arguments.
     for (size_t n = 0; n < buffer.pushed_nodes.size(); ++n) {
-      if (Node* node = buffer.pushed_nodes[n]) {
-        int const slot = static_cast<int>(n);
-        InstructionOperand value =
-            g.CanBeImmediate(node) ? g.UseImmediate(node) : g.UseRegister(node);
+      if (Node* input = buffer.pushed_nodes[n]) {
+        int slot = static_cast<int>(n);
+        InstructionOperand value = g.CanBeImmediate(input)
+                                       ? g.UseImmediate(input)
+                                       : g.UseRegister(input);
         Emit(kX64Poke | MiscField::encode(slot), g.NoOutput(), value);
       }
     }
   } else {
     // Push any stack arguments.
-    for (Node* node : base::Reversed(buffer.pushed_nodes)) {
-      // TODO(titzer): handle pushing double parameters.
+    for (Node* input : base::Reversed(buffer.pushed_nodes)) {
+      // TODO(titzer): X64Push cannot handle stack->stack double moves
+      // because there is no way to encode fixed double slots.
       InstructionOperand value =
-          g.CanBeImmediate(node)
-              ? g.UseImmediate(node)
-              : IsSupported(ATOM) ? g.UseRegister(node) : g.Use(node);
+          g.CanBeImmediate(input)
+              ? g.UseImmediate(input)
+              : IsSupported(ATOM) ||
+                        sequence()->IsFloat(GetVirtualRegister(input))
+                    ? g.UseRegister(input)
+                    : g.Use(input);
       Emit(kX64Push, g.NoOutput(), value);
     }
   }
@@ -1156,12 +1191,12 @@ void InstructionSelector::VisitTailCall(Node* node) {
     InitializeCallBuffer(node, &buffer, true, true);
 
     // Push any stack arguments.
-    for (Node* node : base::Reversed(buffer.pushed_nodes)) {
+    for (Node* input : base::Reversed(buffer.pushed_nodes)) {
       // TODO(titzer): Handle pushing double parameters.
       InstructionOperand value =
-          g.CanBeImmediate(node)
-              ? g.UseImmediate(node)
-              : IsSupported(ATOM) ? g.UseRegister(node) : g.Use(node);
+          g.CanBeImmediate(input)
+              ? g.UseImmediate(input)
+              : IsSupported(ATOM) ? g.UseRegister(input) : g.Use(input);
       Emit(kX64Push, g.NoOutput(), value);
     }
 

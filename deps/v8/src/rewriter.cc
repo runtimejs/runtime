@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
+#include "src/rewriter.h"
 
 #include "src/ast.h"
 #include "src/parser.h"
-#include "src/rewriter.h"
 #include "src/scopes.h"
 
 namespace v8 {
@@ -191,6 +190,12 @@ void Processor::VisitWithStatement(WithStatement* node) {
 }
 
 
+void Processor::VisitSloppyBlockFunctionStatement(
+    SloppyBlockFunctionStatement* node) {
+  Visit(node->statement());
+}
+
+
 // Do nothing:
 void Processor::VisitVariableDeclaration(VariableDeclaration* node) {}
 void Processor::VisitFunctionDeclaration(FunctionDeclaration* node) {}
@@ -211,7 +216,7 @@ EXPRESSION_NODE_LIST(DEF_VISIT)
 // Assumes code has been parsed.  Mutates the AST, so the AST should not
 // continue to be used in the case of failure.
 bool Rewriter::Rewrite(ParseInfo* info) {
-  FunctionLiteral* function = info->function();
+  FunctionLiteral* function = info->literal();
   DCHECK(function != NULL);
   Scope* scope = function->scope();
   DCHECK(scope != NULL);

@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var $observeNotifyChange;
 var $observeEnqueueSpliceRecord;
 var $observeBeginPerformSplice;
 var $observeEndPerformSplice;
-var $observeNativeObjectObserve;
-var $observeNativeObjectGetNotifier;
-var $observeNativeObjectNotifierPerformChange;
+
+var $observeObjectMethods;
+var $observeArrayMethods;
 
 (function(global, utils) {
 
@@ -179,12 +178,12 @@ function ObserverCreate(callback, acceptList) {
 
 
 function ObserverGetCallback(observer) {
-  return IS_SPEC_FUNCTION(observer) ? observer : observer.callback;
+  return IS_CALLABLE(observer) ? observer : observer.callback;
 }
 
 
 function ObserverGetAcceptTypes(observer) {
-  return IS_SPEC_FUNCTION(observer) ? defaultAcceptTypes : observer.accept;
+  return IS_CALLABLE(observer) ? defaultAcceptTypes : observer.accept;
 }
 
 
@@ -239,8 +238,8 @@ function ObjectInfoGetNotifier(objectInfo) {
 
 
 function ChangeObserversIsOptimized(changeObservers) {
-  return IS_SPEC_FUNCTION(changeObservers) ||
-         IS_SPEC_FUNCTION(changeObservers.callback);
+  return IS_CALLABLE(changeObservers) ||
+         IS_CALLABLE(changeObservers.callback);
 }
 
 
@@ -331,7 +330,7 @@ function ConvertAcceptListToTypeMap(arg) {
 
   if (!IS_SPEC_OBJECT(arg)) throw MakeTypeError(kObserveInvalidAccept);
 
-  var len = $toInteger(arg.length);
+  var len = TO_INTEGER(arg.length);
   if (len < 0) len = 0;
 
   return TypeMapCreateFromList(arg, len);
@@ -389,7 +388,9 @@ function ObjectObserve(object, callback, acceptList) {
     throw MakeTypeError(kObserveNonObject, "observe", "observe");
   if (%IsJSGlobalProxy(object))
     throw MakeTypeError(kObserveGlobalProxy, "observe");
-  if (!IS_SPEC_FUNCTION(callback))
+  if (%IsAccessCheckNeeded(object))
+    throw MakeTypeError(kObserveAccessChecked, "observe");
+  if (!IS_CALLABLE(callback))
     throw MakeTypeError(kObserveNonFunction, "observe");
   if (ObjectIsFrozen(callback))
     throw MakeTypeError(kObserveCallbackFrozen);
@@ -412,7 +413,7 @@ function ObjectUnobserve(object, callback) {
     throw MakeTypeError(kObserveNonObject, "unobserve", "unobserve");
   if (%IsJSGlobalProxy(object))
     throw MakeTypeError(kObserveGlobalProxy, "unobserve");
-  if (!IS_SPEC_FUNCTION(callback))
+  if (!IS_CALLABLE(callback))
     throw MakeTypeError(kObserveNonFunction, "unobserve");
 
   var objectInfo = ObjectInfoGet(object);
@@ -589,7 +590,7 @@ function ObjectNotifierPerformChange(changeType, changeFn) {
     throw MakeTypeError(kObserveNotifyNonNotifier);
   if (!IS_STRING(changeType))
     throw MakeTypeError(kObservePerformNonString);
-  if (!IS_SPEC_FUNCTION(changeFn))
+  if (!IS_CALLABLE(changeFn))
     throw MakeTypeError(kObservePerformNonFunction);
 
   var performChangeFn = %GetObjectContextNotifierPerformChange(objectInfo);
@@ -602,7 +603,7 @@ function NativeObjectNotifierPerformChange(objectInfo, changeType, changeFn) {
 
   var changeRecord;
   try {
-    changeRecord = %_CallFunction(UNDEFINED, changeFn);
+    changeRecord = changeFn();
   } finally {
     ObjectInfoRemovePerformingType(objectInfo, changeType);
   }
@@ -617,6 +618,8 @@ function ObjectGetNotifier(object) {
     throw MakeTypeError(kObserveNonObject, "getNotifier", "getNotifier");
   if (%IsJSGlobalProxy(object))
     throw MakeTypeError(kObserveGlobalProxy, "getNotifier");
+  if (%IsAccessCheckNeeded(object))
+    throw MakeTypeError(kObserveAccessChecked, "getNotifier");
 
   if (ObjectIsFrozen(object)) return null;
 
@@ -657,7 +660,7 @@ function CallbackDeliverPending(callback) {
 
 
 function ObjectDeliverChangeRecords(callback) {
-  if (!IS_SPEC_FUNCTION(callback))
+  if (!IS_CALLABLE(callback))
     throw MakeTypeError(kObserveNonFunction, "deliverChangeRecords");
 
   while (CallbackDeliverPending(callback)) {}
@@ -676,27 +679,42 @@ function ObserveMicrotaskRunner() {
 
 // -------------------------------------------------------------------
 
-utils.InstallFunctions(GlobalObject, DONT_ENUM, [
-  "deliverChangeRecords", ObjectDeliverChangeRecords,
-  "getNotifier", ObjectGetNotifier,
-  "observe", ObjectObserve,
-  "unobserve", ObjectUnobserve
-]);
-utils.InstallFunctions(GlobalArray, DONT_ENUM, [
-  "observe", ArrayObserve,
-  "unobserve", ArrayUnobserve
-]);
 utils.InstallFunctions(notifierPrototype, DONT_ENUM, [
   "notify", ObjectNotifierNotify,
   "performChange", ObjectNotifierPerformChange
 ]);
 
-$observeNotifyChange = NotifyChange;
+$observeObjectMethods = [
+  "deliverChangeRecords", ObjectDeliverChangeRecords,
+  "getNotifier", ObjectGetNotifier,
+  "observe", ObjectObserve,
+  "unobserve", ObjectUnobserve
+];
+$observeArrayMethods = [
+  "observe", ArrayObserve,
+  "unobserve", ArrayUnobserve
+];
+
+// TODO(adamk): Figure out why this prototype removal has to
+// happen as part of initial snapshotting.
+var removePrototypeFn = function(f, i) {
+  if (i % 2 === 1) %FunctionRemovePrototype(f);
+};
+$observeObjectMethods.forEach(removePrototypeFn);
+$observeArrayMethods.forEach(removePrototypeFn);
+
 $observeEnqueueSpliceRecord = EnqueueSpliceRecord;
 $observeBeginPerformSplice = BeginPerformSplice;
 $observeEndPerformSplice = EndPerformSplice;
-$observeNativeObjectObserve = NativeObjectObserve;
-$observeNativeObjectGetNotifier = NativeObjectGetNotifier;
-$observeNativeObjectNotifierPerformChange = NativeObjectNotifierPerformChange;
+
+%InstallToContext([
+  "native_object_get_notifier", NativeObjectGetNotifier,
+  "native_object_notifier_perform_change", NativeObjectNotifierPerformChange,
+  "native_object_observe", NativeObjectObserve,
+  "observers_begin_perform_splice", BeginPerformSplice,
+  "observers_end_perform_splice", EndPerformSplice,
+  "observers_enqueue_splice", EnqueueSpliceRecord,
+  "observers_notify_change", NotifyChange,
+]);
 
 })

@@ -5,21 +5,6 @@
 // -------------------------------------------------------------------
 
 var $errorToString;
-var $getStackTraceLine;
-var $messageGetPositionInLine;
-var $messageGetLineNumber;
-var $messageGetSourceLine;
-var $noSideEffectToString;
-var $stackOverflowBoilerplate;
-var $stackTraceSymbol;
-var $toDetailString;
-var $Error;
-var $EvalError;
-var $RangeError;
-var $ReferenceError;
-var $SyntaxError;
-var $TypeError;
-var $URIError;
 var MakeError;
 var MakeEvalError;
 var MakeRangeError;
@@ -35,22 +20,58 @@ var MakeURIError;
 // -------------------------------------------------------------------
 // Imports
 
-var GlobalObject = global.Object;
-var InternalArray = utils.InternalArray;
-var ObjectDefineProperty = utils.ObjectDefineProperty;
-
 var ArrayJoin;
+var Bool16x8ToString;
+var Bool32x4ToString;
+var Bool8x16ToString;
+var callSiteReceiverSymbol =
+    utils.ImportNow("call_site_receiver_symbol");
+var callSiteFunctionSymbol =
+    utils.ImportNow("call_site_function_symbol");
+var callSitePositionSymbol =
+    utils.ImportNow("call_site_position_symbol");
+var callSiteStrictSymbol =
+    utils.ImportNow("call_site_strict_symbol");
+var Float32x4ToString;
+var formattedStackTraceSymbol =
+    utils.ImportNow("formatted_stack_trace_symbol");
+var FunctionSourceString
+var GlobalObject = global.Object;
+var Int16x8ToString;
+var Int32x4ToString;
+var Int8x16ToString;
+var InternalArray = utils.InternalArray;
+var internalErrorSymbol = utils.ImportNow("internal_error_symbol");
+var ObjectDefineProperty;
 var ObjectToString;
+var stackTraceSymbol = utils.ImportNow("stack_trace_symbol");
 var StringCharAt;
 var StringIndexOf;
 var StringSubstring;
+var SymbolToString;
+var Uint16x8ToString;
+var Uint32x4ToString;
+var Uint8x16ToString;
 
 utils.Import(function(from) {
   ArrayJoin = from.ArrayJoin;
+  Bool16x8ToString = from.Bool16x8ToString;
+  Bool32x4ToString = from.Bool32x4ToString;
+  Bool8x16ToString = from.Bool8x16ToString;
+  Float32x4ToString = from.Float32x4ToString;
+  FunctionSourceString = from.FunctionSourceString;
+  Int16x8ToString = from.Int16x8ToString;
+  Int32x4ToString = from.Int32x4ToString;
+  Int8x16ToString = from.Int8x16ToString;
+  ObjectDefineProperty = from.ObjectDefineProperty;
   ObjectToString = from.ObjectToString;
   StringCharAt = from.StringCharAt;
   StringIndexOf = from.StringIndexOf;
   StringSubstring = from.StringSubstring;
+  SymbolToString = from.SymbolToString;
+  Uint16x8ToString = from.Uint16x8ToString;
+  Uint32x4ToString = from.Uint32x4ToString;
+  Uint8x16ToString = from.Uint8x16ToString;
 });
 
 // -------------------------------------------------------------------
@@ -65,9 +86,9 @@ var GlobalEvalError;
 
 
 function NoSideEffectsObjectToString() {
-  if (IS_UNDEFINED(this) && !IS_UNDETECTABLE(this)) return "[object Undefined]";
+  if (IS_UNDEFINED(this)) return "[object Undefined]";
   if (IS_NULL(this)) return "[object Null]";
-  return "[object " + %_ClassOf(TO_OBJECT_INLINE(this)) + "]";
+  return "[object " + %_ClassOf(TO_OBJECT(this)) + "]";
 }
 
 
@@ -78,14 +99,28 @@ function NoSideEffectToString(obj) {
   if (IS_UNDEFINED(obj)) return 'undefined';
   if (IS_NULL(obj)) return 'null';
   if (IS_FUNCTION(obj)) {
-    var str = %_CallFunction(obj, obj, $functionSourceString);
+    var str = %_CallFunction(obj, obj, FunctionSourceString);
     if (str.length > 128) {
       str = %_SubString(str, 0, 111) + "...<omitted>..." +
             %_SubString(str, str.length - 2, str.length);
     }
     return str;
   }
-  if (IS_SYMBOL(obj)) return %_CallFunction(obj, $symbolToString);
+  if (IS_SYMBOL(obj)) return %_CallFunction(obj, SymbolToString);
+  if (IS_SIMD_VALUE(obj)) {
+    switch (typeof(obj)) {
+      case 'float32x4': return %_CallFunction(obj, Float32x4ToString);
+      case 'int32x4':   return %_CallFunction(obj, Int32x4ToString);
+      case 'int16x8':   return %_CallFunction(obj, Int16x8ToString);
+      case 'int8x16':   return %_CallFunction(obj, Int8x16ToString);
+      case 'uint32x4':   return %_CallFunction(obj, Uint32x4ToString);
+      case 'uint16x8':   return %_CallFunction(obj, Uint16x8ToString);
+      case 'uint8x16':   return %_CallFunction(obj, Uint8x16ToString);
+      case 'bool32x4':  return %_CallFunction(obj, Bool32x4ToString);
+      case 'bool16x8':  return %_CallFunction(obj, Bool16x8ToString);
+      case 'bool8x16':  return %_CallFunction(obj, Bool8x16ToString);
+    }
+  }
   if (IS_OBJECT(obj)
       && %GetDataProperty(obj, "toString") === ObjectToString) {
     var constructor = %GetDataProperty(obj, "constructor");
@@ -133,7 +168,7 @@ function ToStringCheckErrorObject(obj) {
   if (CanBeSafelyTreatedAsAnErrorObject(obj)) {
     return %_CallFunction(obj, ErrorToString);
   } else {
-    return $toString(obj);
+    return TO_STRING(obj);
   }
 }
 
@@ -153,8 +188,9 @@ function ToDetailString(obj) {
 
 
 function MakeGenericError(constructor, type, arg0, arg1, arg2) {
-  if (IS_UNDEFINED(arg0) && IS_STRING(type)) arg0 = [];
-  return new constructor(FormatMessage(type, arg0, arg1, arg2));
+  var error = new constructor(FormatMessage(type, arg0, arg1, arg2));
+  error[internalErrorSymbol] = true;
+  return error;
 }
 
 
@@ -193,6 +229,16 @@ function GetLineNumber(message) {
 }
 
 
+//Returns the offset of the given position within the containing line.
+function GetColumnNumber(message) {
+  var script = %MessageGetScript(message);
+  var start_position = %MessageGetStartPosition(message);
+  var location = script.locationFromPosition(start_position, true);
+  if (location == null) return -1;
+  return location.column;
+}
+
+
 // Returns the source code line containing the given source
 // position, or the empty string if the position is invalid.
 function GetSourceLine(message) {
@@ -202,6 +248,7 @@ function GetSourceLine(message) {
   if (location == null) return "";
   return location.sourceText();
 }
+
 
 /**
  * Find a line number given a specific source position.
@@ -536,17 +583,6 @@ utils.SetUpLockedPrototype(SourceSlice,
 );
 
 
-// Returns the offset of the given position within the containing
-// line.
-function GetPositionInLine(message) {
-  var script = %MessageGetScript(message);
-  var start_position = %MessageGetStartPosition(message);
-  var location = script.locationFromPosition(start_position, false);
-  if (location == null) return -1;
-  return start_position - location.start;
-}
-
-
 function GetStackTraceLine(recv, fun, pos, isGlobal) {
   return new CallSite(recv, fun, pos, false).toString();
 }
@@ -554,112 +590,77 @@ function GetStackTraceLine(recv, fun, pos, isGlobal) {
 // ----------------------------------------------------------------------------
 // Error implementation
 
-var CallSiteReceiverKey = NEW_PRIVATE("CallSite#receiver");
-var CallSiteFunctionKey = NEW_PRIVATE("CallSite#function");
-var CallSitePositionKey = NEW_PRIVATE("CallSite#position");
-var CallSiteStrictModeKey = NEW_PRIVATE("CallSite#strict_mode");
-
 function CallSite(receiver, fun, pos, strict_mode) {
-  SET_PRIVATE(this, CallSiteReceiverKey, receiver);
-  SET_PRIVATE(this, CallSiteFunctionKey, fun);
-  SET_PRIVATE(this, CallSitePositionKey, pos);
-  SET_PRIVATE(this, CallSiteStrictModeKey, strict_mode);
+  SET_PRIVATE(this, callSiteReceiverSymbol, receiver);
+  SET_PRIVATE(this, callSiteFunctionSymbol, fun);
+  SET_PRIVATE(this, callSitePositionSymbol, pos);
+  SET_PRIVATE(this, callSiteStrictSymbol, strict_mode);
 }
 
 function CallSiteGetThis() {
-  return GET_PRIVATE(this, CallSiteStrictModeKey)
-      ? UNDEFINED : GET_PRIVATE(this, CallSiteReceiverKey);
+  return GET_PRIVATE(this, callSiteStrictSymbol)
+      ? UNDEFINED : GET_PRIVATE(this, callSiteReceiverSymbol);
 }
 
 function CallSiteGetFunction() {
-  return GET_PRIVATE(this, CallSiteStrictModeKey)
-      ? UNDEFINED : GET_PRIVATE(this, CallSiteFunctionKey);
+  return GET_PRIVATE(this, callSiteStrictSymbol)
+      ? UNDEFINED : GET_PRIVATE(this, callSiteFunctionSymbol);
 }
 
 function CallSiteGetPosition() {
-  return GET_PRIVATE(this, CallSitePositionKey);
+  return GET_PRIVATE(this, callSitePositionSymbol);
 }
 
 function CallSiteGetTypeName() {
-  return GetTypeName(GET_PRIVATE(this, CallSiteReceiverKey), false);
+  return GetTypeName(GET_PRIVATE(this, callSiteReceiverSymbol), false);
 }
 
 function CallSiteIsToplevel() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteIsToplevelRT(receiver, fun, pos);
+  return %CallSiteIsToplevelRT(this);
 }
 
 function CallSiteIsEval() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteIsEvalRT(receiver, fun, pos);
+  return %CallSiteIsEvalRT(this);
 }
 
 function CallSiteGetEvalOrigin() {
-  var script = %FunctionGetScript(GET_PRIVATE(this, CallSiteFunctionKey));
+  var script = %FunctionGetScript(GET_PRIVATE(this, callSiteFunctionSymbol));
   return FormatEvalOrigin(script);
 }
 
 function CallSiteGetScriptNameOrSourceURL() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetScriptNameOrSourceUrlRT(receiver, fun, pos);
+  return %CallSiteGetScriptNameOrSourceUrlRT(this);
 }
 
 function CallSiteGetFunctionName() {
   // See if the function knows its own name
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetFunctionNameRT(receiver, fun, pos);
+  return %CallSiteGetFunctionNameRT(this);
 }
 
 function CallSiteGetMethodName() {
   // See if we can find a unique property on the receiver that holds
   // this function.
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetMethodNameRT(receiver, fun, pos);
+  return %CallSiteGetMethodNameRT(this);
 }
 
 function CallSiteGetFileName() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetFileNameRT(receiver, fun, pos);
+  return %CallSiteGetFileNameRT(this);
 }
 
 function CallSiteGetLineNumber() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetLineNumberRT(receiver, fun, pos);
+  return %CallSiteGetLineNumberRT(this);
 }
 
 function CallSiteGetColumnNumber() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteGetColumnNumberRT(receiver, fun, pos);
+  return %CallSiteGetColumnNumberRT(this);
 }
 
 function CallSiteIsNative() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteIsNativeRT(receiver, fun, pos);
+  return %CallSiteIsNativeRT(this);
 }
 
 function CallSiteIsConstructor() {
-  var receiver = GET_PRIVATE(this, CallSiteReceiverKey);
-  var fun = GET_PRIVATE(this, CallSiteFunctionKey);
-  var pos = GET_PRIVATE(this, CallSitePositionKey);
-  return %CallSiteIsConstructorRT(receiver, fun, pos);
+  return %CallSiteIsConstructorRT(this);
 }
 
 function CallSiteToString() {
@@ -698,7 +699,7 @@ function CallSiteToString() {
   var isConstructor = this.isConstructor();
   var isMethodCall = !(this.isToplevel() || isConstructor);
   if (isMethodCall) {
-    var typeName = GetTypeName(GET_PRIVATE(this, CallSiteReceiverKey), true);
+    var typeName = GetTypeName(GET_PRIVATE(this, callSiteReceiverSymbol), true);
     var methodName = this.getMethodName();
     if (functionName) {
       if (typeName &&
@@ -874,8 +875,6 @@ function GetTypeName(receiver, requireConstructor) {
   return constructorName;
 }
 
-var formatted_stack_trace_symbol = NEW_PRIVATE("formatted stack trace");
-
 
 // Format the stack trace if not yet done, and return it.
 // Cache the formatted stack trace on the holder.
@@ -884,10 +883,10 @@ var StackTraceGetter = function() {
   var holder = this;
   while (holder) {
     var formatted_stack_trace =
-      GET_PRIVATE(holder, formatted_stack_trace_symbol);
+      GET_PRIVATE(holder, formattedStackTraceSymbol);
     if (IS_UNDEFINED(formatted_stack_trace)) {
       // No formatted stack trace available.
-      var stack_trace = GET_PRIVATE(holder, $stackTraceSymbol);
+      var stack_trace = GET_PRIVATE(holder, stackTraceSymbol);
       if (IS_UNDEFINED(stack_trace)) {
         // Neither formatted nor structured stack trace available.
         // Look further up the prototype chain.
@@ -895,8 +894,8 @@ var StackTraceGetter = function() {
         continue;
       }
       formatted_stack_trace = FormatStackTrace(holder, stack_trace);
-      SET_PRIVATE(holder, $stackTraceSymbol, UNDEFINED);
-      SET_PRIVATE(holder, formatted_stack_trace_symbol, formatted_stack_trace);
+      SET_PRIVATE(holder, stackTraceSymbol, UNDEFINED);
+      SET_PRIVATE(holder, formattedStackTraceSymbol, formatted_stack_trace);
     }
     return formatted_stack_trace;
   }
@@ -907,9 +906,9 @@ var StackTraceGetter = function() {
 // If the receiver equals the holder, set the formatted stack trace that the
 // getter returns.
 var StackTraceSetter = function(v) {
-  if (HAS_PRIVATE(this, $stackTraceSymbol)) {
-    SET_PRIVATE(this, $stackTraceSymbol, UNDEFINED);
-    SET_PRIVATE(this, formatted_stack_trace_symbol, v);
+  if (HAS_PRIVATE(this, stackTraceSymbol)) {
+    SET_PRIVATE(this, stackTraceSymbol, UNDEFINED);
+    SET_PRIVATE(this, formattedStackTraceSymbol, v);
   }
 };
 
@@ -953,7 +952,7 @@ function DefineError(global, f) {
       // object. This avoids going through getters and setters defined
       // on prototype objects.
       if (!IS_UNDEFINED(m)) {
-        %AddNamedProperty(this, 'message', $toString(m), DONT_ENUM);
+        %AddNamedProperty(this, 'message', TO_STRING(m), DONT_ENUM);
       }
     } else {
       return new f(m);
@@ -973,101 +972,25 @@ GlobalURIError = DefineError(global, function URIError() { });
 
 %AddNamedProperty(GlobalError.prototype, 'message', '', DONT_ENUM);
 
-// Global list of error objects visited during ErrorToString. This is
-// used to detect cycles in error toString formatting.
-var visited_errors = new InternalArray();
-var cyclic_error_marker = new GlobalObject();
-
-function GetPropertyWithoutInvokingMonkeyGetters(error, name) {
-  var current = error;
-  // Climb the prototype chain until we find the holder.
-  while (current && !%HasOwnProperty(current, name)) {
-    current = %_GetPrototype(current);
-  }
-  if (IS_NULL(current)) return UNDEFINED;
-  if (!IS_OBJECT(current)) return error[name];
-  // If the property is an accessor on one of the predefined errors that can be
-  // generated statically by the compiler, don't touch it. This is to address
-  // http://code.google.com/p/chromium/issues/detail?id=69187
-  var desc = %GetOwnProperty(current, name);
-  if (desc && desc[IS_ACCESSOR_INDEX]) {
-    var isName = name === "name";
-    if (current === GlobalReferenceError.prototype)
-      return isName ? "ReferenceError" : UNDEFINED;
-    if (current === GlobalSyntaxError.prototype)
-      return isName ? "SyntaxError" : UNDEFINED;
-    if (current === GlobalTypeError.prototype)
-      return isName ? "TypeError" : UNDEFINED;
-  }
-  // Otherwise, read normally.
-  return error[name];
-}
-
-function ErrorToStringDetectCycle(error) {
-  if (!%PushIfAbsent(visited_errors, error)) throw cyclic_error_marker;
-  try {
-    var name = GetPropertyWithoutInvokingMonkeyGetters(error, "name");
-    name = IS_UNDEFINED(name) ? "Error" : TO_STRING_INLINE(name);
-    var message = GetPropertyWithoutInvokingMonkeyGetters(error, "message");
-    message = IS_UNDEFINED(message) ? "" : TO_STRING_INLINE(message);
-    if (name === "") return message;
-    if (message === "") return name;
-    return name + ": " + message;
-  } finally {
-    visited_errors.length = visited_errors.length - 1;
-  }
-}
-
 function ErrorToString() {
   if (!IS_SPEC_OBJECT(this)) {
     throw MakeTypeError(kCalledOnNonObject, "Error.prototype.toString");
   }
 
-  try {
-    return ErrorToStringDetectCycle(this);
-  } catch(e) {
-    // If this error message was encountered already return the empty
-    // string for it instead of recursively formatting it.
-    if (e === cyclic_error_marker) {
-      return '';
-    }
-    throw e;
-  }
+  return %ErrorToStringRT(this);
 }
 
 utils.InstallFunctions(GlobalError.prototype, DONT_ENUM,
                        ['toString', ErrorToString]);
 
 $errorToString = ErrorToString;
-$getStackTraceLine = GetStackTraceLine;
-$messageGetPositionInLine = GetPositionInLine;
-$messageGetLineNumber = GetLineNumber;
-$messageGetSourceLine = GetSourceLine;
-$noSideEffectToString = NoSideEffectToString;
-$toDetailString = ToDetailString;
-
-$Error = GlobalError;
-$EvalError = GlobalEvalError;
-$RangeError = GlobalRangeError;
-$ReferenceError = GlobalReferenceError;
-$SyntaxError = GlobalSyntaxError;
-$TypeError = GlobalTypeError;
-$URIError = GlobalURIError;
 
 MakeError = function(type, arg0, arg1, arg2) {
   return MakeGenericError(GlobalError, type, arg0, arg1, arg2);
 }
 
-MakeEvalError = function(type, arg0, arg1, arg2) {
-  return MakeGenericError(GlobalEvalError, type, arg0, arg1, arg2);
-}
-
 MakeRangeError = function(type, arg0, arg1, arg2) {
   return MakeGenericError(GlobalRangeError, type, arg0, arg1, arg2);
-}
-
-MakeReferenceError = function(type, arg0, arg1, arg2) {
-  return MakeGenericError(GlobalReferenceError, type, arg0, arg1, arg2);
 }
 
 MakeSyntaxError = function(type, arg0, arg1, arg2) {
@@ -1084,8 +1007,8 @@ MakeURIError = function() {
 
 // Boilerplate for exceptions for stack overflows. Used from
 // Isolate::StackOverflow().
-$stackOverflowBoilerplate = MakeRangeError(kStackOverflow);
-%DefineAccessorPropertyUnchecked($stackOverflowBoilerplate, 'stack',
+var StackOverflowBoilerplate = MakeRangeError(kStackOverflow);
+%DefineAccessorPropertyUnchecked(StackOverflowBoilerplate, 'stack',
                                  StackTraceGetter, StackTraceSetter,
                                  DONT_ENUM);
 
@@ -1099,5 +1022,25 @@ captureStackTrace = function captureStackTrace(obj, cons_opt) {
 };
 
 GlobalError.captureStackTrace = captureStackTrace;
+
+%InstallToContext([
+  "error_function", GlobalError,
+  "eval_error_function", GlobalEvalError,
+  "get_stack_trace_line_fun", GetStackTraceLine,
+  "make_error_function", MakeGenericError,
+  "make_range_error", MakeRangeError,
+  "make_type_error", MakeTypeError,
+  "message_get_column_number", GetColumnNumber,
+  "message_get_line_number", GetLineNumber,
+  "message_get_source_line", GetSourceLine,
+  "no_side_effect_to_string_fun", NoSideEffectToString,
+  "range_error_function", GlobalRangeError,
+  "reference_error_function", GlobalReferenceError,
+  "stack_overflow_boilerplate", StackOverflowBoilerplate,
+  "syntax_error_function", GlobalSyntaxError,
+  "to_detail_string_fun", ToDetailString,
+  "type_error_function", GlobalTypeError,
+  "uri_error_function", GlobalURIError,
+]);
 
 });

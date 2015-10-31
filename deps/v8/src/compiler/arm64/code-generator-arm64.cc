@@ -4,10 +4,12 @@
 
 #include "src/compiler/code-generator.h"
 
+#include "src/arm64/frames-arm64.h"
 #include "src/arm64/macro-assembler-arm64.h"
 #include "src/compiler/code-generator-impl.h"
 #include "src/compiler/gap-resolver.h"
 #include "src/compiler/node-matchers.h"
+#include "src/compiler/osr.h"
 #include "src/scopes.h"
 
 namespace v8 {
@@ -184,12 +186,9 @@ class Arm64OperandConverter final : public InstructionOperandConverter {
 
   MemOperand ToMemOperand(InstructionOperand* op, MacroAssembler* masm) const {
     DCHECK(op != NULL);
-    DCHECK(!op->IsRegister());
-    DCHECK(!op->IsDoubleRegister());
     DCHECK(op->IsStackSlot() || op->IsDoubleStackSlot());
-    // The linkage computes where all spill slots are located.
-    FrameOffset offset = linkage()->GetFrameOffset(
-        AllocatedOperand::cast(op)->index(), frame(), 0);
+    FrameOffset offset =
+        linkage()->GetFrameOffset(AllocatedOperand::cast(op)->index(), frame());
     return MemOperand(offset.from_stack_pointer() ? masm->StackPointer() : fp,
                       offset.offset());
   }
@@ -260,6 +259,22 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
       return ls;
     case kUnsignedGreaterThan:
       return hi;
+    case kFloatLessThanOrUnordered:
+      return lt;
+    case kFloatGreaterThanOrEqual:
+      return ge;
+    case kFloatLessThanOrEqual:
+      return ls;
+    case kFloatGreaterThanOrUnordered:
+      return hi;
+    case kFloatLessThan:
+      return lo;
+    case kFloatGreaterThanOrEqualOrUnordered:
+      return hs;
+    case kFloatLessThanOrEqualOrUnordered:
+      return le;
+    case kFloatGreaterThan:
+      return gt;
     case kOverflow:
       return vs;
     case kNotOverflow:
@@ -303,6 +318,20 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
   } while (0)
 
 
+#define ASSEMBLE_CHECKED_LOAD_INTEGER_64(asm_instr)          \
+  do {                                                       \
+    auto result = i.OutputRegister();                        \
+    auto buffer = i.InputRegister(0);                        \
+    auto offset = i.InputRegister32(1);                      \
+    auto length = i.InputOperand32(2);                       \
+    __ Cmp(offset, length);                                  \
+    auto ool = new (zone()) OutOfLineLoadZero(this, result); \
+    __ B(hs, ool->entry());                                  \
+    __ asm_instr(result, MemOperand(buffer, offset, UXTW));  \
+    __ Bind(ool->exit());                                    \
+  } while (0)
+
+
 #define ASSEMBLE_CHECKED_STORE_FLOAT(width)          \
   do {                                               \
     auto buffer = i.InputRegister(0);                \
@@ -323,6 +352,20 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
     auto offset = i.InputRegister32(1);                    \
     auto length = i.InputOperand32(2);                     \
     auto value = i.InputRegister32(3);                     \
+    __ Cmp(offset, length);                                \
+    Label done;                                            \
+    __ B(hs, &done);                                       \
+    __ asm_instr(value, MemOperand(buffer, offset, UXTW)); \
+    __ Bind(&done);                                        \
+  } while (0)
+
+
+#define ASSEMBLE_CHECKED_STORE_INTEGER_64(asm_instr)       \
+  do {                                                     \
+    auto buffer = i.InputRegister(0);                      \
+    auto offset = i.InputRegister32(1);                    \
+    auto length = i.InputOperand32(2);                     \
+    auto value = i.InputRegister(3);                       \
     __ Cmp(offset, length);                                \
     Label done;                                            \
     __ B(hs, &done);                                       \
@@ -727,8 +770,8 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       } else {
         DCHECK(instr->InputAt(1)->IsImmediate());
         // 0.0 is the only immediate supported by fcmp instructions.
-        DCHECK(i.InputDouble(1) == 0.0);
-        __ Fcmp(i.InputFloat32Register(0), i.InputDouble(1));
+        DCHECK(i.InputFloat32(1) == 0.0f);
+        __ Fcmp(i.InputFloat32Register(0), i.InputFloat32(1));
       }
       break;
     case kArm64Float32Add:
@@ -859,10 +902,12 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ Fmov(i.OutputFloat64Register(), tmp);
       break;
     }
-    case kArm64Float64MoveU64: {
+    case kArm64Float64MoveU64:
       __ Fmov(i.OutputFloat64Register(), i.InputRegister(0));
       break;
-    }
+    case kArm64U64MoveFloat64:
+      __ Fmov(i.OutputRegister(), i.InputDoubleRegister(0));
+      break;
     case kArm64Ldrb:
       __ Ldrb(i.OutputRegister(), i.MemoryOperand());
       break;
@@ -943,6 +988,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     case kCheckedLoadWord32:
       ASSEMBLE_CHECKED_LOAD_INTEGER(Ldr);
       break;
+    case kCheckedLoadWord64:
+      ASSEMBLE_CHECKED_LOAD_INTEGER_64(Ldr);
+      break;
     case kCheckedLoadFloat32:
       ASSEMBLE_CHECKED_LOAD_FLOAT(32);
       break;
@@ -957,6 +1005,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     case kCheckedStoreWord32:
       ASSEMBLE_CHECKED_STORE_INTEGER(Str);
+      break;
+    case kCheckedStoreWord64:
+      ASSEMBLE_CHECKED_STORE_INTEGER_64(Str);
       break;
     case kCheckedStoreFloat32:
       ASSEMBLE_CHECKED_STORE_FLOAT(32);
@@ -1085,41 +1136,22 @@ static int AlignedStackSlots(int stack_slots) {
 
 void CodeGenerator::AssemblePrologue() {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
-  int stack_slots = frame()->GetSpillSlotCount();
   if (descriptor->kind() == CallDescriptor::kCallAddress) {
     __ SetStackPointer(csp);
     __ Push(lr, fp);
     __ Mov(fp, csp);
-
-    // Save FP registers.
-    CPURegList saves_fp = CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
-                                     descriptor->CalleeSavedFPRegisters());
-    DCHECK(saves_fp.list() == CPURegList::GetCalleeSavedFP().list());
-    int saved_count = saves_fp.Count();
-    __ PushCPURegList(saves_fp);
-    // Save registers.
-    CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
-                                  descriptor->CalleeSavedRegisters());
-    // TODO(palfia): TF save list is not in sync with
-    // CPURegList::GetCalleeSaved(): x30 is missing.
-    // DCHECK(saves.list() == CPURegList::GetCalleeSaved().list());
-    saved_count += saves.Count();
-    __ PushCPURegList(saves);
-
-    frame()->SetRegisterSaveAreaSize(saved_count * kPointerSize);
   } else if (descriptor->IsJSFunctionCall()) {
     CompilationInfo* info = this->info();
     __ SetStackPointer(jssp);
     __ Prologue(info->IsCodePreAgingActive());
-    frame()->SetRegisterSaveAreaSize(
-        StandardFrameConstants::kFixedFrameSizeFromFp);
   } else if (needs_frame_) {
     __ SetStackPointer(jssp);
     __ StubPrologue();
-    frame()->SetRegisterSaveAreaSize(
-        StandardFrameConstants::kFixedFrameSizeFromFp);
+  } else {
+    frame()->SetElidedFrameSizeInSlots(0);
   }
 
+  int stack_shrink_slots = frame()->GetSpillSlotCount();
   if (info()->is_osr()) {
     // TurboFan OSR-compiled functions cannot be entered directly.
     __ Abort(kShouldNotDirectlyEnterOsrFunction);
@@ -1132,65 +1164,75 @@ void CodeGenerator::AssemblePrologue() {
     osr_pc_offset_ = __ pc_offset();
     // TODO(titzer): cannot address target function == local #-1
     __ ldr(x1, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-    DCHECK(stack_slots >= frame()->GetOsrStackSlotCount());
-    stack_slots -= frame()->GetOsrStackSlotCount();
+    stack_shrink_slots -= OsrHelper(info()).UnoptimizedFrameSlots();
   }
 
-  if (stack_slots > 0) {
+  if (stack_shrink_slots > 0) {
     Register sp = __ StackPointer();
     if (!sp.Is(csp)) {
-      __ Sub(sp, sp, stack_slots * kPointerSize);
+      __ Sub(sp, sp, stack_shrink_slots * kPointerSize);
     }
-    __ Sub(csp, csp, AlignedStackSlots(stack_slots) * kPointerSize);
+    __ Sub(csp, csp, AlignedStackSlots(stack_shrink_slots) * kPointerSize);
+  }
+
+  // Save FP registers.
+  CPURegList saves_fp = CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
+                                   descriptor->CalleeSavedFPRegisters());
+  int saved_count = saves_fp.Count();
+  if (saved_count != 0) {
+    DCHECK(saves_fp.list() == CPURegList::GetCalleeSavedFP().list());
+    __ PushCPURegList(saves_fp);
+    frame()->AllocateSavedCalleeRegisterSlots(saved_count *
+                                              (kDoubleSize / kPointerSize));
+  }
+  // Save registers.
+  // TODO(palfia): TF save list is not in sync with
+  // CPURegList::GetCalleeSaved(): x30 is missing.
+  // DCHECK(saves.list() == CPURegList::GetCalleeSaved().list());
+  CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
+                                descriptor->CalleeSavedRegisters());
+  saved_count = saves.Count();
+  if (saved_count != 0) {
+    __ PushCPURegList(saves);
+    frame()->AllocateSavedCalleeRegisterSlots(saved_count);
   }
 }
 
 
 void CodeGenerator::AssembleReturn() {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
-  int stack_slots = frame()->GetSpillSlotCount();
+
+  // Restore registers.
+  CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
+                                descriptor->CalleeSavedRegisters());
+  if (saves.Count() != 0) {
+    __ PopCPURegList(saves);
+  }
+
+  // Restore fp registers.
+  CPURegList saves_fp = CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
+                                   descriptor->CalleeSavedFPRegisters());
+  if (saves_fp.Count() != 0) {
+    __ PopCPURegList(saves_fp);
+  }
+
+  int pop_count = static_cast<int>(descriptor->StackParameterCount());
   if (descriptor->kind() == CallDescriptor::kCallAddress) {
-    if (frame()->GetRegisterSaveAreaSize() > 0) {
-      // Remove this frame's spill slots first.
-      if (stack_slots > 0) {
-        __ Add(csp, csp, AlignedStackSlots(stack_slots) * kPointerSize);
-      }
-
-      // Restore registers.
-      CPURegList saves = CPURegList(CPURegister::kRegister, kXRegSizeInBits,
-                                    descriptor->CalleeSavedRegisters());
-      __ PopCPURegList(saves);
-
-      CPURegList saves_fp =
-          CPURegList(CPURegister::kFPRegister, kDRegSizeInBits,
-                     descriptor->CalleeSavedFPRegisters());
-      __ PopCPURegList(saves_fp);
-    }
-
     __ Mov(csp, fp);
     __ Pop(fp, lr);
-    __ Ret();
   } else if (descriptor->IsJSFunctionCall() || needs_frame_) {
     // Canonicalize JSFunction return sites for now.
     if (return_label_.is_bound()) {
       __ B(&return_label_);
+      return;
     } else {
       __ Bind(&return_label_);
       __ Mov(jssp, fp);
       __ Pop(fp, lr);
-      int pop_count = descriptor->IsJSFunctionCall()
-                          ? static_cast<int>(descriptor->JSParameterCount())
-                          : (info()->IsStub()
-                                 ? info()->code_stub()->GetStackParameterCount()
-                                 : 0);
-      if (pop_count != 0) {
-        __ Drop(pop_count);
-      }
-      __ Ret();
     }
-  } else {
-    __ Ret();
   }
+  __ Drop(pop_count);
+  __ Ret();
 }
 
 
@@ -1356,22 +1398,24 @@ void CodeGenerator::AddNopForSmiCodeInlining() { __ movz(xzr, 0); }
 
 
 void CodeGenerator::EnsureSpaceForLazyDeopt() {
+  if (!info()->ShouldEnsureSpaceForLazyDeopt()) {
+    return;
+  }
+
   int space_needed = Deoptimizer::patch_size();
-  if (!info()->IsStub()) {
-    // Ensure that we have enough space after the previous lazy-bailout
-    // instruction for patching the code here.
-    intptr_t current_pc = masm()->pc_offset();
+  // Ensure that we have enough space after the previous lazy-bailout
+  // instruction for patching the code here.
+  intptr_t current_pc = masm()->pc_offset();
 
-    if (current_pc < (last_lazy_deopt_pc_ + space_needed)) {
-      intptr_t padding_size = last_lazy_deopt_pc_ + space_needed - current_pc;
-      DCHECK((padding_size % kInstructionSize) == 0);
-      InstructionAccurateScope instruction_accurate(
-          masm(), padding_size / kInstructionSize);
+  if (current_pc < (last_lazy_deopt_pc_ + space_needed)) {
+    intptr_t padding_size = last_lazy_deopt_pc_ + space_needed - current_pc;
+    DCHECK((padding_size % kInstructionSize) == 0);
+    InstructionAccurateScope instruction_accurate(
+        masm(), padding_size / kInstructionSize);
 
-      while (padding_size > 0) {
-        __ nop();
-        padding_size -= kInstructionSize;
-      }
+    while (padding_size > 0) {
+      __ nop();
+      padding_size -= kInstructionSize;
     }
   }
 }

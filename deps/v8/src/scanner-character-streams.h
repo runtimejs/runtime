@@ -5,10 +5,15 @@
 #ifndef V8_SCANNER_CHARACTER_STREAMS_H_
 #define V8_SCANNER_CHARACTER_STREAMS_H_
 
+#include "src/handles.h"
 #include "src/scanner.h"
+#include "src/vector.h"
 
 namespace v8 {
 namespace internal {
+
+// Forward declarations.
+class ExternalTwoByteString;
 
 // A buffered character stream based on a random access character
 // source (ReadBlock can be called with pos_ pointing to any position,
@@ -94,6 +99,8 @@ class ExternalStreamingStream : public BufferedUtf16CharacterStream {
         current_data_length_(0),
         utf8_split_char_buffer_length_(0),
         bookmark_(0),
+        bookmark_data_is_from_current_data_(false),
+        bookmark_data_offset_(0),
         bookmark_utf8_split_char_buffer_length_(0) {}
 
   virtual ~ExternalStreamingStream() {
@@ -134,6 +141,8 @@ class ExternalStreamingStream : public BufferedUtf16CharacterStream {
   size_t bookmark_;
   Vector<uint16_t> bookmark_buffer_;
   Vector<uint8_t> bookmark_data_;
+  bool bookmark_data_is_from_current_data_;
+  size_t bookmark_data_offset_;
   uint8_t bookmark_utf8_split_char_buffer_[4];
   size_t bookmark_utf8_split_char_buffer_length_;
 };

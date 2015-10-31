@@ -2,16 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #if V8_TARGET_ARCH_X64
 
 #include "src/base/bits.h"
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
-#include "src/debug.h"
+#include "src/debug/debug.h"
 #include "src/heap/heap.h"
 #include "src/x64/assembler-x64.h"
 #include "src/x64/macro-assembler-x64.h"
@@ -700,8 +697,7 @@ void MacroAssembler::JumpToExternalReference(const ExternalReference& ext,
 }
 
 
-void MacroAssembler::InvokeBuiltin(Builtins::JavaScript id,
-                                   InvokeFlag flag,
+void MacroAssembler::InvokeBuiltin(int native_context_index, InvokeFlag flag,
                                    const CallWrapper& call_wrapper) {
   // You can't call a builtin without a valid frame.
   DCHECK(flag == JUMP_FUNCTION || has_frame());
@@ -710,25 +706,25 @@ void MacroAssembler::InvokeBuiltin(Builtins::JavaScript id,
   // arguments match the expected number of arguments. Fake a
   // parameter count to avoid emitting code to do the check.
   ParameterCount expected(0);
-  GetBuiltinEntry(rdx, id);
+  GetBuiltinEntry(rdx, native_context_index);
   InvokeCode(rdx, expected, expected, flag, call_wrapper);
 }
 
 
 void MacroAssembler::GetBuiltinFunction(Register target,
-                                        Builtins::JavaScript id) {
+                                        int native_context_index) {
   // Load the builtins object into target register.
   movp(target, Operand(rsi, Context::SlotOffset(Context::GLOBAL_OBJECT_INDEX)));
-  movp(target, FieldOperand(target, GlobalObject::kBuiltinsOffset));
-  movp(target, FieldOperand(target,
-                            JSBuiltinsObject::OffsetOfFunctionWithId(id)));
+  movp(target, FieldOperand(target, GlobalObject::kNativeContextOffset));
+  movp(target, ContextOperand(target, native_context_index));
 }
 
 
-void MacroAssembler::GetBuiltinEntry(Register target, Builtins::JavaScript id) {
+void MacroAssembler::GetBuiltinEntry(Register target,
+                                     int native_context_index) {
   DCHECK(!target.is(rdi));
   // Load the JavaScript builtin function from the builtins object.
-  GetBuiltinFunction(rdi, id);
+  GetBuiltinFunction(rdi, native_context_index);
   movp(target, FieldOperand(rdi, JSFunction::kCodeEntryOffset));
 }
 
@@ -1380,10 +1376,8 @@ void MacroAssembler::SmiAddConstant(const Operand& dst, Smi* constant) {
 }
 
 
-void MacroAssembler::SmiAddConstant(Register dst,
-                                    Register src,
-                                    Smi* constant,
-                                    SmiOperationExecutionMode mode,
+void MacroAssembler::SmiAddConstant(Register dst, Register src, Smi* constant,
+                                    SmiOperationConstraints constraints,
                                     Label* bailout_label,
                                     Label::Distance near_jump) {
   if (constant->value() == 0) {
@@ -1394,12 +1388,12 @@ void MacroAssembler::SmiAddConstant(Register dst,
     DCHECK(!dst.is(kScratchRegister));
     LoadSmiConstant(kScratchRegister, constant);
     addp(dst, kScratchRegister);
-    if (mode.Contains(BAILOUT_ON_NO_OVERFLOW)) {
+    if (constraints & SmiOperationConstraint::kBailoutOnNoOverflow) {
       j(no_overflow, bailout_label, near_jump);
-      DCHECK(mode.Contains(PRESERVE_SOURCE_REGISTER));
+      DCHECK(constraints & SmiOperationConstraint::kPreserveSourceRegister);
       subp(dst, kScratchRegister);
-    } else if (mode.Contains(BAILOUT_ON_OVERFLOW)) {
-      if (mode.Contains(PRESERVE_SOURCE_REGISTER)) {
+    } else if (constraints & SmiOperationConstraint::kBailoutOnOverflow) {
+      if (constraints & SmiOperationConstraint::kPreserveSourceRegister) {
         Label done;
         j(no_overflow, &done, Label::kNear);
         subp(dst, kScratchRegister);
@@ -1410,11 +1404,11 @@ void MacroAssembler::SmiAddConstant(Register dst,
         j(overflow, bailout_label, near_jump);
       }
     } else {
-      CHECK(mode.IsEmpty());
+      UNREACHABLE();
     }
   } else {
-    DCHECK(mode.Contains(PRESERVE_SOURCE_REGISTER));
-    DCHECK(mode.Contains(BAILOUT_ON_OVERFLOW));
+    DCHECK(constraints & SmiOperationConstraint::kPreserveSourceRegister);
+    DCHECK(constraints & SmiOperationConstraint::kBailoutOnOverflow);
     LoadSmiConstant(dst, constant);
     addp(dst, src);
     j(overflow, bailout_label, near_jump);
@@ -1446,10 +1440,8 @@ void MacroAssembler::SmiSubConstant(Register dst, Register src, Smi* constant) {
 }
 
 
-void MacroAssembler::SmiSubConstant(Register dst,
-                                    Register src,
-                                    Smi* constant,
-                                    SmiOperationExecutionMode mode,
+void MacroAssembler::SmiSubConstant(Register dst, Register src, Smi* constant,
+                                    SmiOperationConstraints constraints,
                                     Label* bailout_label,
                                     Label::Distance near_jump) {
   if (constant->value() == 0) {
@@ -1460,12 +1452,12 @@ void MacroAssembler::SmiSubConstant(Register dst,
     DCHECK(!dst.is(kScratchRegister));
     LoadSmiConstant(kScratchRegister, constant);
     subp(dst, kScratchRegister);
-    if (mode.Contains(BAILOUT_ON_NO_OVERFLOW)) {
+    if (constraints & SmiOperationConstraint::kBailoutOnNoOverflow) {
       j(no_overflow, bailout_label, near_jump);
-      DCHECK(mode.Contains(PRESERVE_SOURCE_REGISTER));
+      DCHECK(constraints & SmiOperationConstraint::kPreserveSourceRegister);
       addp(dst, kScratchRegister);
-    } else if (mode.Contains(BAILOUT_ON_OVERFLOW)) {
-      if (mode.Contains(PRESERVE_SOURCE_REGISTER)) {
+    } else if (constraints & SmiOperationConstraint::kBailoutOnOverflow) {
+      if (constraints & SmiOperationConstraint::kPreserveSourceRegister) {
         Label done;
         j(no_overflow, &done, Label::kNear);
         addp(dst, kScratchRegister);
@@ -1476,11 +1468,11 @@ void MacroAssembler::SmiSubConstant(Register dst,
         j(overflow, bailout_label, near_jump);
       }
     } else {
-      CHECK(mode.IsEmpty());
+      UNREACHABLE();
     }
   } else {
-    DCHECK(mode.Contains(PRESERVE_SOURCE_REGISTER));
-    DCHECK(mode.Contains(BAILOUT_ON_OVERFLOW));
+    DCHECK(constraints & SmiOperationConstraint::kPreserveSourceRegister);
+    DCHECK(constraints & SmiOperationConstraint::kBailoutOnOverflow);
     if (constant->value() == Smi::kMinValue) {
       DCHECK(!dst.is(kScratchRegister));
       movp(dst, src);
@@ -2252,90 +2244,6 @@ void MacroAssembler::Test(const Operand& src, Smi* source) {
 
 
 // ----------------------------------------------------------------------------
-
-
-void MacroAssembler::LookupNumberStringCache(Register object,
-                                             Register result,
-                                             Register scratch1,
-                                             Register scratch2,
-                                             Label* not_found) {
-  // Use of registers. Register result is used as a temporary.
-  Register number_string_cache = result;
-  Register mask = scratch1;
-  Register scratch = scratch2;
-
-  // Load the number string cache.
-  LoadRoot(number_string_cache, Heap::kNumberStringCacheRootIndex);
-
-  // Make the hash mask from the length of the number string cache. It
-  // contains two elements (number and string) for each cache entry.
-  SmiToInteger32(
-      mask, FieldOperand(number_string_cache, FixedArray::kLengthOffset));
-  shrl(mask, Immediate(1));
-  subp(mask, Immediate(1));  // Make mask.
-
-  // Calculate the entry in the number string cache. The hash value in the
-  // number string cache for smis is just the smi value, and the hash for
-  // doubles is the xor of the upper and lower words. See
-  // Heap::GetNumberStringCache.
-  Label is_smi;
-  Label load_result_from_cache;
-  JumpIfSmi(object, &is_smi);
-  CheckMap(object,
-           isolate()->factory()->heap_number_map(),
-           not_found,
-           DONT_DO_SMI_CHECK);
-
-  STATIC_ASSERT(8 == kDoubleSize);
-  movl(scratch, FieldOperand(object, HeapNumber::kValueOffset + 4));
-  xorp(scratch, FieldOperand(object, HeapNumber::kValueOffset));
-  andp(scratch, mask);
-  // Each entry in string cache consists of two pointer sized fields,
-  // but times_twice_pointer_size (multiplication by 16) scale factor
-  // is not supported by addrmode on x64 platform.
-  // So we have to premultiply entry index before lookup.
-  shlp(scratch, Immediate(kPointerSizeLog2 + 1));
-
-  Register index = scratch;
-  Register probe = mask;
-  movp(probe,
-       FieldOperand(number_string_cache,
-                    index,
-                    times_1,
-                    FixedArray::kHeaderSize));
-  JumpIfSmi(probe, not_found);
-  movsd(xmm0, FieldOperand(object, HeapNumber::kValueOffset));
-  ucomisd(xmm0, FieldOperand(probe, HeapNumber::kValueOffset));
-  j(parity_even, not_found);  // Bail out if NaN is involved.
-  j(not_equal, not_found);  // The cache did not contain this value.
-  jmp(&load_result_from_cache);
-
-  bind(&is_smi);
-  SmiToInteger32(scratch, object);
-  andp(scratch, mask);
-  // Each entry in string cache consists of two pointer sized fields,
-  // but times_twice_pointer_size (multiplication by 16) scale factor
-  // is not supported by addrmode on x64 platform.
-  // So we have to premultiply entry index before lookup.
-  shlp(scratch, Immediate(kPointerSizeLog2 + 1));
-
-  // Check if the entry is the smi we are looking for.
-  cmpp(object,
-       FieldOperand(number_string_cache,
-                    index,
-                    times_1,
-                    FixedArray::kHeaderSize));
-  j(not_equal, not_found);
-
-  // Get the result from the cache.
-  bind(&load_result_from_cache);
-  movp(result,
-       FieldOperand(number_string_cache,
-                    index,
-                    times_1,
-                    FixedArray::kHeaderSize + kPointerSize));
-  IncrementCounter(isolate()->counters()->number_to_string_native(), 1);
-}
 
 
 void MacroAssembler::JumpIfNotString(Register object,
@@ -3401,6 +3309,18 @@ void MacroAssembler::AssertName(Register object) {
 }
 
 
+void MacroAssembler::AssertFunction(Register object) {
+  if (emit_debug_code()) {
+    testb(object, Immediate(kSmiTagMask));
+    Check(not_equal, kOperandIsASmiAndNotAFunction);
+    Push(object);
+    CmpObjectType(object, JS_FUNCTION_TYPE, object);
+    Pop(object);
+    Check(equal, kOperandIsNotAFunction);
+  }
+}
+
+
 void MacroAssembler::AssertUndefinedOrAllocationSite(Register object) {
   if (emit_debug_code()) {
     Label done_checking;
@@ -3453,44 +3373,17 @@ void MacroAssembler::GetMapConstructor(Register result, Register map,
   Label done, loop;
   movp(result, FieldOperand(map, Map::kConstructorOrBackPointerOffset));
   bind(&loop);
-  JumpIfSmi(result, &done);
+  JumpIfSmi(result, &done, Label::kNear);
   CmpObjectType(result, MAP_TYPE, temp);
-  j(not_equal, &done);
+  j(not_equal, &done, Label::kNear);
   movp(result, FieldOperand(result, Map::kConstructorOrBackPointerOffset));
   jmp(&loop);
   bind(&done);
 }
 
 
-void MacroAssembler::TryGetFunctionPrototype(Register function,
-                                             Register result,
-                                             Label* miss,
-                                             bool miss_on_bound_function) {
-  Label non_instance;
-  if (miss_on_bound_function) {
-    // Check that the receiver isn't a smi.
-    testl(function, Immediate(kSmiTagMask));
-    j(zero, miss);
-
-    // Check that the function really is a function.
-    CmpObjectType(function, JS_FUNCTION_TYPE, result);
-    j(not_equal, miss);
-
-    movp(kScratchRegister,
-         FieldOperand(function, JSFunction::kSharedFunctionInfoOffset));
-    // It's not smi-tagged (stored in the top half of a smi-tagged 8-byte
-    // field).
-    TestBitSharedFunctionInfoSpecialField(kScratchRegister,
-        SharedFunctionInfo::kCompilerHintsOffset,
-        SharedFunctionInfo::kBoundFunction);
-    j(not_zero, miss);
-
-    // Make sure that the function has an instance prototype.
-    testb(FieldOperand(result, Map::kBitFieldOffset),
-          Immediate(1 << Map::kHasNonInstancePrototype));
-    j(not_zero, &non_instance, Label::kNear);
-  }
-
+void MacroAssembler::TryGetFunctionPrototype(Register function, Register result,
+                                             Label* miss) {
   // Get the prototype or initial map from the function.
   movp(result,
        FieldOperand(function, JSFunction::kPrototypeOrInitialMapOffset));
@@ -3508,15 +3401,6 @@ void MacroAssembler::TryGetFunctionPrototype(Register function,
 
   // Get the prototype from the initial map.
   movp(result, FieldOperand(result, Map::kPrototypeOffset));
-
-  if (miss_on_bound_function) {
-    jmp(&done, Label::kNear);
-
-    // Non-instance prototype: Fetch prototype from constructor field
-    // in initial map.
-    bind(&non_instance);
-    GetMapConstructor(result, result, kScratchRegister);
-  }
 
   // All done.
   bind(&done);
@@ -3559,10 +3443,11 @@ void MacroAssembler::DecrementCounter(StatsCounter* counter, int value) {
 
 void MacroAssembler::DebugBreak() {
   Set(rax, 0);  // No arguments.
-  LoadAddress(rbx, ExternalReference(Runtime::kDebugBreak, isolate()));
+  LoadAddress(rbx,
+              ExternalReference(Runtime::kHandleDebuggerStatement, isolate()));
   CEntryStub ces(isolate(), 1);
   DCHECK(AllowThisStubCall(&ces));
-  Call(ces.GetCode(), RelocInfo::DEBUG_BREAK);
+  Call(ces.GetCode(), RelocInfo::DEBUGGER_STATEMENT);
 }
 
 
@@ -3662,10 +3547,10 @@ void MacroAssembler::InvokePrologue(const ParameterCount& expected,
   Label invoke;
   if (expected.is_immediate()) {
     DCHECK(actual.is_immediate());
+    Set(rax, actual.immediate());
     if (expected.immediate() == actual.immediate()) {
       definitely_matches = true;
     } else {
-      Set(rax, actual.immediate());
       if (expected.immediate() ==
               SharedFunctionInfo::kDontAdaptArgumentsSentinel) {
         // Don't worry about adapting arguments for built-ins that
@@ -3683,10 +3568,10 @@ void MacroAssembler::InvokePrologue(const ParameterCount& expected,
       // Expected is in register, actual is immediate. This is the
       // case when we invoke function values without going through the
       // IC mechanism.
+      Set(rax, actual.immediate());
       cmpp(expected.reg(), Immediate(actual.immediate()));
       j(equal, &invoke, Label::kNear);
       DCHECK(expected.reg().is(rbx));
-      Set(rax, actual.immediate());
     } else if (!expected.reg().is(actual.reg())) {
       // Both expected and actual are in (different) registers. This
       // is the case when we invoke functions using call and apply.
@@ -3694,6 +3579,8 @@ void MacroAssembler::InvokePrologue(const ParameterCount& expected,
       j(equal, &invoke, Label::kNear);
       DCHECK(actual.reg().is(rax));
       DCHECK(expected.reg().is(rbx));
+    } else {
+      Move(rax, actual.reg());
     }
   }
 
@@ -3743,6 +3630,13 @@ void MacroAssembler::Prologue(bool code_pre_aging) {
     Push(rsi);  // Callee's context.
     Push(rdi);  // Callee's JS function.
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  movp(vector, Operand(rbp, JavaScriptFrameConstants::kFunctionOffset));
+  movp(vector, FieldOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  movp(vector, FieldOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 
@@ -4308,21 +4202,6 @@ void MacroAssembler::Allocate(Register object_size,
 }
 
 
-void MacroAssembler::UndoAllocationInNewSpace(Register object) {
-  ExternalReference new_space_allocation_top =
-      ExternalReference::new_space_allocation_top_address(isolate());
-
-  // Make sure the object has no tag before resetting top.
-  andp(object, Immediate(~kHeapObjectTagMask));
-  Operand top_operand = ExternalOperand(new_space_allocation_top);
-#ifdef DEBUG
-  cmpp(object, top_operand);
-  Check(below, kUndoAllocationOfNonAllocatedMemory);
-#endif
-  movp(top_operand, object);
-}
-
-
 void MacroAssembler::AllocateHeapNumber(Register result,
                                         Register scratch,
                                         Label* gc_required,
@@ -4600,6 +4479,12 @@ void MacroAssembler::LoadContext(Register dst, int context_chain_length) {
 }
 
 
+void MacroAssembler::LoadGlobalProxy(Register dst) {
+  movp(dst, GlobalObjectOperand());
+  movp(dst, FieldOperand(dst, GlobalObject::kGlobalProxyOffset));
+}
+
+
 void MacroAssembler::LoadTransitionedArrayMapConditional(
     ElementsKind expected_kind,
     ElementsKind transitioned_kind,
@@ -4792,7 +4677,7 @@ CodePatcher::CodePatcher(byte* address, int size)
 
 CodePatcher::~CodePatcher() {
   // Indicate that code has changed.
-  CpuFeatures::FlushICache(address_, size_);
+  Assembler::FlushICacheWithoutIsolate(address_, size_);
 
   // Check that the code was patched as expected.
   DCHECK(masm_.pc_ == address_ + size_);
@@ -5063,13 +4948,21 @@ void MacroAssembler::JumpIfDictionaryInPrototypeChain(
   DCHECK(!(scratch0.is(kScratchRegister) && scratch1.is(kScratchRegister)));
   DCHECK(!scratch1.is(scratch0));
   Register current = scratch0;
-  Label loop_again;
+  Label loop_again, end;
 
   movp(current, object);
+  movp(current, FieldOperand(current, HeapObject::kMapOffset));
+  movp(current, FieldOperand(current, Map::kPrototypeOffset));
+  CompareRoot(current, Heap::kNullValueRootIndex);
+  j(equal, &end);
 
   // Loop based on the map going up the prototype chain.
   bind(&loop_again);
   movp(current, FieldOperand(current, HeapObject::kMapOffset));
+  STATIC_ASSERT(JS_PROXY_TYPE < JS_OBJECT_TYPE);
+  STATIC_ASSERT(JS_VALUE_TYPE < JS_OBJECT_TYPE);
+  CmpInstanceType(current, JS_OBJECT_TYPE);
+  j(below, found);
   movp(scratch1, FieldOperand(current, Map::kBitField2Offset));
   DecodeField<Map::ElementsKindBits>(scratch1);
   cmpp(scratch1, Immediate(DICTIONARY_ELEMENTS));
@@ -5077,6 +4970,8 @@ void MacroAssembler::JumpIfDictionaryInPrototypeChain(
   movp(current, FieldOperand(current, Map::kPrototypeOffset));
   CompareRoot(current, Heap::kNullValueRootIndex);
   j(not_equal, &loop_again);
+
+  bind(&end);
 }
 
 

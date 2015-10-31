@@ -26,6 +26,7 @@
 #include "v8.h"
 
 #include "platform.h"
+#include "src/base/platform/time.h"
 #include "src/base/utils/random-number-generator.h"
 
 extern "C" int sched_yield(void);

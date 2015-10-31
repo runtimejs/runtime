@@ -44,10 +44,6 @@ endif
 ifdef component
   GYPFLAGS += -Dcomponent=$(component)
 endif
-# console=readline
-ifdef console
-  GYPFLAGS += -Dconsole=$(console)
-endif
 # disassembler=on
 ifeq ($(disassembler), on)
   GYPFLAGS += -Dv8_enable_disassembler=1
@@ -147,6 +143,10 @@ endif
 ifeq ($(deprecationwarnings), on)
   GYPFLAGS += -Dv8_deprecation_warnings=1
 endif
+# vectorstores=on
+ifeq ($(vectorstores), on)
+  GYPFLAGS += -Dv8_vector_stores=1
+endif
 # imminentdeprecationwarnings=on
 ifeq ($(imminentdeprecationwarnings), on)
   GYPFLAGS += -Dv8_imminent_deprecation_warnings=1
@@ -220,6 +220,12 @@ ifeq ($(arm_test_noprobe), on)
   GYPFLAGS += -Darm_test_noprobe=on
 endif
 
+# Optionally enable wasm prototype.
+# Assume you've placed a link to v8-native-prototype in third_party/wasm.
+ifeq ($(wasm), on)
+  GYPFLAGS += -Dv8_wasm=1
+endif
+
 # ----------------- available targets: --------------------
 # - "grokdump": rebuilds heap constants lists used by grokdump
 # - any arch listed in ARCHES (see below)
@@ -238,7 +244,7 @@ endif
 
 # Architectures and modes to be compiled. Consider these to be internal
 # variables, don't override them (use the targets instead).
-ARCHES = ia32 x64 x32 arm arm64 mips mipsel mips64el x87 ppc ppc64
+ARCHES = ia32 x64 x32 arm arm64 mips mipsel mips64 mips64el x87 ppc ppc64
 DEFAULT_ARCHES = ia32 x64 arm
 MODES = release debug optdebug
 DEFAULT_MODES = release debug

@@ -10,33 +10,16 @@
 #ifndef V8_MESSAGES_H_
 #define V8_MESSAGES_H_
 
-// Forward declaration of MessageLocation.
-namespace v8 {
-namespace internal {
-class MessageLocation;
-} }  // namespace v8::internal
-
-
-class V8Message {
- public:
-  V8Message(char* type,
-            v8::internal::Handle<v8::internal::JSArray> args,
-            const v8::internal::MessageLocation* loc) :
-      type_(type), args_(args), loc_(loc) { }
-  char* type() const { return type_; }
-  v8::internal::Handle<v8::internal::JSArray> args() const { return args_; }
-  const v8::internal::MessageLocation* loc() const { return loc_; }
- private:
-  char* type_;
-  v8::internal::Handle<v8::internal::JSArray> const args_;
-  const v8::internal::MessageLocation* loc_;
-};
-
+#include "src/base/smart-pointers.h"
+#include "src/handles.h"
+#include "src/list.h"
 
 namespace v8 {
 namespace internal {
 
-struct Language;
+// Forward declarations.
+class JSMessageObject;
+class LookupIterator;
 class SourceInfo;
 
 class MessageLocation {
@@ -64,23 +47,23 @@ class MessageLocation {
 
 class CallSite {
  public:
-  CallSite(Handle<Object> receiver, Handle<JSFunction> fun, int pos)
-      : receiver_(receiver), fun_(fun), pos_(pos) {}
+  CallSite(Isolate* isolate, Handle<JSObject> call_site_obj);
 
-  Handle<Object> GetFileName(Isolate* isolate);
-  Handle<Object> GetFunctionName(Isolate* isolate);
-  Handle<Object> GetScriptNameOrSourceUrl(Isolate* isolate);
-  Handle<Object> GetMethodName(Isolate* isolate);
+  Handle<Object> GetFileName();
+  Handle<Object> GetFunctionName();
+  Handle<Object> GetScriptNameOrSourceUrl();
+  Handle<Object> GetMethodName();
   // Return 1-based line number, including line offset.
-  int GetLineNumber(Isolate* isolate);
+  int GetLineNumber();
   // Return 1-based column number, including column offset if first line.
-  int GetColumnNumber(Isolate* isolate);
-  bool IsNative(Isolate* isolate);
-  bool IsToplevel(Isolate* isolate);
-  bool IsEval(Isolate* isolate);
-  bool IsConstructor(Isolate* isolate);
+  int GetColumnNumber();
+  bool IsNative();
+  bool IsToplevel();
+  bool IsEval();
+  bool IsConstructor();
 
  private:
+  Isolate* isolate_;
   Handle<Object> receiver_;
   Handle<JSFunction> fun_;
   int pos_;
@@ -91,6 +74,7 @@ class CallSite {
   /* Error */                                                                  \
   T(None, "")                                                                  \
   T(CyclicProto, "Cyclic __proto__ value")                                     \
+  T(Debugger, "Debugger: %")                                                   \
   T(DebuggerLoading, "Error loading debugger")                                 \
   T(DefaultOptionsMissing, "Internal % error. Default options are missing.")   \
   T(UncaughtException, "Uncaught %")                                           \
@@ -119,6 +103,8 @@ class CallSite {
   T(DataViewNotArrayBuffer,                                                    \
     "First argument to DataView constructor must be an ArrayBuffer")           \
   T(DateType, "this is not a Date object.")                                    \
+  T(DebuggerFrame, "Debugger: Invalid frame index.")                           \
+  T(DebuggerType, "Debugger: Parameters have wrong types.")                    \
   T(DefineDisallowed, "Cannot define property:%, object is not extensible.")   \
   T(DuplicateTemplateProperty, "Object template has duplicate property '%'")   \
   T(ExtendsValueGenerator,                                                     \
@@ -163,6 +149,7 @@ class CallSite {
   T(NotTypedArray, "this is not a typed array.")                               \
   T(NotSharedTypedArray, "% is not a shared typed array.")                     \
   T(NotIntegerSharedTypedArray, "% is not an integer shared typed array.")     \
+  T(NotInt32SharedTypedArray, "% is not an int32 shared typed array.")         \
   T(ObjectGetterExpectingFunction,                                             \
     "Object.prototype.__defineGetter__: Expecting function")                   \
   T(ObjectGetterCallable, "Getter must be a function: %")                      \
@@ -173,6 +160,7 @@ class CallSite {
   T(ObserveCallbackFrozen,                                                     \
     "Object.observe cannot deliver to a frozen function object")               \
   T(ObserveGlobalProxy, "% cannot be called on the global proxy object")       \
+  T(ObserveAccessChecked, "% cannot be called on access-checked objects")      \
   T(ObserveInvalidAccept,                                                      \
     "Third argument to Object.observe must be an array of strings.")           \
   T(ObserveNonFunction, "Object.% cannot deliver to non-function")             \
@@ -230,6 +218,7 @@ class CallSite {
     "In strong mode, calling a function with too few arguments is deprecated") \
   T(StrongDeleteProperty,                                                      \
     "Deleting property '%' of strong object '%' is deprecated")                \
+  T(StrongExtendNull, "In strong mode, classes extending null are deprecated") \
   T(StrongImplicitConversion,                                                  \
     "In strong mode, implicit conversions are deprecated")                     \
   T(StrongRedefineDisallowed,                                                  \
@@ -238,10 +227,9 @@ class CallSite {
   T(StrongSetProto,                                                            \
     "On strong object %, redefining the internal prototype is deprecated")     \
   T(SymbolKeyFor, "% is not a symbol")                                         \
-  T(SymbolToPrimitive,                                                         \
-    "Cannot convert a Symbol wrapper object to a primitive value")             \
   T(SymbolToNumber, "Cannot convert a Symbol value to a number")               \
   T(SymbolToString, "Cannot convert a Symbol value to a string")               \
+  T(SimdToNumber, "Cannot convert a SIMD value to a number")                   \
   T(UndefinedOrNullToObject, "Cannot convert undefined or null to object")     \
   T(ValueAndAccessor,                                                          \
     "Invalid property.  A property cannot both have accessors and be "         \
@@ -270,6 +258,7 @@ class CallSite {
     "Offset is outside the bounds of the DataView")                            \
   T(InvalidDataViewLength, "Invalid data view length")                         \
   T(InvalidDataViewOffset, "Start offset is outside the bounds of the buffer") \
+  T(InvalidHint, "Invalid hint: %")                                            \
   T(InvalidLanguageTag, "Invalid language tag: %")                             \
   T(InvalidWeakMapKey, "Invalid value used as weak map key")                   \
   T(InvalidWeakSetValue, "Invalid value used in weak set")                     \
@@ -296,8 +285,6 @@ class CallSite {
   T(ConstructorIsGenerator, "Class constructor may not be a generator")        \
   T(DerivedConstructorReturn,                                                  \
     "Derived constructors may only return object or undefined")                \
-  T(DuplicateArrawFunFormalParam,                                              \
-    "Arrow function may not have duplicate parameter names")                   \
   T(DuplicateConstructor, "A class may only have one constructor")             \
   T(DuplicateExport, "Duplicate export of '%'")                                \
   T(DuplicateProto,                                                            \
@@ -311,6 +298,8 @@ class CallSite {
   T(IllegalAccess, "Illegal access")                                           \
   T(IllegalBreak, "Illegal break statement")                                   \
   T(IllegalContinue, "Illegal continue statement")                             \
+  T(IllegalLanguageModeDirective,                                              \
+    "Illegal '%' directive in function with non-simple parameter list")        \
   T(IllegalReturn, "Illegal return statement")                                 \
   T(InvalidLhsInAssignment, "Invalid left-hand side in assignment")            \
   T(InvalidLhsInFor, "Invalid left-hand side in for-loop")                     \
@@ -323,8 +312,6 @@ class CallSite {
   T(MalformedArrowFunParamList, "Malformed arrow function parameter list")     \
   T(MalformedRegExp, "Invalid regular expression: /%/: %")                     \
   T(MalformedRegExpFlags, "Invalid regular expression flags")                  \
-  T(MissingArrow,                                                              \
-    "Expected () to start arrow function, but got '%' instead of '=>'")        \
   T(ModuleExportUndefined, "Export '%' is not defined in module")              \
   T(MultipleDefaultsInSwitch,                                                  \
     "More than one default clause in switch statement")                        \
@@ -334,6 +321,7 @@ class CallSite {
   T(ParamAfterRest, "Rest parameter must be last formal parameter")            \
   T(BadSetterRestParameter,                                                    \
     "Setter function argument must not be a rest parameter")                   \
+  T(ParamDupe, "Duplicate parameter name not allowed in this context")         \
   T(ParenthesisInArgString, "Function arg string contains parenthesis")        \
   T(SingleFunctionLiteral, "Single function literal required")                 \
   T(SloppyLexical,                                                             \
@@ -345,11 +333,11 @@ class CallSite {
     "In strict mode code, functions can only be declared at top level or "     \
     "immediately within another function.")                                    \
   T(StrictOctalLiteral, "Octal literals are not allowed in strict mode.")      \
-  T(StrictParamDupe,                                                           \
-    "Strict mode function may not have duplicate parameter names")             \
   T(StrictWith, "Strict mode code may not include a with statement")           \
   T(StrongArguments,                                                           \
     "In strong mode, 'arguments' is deprecated, use '...args' instead")        \
+  T(StrongConstructorDirective,                                                \
+    "\"use strong\" directive is disallowed in class constructor body")        \
   T(StrongConstructorReturnMisplaced,                                          \
     "In strong mode, returning from a constructor before its super "           \
     "constructor invocation or all assignments to 'this' is deprecated")       \
@@ -410,6 +398,7 @@ class CallSite {
   T(UnexpectedTokenIdentifier, "Unexpected identifier")                        \
   T(UnexpectedTokenNumber, "Unexpected number")                                \
   T(UnexpectedTokenString, "Unexpected string")                                \
+  T(UnexpectedTokenRegExp, "Unexpected regular expression")                    \
   T(UnknownLabel, "Undefined label '%'")                                       \
   T(UnterminatedArgList, "missing ) after argument list")                      \
   T(UnterminatedRegExp, "Invalid regular expression: missing /")               \
@@ -429,6 +418,8 @@ class MessageTemplate {
         kLastMessage
   };
 
+  static const char* TemplateString(int template_index);
+
   static MaybeHandle<String> FormatMessage(int template_index,
                                            Handle<String> arg0,
                                            Handle<String> arg1,
@@ -445,8 +436,9 @@ class MessageHandler {
  public:
   // Returns a message object for the API to use.
   static Handle<JSMessageObject> MakeMessageObject(
-      Isolate* isolate, MessageTemplate::Template type, MessageLocation* loc,
-      Handle<Object> argument, Handle<JSArray> stack_frames);
+      Isolate* isolate, MessageTemplate::Template type,
+      MessageLocation* location, Handle<Object> argument,
+      Handle<JSArray> stack_frames);
 
   // Report a formatted message (needs JS allocation).
   static void ReportMessage(Isolate* isolate, MessageLocation* loc,
@@ -455,8 +447,48 @@ class MessageHandler {
   static void DefaultMessageReport(Isolate* isolate, const MessageLocation* loc,
                                    Handle<Object> message_obj);
   static Handle<String> GetMessage(Isolate* isolate, Handle<Object> data);
-  static SmartArrayPointer<char> GetLocalizedMessage(Isolate* isolate,
-                                                     Handle<Object> data);
+  static base::SmartArrayPointer<char> GetLocalizedMessage(Isolate* isolate,
+                                                           Handle<Object> data);
+};
+
+
+class ErrorToStringHelper {
+ public:
+  ErrorToStringHelper() : visited_(0) {}
+
+  MUST_USE_RESULT MaybeHandle<String> Stringify(Isolate* isolate,
+                                                Handle<JSObject> error);
+
+ private:
+  class VisitedScope {
+   public:
+    VisitedScope(ErrorToStringHelper* helper, Handle<JSObject> error)
+        : helper_(helper), has_visited_(false) {
+      for (const Handle<JSObject>& visited : helper->visited_) {
+        if (visited.is_identical_to(error)) {
+          has_visited_ = true;
+          break;
+        }
+      }
+      helper->visited_.Add(error);
+    }
+    ~VisitedScope() { helper_->visited_.RemoveLast(); }
+    bool has_visited() { return has_visited_; }
+
+   private:
+    ErrorToStringHelper* helper_;
+    bool has_visited_;
+  };
+
+  static bool ShadowsInternalError(Isolate* isolate,
+                                   LookupIterator* property_lookup,
+                                   LookupIterator* internal_error_lookup);
+
+  static MUST_USE_RESULT MaybeHandle<String> GetStringifiedProperty(
+      Isolate* isolate, LookupIterator* property_lookup,
+      Handle<String> default_value);
+
+  List<Handle<JSObject> > visited_;
 };
 } }  // namespace v8::internal
 

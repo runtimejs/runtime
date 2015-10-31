@@ -402,6 +402,19 @@ void InstructionSelector::VisitTruncateFloat64ToInt32(Node* node) {
 }
 
 
+void InstructionSelector::VisitBitcastFloat32ToInt32(Node* node) {
+  VisitRR(this, kMipsFloat64ExtractLowWord32, node);
+}
+
+
+void InstructionSelector::VisitBitcastInt32ToFloat32(Node* node) {
+  MipsOperandGenerator g(this);
+  Emit(kMipsFloat64InsertLowWord32, g.DefineAsRegister(node),
+       ImmediateOperand(ImmediateOperand::INLINE, 0),
+       g.UseRegister(node->InputAt(0)));
+}
+
+
 void InstructionSelector::VisitFloat32Add(Node* node) {
   VisitRRR(this, kMipsAddS, node);
 }
@@ -533,23 +546,23 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
 
     // Poke any stack arguments.
     int slot = kCArgSlotCount;
-    for (Node* node : buffer.pushed_nodes) {
-      Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(node),
+    for (Node* input : buffer.pushed_nodes) {
+      Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(input),
            g.TempImmediate(slot << kPointerSizeLog2));
       ++slot;
     }
   } else {
     // Possibly align stack here for functions.
-    int push_count = buffer.pushed_nodes.size();
+    int push_count = static_cast<int>(descriptor->StackParameterCount());
     if (push_count > 0) {
       Emit(kMipsStackClaim, g.NoOutput(),
            g.TempImmediate(push_count << kPointerSizeLog2));
     }
-    int slot = buffer.pushed_nodes.size() - 1;
-    for (Node* node : base::Reversed(buffer.pushed_nodes)) {
-      Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(node),
-           g.TempImmediate(slot << kPointerSizeLog2));
-      slot--;
+    for (size_t n = 0; n < buffer.pushed_nodes.size(); ++n) {
+      if (Node* input = buffer.pushed_nodes[n]) {
+        Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(input),
+             g.TempImmediate(n << kPointerSizeLog2));
+      }
     }
   }
 
@@ -636,14 +649,14 @@ void InstructionSelector::VisitTailCall(Node* node) {
     // Compute InstructionOperands for inputs and outputs.
     InitializeCallBuffer(node, &buffer, true, false);
     // Possibly align stack here for functions.
-    int push_count = buffer.pushed_nodes.size();
+    int push_count = static_cast<int>(descriptor->StackParameterCount());
     if (push_count > 0) {
       Emit(kMipsStackClaim, g.NoOutput(),
            g.TempImmediate(push_count << kPointerSizeLog2));
     }
-    int slot = buffer.pushed_nodes.size() - 1;
-    for (Node* node : base::Reversed(buffer.pushed_nodes)) {
-      Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(node),
+    int slot = static_cast<int>(buffer.pushed_nodes.size()) - 1;
+    for (Node* input : base::Reversed(buffer.pushed_nodes)) {
+      Emit(kMipsStoreToStackSlot, g.NoOutput(), g.UseRegister(input),
            g.TempImmediate(slot << kPointerSizeLog2));
       slot--;
     }
@@ -775,7 +788,6 @@ static void VisitCompare(InstructionSelector* selector, InstructionCode opcode,
                    g.Label(cont->true_block()), g.Label(cont->false_block()));
   } else {
     DCHECK(cont->IsSet());
-    // TODO(plind): Revisit and test this path.
     selector->Emit(opcode, g.DefineAsRegister(cont->result()), left, right);
   }
 }
@@ -813,12 +825,32 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
 
   // Match immediates on left or right side of comparison.
   if (g.CanBeImmediate(right, opcode)) {
-    VisitCompare(selector, opcode, g.UseRegister(left), g.UseImmediate(right),
-                 cont);
+    switch (cont->condition()) {
+      case kSignedLessThan:
+      case kSignedGreaterThanOrEqual:
+      case kUnsignedLessThan:
+      case kUnsignedGreaterThanOrEqual:
+        VisitCompare(selector, opcode, g.UseRegister(left),
+                     g.UseImmediate(right), cont);
+        break;
+      default:
+        VisitCompare(selector, opcode, g.UseRegister(left),
+                     g.UseRegister(right), cont);
+    }
   } else if (g.CanBeImmediate(left, opcode)) {
     if (!commutative) cont->Commute();
-    VisitCompare(selector, opcode, g.UseRegister(right), g.UseImmediate(left),
-                 cont);
+    switch (cont->condition()) {
+      case kSignedLessThan:
+      case kSignedGreaterThanOrEqual:
+      case kUnsignedLessThan:
+      case kUnsignedGreaterThanOrEqual:
+        VisitCompare(selector, opcode, g.UseRegister(right),
+                     g.UseImmediate(left), cont);
+        break;
+      default:
+        VisitCompare(selector, opcode, g.UseRegister(right),
+                     g.UseRegister(left), cont);
+    }
   } else {
     VisitCompare(selector, opcode, g.UseRegister(left), g.UseRegister(right),
                  cont);

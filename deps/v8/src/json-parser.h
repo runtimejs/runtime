@@ -5,13 +5,15 @@
 #ifndef V8_JSON_PARSER_H_
 #define V8_JSON_PARSER_H_
 
-#include "src/v8.h"
-
-#include "src/char-predicates-inl.h"
+#include "src/char-predicates.h"
 #include "src/conversions.h"
-#include "src/heap/spaces-inl.h"
+#include "src/debug/debug.h"
+#include "src/factory.h"
 #include "src/messages.h"
+#include "src/scanner.h"
 #include "src/token.h"
+#include "src/transitions.h"
+#include "src/types.h"
 
 namespace v8 {
 namespace internal {
@@ -243,9 +245,11 @@ MaybeHandle<Object> JsonParser<seq_one_byte>::ParseJson() {
         break;
     }
 
-    MessageLocation location(factory->NewScript(source_),
-                             position_,
-                             position_ + 1);
+    Handle<Script> script(factory->NewScript(source_));
+    // We should sent compile error event because we compile JSON object in
+    // separated source file.
+    isolate()->debug()->OnCompileError(script);
+    MessageLocation location(script, position_, position_ + 1);
     Handle<Object> error = factory->NewSyntaxError(message, argument);
     return isolate()->template Throw<Object>(error, &location);
   }
@@ -262,10 +266,10 @@ Handle<Object> JsonParser<seq_one_byte>::ParseJsonValue() {
     return Handle<Object>::null();
   }
 
-  if (isolate_->stack_guard()->InterruptRequested()) {
+  if (stack_check.InterruptRequested()) {
     ExecutionAccess access(isolate_);
     // Avoid blocking GC in long running parser (v8:3974).
-    isolate_->stack_guard()->CheckAndHandleGCInterrupt();
+    isolate_->stack_guard()->HandleGCInterrupt();
   }
 
   if (c0_ == '"') return ParseJsonString();

@@ -21,9 +21,20 @@ load = function(filename) {
   }
 };
 
-// TODO(bbudge): Drop when polyfill is not needed.
-load('ecmascript_simd.js');
+// To enable SIMD polyfill, load ecmascript_simd.js here,
+// add to resources in SimdJs.json as well as the script
+// to re-generate SimdJs.json.
 
 load('base.js');
 
 })();
+
+// ecmascript_simd_tests logs errors to the console.
+var console = {
+  log: function(x) { print(x); },
+};
+
+
+// Disable value type tests for now. The value semantics tests are incorrect.
+// TODO(bbudge): Drop when tests are fixed.
+var skipValueTests = true;

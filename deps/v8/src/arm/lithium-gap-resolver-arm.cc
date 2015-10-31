@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #include "src/arm/lithium-codegen-arm.h"
 #include "src/arm/lithium-gap-resolver-arm.h"
 
@@ -280,10 +278,10 @@ void LGapResolver::EmitMove(int index) {
       MemOperand destination_operand = cgen_->ToMemOperand(destination);
       if (in_cycle_) {
         // kScratchDoubleReg was used to break the cycle.
-        __ vstm(db_w, sp, kScratchDoubleReg, kScratchDoubleReg);
+        __ vpush(kScratchDoubleReg);
         __ vldr(kScratchDoubleReg, source_operand);
         __ vstr(kScratchDoubleReg, destination_operand);
-        __ vldm(ia_w, sp, kScratchDoubleReg, kScratchDoubleReg);
+        __ vpop(kScratchDoubleReg);
       } else {
         __ vldr(kScratchDoubleReg, source_operand);
         __ vstr(kScratchDoubleReg, destination_operand);

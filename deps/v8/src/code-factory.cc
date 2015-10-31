@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
+#include "src/code-factory.h"
 
 #include "src/bootstrapper.h"
-#include "src/code-factory.h"
 #include "src/ic/ic.h"
 
 namespace v8 {
@@ -13,21 +12,21 @@ namespace internal {
 
 
 // static
-Callable CodeFactory::LoadIC(Isolate* isolate, ContextualMode mode,
+Callable CodeFactory::LoadIC(Isolate* isolate, TypeofMode typeof_mode,
                              LanguageMode language_mode) {
   return Callable(
       LoadIC::initialize_stub(
-          isolate, LoadICState(mode, language_mode).GetExtraICState()),
+          isolate, LoadICState(typeof_mode, language_mode).GetExtraICState()),
       LoadDescriptor(isolate));
 }
 
 
 // static
 Callable CodeFactory::LoadICInOptimizedCode(
-    Isolate* isolate, ContextualMode mode, LanguageMode language_mode,
+    Isolate* isolate, TypeofMode typeof_mode, LanguageMode language_mode,
     InlineCacheState initialization_state) {
   auto code = LoadIC::initialize_stub_in_optimized_code(
-      isolate, LoadICState(mode, language_mode).GetExtraICState(),
+      isolate, LoadICState(typeof_mode, language_mode).GetExtraICState(),
       initialization_state);
   return Callable(code, LoadWithVectorDescriptor(isolate));
 }
@@ -139,9 +138,23 @@ Callable CodeFactory::BinaryOpIC(Isolate* isolate, Token::Value op,
 
 
 // static
-Callable CodeFactory::Instanceof(Isolate* isolate,
-                                 InstanceofStub::Flags flags) {
-  InstanceofStub stub(isolate, flags);
+Callable CodeFactory::LoadGlobalViaContext(Isolate* isolate, int depth) {
+  LoadGlobalViaContextStub stub(isolate, depth);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
+Callable CodeFactory::StoreGlobalViaContext(Isolate* isolate, int depth,
+                                            LanguageMode language_mode) {
+  StoreGlobalViaContextStub stub(isolate, depth, language_mode);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
+Callable CodeFactory::InstanceOf(Isolate* isolate) {
+  InstanceOfStub stub(isolate);
   return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
 }
 
@@ -163,9 +176,30 @@ Callable CodeFactory::ToNumber(Isolate* isolate) {
 
 
 // static
+Callable CodeFactory::ToString(Isolate* isolate) {
+  ToStringStub stub(isolate);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
+Callable CodeFactory::ToObject(Isolate* isolate) {
+  ToObjectStub stub(isolate);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
 Callable CodeFactory::StringAdd(Isolate* isolate, StringAddFlags flags,
                                 PretenureFlag pretenure_flag) {
   StringAddStub stub(isolate, flags, pretenure_flag);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
+Callable CodeFactory::StringCompare(Isolate* isolate) {
+  StringCompareStub stub(isolate);
   return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
 }
 
@@ -202,6 +236,17 @@ Callable CodeFactory::FastNewClosure(Isolate* isolate,
 
 
 // static
+Callable CodeFactory::ArgumentsAccess(Isolate* isolate,
+                                      bool is_unmapped_arguments,
+                                      bool has_duplicate_parameters) {
+  ArgumentsAccessStub::Type type = ArgumentsAccessStub::ComputeType(
+      is_unmapped_arguments, has_duplicate_parameters);
+  ArgumentsAccessStub stub(isolate, type);
+  return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
 Callable CodeFactory::AllocateHeapNumber(Isolate* isolate) {
   AllocateHeapNumberStub stub(isolate);
   return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
@@ -213,6 +258,13 @@ Callable CodeFactory::CallFunction(Isolate* isolate, int argc,
                                    CallFunctionFlags flags) {
   CallFunctionStub stub(isolate, argc, flags);
   return Callable(stub.GetCode(), stub.GetCallInterfaceDescriptor());
+}
+
+
+// static
+Callable CodeFactory::PushArgsAndCall(Isolate* isolate) {
+  return Callable(isolate->builtins()->PushArgsAndCall(),
+                  PushArgsAndCallDescriptor(isolate));
 }
 
 }  // namespace internal

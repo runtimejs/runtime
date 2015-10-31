@@ -42,6 +42,7 @@ class JSTypedLowering final : public AdvancedReducer {
   Reduction ReduceJSMultiply(Node* node);
   Reduction ReduceJSComparison(Node* node);
   Reduction ReduceJSLoadGlobal(Node* node);
+  Reduction ReduceJSLoadNamed(Node* node);
   Reduction ReduceJSLoadProperty(Node* node);
   Reduction ReduceJSStoreProperty(Node* node);
   Reduction ReduceJSLoadContext(Node* node);
@@ -56,6 +57,7 @@ class JSTypedLowering final : public AdvancedReducer {
   Reduction ReduceJSToNumber(Node* node);
   Reduction ReduceJSToStringInput(Node* input);
   Reduction ReduceJSToString(Node* node);
+  Reduction ReduceJSCreateArguments(Node* node);
   Reduction ReduceJSCreateClosure(Node* node);
   Reduction ReduceJSCreateLiteralArray(Node* node);
   Reduction ReduceJSCreateLiteralObject(Node* node);

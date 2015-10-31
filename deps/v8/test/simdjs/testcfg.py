@@ -14,10 +14,9 @@ from testrunner.local import testsuite
 from testrunner.local import utils
 from testrunner.objects import testcase
 
-SIMDJS_ARCHIVE_REVISION = "07e2713e0c9ea19feb0732d5bd84770c87310d79"
-SIMDJS_ARCHIVE_MD5 = "cf6bddf99f18800b68e782054268ee3c"
-SIMDJS_URL = (
-    "https://github.com/johnmccutchan/ecmascript_simd/archive/%s.tar.gz")
+SIMDJS_ARCHIVE_REVISION = "c8ef63c728283debc25891123eb00482fee4b8cd"
+SIMDJS_ARCHIVE_MD5 = "4c3120d1f5b8027b4a38b931119c89bd"
+SIMDJS_URL = ("https://github.com/tc39/ecmascript_simd/archive/%s.tar.gz")
 
 SIMDJS_SUITE_PATH = ["data", "src"]
 
@@ -45,7 +44,7 @@ class SimdJsTestSuite(testsuite.TestSuite):
   def GetFlagsForTestCase(self, testcase, context):
     return (testcase.flags + context.mode_flags +
             [os.path.join(self.root, "harness-adapt.js"),
-             "--harmony",
+             "--harmony", "--harmony-simd",
              os.path.join(self.testroot, testcase.path + ".js"),
              os.path.join(self.root, "harness-finish.js")])
 
@@ -65,10 +64,44 @@ class SimdJsTestSuite(testsuite.TestSuite):
   def DownloadData(self):
     revision = SIMDJS_ARCHIVE_REVISION
     archive_url = SIMDJS_URL % revision
+
+    archive_prefix = "ecmascript_simd-"
     archive_name = os.path.join(
-        self.root, "ecmascript_simd-%s.tar.gz" % revision)
+        self.root, "%s%s.tar.gz" % (archive_prefix, revision))
     directory_name = os.path.join(self.root, "data")
     directory_old_name = os.path.join(self.root, "data.old")
+    versionfile = os.path.join(self.root, "CHECKED_OUT_VERSION")
+
+    checked_out_version = None
+    checked_out_url = None
+    checked_out_revision = None
+    if os.path.exists(versionfile):
+      with open(versionfile) as f:
+        try:
+          (checked_out_version,
+           checked_out_url,
+           checked_out_revision) = f.read().splitlines()
+        except ValueError:
+          pass
+    if (checked_out_version != SIMDJS_ARCHIVE_MD5 or
+        checked_out_url != archive_url or
+        checked_out_revision != revision):
+      if os.path.exists(archive_name):
+        print "Clobbering %s because CHECK_OUT_VERSION is out of date" % (
+            archive_name)
+        os.remove(archive_name)
+
+    # Clobber if the test is in an outdated state, i.e. if there are any other
+    # archive files present.
+    archive_files = [f for f in os.listdir(self.root)
+                     if f.startswith(archive_prefix)]
+    if (len(archive_files) > 1 or
+        os.path.basename(archive_name) not in archive_files):
+      print "Clobber outdated test archives ..."
+      for f in archive_files:
+        print "Removing %s" % f
+        os.remove(os.path.join(self.root, f))
+
     if not os.path.exists(archive_name):
       print "Downloading test data from %s ..." % archive_url
       utils.URLRetrieve(archive_url, archive_name)
@@ -95,6 +128,11 @@ class SimdJsTestSuite(testsuite.TestSuite):
         archive.extractall(self.root)
       os.rename(os.path.join(self.root, "ecmascript_simd-%s" % revision),
                 directory_name)
+
+      with open(versionfile, "w") as f:
+        f.write(SIMDJS_ARCHIVE_MD5 + '\n')
+        f.write(archive_url + '\n')
+        f.write(revision + '\n')
 
 
 def GetSuite(name, root):

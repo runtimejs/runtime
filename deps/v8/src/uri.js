@@ -164,7 +164,7 @@ function URIDecodeOctets(octets, result, index) {
 
 // ECMA-262, section 15.1.3
 function Encode(uri, unescape) {
-  uri = TO_STRING_INLINE(uri);
+  uri = TO_STRING(uri);
   var uriLength = uri.length;
   var array = new InternalArray(uriLength);
   var index = 0;
@@ -195,7 +195,7 @@ function Encode(uri, unescape) {
 
 // ECMA-262, section 15.1.3
 function Decode(uri, reserved) {
-  uri = TO_STRING_INLINE(uri);
+  uri = TO_STRING(uri);
   var uriLength = uri.length;
   var one_byte = %NewString(uriLength, NEW_ONE_BYTE_STRING);
   var index = 0;
@@ -273,14 +273,12 @@ function Decode(uri, reserved) {
 // Define exported functions.
 
 // ECMA-262 - B.2.1.
-function URIEscapeJS(str) {
-  var s = $toString(str);
+function URIEscapeJS(s) {
   return %URIEscape(s);
 }
 
 // ECMA-262 - B.2.2.
-function URIUnescapeJS(str) {
-  var s = $toString(str);
+function URIUnescapeJS(s) {
   return %URIUnescape(s);
 }
 
@@ -304,15 +302,13 @@ function URIDecode(uri) {
 
     return false;
   };
-  var string = $toString(uri);
-  return Decode(string, reservedPredicate);
+  return Decode(uri, reservedPredicate);
 }
 
 // ECMA-262 - 15.1.3.2.
 function URIDecodeComponent(component) {
   var reservedPredicate = function(cc) { return false; };
-  var string = $toString(component);
-  return Decode(string, reservedPredicate);
+  return Decode(component, reservedPredicate);
 }
 
 // ECMA-262 - 15.1.3.3.
@@ -338,8 +334,7 @@ function URIEncode(uri) {
 
     return false;
   };
-  var string = $toString(uri);
-  return Encode(string, unescapePredicate);
+  return Encode(uri, unescapePredicate);
 }
 
 // ECMA-262 - 15.1.3.4
@@ -359,8 +354,7 @@ function URIEncodeComponent(component) {
 
     return false;
   };
-  var string = $toString(component);
-  return Encode(string, unescapePredicate);
+  return Encode(component, unescapePredicate);
 }
 
 // -------------------------------------------------------------------

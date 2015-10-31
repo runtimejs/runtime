@@ -32,8 +32,7 @@
 // modified significantly by Google Inc.
 // Copyright 2012 the V8 project authors. All rights reserved.
 
-
-#include "src/v8.h"
+#include "src/mips/assembler-mips.h"
 
 #if V8_TARGET_ARCH_MIPS
 
@@ -665,7 +664,7 @@ int Assembler::target_at(int pos, bool is_internal) {
   // Check we have a branch or jump instruction.
   DCHECK(IsBranch(instr) || IsLui(instr));
   // Do NOT change this to <<2. We rely on arithmetic shifts here, assuming
-  // the compiler uses arithmectic shifts for signed integers.
+  // the compiler uses arithmetic shifts for signed integers.
   if (IsBranch(instr)) {
     int32_t imm18 = ((instr & static_cast<int32_t>(kImm16Mask)) << 16) >> 14;
 
@@ -795,7 +794,7 @@ void Assembler::bind_to(Label* L, int pos) {
           trampoline_pos = get_trampoline_entry(fixup_pos);
           CHECK(trampoline_pos != kInvalidSlotPos);
         }
-        DCHECK((trampoline_pos - fixup_pos) <= kMaxBranchOffset);
+        CHECK((trampoline_pos - fixup_pos) <= kMaxBranchOffset);
         target_at_put(fixup_pos, trampoline_pos, false);
         fixup_pos = trampoline_pos;
         dist = pos - fixup_pos;
@@ -1406,11 +1405,11 @@ void Assembler::j(int32_t target) {
 #if DEBUG
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((ipc ^ static_cast<uint32_t>(target)) >>
+                   (kImm26Bits + kImmFieldShift)) == 0;
   DCHECK(in_range && ((target & 3) == 0));
 #endif
-  GenInstrJump(J, target >> 2);
+  GenInstrJump(J, (target >> 2) & kImm26Mask);
 }
 
 
@@ -1432,12 +1431,12 @@ void Assembler::jal(int32_t target) {
 #ifdef DEBUG
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((ipc ^ static_cast<uint32_t>(target)) >>
+                   (kImm26Bits + kImmFieldShift)) == 0;
   DCHECK(in_range && ((target & 3) == 0));
 #endif
   positions_recorder()->WriteRecordedPositions();
-  GenInstrJump(JAL, target >> 2);
+  GenInstrJump(JAL, (target >> 2) & kImm26Mask);
 }
 
 
@@ -2027,6 +2026,7 @@ void Assembler::lwc1(FPURegister fd, const MemOperand& src) {
 void Assembler::ldc1(FPURegister fd, const MemOperand& src) {
   // Workaround for non-8-byte alignment of HeapNumber, convert 64-bit
   // load to two 32-bit loads.
+  DCHECK(!src.rm().is(at));
   if (IsFp64Mode()) {
     if (is_int16(src.offset_) && is_int16(src.offset_ + kIntSize)) {
       GenInstrImmediate(LWC1, src.rm(), fd,
@@ -2072,6 +2072,8 @@ void Assembler::swc1(FPURegister fd, const MemOperand& src) {
 void Assembler::sdc1(FPURegister fd, const MemOperand& src) {
   // Workaround for non-8-byte alignment of HeapNumber, convert 64-bit
   // store to two 32-bit stores.
+  DCHECK(!src.rm().is(at));
+  DCHECK(!src.rm().is(t8));
   if (IsFp64Mode()) {
     if (is_int16(src.offset_) && is_int16(src.offset_ + kIntSize)) {
       GenInstrImmediate(SWC1, src.rm(), fd,
@@ -2320,12 +2322,12 @@ void Assembler::abs_d(FPURegister fd, FPURegister fs) {
 
 
 void Assembler::mov_d(FPURegister fd, FPURegister fs) {
-  GenInstrRegister(COP1, D, f0, fs, fd, MOV_S);
+  GenInstrRegister(COP1, D, f0, fs, fd, MOV_D);
 }
 
 
 void Assembler::mov_s(FPURegister fd, FPURegister fs) {
-  GenInstrRegister(COP1, S, f0, fs, fd, MOV_D);
+  GenInstrRegister(COP1, S, f0, fs, fd, MOV_S);
 }
 
 
@@ -2826,10 +2828,10 @@ void Assembler::emit_code_stub_address(Code* stub) {
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
   // We do not try to reuse pool constants.
   RelocInfo rinfo(pc_, rmode, data, NULL);
-  if (rmode >= RelocInfo::JS_RETURN && rmode <= RelocInfo::DEBUG_BREAK_SLOT) {
+  if (rmode >= RelocInfo::COMMENT &&
+      rmode <= RelocInfo::DEBUG_BREAK_SLOT_AT_CONSTRUCT_CALL) {
     // Adjust code for new modes.
     DCHECK(RelocInfo::IsDebugBreakSlot(rmode)
-           || RelocInfo::IsJSReturn(rmode)
            || RelocInfo::IsComment(rmode)
            || RelocInfo::IsPosition(rmode));
     // These modes do not need an entry in the constant pool.
@@ -2856,6 +2858,7 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
 
 
 void Assembler::BlockTrampolinePoolFor(int instructions) {
+  CheckTrampolinePoolQuick(instructions);
   BlockTrampolinePoolBefore(pc_offset() + instructions * kInstrSize);
 }
 

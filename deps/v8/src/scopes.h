@@ -57,6 +57,23 @@ class DynamicScopePart : public ZoneObject {
 };
 
 
+// Sloppy block-scoped function declarations to var-bind
+class SloppyBlockFunctionMap : public ZoneHashMap {
+ public:
+  explicit SloppyBlockFunctionMap(Zone* zone);
+
+  virtual ~SloppyBlockFunctionMap();
+
+  void Declare(const AstRawString* name,
+               SloppyBlockFunctionStatement* statement);
+
+  typedef ZoneVector<SloppyBlockFunctionStatement*> Vector;
+
+ private:
+  Zone* zone_;
+};
+
+
 // Global invariants after AST construction: Each reference (i.e. identifier)
 // to a JavaScript variable (including global properties) is represented by a
 // VariableProxy node. Immediately after AST construction and before variable
@@ -119,14 +136,18 @@ class Scope: public ZoneObject {
   // outer scope. Only possible for function scopes; at most one variable.
   void DeclareFunctionVar(VariableDeclaration* declaration) {
     DCHECK(is_function_scope());
+    // Handle implicit declaration of the function name in named function
+    // expressions before other declarations.
+    decls_.InsertAt(0, declaration, zone());
     function_ = declaration;
   }
 
   // Declare a parameter in this scope.  When there are duplicated
   // parameters the rightmost one 'wins'.  However, the implementation
   // expects all parameters to be declared and from left to right.
-  Variable* DeclareParameter(const AstRawString* name, VariableMode mode,
-                             bool is_rest, bool* is_duplicate);
+  Variable* DeclareParameter(
+      const AstRawString* name, VariableMode mode,
+      bool is_optional, bool is_rest, bool* is_duplicate);
 
   // Declare a local variable in this scope. If the variable has been
   // declared before, the previously declared variable is returned.
@@ -165,16 +186,11 @@ class Scope: public ZoneObject {
   // such a variable again if it was added; otherwise this is a no-op.
   void RemoveUnresolved(VariableProxy* var);
 
-  // Creates a new internal variable in this scope.  The name is only used
-  // for printing and cannot be used to find the variable.  In particular,
-  // the only way to get hold of the temporary is by keeping the Variable*
-  // around.
-  Variable* NewInternal(const AstRawString* name);
-
-  // Creates a new temporary variable in this scope.  The name is only used
-  // for printing and cannot be used to find the variable.  In particular,
-  // the only way to get hold of the temporary is by keeping the Variable*
-  // around.  The name should not clash with a legitimate variable names.
+  // Creates a new temporary variable in this scope's TemporaryScope.  The
+  // name is only used for printing and cannot be used to find the variable.
+  // In particular, the only way to get hold of the temporary is by keeping the
+  // Variable* around.  The name should not clash with a legitimate variable
+  // names.
   Variable* NewTemporary(const AstRawString* name);
 
   // Adds the specific declaration node to the list of declarations in
@@ -191,9 +207,9 @@ class Scope: public ZoneObject {
   // the additional requests will be silently ignored.
   void SetIllegalRedeclaration(Expression* expression);
 
-  // Visit the illegal redeclaration expression. Do not call if the
+  // Retrieve the illegal redeclaration expression. Do not call if the
   // scope doesn't have an illegal redeclaration node.
-  void VisitIllegalRedeclaration(AstVisitor* visitor);
+  Expression* GetIllegalRedeclaration();
 
   // Check if the scope has (at least) one illegal redeclaration.
   bool HasIllegalRedeclaration() const { return illegal_redecl_ != NULL; }
@@ -226,6 +242,17 @@ class Scope: public ZoneObject {
   // Set the ASM module flag.
   void SetAsmModule() { asm_module_ = true; }
 
+  // Inform the scope that the scope may execute declarations nonlinearly.
+  // Currently, the only nonlinear scope is a switch statement. The name is
+  // more general in case something else comes up with similar control flow,
+  // for example the ability to break out of something which does not have
+  // its own lexical scope.
+  // The bit does not need to be stored on the ScopeInfo because none of
+  // the three compilers will perform hole check elimination on a variable
+  // located in VariableLocation::CONTEXT. So, direct eval and closures
+  // will not expose holes.
+  void SetNonlinear() { scope_nonlinear_ = true; }
+
   // Position in the source where this scope begins and ends.
   //
   // * For the scope of a with statement
@@ -248,6 +275,10 @@ class Scope: public ZoneObject {
   //     for (let x ...) stmt
   //   start position: start position of '('
   //   end position: end position of last token of 'stmt'
+  // * For the scope of a switch statement
+  //     switch (tag) { cases }
+  //   start position: start position of '{'
+  //   end position: end position of '}'
   int start_position() const { return start_position_; }
   void set_start_position(int statement_pos) {
     start_position_ = statement_pos;
@@ -280,17 +311,13 @@ class Scope: public ZoneObject {
   bool is_block_scope() const { return scope_type_ == BLOCK_SCOPE; }
   bool is_with_scope() const { return scope_type_ == WITH_SCOPE; }
   bool is_arrow_scope() const { return scope_type_ == ARROW_SCOPE; }
-  bool is_declaration_scope() const {
-    return is_eval_scope() || is_function_scope() ||
-        is_module_scope() || is_script_scope();
-  }
-  bool is_strict_eval_scope() const {
-    return is_eval_scope() && is_strict(language_mode_);
-  }
+  bool is_declaration_scope() const { return is_declaration_scope_; }
+
+  void set_is_declaration_scope() { is_declaration_scope_ = true; }
 
   // Information about which scopes calls eval.
   bool calls_eval() const { return scope_calls_eval_; }
-  bool calls_sloppy_eval() {
+  bool calls_sloppy_eval() const {
     return scope_calls_eval_ && is_sloppy(language_mode_);
   }
   bool outer_scope_calls_sloppy_eval() const {
@@ -310,12 +337,17 @@ class Scope: public ZoneObject {
   bool inner_uses_arguments() const { return inner_scope_uses_arguments_; }
   // Does this scope access "super" property (super.foo).
   bool uses_super_property() const { return scope_uses_super_property_; }
+  // Does this scope have the potential to execute declarations non-linearly?
+  bool is_nonlinear() const { return scope_nonlinear_; }
+
+  // Whether this needs to be represented by a runtime context.
+  bool NeedsContext() const { return num_heap_slots() > 0; }
 
   bool NeedsHomeObject() const {
     return scope_uses_super_property_ ||
            (scope_calls_eval_ && (IsConciseMethod(function_kind()) ||
                                   IsAccessorFunction(function_kind()) ||
-                                  IsConstructor(function_kind())));
+                                  IsClassConstructor(function_kind())));
   }
 
   const Scope* NearestOuterEvalScope() const {
@@ -368,16 +400,8 @@ class Scope: public ZoneObject {
     return params_[index];
   }
 
-  // Returns the default function arity --- does not include rest parameters.
-  int default_function_length() const {
-    int count = params_.length();
-    if (rest_index_ >= 0) {
-      DCHECK(count > 0);
-      DCHECK(is_function_scope());
-      --count;
-    }
-    return count;
-  }
+  // Returns the default function arity excluding default or rest parameters.
+  int default_function_length() const { return arity_; }
 
   int num_parameters() const { return params_.length(); }
 
@@ -392,10 +416,24 @@ class Scope: public ZoneObject {
     return rest_index_ >= 0;
   }
 
-  bool is_simple_parameter_list() const {
+  bool has_simple_parameters() const {
+    return has_simple_parameters_;
+  }
+
+  // TODO(caitp): manage this state in a better way. PreParser must be able to
+  // communicate that the scope is non-simple, without allocating any parameters
+  // as the Parser does. This is necessary to ensure that TC39's proposed early
+  // error can be reported consistently regardless of whether lazily parsed or
+  // not.
+  void SetHasNonSimpleParameters() {
     DCHECK(is_function_scope());
-    if (rest_index_ >= 0) return false;
-    return true;
+    has_simple_parameters_ = false;
+  }
+
+  // Retrieve `IsSimpleParameterList` of current or outer function.
+  bool HasSimpleParameters() {
+    Scope* scope = ClosureScope();
+    return !scope->is_function_scope() || scope->has_simple_parameters();
   }
 
   // The local variable 'arguments' if we need to allocate it; NULL otherwise.
@@ -407,7 +445,7 @@ class Scope: public ZoneObject {
   Variable* this_function_var() const {
     // This is only used in derived constructors atm.
     DCHECK(this_function_ == nullptr ||
-           (is_function_scope() && (IsConstructor(function_kind()) ||
+           (is_function_scope() && (IsClassConstructor(function_kind()) ||
                                     IsConciseMethod(function_kind()) ||
                                     IsAccessorFunction(function_kind()))));
     return this_function_;
@@ -481,14 +519,20 @@ class Scope: public ZoneObject {
   // The number of contexts between this and scope; zero if this == scope.
   int ContextChainLength(Scope* scope);
 
-  // Find the script scope.
-  // Used in modules implemenetation to find hosting scope.
-  // TODO(rossberg): is this needed?
-  Scope* ScriptScope();
-
-  // Find the first function, global, or eval scope.  This is the scope
-  // where var declarations will be hoisted to in the implementation.
+  // Find the first function, script, eval or (declaration) block scope. This is
+  // the scope where var declarations will be hoisted to in the implementation.
   Scope* DeclarationScope();
+
+  // Find the first non-block declaration scope. This should be either a script,
+  // function, or eval scope. Same as DeclarationScope(), but skips
+  // declaration "block" scopes. Used for differentiating associated
+  // function objects (i.e., the scope for which a function prologue allocates
+  // a context) or declaring temporaries.
+  Scope* ClosureScope();
+
+  // Find the first (non-arrow) function or script scope.  This is where
+  // 'this' is bound, and what determines the function kind.
+  Scope* ReceiverScope();
 
   Handle<ScopeInfo> GetScopeInfo(Isolate* isolate);
 
@@ -515,6 +559,10 @@ class Scope: public ZoneObject {
     // however `arguments` may be allowed if function is not strict code. Thus,
     // the assumptions explained above do not hold.
     return params_.Contains(variables_.Lookup(name));
+  }
+
+  SloppyBlockFunctionMap* sloppy_block_function_map() {
+    return &sloppy_block_function_map_;
   }
 
   // Error handling.
@@ -552,8 +600,6 @@ class Scope: public ZoneObject {
   // variables may be implicitly 'declared' by being used (possibly in
   // an inner scope) with no intervening with statements or eval calls.
   VariableMap variables_;
-  // Compiler-allocated (user-invisible) internals.
-  ZoneList<Variable*> internals_;
   // Compiler-allocated (user-invisible) temporaries.
   ZoneList<Variable*> temps_;
   // Parameter list in source order.
@@ -577,6 +623,9 @@ class Scope: public ZoneObject {
   // Module descriptor; module scopes only.
   ModuleDescriptor* module_descriptor_;
 
+  // Map of function names to lists of functions defined in sloppy blocks
+  SloppyBlockFunctionMap sloppy_block_function_map_;
+
   // Illegal redeclaration.
   Expression* illegal_redecl_;
 
@@ -597,6 +646,8 @@ class Scope: public ZoneObject {
   bool asm_module_;
   // This scope's outer context is an asm module.
   bool asm_function_;
+  // This scope's declarations might not be executed in order (e.g., switch).
+  bool scope_nonlinear_;
   // The language mode of this scope.
   LanguageMode language_mode_;
   // Source positions.
@@ -614,6 +665,9 @@ class Scope: public ZoneObject {
   // constructed based on a serialized scope info or a catch context).
   bool already_resolved_;
 
+  // True if it holds 'var' declarations.
+  bool is_declaration_scope_;
+
   // Computed as variables are declared.
   int num_var_or_const_;
 
@@ -625,10 +679,12 @@ class Scope: public ZoneObject {
   // The number of modules (including nested ones).
   int num_modules_;
 
-  // For module scopes, the host scope's internal variable binding this module.
+  // For module scopes, the host scope's temporary variable binding this module.
   Variable* module_var_;
 
-  // Rest parameter
+  // Info about the parameter list of a function.
+  int arity_;
+  bool has_simple_parameters_;
   Variable* rest_parameter_;
   int rest_index_;
 

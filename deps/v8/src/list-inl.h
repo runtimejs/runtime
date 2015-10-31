@@ -125,6 +125,12 @@ bool List<T, P>::RemoveElement(const T& elm) {
   return false;
 }
 
+template <typename T, class P>
+void List<T, P>::Swap(List<T, P>* list) {
+  std::swap(data_, list->data_);
+  std::swap(length_, list->length_);
+  std::swap(capacity_, list->capacity_);
+}
 
 template<typename T, class P>
 void List<T, P>::Allocate(int length, P allocator) {
@@ -239,21 +245,12 @@ void List<T, P>::StableSort() {
 }
 
 
-template <typename T, class P>
-void List<T, P>::Initialize(int capacity, P allocator) {
-  DCHECK(capacity >= 0);
-  data_ = (capacity > 0) ? NewData(capacity, allocator) : NULL;
-  capacity_ = capacity;
-  length_ = 0;
-}
-
-
 template <typename T, typename P>
 int SortedListBSearch(const List<T>& list, P cmp) {
   int low = 0;
   int high = list.length() - 1;
   while (low <= high) {
-    int mid = (low + high) / 2;
+    int mid = low + (high - low) / 2;
     T mid_elem = list[mid];
 
     if (cmp(&mid_elem) > 0) {

@@ -40,7 +40,7 @@
 #include "src/arm/assembler-arm.h"
 
 #include "src/assembler.h"
-#include "src/debug.h"
+#include "src/debug/debug.h"
 
 
 namespace v8 {
@@ -97,7 +97,7 @@ DwVfpRegister DwVfpRegister::FromAllocationIndex(int index) {
 }
 
 
-void RelocInfo::apply(intptr_t delta, ICacheFlushMode icache_flush_mode) {
+void RelocInfo::apply(intptr_t delta) {
   if (RelocInfo::IsInternalReference(rmode_)) {
     // absolute code pointer inside code object moves with the code object.
     int32_t* p = reinterpret_cast<int32_t*>(pc_);
@@ -272,41 +272,23 @@ void RelocInfo::set_code_age_stub(Code* stub,
 }
 
 
-Address RelocInfo::call_address() {
+Address RelocInfo::debug_call_address() {
   // The 2 instructions offset assumes patched debug break slot or return
   // sequence.
-  DCHECK((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
-         (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
-  return Memory::Address_at(pc_ + 2 * Assembler::kInstrSize);
+  DCHECK(IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence());
+  return Memory::Address_at(pc_ + Assembler::kPatchDebugBreakSlotAddressOffset);
 }
 
 
-void RelocInfo::set_call_address(Address target) {
-  DCHECK((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
-         (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
-  Memory::Address_at(pc_ + 2 * Assembler::kInstrSize) = target;
+void RelocInfo::set_debug_call_address(Address target) {
+  DCHECK(IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence());
+  Memory::Address_at(pc_ + Assembler::kPatchDebugBreakSlotAddressOffset) =
+      target;
   if (host() != NULL) {
     Object* target_code = Code::GetCodeFromTargetAddress(target);
     host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(
         host(), this, HeapObject::cast(target_code));
   }
-}
-
-
-Object* RelocInfo::call_object() {
-  return *call_object_address();
-}
-
-
-void RelocInfo::set_call_object(Object* target) {
-  *call_object_address() = target;
-}
-
-
-Object** RelocInfo::call_object_address() {
-  DCHECK((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
-         (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
-  return reinterpret_cast<Object**>(pc_ + 2 * Assembler::kInstrSize);
 }
 
 
@@ -353,11 +335,8 @@ void RelocInfo::Visit(Isolate* isolate, ObjectVisitor* visitor) {
     visitor->VisitInternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
     visitor->VisitCodeAgeSequence(this);
-  } else if (((RelocInfo::IsJSReturn(mode) &&
-              IsPatchedReturnSequence()) ||
-             (RelocInfo::IsDebugBreakSlot(mode) &&
-              IsPatchedDebugBreakSlotSequence())) &&
-             isolate->debug()->has_break_points()) {
+  } else if (RelocInfo::IsDebugBreakSlot(mode) &&
+             IsPatchedDebugBreakSlotSequence()) {
     visitor->VisitDebugTarget(this);
   } else if (RelocInfo::IsRuntimeEntry(mode)) {
     visitor->VisitRuntimeEntry(this);
@@ -380,11 +359,8 @@ void RelocInfo::Visit(Heap* heap) {
     StaticVisitor::VisitInternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
     StaticVisitor::VisitCodeAgeSequence(heap, this);
-  } else if (heap->isolate()->debug()->has_break_points() &&
-             ((RelocInfo::IsJSReturn(mode) &&
-              IsPatchedReturnSequence()) ||
-             (RelocInfo::IsDebugBreakSlot(mode) &&
-              IsPatchedDebugBreakSlotSequence()))) {
+  } else if (RelocInfo::IsDebugBreakSlot(mode) &&
+             IsPatchedDebugBreakSlotSequence()) {
     StaticVisitor::VisitDebugTarget(heap, this);
   } else if (RelocInfo::IsRuntimeEntry(mode)) {
     StaticVisitor::VisitRuntimeEntry(this);
@@ -433,9 +409,7 @@ void Assembler::CheckBuffer() {
   if (buffer_space() <= kGap) {
     GrowBuffer();
   }
-  if (pc_offset() >= next_buffer_check_) {
-    CheckConstPool(false, true);
-  }
+  MaybeCheckConstPool();
 }
 
 
@@ -503,11 +477,6 @@ Address Assembler::target_address_from_return_address(Address pc) {
     }
     return candidate;
   }
-}
-
-
-Address Assembler::break_address_from_return_address(Address pc) {
-  return pc - Assembler::kPatchDebugBreakSlotReturnOffset;
 }
 
 
@@ -653,7 +622,7 @@ void Assembler::set_target_address_at(Address pc, Address constant_pool,
     Memory::Address_at(constant_pool_entry_address(pc, constant_pool)) = target;
     // Intuitively, we would think it is necessary to always flush the
     // instruction cache after patching a target address in the code as follows:
-    //   CpuFeatures::FlushICache(pc, sizeof(target));
+    //   Assembler::FlushICacheWithoutIsolate(pc, sizeof(target));
     // However, on ARM, no instruction is actually patched in the case
     // of embedded constants of the form:
     // ldr   ip, [pp, #...]
@@ -671,7 +640,7 @@ void Assembler::set_target_address_at(Address pc, Address constant_pool,
     DCHECK(IsMovW(Memory::int32_at(pc)));
     DCHECK(IsMovT(Memory::int32_at(pc + kInstrSize)));
     if (icache_flush_mode != SKIP_ICACHE_FLUSH) {
-      CpuFeatures::FlushICache(pc, 2 * kInstrSize);
+      Assembler::FlushICacheWithoutIsolate(pc, 2 * kInstrSize);
     }
   } else {
     // This is an mov / orr immediate load. Patch the immediate embedded in
@@ -691,7 +660,7 @@ void Assembler::set_target_address_at(Address pc, Address constant_pool,
            IsOrrImmed(Memory::int32_at(pc + 2 * kInstrSize)) &&
            IsOrrImmed(Memory::int32_at(pc + 3 * kInstrSize)));
     if (icache_flush_mode != SKIP_ICACHE_FLUSH) {
-      CpuFeatures::FlushICache(pc, 4 * kInstrSize);
+      Assembler::FlushICacheWithoutIsolate(pc, 4 * kInstrSize);
     }
   }
 }

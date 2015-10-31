@@ -10,6 +10,7 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
 #include "src/contexts.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -17,8 +18,6 @@ namespace compiler {
 
 Reduction JSContextSpecialization::Reduce(Node* node) {
   switch (node->opcode()) {
-    case IrOpcode::kParameter:
-      return ReduceParameter(node);
     case IrOpcode::kJSLoadContext:
       return ReduceJSLoadContext(node);
     case IrOpcode::kJSStoreContext:
@@ -30,37 +29,42 @@ Reduction JSContextSpecialization::Reduce(Node* node) {
 }
 
 
-Reduction JSContextSpecialization::ReduceParameter(Node* node) {
-  DCHECK_EQ(IrOpcode::kParameter, node->opcode());
-  Node* const start = NodeProperties::GetValueInput(node, 0);
-  DCHECK_EQ(IrOpcode::kStart, start->opcode());
-  int const index = ParameterIndexOf(node->op());
-  // The context is always the last parameter to a JavaScript function, and
-  // {Parameter} indices start at -1, so value outputs of {Start} look like
-  // this: closure, receiver, param0, ..., paramN, context.
-  if (index == start->op()->ValueOutputCount() - 2) {
-    Handle<Context> context_constant;
-    if (context().ToHandle(&context_constant)) {
-      return Replace(jsgraph()->Constant(context_constant));
+MaybeHandle<Context> JSContextSpecialization::GetSpecializationContext(
+    Node* node) {
+  DCHECK(node->opcode() == IrOpcode::kJSLoadContext ||
+         node->opcode() == IrOpcode::kJSStoreContext);
+  Node* const object = NodeProperties::GetValueInput(node, 0);
+  switch (object->opcode()) {
+    case IrOpcode::kHeapConstant:
+      return Handle<Context>::cast(OpParameter<Handle<HeapObject>>(object));
+    case IrOpcode::kParameter: {
+      Node* const start = NodeProperties::GetValueInput(object, 0);
+      DCHECK_EQ(IrOpcode::kStart, start->opcode());
+      int const index = ParameterIndexOf(object->op());
+      // The context is always the last parameter to a JavaScript function, and
+      // {Parameter} indices start at -1, so value outputs of {Start} look like
+      // this: closure, receiver, param0, ..., paramN, context.
+      if (index == start->op()->ValueOutputCount() - 2) {
+        return context();
+      }
+      break;
     }
+    default:
+      break;
   }
-  return NoChange();
+  return MaybeHandle<Context>();
 }
 
 
 Reduction JSContextSpecialization::ReduceJSLoadContext(Node* node) {
   DCHECK_EQ(IrOpcode::kJSLoadContext, node->opcode());
 
-  HeapObjectMatcher m(NodeProperties::GetValueInput(node, 0));
-  // If the context is not constant, no reduction can occur.
-  if (!m.HasValue()) {
-    return NoChange();
-  }
-
-  const ContextAccess& access = ContextAccessOf(node->op());
+  // Get the specialization context from the node.
+  Handle<Context> context;
+  if (!GetSpecializationContext(node).ToHandle(&context)) return NoChange();
 
   // Find the right parent context.
-  Handle<Context> context = Handle<Context>::cast(m.Value().handle());
+  const ContextAccess& access = ContextAccessOf(node->op());
   for (size_t i = access.depth(); i > 0; --i) {
     context = handle(context->previous(), isolate());
   }
@@ -73,8 +77,8 @@ Reduction JSContextSpecialization::ReduceJSLoadContext(Node* node) {
     }
     const Operator* op = jsgraph_->javascript()->LoadContext(
         0, access.index(), access.immutable());
-    node->set_op(op);
     node->ReplaceInput(0, jsgraph_->Constant(context));
+    NodeProperties::ChangeOp(node, op);
     return Changed(node);
   }
   Handle<Object> value =
@@ -100,27 +104,23 @@ Reduction JSContextSpecialization::ReduceJSLoadContext(Node* node) {
 Reduction JSContextSpecialization::ReduceJSStoreContext(Node* node) {
   DCHECK_EQ(IrOpcode::kJSStoreContext, node->opcode());
 
-  HeapObjectMatcher m(NodeProperties::GetValueInput(node, 0));
-  // If the context is not constant, no reduction can occur.
-  if (!m.HasValue()) {
-    return NoChange();
-  }
-
-  const ContextAccess& access = ContextAccessOf(node->op());
+  // Get the specialization context from the node.
+  Handle<Context> context;
+  if (!GetSpecializationContext(node).ToHandle(&context)) return NoChange();
 
   // The access does not have to look up a parent, nothing to fold.
+  const ContextAccess& access = ContextAccessOf(node->op());
   if (access.depth() == 0) {
     return NoChange();
   }
 
   // Find the right parent context.
-  Handle<Context> context = Handle<Context>::cast(m.Value().handle());
   for (size_t i = access.depth(); i > 0; --i) {
     context = handle(context->previous(), isolate());
   }
 
-  node->set_op(javascript()->StoreContext(0, access.index()));
   node->ReplaceInput(0, jsgraph_->Constant(context));
+  NodeProperties::ChangeOp(node, javascript()->StoreContext(0, access.index()));
   return Changed(node);
 }
 

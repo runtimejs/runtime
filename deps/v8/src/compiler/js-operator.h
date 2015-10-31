@@ -6,7 +6,6 @@
 #define V8_COMPILER_JS_OPERATOR_H_
 
 #include "src/runtime/runtime.h"
-#include "src/unique.h"
 
 namespace v8 {
 namespace internal {
@@ -21,22 +20,19 @@ struct JSOperatorGlobalCache;
 // is used to access the type feedback for a certain {Node}.
 class VectorSlotPair {
  public:
-  VectorSlotPair() : slot_(FeedbackVectorICSlot::Invalid()) {}
+  VectorSlotPair();
   VectorSlotPair(Handle<TypeFeedbackVector> vector, FeedbackVectorICSlot slot)
       : vector_(vector), slot_(slot) {}
 
   bool IsValid() const { return !vector_.is_null(); }
 
-  MaybeHandle<TypeFeedbackVector> vector() const { return vector_; }
+  Handle<TypeFeedbackVector> vector() const { return vector_; }
   FeedbackVectorICSlot slot() const { return slot_; }
 
-  int index() const {
-    Handle<TypeFeedbackVector> vector;
-    return vector_.ToHandle(&vector) ? vector->GetIndex(slot_) : -1;
-  }
+  int index() const;
 
  private:
-  const MaybeHandle<TypeFeedbackVector> vector_;
+  const Handle<TypeFeedbackVector> vector_;
   const FeedbackVectorICSlot slot_;
 };
 
@@ -158,12 +154,12 @@ ContextAccess const& ContextAccessOf(Operator const*);
 class DynamicGlobalAccess final {
  public:
   DynamicGlobalAccess(const Handle<String>& name, uint32_t check_bitset,
-                      const VectorSlotPair& feedback, ContextualMode mode);
+                      const VectorSlotPair& feedback, TypeofMode typeof_mode);
 
   const Handle<String>& name() const { return name_; }
   uint32_t check_bitset() const { return check_bitset_; }
   const VectorSlotPair& feedback() const { return feedback_; }
-  ContextualMode mode() const { return mode_; }
+  TypeofMode typeof_mode() const { return typeof_mode_; }
 
   // Indicates that an inline check is disabled.
   bool RequiresFullCheck() const {
@@ -180,7 +176,7 @@ class DynamicGlobalAccess final {
   const Handle<String> name_;
   const uint32_t check_bitset_;
   const VectorSlotPair feedback_;
-  const ContextualMode mode_;
+  const TypeofMode typeof_mode_;
 };
 
 size_t hash_value(DynamicGlobalAccess const&);
@@ -233,28 +229,22 @@ DynamicContextAccess const& DynamicContextAccessOf(Operator const*);
 
 
 // Defines the property being loaded from an object by a named load. This is
-// used as a parameter by JSLoadNamed and JSLoadGlobal operators.
+// used as a parameter by JSLoadNamed operators.
 class LoadNamedParameters final {
  public:
-  LoadNamedParameters(const Unique<Name>& name, const VectorSlotPair& feedback,
-                      LanguageMode language_mode,
-                      ContextualMode contextual_mode)
-      : name_(name),
-        feedback_(feedback),
-        language_mode_(language_mode),
-        contextual_mode_(contextual_mode) {}
+  LoadNamedParameters(const Handle<Name>& name, const VectorSlotPair& feedback,
+                      LanguageMode language_mode)
+      : name_(name), feedback_(feedback), language_mode_(language_mode) {}
 
-  const Unique<Name>& name() const { return name_; }
+  const Handle<Name>& name() const { return name_; }
   LanguageMode language_mode() const { return language_mode_; }
-  ContextualMode contextual_mode() const { return contextual_mode_; }
 
   const VectorSlotPair& feedback() const { return feedback_; }
 
  private:
-  const Unique<Name> name_;
+  const Handle<Name> name_;
   const VectorSlotPair feedback_;
   const LanguageMode language_mode_;
-  const ContextualMode contextual_mode_;
 };
 
 bool operator==(LoadNamedParameters const&, LoadNamedParameters const&);
@@ -266,7 +256,74 @@ std::ostream& operator<<(std::ostream&, LoadNamedParameters const&);
 
 const LoadNamedParameters& LoadNamedParametersOf(const Operator* op);
 
-const LoadNamedParameters& LoadGlobalParametersOf(const Operator* op);
+
+// Defines the property being loaded from an object by a named load. This is
+// used as a parameter by JSLoadGlobal operator.
+class LoadGlobalParameters final {
+ public:
+  LoadGlobalParameters(const Handle<Name>& name, const VectorSlotPair& feedback,
+                       TypeofMode typeof_mode, int slot_index)
+      : name_(name),
+        feedback_(feedback),
+        typeof_mode_(typeof_mode),
+        slot_index_(slot_index) {}
+
+  const Handle<Name>& name() const { return name_; }
+  TypeofMode typeof_mode() const { return typeof_mode_; }
+
+  const VectorSlotPair& feedback() const { return feedback_; }
+
+  int slot_index() const { return slot_index_; }
+
+ private:
+  const Handle<Name> name_;
+  const VectorSlotPair feedback_;
+  const TypeofMode typeof_mode_;
+  const int slot_index_;
+};
+
+bool operator==(LoadGlobalParameters const&, LoadGlobalParameters const&);
+bool operator!=(LoadGlobalParameters const&, LoadGlobalParameters const&);
+
+size_t hash_value(LoadGlobalParameters const&);
+
+std::ostream& operator<<(std::ostream&, LoadGlobalParameters const&);
+
+const LoadGlobalParameters& LoadGlobalParametersOf(const Operator* op);
+
+
+// Defines the property being stored to an object by a named store. This is
+// used as a parameter by JSStoreGlobal operator.
+class StoreGlobalParameters final {
+ public:
+  StoreGlobalParameters(LanguageMode language_mode,
+                        const VectorSlotPair& feedback,
+                        const Handle<Name>& name, int slot_index)
+      : language_mode_(language_mode),
+        name_(name),
+        feedback_(feedback),
+        slot_index_(slot_index) {}
+
+  LanguageMode language_mode() const { return language_mode_; }
+  const VectorSlotPair& feedback() const { return feedback_; }
+  const Handle<Name>& name() const { return name_; }
+  int slot_index() const { return slot_index_; }
+
+ private:
+  const LanguageMode language_mode_;
+  const Handle<Name> name_;
+  const VectorSlotPair feedback_;
+  int slot_index_;
+};
+
+bool operator==(StoreGlobalParameters const&, StoreGlobalParameters const&);
+bool operator!=(StoreGlobalParameters const&, StoreGlobalParameters const&);
+
+size_t hash_value(StoreGlobalParameters const&);
+
+std::ostream& operator<<(std::ostream&, StoreGlobalParameters const&);
+
+const StoreGlobalParameters& StoreGlobalParametersOf(const Operator* op);
 
 
 // Defines the property being loaded from an object. This is
@@ -297,20 +354,20 @@ const LoadPropertyParameters& LoadPropertyParametersOf(const Operator* op);
 
 
 // Defines the property being stored to an object by a named store. This is
-// used as a parameter by JSStoreNamed and JSStoreGlobal operators.
+// used as a parameter by JSStoreNamed operator.
 class StoreNamedParameters final {
  public:
   StoreNamedParameters(LanguageMode language_mode,
-                       const VectorSlotPair& feedback, const Unique<Name>& name)
+                       const VectorSlotPair& feedback, const Handle<Name>& name)
       : language_mode_(language_mode), name_(name), feedback_(feedback) {}
 
   LanguageMode language_mode() const { return language_mode_; }
   const VectorSlotPair& feedback() const { return feedback_; }
-  const Unique<Name>& name() const { return name_; }
+  const Handle<Name>& name() const { return name_; }
 
  private:
   const LanguageMode language_mode_;
-  const Unique<Name> name_;
+  const Handle<Name> name_;
   const VectorSlotPair feedback_;
 };
 
@@ -322,8 +379,6 @@ size_t hash_value(StoreNamedParameters const&);
 std::ostream& operator<<(std::ostream&, StoreNamedParameters const&);
 
 const StoreNamedParameters& StoreNamedParametersOf(const Operator* op);
-
-const StoreNamedParameters& StoreGlobalParametersOf(const Operator* op);
 
 
 // Defines the property being stored to an object. This is used as a parameter
@@ -350,6 +405,35 @@ size_t hash_value(StorePropertyParameters const&);
 std::ostream& operator<<(std::ostream&, StorePropertyParameters const&);
 
 const StorePropertyParameters& StorePropertyParametersOf(const Operator* op);
+
+
+// Defines specifics about arguments object or rest parameter creation. This is
+// used as a parameter by JSCreateArguments operators.
+class CreateArgumentsParameters final {
+ public:
+  enum Type { kMappedArguments, kUnmappedArguments, kRestArray };
+  CreateArgumentsParameters(Type type, int start_index)
+      : type_(type), start_index_(start_index) {}
+
+  Type type() const { return type_; }
+  int start_index() const { return start_index_; }
+
+ private:
+  const Type type_;
+  const int start_index_;
+};
+
+bool operator==(CreateArgumentsParameters const&,
+                CreateArgumentsParameters const&);
+bool operator!=(CreateArgumentsParameters const&,
+                CreateArgumentsParameters const&);
+
+size_t hash_value(CreateArgumentsParameters const&);
+
+std::ostream& operator<<(std::ostream&, CreateArgumentsParameters const&);
+
+const CreateArgumentsParameters& CreateArgumentsParametersOf(
+    const Operator* op);
 
 
 // Defines shared information for the closure that should be created. This is
@@ -414,6 +498,8 @@ class JSOperatorBuilder final : public ZoneObject {
   const Operator* Yield();
 
   const Operator* Create();
+  const Operator* CreateArguments(CreateArgumentsParameters::Type type,
+                                  int start_index);
   const Operator* CreateClosure(Handle<SharedFunctionInfo> shared_info,
                                 PretenureFlag pretenure);
   const Operator* CreateLiteralArray(int literal_flags);
@@ -429,26 +515,28 @@ class JSOperatorBuilder final : public ZoneObject {
 
   const Operator* LoadProperty(const VectorSlotPair& feedback,
                                LanguageMode language_mode);
-  const Operator* LoadNamed(const Unique<Name>& name,
+  const Operator* LoadNamed(const Handle<Name>& name,
                             const VectorSlotPair& feedback,
                             LanguageMode language_mode);
 
   const Operator* StoreProperty(LanguageMode language_mode,
                                 const VectorSlotPair& feedback);
   const Operator* StoreNamed(LanguageMode language_mode,
-                             const Unique<Name>& name,
+                             const Handle<Name>& name,
                              const VectorSlotPair& feedback);
 
   const Operator* DeleteProperty(LanguageMode language_mode);
 
   const Operator* HasProperty();
 
-  const Operator* LoadGlobal(const Unique<Name>& name,
+  const Operator* LoadGlobal(const Handle<Name>& name,
                              const VectorSlotPair& feedback,
-                             ContextualMode contextual_mode = NOT_CONTEXTUAL);
+                             TypeofMode typeof_mode = NOT_INSIDE_TYPEOF,
+                             int slot_index = -1);
   const Operator* StoreGlobal(LanguageMode language_mode,
-                              const Unique<Name>& name,
-                              const VectorSlotPair& feedback);
+                              const Handle<Name>& name,
+                              const VectorSlotPair& feedback,
+                              int slot_index = -1);
 
   const Operator* LoadContext(size_t depth, size_t index, bool immutable);
   const Operator* StoreContext(size_t depth, size_t index);
@@ -456,7 +544,7 @@ class JSOperatorBuilder final : public ZoneObject {
   const Operator* LoadDynamicGlobal(const Handle<String>& name,
                                     uint32_t check_bitset,
                                     const VectorSlotPair& feedback,
-                                    ContextualMode mode);
+                                    TypeofMode typeof_mode);
   const Operator* LoadDynamicContext(const Handle<String>& name,
                                      uint32_t check_bitset, size_t depth,
                                      size_t index);
@@ -471,13 +559,12 @@ class JSOperatorBuilder final : public ZoneObject {
 
   const Operator* StackCheck();
 
-  // TODO(titzer): nail down the static parts of each of these context flavors.
   const Operator* CreateFunctionContext();
-  const Operator* CreateCatchContext(const Unique<String>& name);
+  const Operator* CreateCatchContext(const Handle<String>& name);
   const Operator* CreateWithContext();
-  const Operator* CreateBlockContext();
+  const Operator* CreateBlockContext(const Handle<ScopeInfo>& scpope_info);
   const Operator* CreateModuleContext();
-  const Operator* CreateScriptContext();
+  const Operator* CreateScriptContext(const Handle<ScopeInfo>& scpope_info);
 
  private:
   Zone* zone() const { return zone_; }

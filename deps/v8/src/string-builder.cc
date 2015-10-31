@@ -4,6 +4,9 @@
 
 #include "src/string-builder.h"
 
+#include "src/isolate-inl.h"
+#include "src/objects-inl.h"
+
 namespace v8 {
 namespace internal {
 

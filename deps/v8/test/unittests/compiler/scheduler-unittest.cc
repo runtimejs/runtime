@@ -137,7 +137,7 @@ const Operator kHeapConstant(IrOpcode::kHeapConstant, Operator::kPure,
 const Operator kIntAdd(IrOpcode::kInt32Add, Operator::kPure, "Int32Add", 2, 0,
                        0, 1, 0, 0);
 const Operator kMockCall(IrOpcode::kCall, Operator::kNoProperties, "MockCall",
-                         0, 0, 1, 1, 0, 2);
+                         0, 0, 1, 1, 1, 2);
 const Operator kMockTailCall(IrOpcode::kTailCall, Operator::kNoProperties,
                              "MockTailCall", 1, 1, 1, 0, 0, 1);
 
@@ -215,7 +215,7 @@ TEST_F(SchedulerRPOTest, EntryLoop) {
 
 TEST_F(SchedulerRPOTest, EndLoop) {
   Schedule schedule(zone());
-  SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 2));
+  base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 2));
   schedule.AddSuccessorForTesting(schedule.start(), loop1->header());
   BasicBlockVector* order = Scheduler::ComputeSpecialRPO(zone(), &schedule);
   CheckRPONumbers(order, 3, true);
@@ -225,7 +225,7 @@ TEST_F(SchedulerRPOTest, EndLoop) {
 
 TEST_F(SchedulerRPOTest, EndLoopNested) {
   Schedule schedule(zone());
-  SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 2));
+  base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 2));
   schedule.AddSuccessorForTesting(schedule.start(), loop1->header());
   schedule.AddSuccessorForTesting(loop1->last(), schedule.start());
   BasicBlockVector* order = Scheduler::ComputeSpecialRPO(zone(), &schedule);
@@ -406,8 +406,8 @@ TEST_F(SchedulerRPOTest, LoopNest2) {
 TEST_F(SchedulerRPOTest, LoopFollow1) {
   Schedule schedule(zone());
 
-  SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
-  SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
 
   BasicBlock* A = schedule.start();
   BasicBlock* E = schedule.end();
@@ -427,8 +427,8 @@ TEST_F(SchedulerRPOTest, LoopFollow1) {
 TEST_F(SchedulerRPOTest, LoopFollow2) {
   Schedule schedule(zone());
 
-  SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
-  SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
 
   BasicBlock* A = schedule.start();
   BasicBlock* S = schedule.NewBasicBlock();
@@ -451,8 +451,8 @@ TEST_F(SchedulerRPOTest, LoopFollowN) {
   for (int size = 1; size < 5; size++) {
     for (int exit = 0; exit < size; exit++) {
       Schedule schedule(zone());
-      SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
-      SmartPointer<TestLoop> loop2(CreateLoop(&schedule, size));
+      base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
+      base::SmartPointer<TestLoop> loop2(CreateLoop(&schedule, size));
       BasicBlock* A = schedule.start();
       BasicBlock* E = schedule.end();
 
@@ -472,8 +472,8 @@ TEST_F(SchedulerRPOTest, LoopFollowN) {
 TEST_F(SchedulerRPOTest, NestedLoopFollow1) {
   Schedule schedule(zone());
 
-  SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
-  SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, 1));
+  base::SmartPointer<TestLoop> loop2(CreateLoop(&schedule, 1));
 
   BasicBlock* A = schedule.start();
   BasicBlock* B = schedule.NewBasicBlock();
@@ -506,7 +506,7 @@ TEST_F(SchedulerRPOTest, LoopBackedges1) {
       BasicBlock* A = schedule.start();
       BasicBlock* E = schedule.end();
 
-      SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
+      base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
       schedule.AddSuccessorForTesting(A, loop1->header());
       schedule.AddSuccessorForTesting(loop1->last(), E);
 
@@ -530,7 +530,7 @@ TEST_F(SchedulerRPOTest, LoopOutedges1) {
       BasicBlock* D = schedule.NewBasicBlock();
       BasicBlock* E = schedule.end();
 
-      SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
+      base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
       schedule.AddSuccessorForTesting(A, loop1->header());
       schedule.AddSuccessorForTesting(loop1->last(), E);
 
@@ -553,7 +553,7 @@ TEST_F(SchedulerRPOTest, LoopOutedges2) {
     BasicBlock* A = schedule.start();
     BasicBlock* E = schedule.end();
 
-    SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
+    base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
     schedule.AddSuccessorForTesting(A, loop1->header());
     schedule.AddSuccessorForTesting(loop1->last(), E);
 
@@ -576,7 +576,7 @@ TEST_F(SchedulerRPOTest, LoopOutloops1) {
     Schedule schedule(zone());
     BasicBlock* A = schedule.start();
     BasicBlock* E = schedule.end();
-    SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
+    base::SmartPointer<TestLoop> loop1(CreateLoop(&schedule, size));
     schedule.AddSuccessorForTesting(A, loop1->header());
     schedule.AddSuccessorForTesting(loop1->last(), E);
 
@@ -646,31 +646,6 @@ TEST_F(SchedulerTest, BuildScheduleOneParameter) {
   graph()->SetEnd(graph()->NewNode(common()->End(1), ret));
 
   USE(Scheduler::ComputeSchedule(zone(), graph(), Scheduler::kNoFlags));
-}
-
-
-TEST_F(SchedulerTest, BuildScheduleIfSplit) {
-  graph()->SetStart(graph()->NewNode(common()->Start(5)));
-
-  Node* p1 = graph()->NewNode(common()->Parameter(0), graph()->start());
-  Node* p2 = graph()->NewNode(common()->Parameter(1), graph()->start());
-  Node* p3 = graph()->NewNode(common()->Parameter(2), graph()->start());
-  Node* p4 = graph()->NewNode(common()->Parameter(3), graph()->start());
-  Node* p5 = graph()->NewNode(common()->Parameter(4), graph()->start());
-  Node* cmp =
-      graph()->NewNode(js()->LessThanOrEqual(LanguageMode::SLOPPY), p1, p2, p3,
-                       p4, p5, graph()->start(), graph()->start());
-  Node* branch = graph()->NewNode(common()->Branch(), cmp, graph()->start());
-  Node* true_branch = graph()->NewNode(common()->IfTrue(), branch);
-  Node* false_branch = graph()->NewNode(common()->IfFalse(), branch);
-
-  Node* ret1 =
-      graph()->NewNode(common()->Return(), p4, graph()->start(), true_branch);
-  Node* ret2 =
-      graph()->NewNode(common()->Return(), p5, graph()->start(), false_branch);
-  graph()->SetEnd(graph()->NewNode(common()->End(2), ret1, ret2));
-
-  ComputeAndVerifySchedule(13);
 }
 
 
@@ -755,7 +730,7 @@ TARGET_TEST_F(SchedulerTest, NestedFloatingDiamonds) {
 
   Node* map = graph()->NewNode(
       simplified()->LoadElement(AccessBuilder::ForFixedArrayElement()), p0, p0,
-      p0, start, f);
+      start, f);
   Node* br1 = graph()->NewNode(common()->Branch(), map, graph()->start());
   Node* t1 = graph()->NewNode(common()->IfTrue(), br1);
   Node* f1 = graph()->NewNode(common()->IfFalse(), br1);

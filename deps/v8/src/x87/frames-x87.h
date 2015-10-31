@@ -39,6 +39,7 @@ class EntryFrameConstants : public AllStatic {
  public:
   static const int kCallerFPOffset      = -6 * kPointerSize;
 
+  static const int kNewTargetArgOffset = +2 * kPointerSize;
   static const int kFunctionArgOffset   = +3 * kPointerSize;
   static const int kReceiverArgOffset   = +4 * kPointerSize;
   static const int kArgcOffset          = +5 * kPointerSize;
@@ -77,12 +78,6 @@ class JavaScriptFrameConstants : public AllStatic {
 
   static const int kDynamicAlignmentStateOffset = kLocal0Offset;
 };
-
-
-inline Object* JavaScriptFrame::function_slot_object() const {
-  const int offset = JavaScriptFrameConstants::kFunctionOffset;
-  return Memory::Object_at(fp() + offset);
-}
 
 
 } }  // namespace v8::internal

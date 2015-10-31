@@ -11,15 +11,15 @@
 // -------------------------------------------------------------------
 // Imports
 
-var GlobalArray = global.Array;
-var GlobalSymbol = global.Symbol;
-
 var GetIterator;
 var GetMethod;
+var GlobalArray = global.Array;
+var iteratorSymbol = utils.ImportNow("iterator_symbol");
 var MathMax;
 var MathMin;
 var ObjectIsFrozen;
 var ObjectDefineProperty;
+var ToNumber;
 
 utils.Import(function(from) {
   GetIterator = from.GetIterator;
@@ -28,6 +28,7 @@ utils.Import(function(from) {
   MathMin = from.MathMin;
   ObjectIsFrozen = from.ObjectIsFrozen;
   ObjectDefineProperty = from.ObjectDefineProperty;
+  ToNumber = from.ToNumber;
 });
 
 // -------------------------------------------------------------------
@@ -83,28 +84,20 @@ function InnerArrayCopyWithin(target, start, end, array, length) {
 function ArrayCopyWithin(target, start, end) {
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.copyWithin");
 
-  var array = TO_OBJECT_INLINE(this);
-  var length = $toLength(array.length);
+  var array = TO_OBJECT(this);
+  var length = TO_LENGTH(array.length);
 
   return InnerArrayCopyWithin(target, start, end, array, length);
 }
 
 function InnerArrayFind(predicate, thisArg, array, length) {
-  if (!IS_SPEC_FUNCTION(predicate)) {
+  if (!IS_CALLABLE(predicate)) {
     throw MakeTypeError(kCalledNonCallable, predicate);
-  }
-
-  var needs_wrapper = false;
-  if (IS_NULL(thisArg)) {
-    if (%IsSloppyModeFunction(predicate)) thisArg = UNDEFINED;
-  } else if (!IS_UNDEFINED(thisArg)) {
-    needs_wrapper = SHOULD_CREATE_WRAPPER(predicate, thisArg);
   }
 
   for (var i = 0; i < length; i++) {
     var element = array[i];
-    var newThisArg = needs_wrapper ? $toObject(thisArg) : thisArg;
-    if (%_CallFunction(newThisArg, element, i, array, predicate)) {
+    if (%_Call(predicate, thisArg, element, i, array)) {
       return element;
     }
   }
@@ -116,28 +109,20 @@ function InnerArrayFind(predicate, thisArg, array, length) {
 function ArrayFind(predicate, thisArg) {
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.find");
 
-  var array = $toObject(this);
-  var length = $toInteger(array.length);
+  var array = TO_OBJECT(this);
+  var length = TO_INTEGER(array.length);
 
   return InnerArrayFind(predicate, thisArg, array, length);
 }
 
 function InnerArrayFindIndex(predicate, thisArg, array, length) {
-  if (!IS_SPEC_FUNCTION(predicate)) {
+  if (!IS_CALLABLE(predicate)) {
     throw MakeTypeError(kCalledNonCallable, predicate);
-  }
-
-  var needs_wrapper = false;
-  if (IS_NULL(thisArg)) {
-    if (%IsSloppyModeFunction(predicate)) thisArg = UNDEFINED;
-  } else if (!IS_UNDEFINED(thisArg)) {
-    needs_wrapper = SHOULD_CREATE_WRAPPER(predicate, thisArg);
   }
 
   for (var i = 0; i < length; i++) {
     var element = array[i];
-    var newThisArg = needs_wrapper ? $toObject(thisArg) : thisArg;
-    if (%_CallFunction(newThisArg, element, i, array, predicate)) {
+    if (%_Call(predicate, thisArg, element, i, array)) {
       return i;
     }
   }
@@ -149,8 +134,8 @@ function InnerArrayFindIndex(predicate, thisArg, array, length) {
 function ArrayFindIndex(predicate, thisArg) {
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.findIndex");
 
-  var array = $toObject(this);
-  var length = $toInteger(array.length);
+  var array = TO_OBJECT(this);
+  var length = TO_INTEGER(array.length);
 
   return InnerArrayFindIndex(predicate, thisArg, array, length);
 }
@@ -187,8 +172,8 @@ function InnerArrayFill(value, start, end, array, length) {
 function ArrayFill(value, start, end) {
   CHECK_OBJECT_COERCIBLE(this, "Array.prototype.fill");
 
-  var array = $toObject(this);
-  var length = TO_UINT32(array.length);
+  var array = TO_OBJECT(this);
+  var length = TO_LENGTH_OR_UINT32(array.length);
 
   return InnerArrayFill(value, start, end, array, length);
 }
@@ -205,22 +190,16 @@ function AddArrayElement(constructor, array, i, value) {
 
 // ES6, draft 10-14-14, section 22.1.2.1
 function ArrayFrom(arrayLike, mapfn, receiver) {
-  var items = $toObject(arrayLike);
+  var items = TO_OBJECT(arrayLike);
   var mapping = !IS_UNDEFINED(mapfn);
 
   if (mapping) {
-    if (!IS_SPEC_FUNCTION(mapfn)) {
+    if (!IS_CALLABLE(mapfn)) {
       throw MakeTypeError(kCalledNonCallable, mapfn);
-    } else if (%IsSloppyModeFunction(mapfn)) {
-      if (IS_NULL(receiver)) {
-        receiver = UNDEFINED;
-      } else if (!IS_UNDEFINED(receiver)) {
-        receiver = TO_OBJECT_INLINE(receiver);
-      }
     }
   }
 
-  var iterable = GetMethod(items, symbolIterator);
+  var iterable = GetMethod(items, iteratorSymbol);
   var k;
   var result;
   var mappedValue;
@@ -246,7 +225,7 @@ function ArrayFrom(arrayLike, mapfn, receiver) {
 
       nextValue = next.value;
       if (mapping) {
-        mappedValue = %_CallFunction(receiver, nextValue, k, mapfn);
+        mappedValue = %_Call(mapfn, receiver, nextValue, k);
       } else {
         mappedValue = nextValue;
       }
@@ -254,13 +233,13 @@ function ArrayFrom(arrayLike, mapfn, receiver) {
       k++;
     }
   } else {
-    var len = $toLength(items.length);
+    var len = TO_LENGTH(items.length);
     result = %IsConstructor(this) ? new this(len) : new GlobalArray(len);
 
     for (k = 0; k < len; ++k) {
       nextValue = items[k];
       if (mapping) {
-        mappedValue = %_CallFunction(receiver, nextValue, k, mapfn);
+        mappedValue = %_Call(mapfn, receiver, nextValue, k);
       } else {
         mappedValue = nextValue;
       }

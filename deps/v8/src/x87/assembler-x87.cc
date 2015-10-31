@@ -34,7 +34,7 @@
 // significantly by Google Inc.
 // Copyright 2012 the V8 project authors. All rights reserved.
 
-#include "src/v8.h"
+#include "src/x87/assembler-x87.h"
 
 #if V8_TARGET_ARCH_X87
 
@@ -42,6 +42,7 @@
 #include "src/base/cpu.h"
 #include "src/disassembler.h"
 #include "src/macro-assembler.h"
+#include "src/v8.h"
 
 namespace v8 {
 namespace internal {
@@ -82,9 +83,9 @@ void Displacement::init(Label* L, Type type) {
 
 
 const int RelocInfo::kApplyMask =
-  RelocInfo::kCodeTargetMask | 1 << RelocInfo::RUNTIME_ENTRY |
-    1 << RelocInfo::JS_RETURN | 1 << RelocInfo::INTERNAL_REFERENCE |
-    1 << RelocInfo::DEBUG_BREAK_SLOT | 1 << RelocInfo::CODE_AGE_SEQUENCE;
+    RelocInfo::kCodeTargetMask | 1 << RelocInfo::RUNTIME_ENTRY |
+    1 << RelocInfo::INTERNAL_REFERENCE | 1 << RelocInfo::CODE_AGE_SEQUENCE |
+    RelocInfo::kDebugBreakSlotMask;
 
 
 bool RelocInfo::IsCodedSpecially() {
@@ -1457,12 +1458,12 @@ void Assembler::j(Condition cc, byte* entry, RelocInfo::Mode rmode) {
 }
 
 
-void Assembler::j(Condition cc, Handle<Code> code) {
+void Assembler::j(Condition cc, Handle<Code> code, RelocInfo::Mode rmode) {
   EnsureSpace ensure_space(this);
   // 0000 1111 1000 tttn #32-bit disp
   EMIT(0x0F);
   EMIT(0x80 | cc);
-  emit(code, RelocInfo::CODE_TARGET);
+  emit(code, rmode);
 }
 
 

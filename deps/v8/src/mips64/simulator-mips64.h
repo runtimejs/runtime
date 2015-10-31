@@ -223,12 +223,12 @@ class Simulator {
   void set_pc(int64_t value);
   int64_t get_pc() const;
 
-  Address get_sp() {
+  Address get_sp() const {
     return reinterpret_cast<Address>(static_cast<intptr_t>(get_register(sp)));
   }
 
   // Accessor to the internal simulator stack area.
-  uintptr_t StackLimit() const;
+  uintptr_t StackLimit(uintptr_t c_limit) const;
 
   // Executes MIPS instructions until the PC reaches end_sim_pc.
   void Execute();
@@ -325,57 +325,54 @@ class Simulator {
   inline int32_t SetDoubleHIW(double* addr);
   inline int32_t SetDoubleLOW(double* addr);
 
-  // functions called from DecodeTypeRegister
-  void DecodeTypeRegisterCOP1(Instruction* instr, const int32_t rs_reg,
-                              const int64_t rs, const uint64_t rs_u,
-                              const int32_t rt_reg, const int64_t rt,
-                              const uint64_t rt_u, const int32_t rd_reg,
-                              const int32_t fr_reg, const int32_t fs_reg,
-                              const int32_t ft_reg, const int32_t fd_reg,
-                              int64_t& alu_out);
+  // functions called from DecodeTypeRegister.
+  void DecodeTypeRegisterCOP1();
 
-  void DecodeTypeRegisterCOP1X(Instruction* instr, const int32_t fr_reg,
-                               const int32_t fs_reg, const int32_t ft_reg,
-                               const int32_t fd_reg);
+  void DecodeTypeRegisterCOP1X();
 
-  void DecodeTypeRegisterSPECIAL(
-      Instruction* instr, const int32_t rs_reg, const int64_t rs,
-      const uint64_t rs_u, const int32_t rt_reg, const int64_t rt,
-      const uint64_t rt_u, const int32_t rd_reg, const int32_t fr_reg,
-      const int32_t fs_reg, const int32_t ft_reg, const int32_t fd_reg,
-      const int64_t i64hilo, const uint64_t u64hilo, const int64_t alu_out,
-      const bool do_interrupt, const int64_t current_pc, const int64_t next_pc,
-      const int32_t return_addr_reg, const int64_t i128resultH,
-      const int64_t i128resultL);
+  void DecodeTypeRegisterSPECIAL();
 
 
-  void DecodeTypeRegisterSPECIAL2(Instruction* instr, const int32_t rd_reg,
-                                  const int64_t alu_out);
+  void DecodeTypeRegisterSPECIAL2();
 
-  void DecodeTypeRegisterSPECIAL3(Instruction* instr, const int32_t rt_reg,
-                                  const int32_t rd_reg, const int64_t alu_out);
+  void DecodeTypeRegisterSPECIAL3();
 
-  void DecodeTypeRegisterSRsType(Instruction* instr, const int32_t fs_reg,
-                                 const int32_t ft_reg, const int32_t fd_reg);
+  void DecodeTypeRegisterSRsType();
 
-  void DecodeTypeRegisterDRsType(Instruction* instr, const int32_t fs_reg,
-                                 const int32_t ft_reg, const int32_t fd_reg);
+  void DecodeTypeRegisterDRsType();
 
-  void DecodeTypeRegisterWRsType(Instruction* instr, const int32_t fs_reg,
-                                 const int32_t ft_reg, const int32_t fd_reg,
-                                 int64_t& alu_out);
+  void DecodeTypeRegisterWRsType();
 
-  void DecodeTypeRegisterLRsType(Instruction* instr, const int32_t fs_reg,
-                                 const int32_t fd_reg, const int32_t ft_reg);
+  void DecodeTypeRegisterLRsType();
+
   // Executing is handled based on the instruction type.
   void DecodeTypeRegister(Instruction* instr);
 
-  // Helper function for DecodeTypeRegister.
-  void ConfigureTypeRegister(Instruction* instr, int64_t* alu_out,
-                             int64_t* i64hilo, uint64_t* u64hilo,
-                             int64_t* next_pc, int* return_addr_reg,
-                             bool* do_interrupt, int64_t* result128H,
-                             int64_t* result128L);
+  Instruction* currentInstr_;
+  inline Instruction* get_instr() const { return currentInstr_; }
+  inline void set_instr(Instruction* instr) { currentInstr_ = instr; }
+
+  inline int32_t rs_reg() const { return currentInstr_->RsValue(); }
+  inline int64_t rs() const { return get_register(rs_reg()); }
+  inline uint64_t rs_u() const {
+    return static_cast<uint64_t>(get_register(rs_reg()));
+  }
+  inline int32_t rt_reg() const { return currentInstr_->RtValue(); }
+  inline int64_t rt() const { return get_register(rt_reg()); }
+  inline uint64_t rt_u() const {
+    return static_cast<uint64_t>(get_register(rt_reg()));
+  }
+  inline int32_t rd_reg() const { return currentInstr_->RdValue(); }
+  inline int32_t fr_reg() const { return currentInstr_->FrValue(); }
+  inline int32_t fs_reg() const { return currentInstr_->FsValue(); }
+  inline int32_t ft_reg() const { return currentInstr_->FtValue(); }
+  inline int32_t fd_reg() const { return currentInstr_->FdValue(); }
+  inline int32_t sa() const { return currentInstr_->SaValue(); }
+
+  inline void SetResult(const int32_t rd_reg, const int64_t alu_out) {
+    set_register(rd_reg, alu_out);
+    TraceRegWr(alu_out);
+  }
 
   void DecodeTypeImmediate(Instruction* instr);
   void DecodeTypeJump(Instruction* instr);
@@ -411,6 +408,7 @@ class Simulator {
                instr->OpcodeValue());
     }
     InstructionDecode(instr);
+    SNPrintF(trace_buf_, " ");
   }
 
   // ICache.
@@ -426,10 +424,9 @@ class Simulator {
     kDivideByZero,
     kNumExceptions
   };
-  int16_t exceptions[kNumExceptions];
 
   // Exceptions.
-  void SignalExceptions();
+  void SignalException(Exception e);
 
   // Runtime call support.
   static void* RedirectExternalReference(void* external_function,
@@ -496,9 +493,10 @@ class Simulator {
 
 #ifdef MIPS_ABI_N64
 #define CALL_GENERATED_REGEXP_CODE(entry, p0, p1, p2, p3, p4, p5, p6, p7, p8) \
-  static_cast<int>(                                                           \
-      Simulator::current(Isolate::Current())                                  \
-          ->Call(entry, 10, p0, p1, p2, p3, p4, p5, p6, p7, NULL, p8))
+  static_cast<int>(Simulator::current(Isolate::Current())                     \
+                       ->Call(entry, 10, p0, p1, p2, p3, p4,                  \
+                              reinterpret_cast<int64_t*>(p5), p6, p7, NULL,   \
+                              p8))
 #else  // Must be O32 Abi.
 #define CALL_GENERATED_REGEXP_CODE(entry, p0, p1, p2, p3, p4, p5, p6, p7, p8) \
   static_cast<int>(                                                           \
@@ -508,15 +506,14 @@ class Simulator {
 
 
 // The simulator has its own stack. Thus it has a different stack limit from
-// the C-based native code.  Setting the c_limit to indicate a very small
-// stack cause stack overflow errors, since the simulator ignores the input.
-// This is unlikely to be an issue in practice, though it might cause testing
-// trouble down the line.
+// the C-based native code.  The JS-based limit normally points near the end of
+// the simulator stack.  When the C-based limit is exhausted we reflect that by
+// lowering the JS-based limit as well, to make stack checks trigger.
 class SimulatorStack : public v8::internal::AllStatic {
  public:
   static inline uintptr_t JsLimitFromCLimit(Isolate* isolate,
                                             uintptr_t c_limit) {
-    return Simulator::current(isolate)->StackLimit();
+    return Simulator::current(isolate)->StackLimit(c_limit);
   }
 
   static inline uintptr_t RegisterCTryCatch(uintptr_t try_catch_address) {

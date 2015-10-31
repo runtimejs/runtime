@@ -4,6 +4,10 @@
 
 #include "src/extensions/statistics-extension.h"
 
+#include "src/counters.h"
+#include "src/heap/heap-inl.h"
+#include "src/isolate.h"
+
 namespace v8 {
 namespace internal {
 

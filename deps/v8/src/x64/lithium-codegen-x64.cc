@@ -2,17 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/v8.h"
-
 #if V8_TARGET_ARCH_X64
 
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/x64/lithium-codegen-x64.h"
 
 namespace v8 {
@@ -122,15 +120,14 @@ bool LCodeGen::GeneratePrologue() {
 
 #ifdef DEBUG
     if (strlen(FLAG_stop_at) > 0 &&
-        info_->function()->name()->IsUtf8EqualTo(CStrVector(FLAG_stop_at))) {
+        info_->literal()->name()->IsUtf8EqualTo(CStrVector(FLAG_stop_at))) {
       __ int3();
     }
 #endif
 
     // Sloppy mode functions need to replace the receiver with the global proxy
     // when called as functions (without an explicit receiver object).
-    if (is_sloppy(info()->language_mode()) && info()->MayUseThis() &&
-        !info()->is_native() && info()->scope()->has_this_declaration()) {
+    if (info()->MustReplaceUndefinedReceiverWithGlobalProxy()) {
       Label ok;
       StackArgumentsAccessor args(rsp, scope()->num_parameters());
       __ movp(rcx, args.GetReceiverOperand());
@@ -188,16 +185,27 @@ bool LCodeGen::GeneratePrologue() {
       SaveCallerDoubles();
     }
   }
+  return !is_aborted();
+}
+
+
+void LCodeGen::DoPrologue(LPrologue* instr) {
+  Comment(";;; Prologue begin");
 
   // Possibly allocate a local context.
-  int heap_slots = info_->num_heap_slots() - Context::MIN_CONTEXT_SLOTS;
-  if (heap_slots > 0) {
+  if (info_->num_heap_slots() > 0) {
     Comment(";;; Allocate local context");
     bool need_write_barrier = true;
     // Argument to NewContext is the function, which is still in rdi.
-    DCHECK(!info()->scope()->is_script_scope());
-    if (heap_slots <= FastNewContextStub::kMaximumSlots) {
-      FastNewContextStub stub(isolate(), heap_slots);
+    int slots = info_->num_heap_slots() - Context::MIN_CONTEXT_SLOTS;
+    Safepoint::DeoptMode deopt_mode = Safepoint::kNoLazyDeopt;
+    if (info()->scope()->is_script_scope()) {
+      __ Push(rdi);
+      __ Push(info()->scope()->GetScopeInfo(info()->isolate()));
+      __ CallRuntime(Runtime::kNewScriptContext, 2);
+      deopt_mode = Safepoint::kLazyDeopt;
+    } else if (slots <= FastNewContextStub::kMaximumSlots) {
+      FastNewContextStub stub(isolate(), slots);
       __ CallStub(&stub);
       // Result of FastNewContextStub is always in new space.
       need_write_barrier = false;
@@ -205,7 +213,8 @@ bool LCodeGen::GeneratePrologue() {
       __ Push(rdi);
       __ CallRuntime(Runtime::kNewFunctionContext, 1);
     }
-    RecordSafepoint(Safepoint::kNoLazyDeopt);
+    RecordSafepoint(deopt_mode);
+
     // Context is returned in rax.  It replaces the context passed to us.
     // It's saved in the stack and kept live in rsi.
     __ movp(rsi, rax);
@@ -238,11 +247,7 @@ bool LCodeGen::GeneratePrologue() {
     Comment(";;; End allocate local context");
   }
 
-  // Trace the call.
-  if (FLAG_trace && info()->IsOptimizing()) {
-    __ CallRuntime(Runtime::kTraceEnter, 0);
-  }
-  return !is_aborted();
+  Comment(";;; Prologue end");
 }
 
 
@@ -458,6 +463,11 @@ bool LCodeGen::IsInteger32Constant(LConstantOperand* op) const {
 }
 
 
+bool LCodeGen::IsExternalConstant(LConstantOperand* op) const {
+  return chunk_->LookupLiteralRepresentation(op).IsExternal();
+}
+
+
 bool LCodeGen::IsDehoistedKeyConstant(LConstantOperand* op) const {
   return op->IsConstantOperand() &&
       chunk_->IsDehoistedKey(chunk_->LookupConstant(op));
@@ -589,15 +599,23 @@ void LCodeGen::AddToTranslation(LEnvironment* environment,
   }
 
   if (op->IsStackSlot()) {
+    int index = op->index();
+    if (index >= 0) {
+      index += StandardFrameConstants::kFixedFrameSize / kPointerSize;
+    }
     if (is_tagged) {
-      translation->StoreStackSlot(op->index());
+      translation->StoreStackSlot(index);
     } else if (is_uint32) {
-      translation->StoreUint32StackSlot(op->index());
+      translation->StoreUint32StackSlot(index);
     } else {
-      translation->StoreInt32StackSlot(op->index());
+      translation->StoreInt32StackSlot(index);
     }
   } else if (op->IsDoubleStackSlot()) {
-    translation->StoreDoubleStackSlot(op->index());
+    int index = op->index();
+    if (index >= 0) {
+      index += StandardFrameConstants::kFixedFrameSize / kPointerSize;
+    }
+    translation->StoreDoubleStackSlot(index);
   } else if (op->IsRegister()) {
     Register reg = ToRegister(op);
     if (is_tagged) {
@@ -732,7 +750,6 @@ void LCodeGen::DeoptimizeIf(Condition cc, LInstruction* instr,
   RegisterEnvironmentForDeoptimization(environment, Safepoint::kNoLazyDeopt);
   DCHECK(environment->HasBeenRegistered());
   int id = environment->deoptimization_index();
-  DCHECK(info()->IsOptimizing() || info()->IsStub());
   Address entry =
       Deoptimizer::GetDeoptimizationEntry(isolate(), id, bailout_type);
   if (entry == NULL) {
@@ -979,11 +996,6 @@ void LCodeGen::DoCallStub(LCallStub* instr) {
     }
     case CodeStub::SubString: {
       SubStringStub stub(isolate());
-      CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
-      break;
-    }
-    case CodeStub::StringCompare: {
-      StringCompareStub stub(isolate());
       CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
       break;
     }
@@ -2082,7 +2094,14 @@ void LCodeGen::EmitBranch(InstrType instr, Condition cc) {
 }
 
 
-template<class InstrType>
+template <class InstrType>
+void LCodeGen::EmitTrueBranch(InstrType instr, Condition cc) {
+  int true_block = instr->TrueDestination(chunk_);
+  __ j(cc, chunk_->GetAssemblyLabel(true_block));
+}
+
+
+template <class InstrType>
 void LCodeGen::EmitFalseBranch(InstrType instr, Condition cc) {
   int false_block = instr->FalseDestination(chunk_);
   __ j(cc, chunk_->GetAssemblyLabel(false_block));
@@ -2205,6 +2224,12 @@ void LCodeGen::DoBranch(LBranch* instr) {
       if (expected.Contains(ToBooleanStub::SYMBOL)) {
         // Symbol value -> true.
         __ CmpInstanceType(map, SYMBOL_TYPE);
+        __ j(equal, instr->TrueLabel(chunk_));
+      }
+
+      if (expected.Contains(ToBooleanStub::SIMD_VALUE)) {
+        // SIMD value -> true.
+        __ CmpInstanceType(map, SIMD128_VALUE_TYPE);
         __ j(equal, instr->TrueLabel(chunk_));
       }
 
@@ -2403,41 +2428,6 @@ void LCodeGen::DoCompareMinusZeroAndBranch(LCompareMinusZeroAndBranch* instr) {
 }
 
 
-Condition LCodeGen::EmitIsObject(Register input,
-                                 Label* is_not_object,
-                                 Label* is_object) {
-  DCHECK(!input.is(kScratchRegister));
-
-  __ JumpIfSmi(input, is_not_object);
-
-  __ CompareRoot(input, Heap::kNullValueRootIndex);
-  __ j(equal, is_object);
-
-  __ movp(kScratchRegister, FieldOperand(input, HeapObject::kMapOffset));
-  // Undetectable objects behave like undefined.
-  __ testb(FieldOperand(kScratchRegister, Map::kBitFieldOffset),
-           Immediate(1 << Map::kIsUndetectable));
-  __ j(not_zero, is_not_object);
-
-  __ movzxbl(kScratchRegister,
-             FieldOperand(kScratchRegister, Map::kInstanceTypeOffset));
-  __ cmpb(kScratchRegister, Immediate(FIRST_NONCALLABLE_SPEC_OBJECT_TYPE));
-  __ j(below, is_not_object);
-  __ cmpb(kScratchRegister, Immediate(LAST_NONCALLABLE_SPEC_OBJECT_TYPE));
-  return below_equal;
-}
-
-
-void LCodeGen::DoIsObjectAndBranch(LIsObjectAndBranch* instr) {
-  Register reg = ToRegister(instr->value());
-
-  Condition true_cond = EmitIsObject(
-      reg, instr->FalseLabel(chunk_), instr->TrueLabel(chunk_));
-
-  EmitBranch(instr, true_cond);
-}
-
-
 Condition LCodeGen::EmitIsString(Register input,
                                  Register temp1,
                                  Label* is_not_string,
@@ -2496,16 +2486,14 @@ void LCodeGen::DoIsUndetectableAndBranch(LIsUndetectableAndBranch* instr) {
 
 void LCodeGen::DoStringCompareAndBranch(LStringCompareAndBranch* instr) {
   DCHECK(ToRegister(instr->context()).is(rsi));
-  Token::Value op = instr->op();
+  DCHECK(ToRegister(instr->left()).is(rdx));
+  DCHECK(ToRegister(instr->right()).is(rax));
 
-  Handle<Code> ic =
-      CodeFactory::CompareIC(isolate(), op, Strength::WEAK).code();
-  CallCode(ic, RelocInfo::CODE_TARGET, instr);
-
-  Condition condition = TokenToCondition(op, false);
+  Handle<Code> code = CodeFactory::StringCompare(isolate()).code();
+  CallCode(code, RelocInfo::CODE_TARGET, instr);
   __ testp(rax, rax);
 
-  EmitBranch(instr, condition);
+  EmitBranch(instr, TokenToCondition(instr->op(), false));
 }
 
 
@@ -2654,128 +2642,40 @@ void LCodeGen::DoCmpMapAndBranch(LCmpMapAndBranch* instr) {
 
 void LCodeGen::DoInstanceOf(LInstanceOf* instr) {
   DCHECK(ToRegister(instr->context()).is(rsi));
-  InstanceofStub stub(isolate(), InstanceofStub::kNoFlags);
-  __ Push(ToRegister(instr->left()));
-  __ Push(ToRegister(instr->right()));
+  DCHECK(ToRegister(instr->left()).is(InstanceOfDescriptor::LeftRegister()));
+  DCHECK(ToRegister(instr->right()).is(InstanceOfDescriptor::RightRegister()));
+  DCHECK(ToRegister(instr->result()).is(rax));
+  InstanceOfStub stub(isolate());
   CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
-  Label true_value, done;
-  __ testp(rax, rax);
-  __ j(zero, &true_value, Label::kNear);
-  __ LoadRoot(ToRegister(instr->result()), Heap::kFalseValueRootIndex);
-  __ jmp(&done, Label::kNear);
-  __ bind(&true_value);
-  __ LoadRoot(ToRegister(instr->result()), Heap::kTrueValueRootIndex);
-  __ bind(&done);
 }
 
 
-void LCodeGen::DoInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr) {
-  class DeferredInstanceOfKnownGlobal final : public LDeferredCode {
-   public:
-    DeferredInstanceOfKnownGlobal(LCodeGen* codegen,
-                                  LInstanceOfKnownGlobal* instr)
-        : LDeferredCode(codegen), instr_(instr) { }
-    void Generate() override {
-      codegen()->DoDeferredInstanceOfKnownGlobal(instr_, &map_check_);
-    }
-    LInstruction* instr() override { return instr_; }
-    Label* map_check() { return &map_check_; }
-   private:
-    LInstanceOfKnownGlobal* instr_;
-    Label map_check_;
-  };
+void LCodeGen::DoHasInPrototypeChainAndBranch(
+    LHasInPrototypeChainAndBranch* instr) {
+  Register const object = ToRegister(instr->object());
+  Register const object_map = kScratchRegister;
+  Register const object_prototype = object_map;
+  Register const prototype = ToRegister(instr->prototype());
 
-  DCHECK(ToRegister(instr->context()).is(rsi));
-  DeferredInstanceOfKnownGlobal* deferred;
-  deferred = new(zone()) DeferredInstanceOfKnownGlobal(this, instr);
-
-  Label done, false_result;
-  Register object = ToRegister(instr->value());
-
-  // A Smi is not an instance of anything.
-  __ JumpIfSmi(object, &false_result, Label::kNear);
-
-  // This is the inlined call site instanceof cache. The two occurences of the
-  // hole value will be patched to the last map/result pair generated by the
-  // instanceof stub.
-  Label cache_miss;
-  // Use a temp register to avoid memory operands with variable lengths.
-  Register map = ToRegister(instr->temp());
-  __ movp(map, FieldOperand(object, HeapObject::kMapOffset));
-  __ bind(deferred->map_check());  // Label for calculating code patching.
-  Handle<Cell> cache_cell = factory()->NewCell(factory()->the_hole_value());
-  __ Move(kScratchRegister, cache_cell, RelocInfo::CELL);
-  __ cmpp(map, Operand(kScratchRegister, 0));
-  __ j(not_equal, &cache_miss, Label::kNear);
-  // Patched to load either true or false.
-  __ LoadRoot(ToRegister(instr->result()), Heap::kTheHoleValueRootIndex);
-#ifdef DEBUG
-  // Check that the code size between patch label and patch sites is invariant.
-  Label end_of_patched_code;
-  __ bind(&end_of_patched_code);
-  DCHECK(true);
-#endif
-  __ jmp(&done, Label::kNear);
-
-  // The inlined call site cache did not match. Check for null and string
-  // before calling the deferred code.
-  __ bind(&cache_miss);  // Null is not an instance of anything.
-  __ CompareRoot(object, Heap::kNullValueRootIndex);
-  __ j(equal, &false_result, Label::kNear);
-
-  // String values are not instances of anything.
-  __ JumpIfNotString(object, kScratchRegister, deferred->entry());
-
-  __ bind(&false_result);
-  __ LoadRoot(ToRegister(instr->result()), Heap::kFalseValueRootIndex);
-
-  __ bind(deferred->exit());
-  __ bind(&done);
-}
-
-
-void LCodeGen::DoDeferredInstanceOfKnownGlobal(LInstanceOfKnownGlobal* instr,
-                                               Label* map_check) {
-  {
-    PushSafepointRegistersScope scope(this);
-    InstanceofStub::Flags flags = static_cast<InstanceofStub::Flags>(
-        InstanceofStub::kNoFlags | InstanceofStub::kCallSiteInlineCheck);
-    InstanceofStub stub(isolate(), flags);
-
-    __ Push(ToRegister(instr->value()));
-    __ Push(instr->function());
-
-    static const int kAdditionalDelta = kPointerSize == kInt64Size ? 10 : 16;
-    int delta =
-        masm_->SizeOfCodeGeneratedSince(map_check) + kAdditionalDelta;
-    DCHECK(delta >= 0);
-    __ PushImm32(delta);
-
-    // We are pushing three values on the stack but recording a
-    // safepoint with two arguments because stub is going to
-    // remove the third argument from the stack before jumping
-    // to instanceof builtin on the slow path.
-    CallCodeGeneric(stub.GetCode(),
-                    RelocInfo::CODE_TARGET,
-                    instr,
-                    RECORD_SAFEPOINT_WITH_REGISTERS,
-                    2);
-    DCHECK(delta == masm_->SizeOfCodeGeneratedSince(map_check));
-    LEnvironment* env = instr->GetDeferredLazyDeoptimizationEnvironment();
-    safepoints_.RecordLazyDeoptimizationIndex(env->deoptimization_index());
-    // Move result to a register that survives the end of the
-    // PushSafepointRegisterScope.
-    __ movp(kScratchRegister, rax);
+  // The {object} must be a spec object.  It's sufficient to know that {object}
+  // is not a smi, since all other non-spec objects have {null} prototypes and
+  // will be ruled out below.
+  if (instr->hydrogen()->ObjectNeedsSmiCheck()) {
+    Condition is_smi = __ CheckSmi(object);
+    EmitFalseBranch(instr, is_smi);
   }
-  __ testp(kScratchRegister, kScratchRegister);
-  Label load_false;
-  Label done;
-  __ j(not_zero, &load_false, Label::kNear);
-  __ LoadRoot(rax, Heap::kTrueValueRootIndex);
-  __ jmp(&done, Label::kNear);
-  __ bind(&load_false);
-  __ LoadRoot(rax, Heap::kFalseValueRootIndex);
-  __ bind(&done);
+
+  // Loop through the {object}s prototype chain looking for the {prototype}.
+  __ movp(object_map, FieldOperand(object, HeapObject::kMapOffset));
+  Label loop;
+  __ bind(&loop);
+  __ movp(object_prototype, FieldOperand(object_map, Map::kPrototypeOffset));
+  __ cmpp(object_prototype, prototype);
+  EmitTrueBranch(instr, equal);
+  __ CompareRoot(object_prototype, Heap::kNullValueRootIndex);
+  EmitFalseBranch(instr, equal);
+  __ movp(object_map, FieldOperand(object_prototype, HeapObject::kMapOffset));
+  __ jmp(&loop);
 }
 
 
@@ -2877,10 +2777,27 @@ void LCodeGen::DoLoadGlobalGeneric(LLoadGlobalGeneric* instr) {
 
   __ Move(LoadDescriptor::NameRegister(), instr->name());
   EmitVectorLoadICRegisters<LLoadGlobalGeneric>(instr);
-  ContextualMode mode = instr->for_typeof() ? NOT_CONTEXTUAL : CONTEXTUAL;
-  Handle<Code> ic = CodeFactory::LoadICInOptimizedCode(isolate(), mode, SLOPPY,
-                                                       PREMONOMORPHIC).code();
+  Handle<Code> ic =
+      CodeFactory::LoadICInOptimizedCode(isolate(), instr->typeof_mode(),
+                                         SLOPPY, PREMONOMORPHIC).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
+}
+
+
+void LCodeGen::DoLoadGlobalViaContext(LLoadGlobalViaContext* instr) {
+  DCHECK(ToRegister(instr->context()).is(rsi));
+  DCHECK(ToRegister(instr->result()).is(rax));
+  int const slot = instr->slot_index();
+  int const depth = instr->depth();
+  if (depth <= LoadGlobalViaContextStub::kMaximumDepth) {
+    __ Set(LoadGlobalViaContextDescriptor::SlotRegister(), slot);
+    Handle<Code> stub =
+        CodeFactory::LoadGlobalViaContext(isolate(), depth).code();
+    CallCode(stub, RelocInfo::CODE_TARGET, instr);
+  } else {
+    __ Push(Smi::FromInt(slot));
+    __ CallRuntime(Runtime::kLoadGlobalViaContext, 1);
+  }
 }
 
 
@@ -2996,7 +2913,7 @@ void LCodeGen::DoLoadNamedGeneric(LLoadNamedGeneric* instr) {
   EmitVectorLoadICRegisters<LLoadNamedGeneric>(instr);
   Handle<Code> ic =
       CodeFactory::LoadICInOptimizedCode(
-          isolate(), NOT_CONTEXTUAL, instr->hydrogen()->language_mode(),
+          isolate(), NOT_INSIDE_TYPEOF, instr->hydrogen()->language_mode(),
           instr->hydrogen()->initialization_state()).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
 }
@@ -3086,40 +3003,31 @@ void LCodeGen::DoLoadKeyedExternalArray(LLoadKeyed* instr) {
       elements_kind,
       instr->base_offset()));
 
-  if (elements_kind == EXTERNAL_FLOAT32_ELEMENTS ||
-      elements_kind == FLOAT32_ELEMENTS) {
+  if (elements_kind == FLOAT32_ELEMENTS) {
     XMMRegister result(ToDoubleRegister(instr->result()));
     __ movss(result, operand);
     __ cvtss2sd(result, result);
-  } else if (elements_kind == EXTERNAL_FLOAT64_ELEMENTS ||
-             elements_kind == FLOAT64_ELEMENTS) {
+  } else if (elements_kind == FLOAT64_ELEMENTS) {
     __ movsd(ToDoubleRegister(instr->result()), operand);
   } else {
     Register result(ToRegister(instr->result()));
     switch (elements_kind) {
-      case EXTERNAL_INT8_ELEMENTS:
       case INT8_ELEMENTS:
         __ movsxbl(result, operand);
         break;
-      case EXTERNAL_UINT8_ELEMENTS:
-      case EXTERNAL_UINT8_CLAMPED_ELEMENTS:
       case UINT8_ELEMENTS:
       case UINT8_CLAMPED_ELEMENTS:
         __ movzxbl(result, operand);
         break;
-      case EXTERNAL_INT16_ELEMENTS:
       case INT16_ELEMENTS:
         __ movsxwl(result, operand);
         break;
-      case EXTERNAL_UINT16_ELEMENTS:
       case UINT16_ELEMENTS:
         __ movzxwl(result, operand);
         break;
-      case EXTERNAL_INT32_ELEMENTS:
       case INT32_ELEMENTS:
         __ movl(result, operand);
         break;
-      case EXTERNAL_UINT32_ELEMENTS:
       case UINT32_ELEMENTS:
         __ movl(result, operand);
         if (!instr->hydrogen()->CheckFlag(HInstruction::kUint32)) {
@@ -3127,8 +3035,6 @@ void LCodeGen::DoLoadKeyedExternalArray(LLoadKeyed* instr) {
           DeoptimizeIf(negative, instr, Deoptimizer::kNegativeValue);
         }
         break;
-      case EXTERNAL_FLOAT32_ELEMENTS:
-      case EXTERNAL_FLOAT64_ELEMENTS:
       case FLOAT32_ELEMENTS:
       case FLOAT64_ELEMENTS:
       case FAST_ELEMENTS:
@@ -3247,7 +3153,7 @@ void LCodeGen::DoLoadKeyedFixedArray(LLoadKeyed* instr) {
 
 
 void LCodeGen::DoLoadKeyed(LLoadKeyed* instr) {
-  if (instr->is_typed_elements()) {
+  if (instr->is_fixed_typed_array()) {
     DoLoadKeyedExternalArray(instr);
   } else if (instr->hydrogen()->representation().IsDouble()) {
     DoLoadKeyedFixedDoubleArray(instr);
@@ -3477,10 +3383,9 @@ void LCodeGen::DoContext(LContext* instr) {
 
 void LCodeGen::DoDeclareGlobals(LDeclareGlobals* instr) {
   DCHECK(ToRegister(instr->context()).is(rsi));
-  __ Push(rsi);  // The context is the first argument.
   __ Push(instr->hydrogen()->pairs());
   __ Push(Smi::FromInt(instr->hydrogen()->flags()));
-  CallRuntime(Runtime::kDeclareGlobals, 3, instr);
+  CallRuntime(Runtime::kDeclareGlobals, 2, instr);
 }
 
 
@@ -3499,11 +3404,8 @@ void LCodeGen::CallKnownFunction(Handle<JSFunction> function,
     // Change context.
     __ movp(rsi, FieldOperand(function_reg, JSFunction::kContextOffset));
 
-    // Set rax to arguments count if adaption is not needed. Assumes that rax
-    // is available to write to at this point.
-    if (dont_adapt_arguments) {
-      __ Set(rax, arity);
-    }
+    // Always initialize rax to the number of actual arguments.
+    __ Set(rax, arity);
 
     // Invoke function.
     if (function.is_identical_to(info()->closure())) {
@@ -3566,9 +3468,7 @@ void LCodeGen::DoCallJSFunction(LCallJSFunction* instr) {
   DCHECK(ToRegister(instr->function()).is(rdi));
   DCHECK(ToRegister(instr->result()).is(rax));
 
-  if (instr->hydrogen()->pass_argument_count()) {
-    __ Set(rax, instr->arity());
-  }
+  __ Set(rax, instr->arity());
 
   // Change context.
   __ movp(rsi, FieldOperand(rdi, JSFunction::kContextOffset));
@@ -4196,6 +4096,11 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
         __ movl(operand, Immediate(value));
       }
 
+    } else if (IsExternalConstant(operand_value)) {
+      DCHECK(!hinstr->NeedsWriteBarrier());
+      ExternalReference ptr = ToExternalReference(operand_value);
+      __ Move(kScratchRegister, ptr);
+      __ movp(operand, kScratchRegister);
     } else {
       Handle<Object> handle_value = ToHandle(operand_value);
       DCHECK(!hinstr->NeedsWriteBarrier());
@@ -4233,6 +4138,29 @@ void LCodeGen::DoStoreNamedGeneric(LStoreNamedGeneric* instr) {
                         isolate(), instr->language_mode(),
                         instr->hydrogen()->initialization_state()).code();
   CallCode(ic, RelocInfo::CODE_TARGET, instr);
+}
+
+
+void LCodeGen::DoStoreGlobalViaContext(LStoreGlobalViaContext* instr) {
+  DCHECK(ToRegister(instr->context()).is(rsi));
+  DCHECK(ToRegister(instr->value())
+             .is(StoreGlobalViaContextDescriptor::ValueRegister()));
+  int const slot = instr->slot_index();
+  int const depth = instr->depth();
+  if (depth <= StoreGlobalViaContextStub::kMaximumDepth) {
+    __ Set(StoreGlobalViaContextDescriptor::SlotRegister(), slot);
+    Handle<Code> stub = CodeFactory::StoreGlobalViaContext(
+                            isolate(), depth, instr->language_mode())
+                            .code();
+    CallCode(stub, RelocInfo::CODE_TARGET, instr);
+  } else {
+    __ Push(Smi::FromInt(slot));
+    __ Push(StoreGlobalViaContextDescriptor::ValueRegister());
+    __ CallRuntime(is_strict(instr->language_mode())
+                       ? Runtime::kStoreGlobalViaContext_Strict
+                       : Runtime::kStoreGlobalViaContext_Sloppy,
+                   2);
+  }
 }
 
 
@@ -4319,39 +4247,28 @@ void LCodeGen::DoStoreKeyedExternalArray(LStoreKeyed* instr) {
       elements_kind,
       instr->base_offset()));
 
-  if (elements_kind == EXTERNAL_FLOAT32_ELEMENTS ||
-      elements_kind == FLOAT32_ELEMENTS) {
+  if (elements_kind == FLOAT32_ELEMENTS) {
     XMMRegister value(ToDoubleRegister(instr->value()));
     __ cvtsd2ss(value, value);
     __ movss(operand, value);
-  } else if (elements_kind == EXTERNAL_FLOAT64_ELEMENTS ||
-             elements_kind == FLOAT64_ELEMENTS) {
+  } else if (elements_kind == FLOAT64_ELEMENTS) {
     __ movsd(operand, ToDoubleRegister(instr->value()));
   } else {
     Register value(ToRegister(instr->value()));
     switch (elements_kind) {
-      case EXTERNAL_UINT8_CLAMPED_ELEMENTS:
-      case EXTERNAL_INT8_ELEMENTS:
-      case EXTERNAL_UINT8_ELEMENTS:
       case INT8_ELEMENTS:
       case UINT8_ELEMENTS:
       case UINT8_CLAMPED_ELEMENTS:
         __ movb(operand, value);
         break;
-      case EXTERNAL_INT16_ELEMENTS:
-      case EXTERNAL_UINT16_ELEMENTS:
       case INT16_ELEMENTS:
       case UINT16_ELEMENTS:
         __ movw(operand, value);
         break;
-      case EXTERNAL_INT32_ELEMENTS:
-      case EXTERNAL_UINT32_ELEMENTS:
       case INT32_ELEMENTS:
       case UINT32_ELEMENTS:
         __ movl(operand, value);
         break;
-      case EXTERNAL_FLOAT32_ELEMENTS:
-      case EXTERNAL_FLOAT64_ELEMENTS:
       case FLOAT32_ELEMENTS:
       case FLOAT64_ELEMENTS:
       case FAST_ELEMENTS:
@@ -4475,7 +4392,7 @@ void LCodeGen::DoStoreKeyedFixedArray(LStoreKeyed* instr) {
 
 
 void LCodeGen::DoStoreKeyed(LStoreKeyed* instr) {
-  if (instr->is_typed_elements()) {
+  if (instr->is_fixed_typed_array()) {
     DoStoreKeyedExternalArray(instr);
   } else if (instr->hydrogen()->value()->representation().IsDouble()) {
     DoStoreKeyedFixedDoubleArray(instr);
@@ -5541,7 +5458,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // rbx = regexp literal.
   // rax = regexp literal clone.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ Move(rcx, instr->hydrogen()->literals());
   __ movp(rbx, FieldOperand(rcx, literal_offset));
   __ CompareRoot(rbx, Heap::kUndefinedValueRootIndex);
@@ -5580,26 +5497,6 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   if ((size % (2 * kPointerSize)) != 0) {
     __ movp(rdx, FieldOperand(rbx, size - kPointerSize));
     __ movp(FieldOperand(rax, size - kPointerSize), rdx);
-  }
-}
-
-
-void LCodeGen::DoFunctionLiteral(LFunctionLiteral* instr) {
-  DCHECK(ToRegister(instr->context()).is(rsi));
-  // Use the fast case closure allocation code that allocates in new
-  // space for nested functions that don't need literals cloning.
-  bool pretenure = instr->hydrogen()->pretenure();
-  if (!pretenure && instr->hydrogen()->has_no_literals()) {
-    FastNewClosureStub stub(isolate(), instr->hydrogen()->language_mode(),
-                            instr->hydrogen()->kind());
-    __ Move(rbx, instr->hydrogen()->shared_info());
-    CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
-  } else {
-    __ Push(rsi);
-    __ Push(instr->hydrogen()->shared_info());
-    __ PushRoot(pretenure ? Heap::kTrueValueRootIndex :
-                            Heap::kFalseValueRootIndex);
-    CallRuntime(Runtime::kNewClosure, 3, instr);
   }
 }
 
@@ -5664,10 +5561,7 @@ Condition LCodeGen::EmitTypeofIs(LTypeofIsAndBranch* instr, Register input) {
   } else if (String::Equals(type_name, factory->string_string())) {
     __ JumpIfSmi(input, false_label, false_distance);
     __ CmpObjectType(input, FIRST_NONSTRING_TYPE, input);
-    __ j(above_equal, false_label, false_distance);
-    __ testb(FieldOperand(input, Map::kBitFieldOffset),
-             Immediate(1 << Map::kIsUndetectable));
-    final_branch_condition = zero;
+    final_branch_condition = below;
 
   } else if (String::Equals(type_name, factory->symbol_string())) {
     __ JumpIfSmi(input, false_label, false_distance);
@@ -5691,25 +5585,37 @@ Condition LCodeGen::EmitTypeofIs(LTypeofIsAndBranch* instr, Register input) {
     final_branch_condition = not_zero;
 
   } else if (String::Equals(type_name, factory->function_string())) {
-    STATIC_ASSERT(NUM_OF_CALLABLE_SPEC_OBJECT_TYPES == 2);
     __ JumpIfSmi(input, false_label, false_distance);
-    __ CmpObjectType(input, JS_FUNCTION_TYPE, input);
-    __ j(equal, true_label, true_distance);
-    __ CmpInstanceType(input, JS_FUNCTION_PROXY_TYPE);
+    // Check for callable and not undetectable objects => true.
+    __ movp(input, FieldOperand(input, HeapObject::kMapOffset));
+    __ movzxbl(input, FieldOperand(input, Map::kBitFieldOffset));
+    __ andb(input,
+            Immediate((1 << Map::kIsCallable) | (1 << Map::kIsUndetectable)));
+    __ cmpb(input, Immediate(1 << Map::kIsCallable));
     final_branch_condition = equal;
 
   } else if (String::Equals(type_name, factory->object_string())) {
     __ JumpIfSmi(input, false_label, false_distance);
     __ CompareRoot(input, Heap::kNullValueRootIndex);
     __ j(equal, true_label, true_distance);
-    __ CmpObjectType(input, FIRST_NONCALLABLE_SPEC_OBJECT_TYPE, input);
+    STATIC_ASSERT(LAST_SPEC_OBJECT_TYPE == LAST_TYPE);
+    __ CmpObjectType(input, FIRST_SPEC_OBJECT_TYPE, input);
     __ j(below, false_label, false_distance);
-    __ CmpInstanceType(input, LAST_NONCALLABLE_SPEC_OBJECT_TYPE);
-    __ j(above, false_label, false_distance);
-    // Check for undetectable objects => false.
+    // Check for callable or undetectable objects => false.
     __ testb(FieldOperand(input, Map::kBitFieldOffset),
-             Immediate(1 << Map::kIsUndetectable));
+             Immediate((1 << Map::kIsCallable) | (1 << Map::kIsUndetectable)));
     final_branch_condition = zero;
+
+// clang-format off
+#define SIMD128_TYPE(TYPE, Type, type, lane_count, lane_type)       \
+  } else if (String::Equals(type_name, factory->type##_string())) { \
+    __ JumpIfSmi(input, false_label, false_distance);               \
+    __ CompareRoot(FieldOperand(input, HeapObject::kMapOffset),     \
+                   Heap::k##Type##MapRootIndex);                    \
+    final_branch_condition = equal;
+  SIMD128_TYPES(SIMD128_TYPE)
+#undef SIMD128_TYPE
+    // clang-format on
 
   } else {
     __ jmp(false_label, false_distance);
@@ -5746,7 +5652,7 @@ void LCodeGen::EmitIsConstructCall(Register temp) {
 
 
 void LCodeGen::EnsureSpaceForLazyDeopt(int space_needed) {
-  if (!info()->IsStub()) {
+  if (info()->ShouldEnsureSpaceForLazyDeopt()) {
     // Ensure that we have enough space after the previous lazy-bailout
     // instruction for patching the code here.
     int current_pc = masm()->pc_offset();

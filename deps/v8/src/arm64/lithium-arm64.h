@@ -82,19 +82,17 @@ class LCodeGen;
   V(FlooringDivI)                            \
   V(ForInCacheArray)                         \
   V(ForInPrepareMap)                         \
-  V(FunctionLiteral)                         \
   V(GetCachedArrayIndex)                     \
   V(Goto)                                    \
   V(HasCachedArrayIndexAndBranch)            \
+  V(HasInPrototypeChainAndBranch)            \
   V(HasInstanceTypeAndBranch)                \
   V(InnerAllocatedObject)                    \
   V(InstanceOf)                              \
-  V(InstanceOfKnownGlobal)                   \
   V(InstructionGap)                          \
   V(Integer32ToDouble)                       \
   V(InvokeFunction)                          \
   V(IsConstructCallAndBranch)                \
-  V(IsObjectAndBranch)                       \
   V(IsSmiAndBranch)                          \
   V(IsStringAndBranch)                       \
   V(IsUndetectableAndBranch)                 \
@@ -104,6 +102,7 @@ class LCodeGen;
   V(LoadFieldByIndex)                        \
   V(LoadFunctionPrototype)                   \
   V(LoadGlobalGeneric)                       \
+  V(LoadGlobalViaContext)                    \
   V(LoadKeyedExternal)                       \
   V(LoadKeyedFixed)                          \
   V(LoadKeyedFixedDouble)                    \
@@ -138,6 +137,7 @@ class LCodeGen;
   V(OsrEntry)                                \
   V(Parameter)                               \
   V(Power)                                   \
+  V(Prologue)                                \
   V(PreparePushArguments)                    \
   V(PushArguments)                           \
   V(RegExpLiteral)                           \
@@ -152,6 +152,7 @@ class LCodeGen;
   V(StoreCodeEntry)                          \
   V(StoreContextSlot)                        \
   V(StoreFrameContext)                       \
+  V(StoreGlobalViaContext)                   \
   V(StoreKeyedExternal)                      \
   V(StoreKeyedFixed)                         \
   V(StoreKeyedFixedDouble)                   \
@@ -243,8 +244,6 @@ class LInstruction : public ZoneObject {
 
   void set_hydrogen_value(HValue* value) { hydrogen_value_ = value; }
   HValue* hydrogen_value() const { return hydrogen_value_; }
-
-  virtual void SetDeferredLazyDeoptimizationEnvironment(LEnvironment* env) { }
 
   void MarkAsCall() { bit_field_ = IsCallBits::update(bit_field_, true); }
   bool IsCall() const { return IsCallBits::decode(bit_field_); }
@@ -471,6 +470,12 @@ class LGoto final : public LTemplateInstruction<0, 0, 0> {
 
  private:
   HBasicBlock* block_;
+};
+
+
+class LPrologue final : public LTemplateInstruction<0, 0, 0> {
+ public:
+  DECLARE_CONCRETE_INSTRUCTION(Prologue, "prologue")
 };
 
 
@@ -1479,39 +1484,30 @@ class LInstanceOf final : public LTemplateInstruction<1, 3, 0> {
     inputs_[2] = right;
   }
 
-  LOperand* context() { return inputs_[0]; }
-  LOperand* left() { return inputs_[1]; }
-  LOperand* right() { return inputs_[2]; }
+  LOperand* context() const { return inputs_[0]; }
+  LOperand* left() const { return inputs_[1]; }
+  LOperand* right() const { return inputs_[2]; }
 
   DECLARE_CONCRETE_INSTRUCTION(InstanceOf, "instance-of")
 };
 
 
-class LInstanceOfKnownGlobal final : public LTemplateInstruction<1, 2, 0> {
+class LHasInPrototypeChainAndBranch final : public LControlInstruction<2, 1> {
  public:
-  LInstanceOfKnownGlobal(LOperand* context, LOperand* value) {
-    inputs_[0] = context;
-    inputs_[1] = value;
+  LHasInPrototypeChainAndBranch(LOperand* object, LOperand* prototype,
+                                LOperand* scratch) {
+    inputs_[0] = object;
+    inputs_[1] = prototype;
+    temps_[0] = scratch;
   }
 
-  LOperand* context() { return inputs_[0]; }
-  LOperand* value() { return inputs_[1]; }
+  LOperand* object() const { return inputs_[0]; }
+  LOperand* prototype() const { return inputs_[1]; }
+  LOperand* scratch() const { return temps_[0]; }
 
-  DECLARE_CONCRETE_INSTRUCTION(InstanceOfKnownGlobal,
-                               "instance-of-known-global")
-  DECLARE_HYDROGEN_ACCESSOR(InstanceOfKnownGlobal)
-
-  Handle<JSFunction> function() const { return hydrogen()->function(); }
-  LEnvironment* GetDeferredLazyDeoptimizationEnvironment() {
-    return lazy_deopt_env_;
-  }
-  virtual void SetDeferredLazyDeoptimizationEnvironment(
-      LEnvironment* env) override {
-    lazy_deopt_env_ = env;
-  }
-
- private:
-  LEnvironment* lazy_deopt_env_;
+  DECLARE_CONCRETE_INSTRUCTION(HasInPrototypeChainAndBranch,
+                               "has-in-prototype-chain-and-branch")
+  DECLARE_HYDROGEN_ACCESSOR(HasInPrototypeChainAndBranch)
 };
 
 
@@ -1604,25 +1600,6 @@ class LIsConstructCallAndBranch final : public LControlInstruction<0, 2> {
 };
 
 
-class LIsObjectAndBranch final : public LControlInstruction<1, 2> {
- public:
-  LIsObjectAndBranch(LOperand* value, LOperand* temp1, LOperand* temp2) {
-    inputs_[0] = value;
-    temps_[0] = temp1;
-    temps_[1] = temp2;
-  }
-
-  LOperand* value() { return inputs_[0]; }
-  LOperand* temp1() { return temps_[0]; }
-  LOperand* temp2() { return temps_[1]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(IsObjectAndBranch, "is-object-and-branch")
-  DECLARE_HYDROGEN_ACCESSOR(IsObjectAndBranch)
-
-  void PrintDataTo(StringStream* stream) override;
-};
-
-
 class LIsStringAndBranch final : public LControlInstruction<1, 1> {
  public:
   LIsStringAndBranch(LOperand* value, LOperand* temp) {
@@ -1673,6 +1650,22 @@ class LIsUndetectableAndBranch final : public LControlInstruction<1, 1> {
 };
 
 
+class LLoadGlobalViaContext final : public LTemplateInstruction<1, 1, 1> {
+ public:
+  explicit LLoadGlobalViaContext(LOperand* context) { inputs_[0] = context; }
+
+  DECLARE_CONCRETE_INSTRUCTION(LoadGlobalViaContext, "load-global-via-context")
+  DECLARE_HYDROGEN_ACCESSOR(LoadGlobalViaContext)
+
+  void PrintDataTo(StringStream* stream) override;
+
+  LOperand* context() { return inputs_[0]; }
+
+  int depth() const { return hydrogen()->depth(); }
+  int slot_index() const { return hydrogen()->slot_index(); }
+};
+
+
 class LLoadContextSlot final : public LTemplateInstruction<1, 1, 0> {
  public:
   explicit LLoadContextSlot(LOperand* context) {
@@ -1700,19 +1693,6 @@ class LLoadNamedField final : public LTemplateInstruction<1, 1, 0> {
 
   DECLARE_CONCRETE_INSTRUCTION(LoadNamedField, "load-named-field")
   DECLARE_HYDROGEN_ACCESSOR(LoadNamedField)
-};
-
-
-class LFunctionLiteral final : public LTemplateInstruction<1, 1, 0> {
- public:
-  explicit LFunctionLiteral(LOperand* context) {
-    inputs_[0] = context;
-  }
-
-  LOperand* context() { return inputs_[0]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(FunctionLiteral, "function-literal")
-  DECLARE_HYDROGEN_ACCESSOR(FunctionLiteral)
 };
 
 
@@ -1748,7 +1728,7 @@ class LLoadGlobalGeneric final : public LTemplateInstruction<1, 2, 1> {
   DECLARE_HYDROGEN_ACCESSOR(LoadGlobalGeneric)
 
   Handle<Object> name() const { return hydrogen()->name(); }
-  bool for_typeof() const { return hydrogen()->for_typeof(); }
+  TypeofMode typeof_mode() const { return hydrogen()->typeof_mode(); }
 };
 
 
@@ -2452,6 +2432,28 @@ class LStackCheck final : public LTemplateInstruction<0, 1, 0> {
 
  private:
   Label done_label_;
+};
+
+
+class LStoreGlobalViaContext final : public LTemplateInstruction<0, 2, 0> {
+ public:
+  LStoreGlobalViaContext(LOperand* context, LOperand* value) {
+    inputs_[0] = context;
+    inputs_[1] = value;
+  }
+
+  LOperand* context() { return inputs_[0]; }
+  LOperand* value() { return inputs_[1]; }
+
+  DECLARE_CONCRETE_INSTRUCTION(StoreGlobalViaContext,
+                               "store-global-via-context")
+  DECLARE_HYDROGEN_ACCESSOR(StoreGlobalViaContext)
+
+  void PrintDataTo(StringStream* stream) override;
+
+  int depth() { return hydrogen()->depth(); }
+  int slot_index() { return hydrogen()->slot_index(); }
+  LanguageMode language_mode() { return hydrogen()->language_mode(); }
 };
 
 

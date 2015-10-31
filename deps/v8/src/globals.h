@@ -30,29 +30,6 @@
 # define V8_INFINITY INFINITY
 #endif
 
-#if V8_TARGET_ARCH_IA32 || (V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_32_BIT) || \
-    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS ||     \
-    V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_X87
-
-#define V8_TURBOFAN_BACKEND 1
-#if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_MIPS64 || \
-    V8_TARGET_ARCH_PPC64
-// 64-bit TurboFan backends support 64-bit integer arithmetic.
-#define V8_TURBOFAN_BACKEND_64 1
-#else
-#define V8_TURBOFAN_BACKEND_64 0
-#endif
-
-#else
-#define V8_TURBOFAN_BACKEND 0
-#endif
-
-#if V8_TURBOFAN_BACKEND
-#define V8_TURBOFAN_TARGET 1
-#else
-#define V8_TURBOFAN_TARGET 0
-#endif
-
 namespace v8 {
 
 namespace base {
@@ -423,7 +400,6 @@ class CodeGenerator;
 class CodeStub;
 class Context;
 class Debug;
-class Debugger;
 class DebugInfo;
 class Descriptor;
 class DescriptorArray;
@@ -455,18 +431,18 @@ class MarkCompactCollector;
 class NewSpace;
 class Object;
 class OldSpace;
+class ParameterCount;
 class Foreign;
 class Scope;
 class ScopeInfo;
 class Script;
 class Smi;
 template <typename Config, class Allocator = FreeStoreAllocationPolicy>
-    class SplayTree;
+class SplayTree;
 class String;
 class Symbol;
 class Name;
 class Struct;
-class Symbol;
 class Variable;
 class RelocInfo;
 class Deserializer;
@@ -540,6 +516,8 @@ enum VisitMode {
 // Flag indicating whether code is built into the VM (one of the natives files).
 enum NativesFlag { NOT_NATIVES_CODE, NATIVES_CODE };
 
+// JavaScript defines two kinds of 'nil'.
+enum NilValue { kNullValue, kUndefinedValue };
 
 // ParseRestriction is used to restrict the set of valid statements in a
 // unit of compilation.  Restriction violations cause a syntax error.
@@ -572,11 +550,6 @@ struct CodeDesc {
   int constant_pool_size;
   Assembler* origin;
 };
-
-
-// Callback function used for iterating objects in heap spaces,
-// for example, scanning heap objects.
-typedef int (*HeapObjectCallback)(HeapObject* obj);
 
 
 // Callback function used for checking constraints when copying/relocating
@@ -628,6 +601,10 @@ enum CallConstructorFlags {
   NO_CALL_CONSTRUCTOR_FLAGS = 0,
   // The call target is cached in the instruction stream.
   RECORD_CONSTRUCTOR_TARGET = 1,
+  // TODO(bmeurer): Kill these SUPER_* modes and use the Construct builtin
+  // directly instead; also there's no point in collecting any "targets" for
+  // super constructor calls, since these are known when we optimize the
+  // constructor that contains the super call.
   SUPER_CONSTRUCTOR_CALL = 1 << 1,
   SUPER_CALL_RECORD_TARGET = SUPER_CONSTRUCTOR_CALL | RECORD_CONSTRUCTOR_TARGET
 };
@@ -797,6 +774,10 @@ const uint64_t kHoleNanInt64 =
     (static_cast<uint64_t>(kHoleNanUpper32) << 32) | kHoleNanLower32;
 
 
+// ES6 section 20.1.2.6 Number.MAX_SAFE_INTEGER
+const double kMaxSafeInteger = 9007199254740991.0;  // 2^53-1
+
+
 // The order of this enum has to be kept in sync with the predicates below.
 enum VariableMode {
   // User declared variables:
@@ -811,9 +792,6 @@ enum VariableMode {
   IMPORT,          // declared via 'import' declarations (last lexical)
 
   // Variables introduced by the compiler:
-  INTERNAL,        // like VAR, but not user-visible (may or may not
-                   // be in a context)
-
   TEMPORARY,       // temporary variables (not user-visible), stack-allocated
                    // unless the scope as a whole has forced context allocation
 
@@ -1023,7 +1001,7 @@ inline bool IsSubclassConstructor(FunctionKind kind) {
 }
 
 
-inline bool IsConstructor(FunctionKind kind) {
+inline bool IsClassConstructor(FunctionKind kind) {
   DCHECK(IsValidFunctionKind(kind));
   return kind &
          (FunctionKind::kBaseConstructor | FunctionKind::kSubclassConstructor |

@@ -5,8 +5,6 @@
 #ifndef V8_HYDROGEN_H_
 #define V8_HYDROGEN_H_
 
-#include "src/v8.h"
-
 #include "src/accessors.h"
 #include "src/allocation.h"
 #include "src/ast.h"
@@ -615,6 +613,8 @@ class HEnvironment final : public ZoneObject {
   void SetExpressionStackAt(int index_from_top, HValue* value);
   HValue* RemoveExpressionStackAt(int index_from_top);
 
+  void Print() const;
+
   HEnvironment* Copy() const;
   HEnvironment* CopyWithoutHistory() const;
   HEnvironment* CopyAsLoopHeader(HBasicBlock* block) const;
@@ -758,8 +758,8 @@ class AstContext {
   virtual void ReturnContinuation(HIfContinuation* continuation,
                                   BailoutId ast_id) = 0;
 
-  void set_for_typeof(bool for_typeof) { for_typeof_ = for_typeof; }
-  bool is_for_typeof() { return for_typeof_; }
+  void set_typeof_mode(TypeofMode typeof_mode) { typeof_mode_ = typeof_mode; }
+  TypeofMode typeof_mode() { return typeof_mode_; }
 
  protected:
   AstContext(HOptimizedGraphBuilder* owner, Expression::Context kind);
@@ -779,7 +779,7 @@ class AstContext {
   HOptimizedGraphBuilder* owner_;
   Expression::Context kind_;
   AstContext* outer_;
-  bool for_typeof_;
+  TypeofMode typeof_mode_;
 };
 
 
@@ -1329,6 +1329,7 @@ class HGraphBuilder {
                                    bool is_jsarray);
 
   HValue* BuildNumberToString(HValue* object, Type* type);
+  HValue* BuildToObject(HValue* receiver);
 
   void BuildJSObjectCheck(HValue* receiver,
                           int bit_field_mask);
@@ -1356,6 +1357,9 @@ class HGraphBuilder {
                                               HValue* elements, HValue* key,
                                               HValue* hash,
                                               LanguageMode language_mode);
+
+  // ES6 section 7.4.7 CreateIterResultObject ( value, done )
+  HValue* BuildCreateIterResultObject(HValue* value, HValue* done);
 
   HValue* BuildRegExpConstructResult(HValue* length,
                                      HValue* index,
@@ -1444,7 +1448,7 @@ class HGraphBuilder {
                                       ElementsKind kind,
                                       HValue *dependency = NULL);
 
-  HValue* AddLoadJSBuiltin(Builtins::JavaScript builtin);
+  HValue* AddLoadJSBuiltin(int context_index);
 
   HValue* EnforceNumberType(HValue* number, Type* expected);
   HValue* TruncateToNumber(HValue* value, Type** expected);
@@ -1596,6 +1600,7 @@ class HGraphBuilder {
     void Then();
     void Else();
     void End();
+    void EndUnreachable();
 
     void Deopt(Deoptimizer::DeoptReason reason);
     void ThenDeopt(Deoptimizer::DeoptReason reason) {
@@ -1860,6 +1865,10 @@ class HGraphBuilder {
   HInstruction* BuildGetNativeContext(HValue* closure);
   HInstruction* BuildGetNativeContext();
   HInstruction* BuildGetScriptContext(int context_index);
+  // Builds a loop version if |depth| is specified or unrolls the loop to
+  // |depth_value| iterations otherwise.
+  HValue* BuildGetParentContext(HValue* depth, int depth_value);
+
   HInstruction* BuildGetArrayFunction();
   HValue* BuildArrayBufferViewFieldAccessor(HValue* object,
                                             HValue* checked_object,
@@ -1885,6 +1894,9 @@ class HGraphBuilder {
   // the SourcePosition assuming that this position corresponds to the
   // same function as current position_.
   SourcePosition ScriptPositionToSourcePosition(int position) {
+    if (position == RelocInfo::kNoPosition) {
+      return SourcePosition::Unknown();
+    }
     SourcePosition pos = position_;
     pos.set_position(position - start_position_);
     return pos;
@@ -1996,10 +2008,9 @@ inline HInstruction* HGraphBuilder::AddUncasted<HReturn>(HConstant* value) {
 
 template<>
 inline HCallRuntime* HGraphBuilder::Add<HCallRuntime>(
-    Handle<String> name,
     const Runtime::Function* c_function,
     int argument_count) {
-  HCallRuntime* instr = New<HCallRuntime>(name, c_function, argument_count);
+  HCallRuntime* instr = New<HCallRuntime>(c_function, argument_count);
   if (graph()->info()->IsStub()) {
     // When compiling code stubs, we don't want to save all double registers
     // upon entry to the stub, but instead have the call runtime instruction
@@ -2016,20 +2027,41 @@ inline HInstruction* HGraphBuilder::AddUncasted<HCallRuntime>(
     Handle<String> name,
     const Runtime::Function* c_function,
     int argument_count) {
-  return Add<HCallRuntime>(name, c_function, argument_count);
+  return Add<HCallRuntime>(c_function, argument_count);
 }
 
 
-template<>
+template <>
+inline HParameter* HGraphBuilder::New<HParameter>(unsigned index) {
+  return HParameter::New(isolate(), zone(), nullptr, index);
+}
+
+
+template <>
+inline HParameter* HGraphBuilder::New<HParameter>(
+    unsigned index, HParameter::ParameterKind kind) {
+  return HParameter::New(isolate(), zone(), nullptr, index, kind);
+}
+
+
+template <>
+inline HParameter* HGraphBuilder::New<HParameter>(
+    unsigned index, HParameter::ParameterKind kind, Representation r) {
+  return HParameter::New(isolate(), zone(), nullptr, index, kind, r);
+}
+
+
+template <>
+inline HPrologue* HGraphBuilder::New<HPrologue>() {
+  return HPrologue::New(zone());
+}
+
+
+template <>
 inline HContext* HGraphBuilder::New<HContext>() {
   return HContext::New(zone());
 }
 
-
-template<>
-inline HInstruction* HGraphBuilder::NewUncasted<HContext>() {
-  return New<HContext>();
-}
 
 class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
  public:
@@ -2177,6 +2209,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   F(IsRegExp)                          \
   F(IsJSProxy)                         \
   F(IsConstructCall)                   \
+  F(Call)                              \
   F(CallFunction)                      \
   F(ArgumentsLength)                   \
   F(Arguments)                         \
@@ -2190,9 +2223,10 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   F(OneByteSeqStringSetChar)           \
   F(TwoByteSeqStringSetChar)           \
   F(ObjectEquals)                      \
-  F(IsObject)                          \
+  F(ToInteger)                         \
+  F(ToObject)                          \
+  F(ToString)                          \
   F(IsFunction)                        \
-  F(IsUndetectableObject)              \
   F(IsSpecObject)                      \
   F(MathPow)                           \
   F(IsMinusZero)                       \
@@ -2203,14 +2237,13 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   F(StringCharCodeAt)                  \
   F(StringAdd)                         \
   F(SubString)                         \
-  F(StringCompare)                     \
   F(RegExpExec)                        \
   F(RegExpConstructResult)             \
-  F(GetFromCache)                      \
   F(NumberToString)                    \
   F(DebugIsActive)                     \
   F(Likely)                            \
   F(Unlikely)                          \
+  F(HasInPrototypeChain)               \
   /* Typed Arrays */                   \
   F(TypedArrayInitialize)              \
   F(DataViewInitialize)                \
@@ -2239,9 +2272,10 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   F(JSCollectionGetTable)              \
   F(StringGetRawHashField)             \
   F(TheHole)                           \
+  /* ES6 Iterators */                  \
+  F(CreateIterResultObject)            \
   /* Arrays */                         \
   F(HasFastPackedElements)             \
-  F(GetPrototype)                      \
   /* Strings */                        \
   F(StringGetLength)                   \
   /* JSValue */                        \
@@ -2448,20 +2482,16 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                    Handle<JSFunction> caller,
                    const char* failure_reason);
 
-  void HandleGlobalVariableAssignment(Variable* var,
-                                      HValue* value,
+  void HandleGlobalVariableAssignment(Variable* var, HValue* value,
+                                      FeedbackVectorICSlot ic_slot,
                                       BailoutId ast_id);
 
   void HandlePropertyAssignment(Assignment* expr);
   void HandleCompoundAssignment(Assignment* expr);
-  void HandlePolymorphicNamedFieldAccess(PropertyAccessType access_type,
-                                         Expression* expr,
-                                         BailoutId ast_id,
-                                         BailoutId return_id,
-                                         HValue* object,
-                                         HValue* value,
-                                         SmallMapList* types,
-                                         Handle<String> name);
+  void HandlePolymorphicNamedFieldAccess(
+      PropertyAccessType access_type, Expression* expr,
+      FeedbackVectorICSlot slot, BailoutId ast_id, BailoutId return_id,
+      HValue* object, HValue* value, SmallMapList* types, Handle<String> name);
 
   HValue* BuildAllocateExternalElements(
       ExternalArrayType array_type,
@@ -2515,7 +2545,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
    public:
     PropertyAccessInfo(HOptimizedGraphBuilder* builder,
                        PropertyAccessType access_type, Handle<Map> map,
-                       Handle<String> name)
+                       Handle<Name> name)
         : builder_(builder),
           access_type_(access_type),
           map_(map),
@@ -2541,7 +2571,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
     bool NeedsWrappingFor(Handle<JSFunction> target) const;
 
     Handle<Map> map();
-    Handle<String> name() const { return name_; }
+    Handle<Name> name() const { return name_; }
 
     bool IsJSObjectFieldAccessor() {
       int offset;  // unused
@@ -2552,10 +2582,10 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
       int offset;
       if (Accessors::IsJSObjectFieldAccessor(map_, name_, &offset)) {
         if (IsStringType()) {
-          DCHECK(String::Equals(isolate()->factory()->length_string(), name_));
+          DCHECK(Name::Equals(isolate()->factory()->length_string(), name_));
           *access = HObjectAccess::ForStringLength();
         } else if (IsArrayType()) {
-          DCHECK(String::Equals(isolate()->factory()->length_string(), name_));
+          DCHECK(Name::Equals(isolate()->factory()->length_string(), name_));
           *access = HObjectAccess::ForArrayLength(map_->elements_kind());
         } else {
           *access = HObjectAccess::ForMapAndOffset(map_, offset);
@@ -2637,7 +2667,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
              lookup_type_ == TRANSITION_TYPE);
       DCHECK(number_ < map->NumberOfOwnDescriptors());
       int field_index = map->instance_descriptors()->GetFieldIndex(number_);
-      return field_index - map->inobject_properties();
+      return field_index - map->GetInObjectProperties();
     }
 
     void LookupDescriptor(Map* map, Name* name) {
@@ -2688,7 +2718,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
     HOptimizedGraphBuilder* builder_;
     PropertyAccessType access_type_;
     Handle<Map> map_;
-    Handle<String> name_;
+    Handle<Name> name_;
     Handle<JSObject> holder_;
     Handle<JSFunction> accessor_;
     Handle<JSObject> api_holder_;
@@ -2710,7 +2740,8 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
 
   HValue* BuildNamedAccess(PropertyAccessType access, BailoutId ast_id,
                            BailoutId reutrn_id, Expression* expr,
-                           HValue* object, Handle<String> name, HValue* value,
+                           FeedbackVectorICSlot slot, HValue* object,
+                           Handle<String> name, HValue* value,
                            bool is_uninitialized = false);
 
   void HandlePolymorphicCallNamed(Call* expr,
@@ -2746,10 +2777,8 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   HInstruction* BuildIncrement(bool returns_original_input,
                                CountOperation* expr);
   HInstruction* BuildKeyedGeneric(PropertyAccessType access_type,
-                                  Expression* expr,
-                                  HValue* object,
-                                  HValue* key,
-                                  HValue* value);
+                                  Expression* expr, FeedbackVectorICSlot slot,
+                                  HValue* object, HValue* key, HValue* value);
 
   HInstruction* TryBuildConsolidatedElementLoad(HValue* object,
                                                 HValue* key,
@@ -2766,24 +2795,21 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                                               PropertyAccessType access_type,
                                               KeyedAccessStoreMode store_mode);
 
-  HValue* HandlePolymorphicElementAccess(Expression* expr,
-                                         HValue* object,
-                                         HValue* key,
-                                         HValue* val,
-                                         SmallMapList* maps,
-                                         PropertyAccessType access_type,
-                                         KeyedAccessStoreMode store_mode,
-                                         bool* has_side_effects);
+  HValue* HandlePolymorphicElementAccess(
+      Expression* expr, FeedbackVectorICSlot slot, HValue* object, HValue* key,
+      HValue* val, SmallMapList* maps, PropertyAccessType access_type,
+      KeyedAccessStoreMode store_mode, bool* has_side_effects);
 
   HValue* HandleKeyedElementAccess(HValue* obj, HValue* key, HValue* val,
-                                   Expression* expr, BailoutId ast_id,
-                                   BailoutId return_id,
+                                   Expression* expr, FeedbackVectorICSlot slot,
+                                   BailoutId ast_id, BailoutId return_id,
                                    PropertyAccessType access_type,
                                    bool* has_side_effects);
 
   HInstruction* BuildNamedGeneric(PropertyAccessType access, Expression* expr,
-                                  HValue* object, Handle<String> name,
-                                  HValue* value, bool is_uninitialized = false);
+                                  FeedbackVectorICSlot slot, HValue* object,
+                                  Handle<Name> name, HValue* value,
+                                  bool is_uninitialized = false);
 
   HCheckMaps* AddCheckMap(HValue* object, Handle<Map> map);
 
@@ -2793,19 +2819,14 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
                 HValue* object,
                 HValue* key);
 
-  void BuildStoreForEffect(Expression* expression,
-                           Property* prop,
-                           BailoutId ast_id,
-                           BailoutId return_id,
-                           HValue* object,
-                           HValue* key,
+  void BuildStoreForEffect(Expression* expression, Property* prop,
+                           FeedbackVectorICSlot slot, BailoutId ast_id,
+                           BailoutId return_id, HValue* object, HValue* key,
                            HValue* value);
 
-  void BuildStore(Expression* expression,
-                  Property* prop,
-                  BailoutId ast_id,
-                  BailoutId return_id,
-                  bool is_uninitialized = false);
+  void BuildStore(Expression* expression, Property* prop,
+                  FeedbackVectorICSlot slot, BailoutId ast_id,
+                  BailoutId return_id, bool is_uninitialized = false);
 
   HInstruction* BuildLoadNamedField(PropertyAccessInfo* info,
                                     HValue* checked_object);
@@ -2845,9 +2866,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   void AddCheckPrototypeMaps(Handle<JSObject> holder,
                              Handle<Map> receiver_map);
 
-  HInstruction* NewPlainFunctionCall(HValue* fun,
-                                     int argument_count,
-                                     bool pass_argument_count);
+  HInstruction* NewPlainFunctionCall(HValue* fun, int argument_count);
 
   HInstruction* NewArgumentAdaptorCall(HValue* fun, HValue* context,
                                        int argument_count,

@@ -39,10 +39,6 @@ define NEW_TWO_BYTE_STRING = false;
 define GETTER = 0;
 define SETTER = 1;
 
-define NO_HINT     = 0;
-define NUMBER_HINT = 1;
-define STRING_HINT = 2;
-
 # For date.js.
 define HoursPerDay      = 24;
 define MinutesPerHour   = 60;
@@ -74,6 +70,9 @@ define kMaxMonth = 10000000;
 # Reflect.construct().
 define kSafeArgumentsLength = 0x800000;
 
+# 2^53 - 1
+define kMaxSafeInteger = 9007199254740991;
+
 # Strict mode flags for passing to %SetProperty
 define kSloppyMode = 0;
 define kStrictMode = 1;
@@ -93,11 +92,12 @@ macro IS_NUMBER(arg)            = (typeof(arg) === 'number');
 macro IS_STRING(arg)            = (typeof(arg) === 'string');
 macro IS_BOOLEAN(arg)           = (typeof(arg) === 'boolean');
 macro IS_SYMBOL(arg)            = (typeof(arg) === 'symbol');
-macro IS_OBJECT(arg)            = (%_IsObject(arg));
+macro IS_OBJECT(arg)            = (typeof(arg) === 'object');
 macro IS_ARRAY(arg)             = (%_IsArray(arg));
 macro IS_DATE(arg)              = (%_IsDate(arg));
 macro IS_FUNCTION(arg)          = (%_IsFunction(arg));
 macro IS_REGEXP(arg)            = (%_IsRegExp(arg));
+macro IS_SIMD_VALUE(arg)        = (%_IsSimdValue(arg));
 macro IS_SET(arg)               = (%_ClassOf(arg) === 'Set');
 macro IS_MAP(arg)               = (%_ClassOf(arg) === 'Map');
 macro IS_WEAKMAP(arg)           = (%_ClassOf(arg) === 'WeakMap');
@@ -116,7 +116,6 @@ macro IS_SHAREDARRAYBUFFER(arg) = (%_ClassOf(arg) === 'SharedArrayBuffer');
 macro IS_GENERATOR(arg)         = (%_ClassOf(arg) === 'Generator');
 macro IS_SET_ITERATOR(arg)      = (%_ClassOf(arg) === 'Set Iterator');
 macro IS_MAP_ITERATOR(arg)      = (%_ClassOf(arg) === 'Map Iterator');
-macro IS_UNDETECTABLE(arg)      = (%_IsUndetectableObject(arg));
 macro IS_STRONG(arg)            = (%IsStrong(arg));
 
 # Macro for ECMAScript 5 queries of the type:
@@ -128,14 +127,11 @@ macro IS_SPEC_OBJECT(arg)   = (%_IsSpecObject(arg));
 
 # Macro for ECMAScript 5 queries of the type:
 # "IsCallable(O)"
-# We assume here that this is the same as being either a function or a function
-# proxy. That ignores host objects with [[Call]] methods, but in most situations
-# we cannot handle those anyway.
-macro IS_SPEC_FUNCTION(arg) = (%_ClassOf(arg) === 'Function');
+macro IS_CALLABLE(arg) = (typeof(arg) === 'function');
 
 # Macro for ES6 CheckObjectCoercible
 # Will throw a TypeError of the form "[functionName] called on null or undefined".
-macro CHECK_OBJECT_COERCIBLE(arg, functionName) = if (IS_NULL_OR_UNDEFINED(arg) && !IS_UNDETECTABLE(arg)) throw MakeTypeError(kCalledOnNullOrUndefined, functionName);
+macro CHECK_OBJECT_COERCIBLE(arg, functionName) = if (IS_NULL(%IS_VAR(arg)) || IS_UNDEFINED(arg)) throw MakeTypeError(kCalledOnNullOrUndefined, functionName);
 
 # Indices in bound function info retrieved by %BoundFunctionGetBindings(...).
 define kBoundFunctionIndex = 0;
@@ -145,28 +141,31 @@ define kBoundArgumentsStartIndex = 2;
 # Inline macros. Use %IS_VAR to make sure arg is evaluated only once.
 macro NUMBER_IS_NAN(arg) = (!%_IsSmi(%IS_VAR(arg)) && !(arg == arg));
 macro NUMBER_IS_FINITE(arg) = (%_IsSmi(%IS_VAR(arg)) || ((arg == arg) && (arg != 1/0) && (arg != -1/0)));
-macro TO_INTEGER(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : %NumberToInteger($toNumber(arg)));
-macro TO_INTEGER_FOR_SIDE_EFFECT(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : $toNumber(arg));
-macro TO_INTEGER_MAP_MINUS_ZERO(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : %NumberToIntegerMapMinusZero($toNumber(arg)));
-macro TO_INT32(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : (arg >> 0));
+macro TO_INTEGER(arg) = (%_ToInteger(arg));
+macro TO_INTEGER_MAP_MINUS_ZERO(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : %NumberToIntegerMapMinusZero(ToNumber(arg)));
+macro TO_INT32(arg) = (arg | 0);
 macro TO_UINT32(arg) = (arg >>> 0);
-macro TO_STRING_INLINE(arg) = (IS_STRING(%IS_VAR(arg)) ? arg : $nonStringToString(arg));
+macro TO_LENGTH(arg) = (%ToLength(arg));
+macro TO_LENGTH_OR_UINT32(arg) = (harmony_tolength ? TO_LENGTH(arg) : TO_UINT32(arg));
+macro TO_STRING(arg) = (%_ToString(arg));
 macro TO_NUMBER_INLINE(arg) = (IS_NUMBER(%IS_VAR(arg)) ? arg : $nonNumberToNumber(arg));
-macro TO_OBJECT_INLINE(arg) = (IS_SPEC_OBJECT(%IS_VAR(arg)) ? arg : $toObject(arg));
+macro TO_OBJECT(arg) = (%_ToObject(arg));
+macro TO_PRIMITIVE(arg) = (%_ToPrimitive(arg));
+macro TO_PRIMITIVE_NUMBER(arg) = (%_ToPrimitive_Number(arg));
+macro TO_PRIMITIVE_STRING(arg) = (%_ToPrimitive_String(arg));
+macro TO_NAME(arg) = (%_ToName(arg));
 macro JSON_NUMBER_TO_STRING(arg) = ((%_IsSmi(%IS_VAR(arg)) || arg - arg == 0) ? %_NumberToString(arg) : "null");
 macro HAS_OWN_PROPERTY(arg, index) = (%_CallFunction(arg, index, ObjectHasOwnProperty));
-macro SHOULD_CREATE_WRAPPER(functionName, receiver) = (!IS_SPEC_OBJECT(receiver) && %IsSloppyModeFunction(functionName));
 macro HAS_INDEX(array, index, is_array) = ((is_array && %_HasFastPackedElements(%IS_VAR(array))) ? (index < array.length) : (index in array));
+macro MAX_SIMPLE(argA, argB) = (argA < argB ? argB : argA);
+macro MIN_SIMPLE(argA, argB) = (argA < argB ? argA : argB);
 
 # Private names.
-macro GLOBAL_PRIVATE(name) = (%CreateGlobalPrivateSymbol(name));
-macro NEW_PRIVATE(name) = (%CreatePrivateSymbol(name));
 macro IS_PRIVATE(sym) = (%SymbolIsPrivate(sym));
 macro HAS_PRIVATE(obj, sym) = (%HasOwnProperty(obj, sym));
 macro HAS_DEFINED_PRIVATE(obj, sym) = (!IS_UNDEFINED(obj[sym]));
 macro GET_PRIVATE(obj, sym) = (obj[sym]);
 macro SET_PRIVATE(obj, sym, val) = (obj[sym] = val);
-macro DELETE_PRIVATE(obj, sym) = (delete obj[sym]);
 
 # Constants.  The compiler constant folds them.
 define NAN = $NaN;

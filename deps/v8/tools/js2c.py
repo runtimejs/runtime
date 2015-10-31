@@ -31,10 +31,9 @@
 # char arrays. It is used for embedded JavaScript code in the V8
 # library.
 
-import os, re, sys, string
+import os, re
 import optparse
 import jsmin
-import bz2
 import textwrap
 
 
@@ -108,6 +107,9 @@ def ExpandMacroDefinition(lines, pos, name_pattern, macro, expander):
     mapping = { }
     def add_arg(str):
       # Remember to expand recursively in the arguments
+      if arg_index[0] >= len(macro.args):
+        lineno = lines.count(os.linesep, 0, start) + 1
+        raise Error('line %s: Too many arguments for macro "%s"' % (lineno, name_pattern.pattern))
       replacement = expander(str.strip())
       mapping[macro.args[arg_index[0]]] = replacement
       arg_index[0] += 1
@@ -196,7 +198,7 @@ def ReadMacros(lines):
   return (constants, macros)
 
 
-TEMPLATE_PATTERN = re.compile(r'^\s+T\(([A-Z][a-zA-Z]*),')
+TEMPLATE_PATTERN = re.compile(r'^\s+T\(([A-Z][a-zA-Z0-9]*),')
 
 def ReadMessageTemplates(lines):
   templates = []
@@ -377,7 +379,7 @@ class Sources:
 
 
 def IsDebuggerFile(filename):
-  return filename.endswith("-debugger.js")
+  return "debug" in filename
 
 def IsMacroFile(filename):
   return filename.endswith("macros.py")
@@ -447,7 +449,7 @@ def PrepareSources(source_files, native_type, emit_js):
     result.is_debugger_id.append(is_debugger)
 
     name = os.path.basename(source)[:-3]
-    result.names.append(name if not is_debugger else name[:-9])
+    result.names.append(name)
 
   return result
 
@@ -583,7 +585,8 @@ def main():
                     help="file to write the startup blob to.")
   parser.add_option("--js",
                     help="writes a JS file output instead of a C file",
-                    action="store_true")
+                    action="store_true", default=False, dest='js')
+  parser.add_option("--nojs", action="store_false", default=False, dest='js')
   parser.set_usage("""js2c out.cc type sources.js ...
         out.cc: C code to be generated.
         type: type parameter for NativesCollection template.

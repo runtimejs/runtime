@@ -41,7 +41,6 @@ class JSIntrinsicLowering final : public AdvancedReducer {
   Reduction ReduceIncrementStatsCounter(Node* node);
   Reduction ReduceIsMinusZero(Node* node);
   Reduction ReduceIsInstanceType(Node* node, InstanceType instance_type);
-  Reduction ReduceIsNonNegativeSmi(Node* node);
   Reduction ReduceIsSmi(Node* node);
   Reduction ReduceJSValueGetValue(Node* node);
   Reduction ReduceMapGetInstanceType(Node* node);
@@ -58,6 +57,7 @@ class JSIntrinsicLowering final : public AdvancedReducer {
   Reduction ReduceGetTypeFeedbackVector(Node* node);
   Reduction ReduceGetCallerJSFunction(Node* node);
   Reduction ReduceThrowNotDateError(Node* node);
+  Reduction ReduceToObject(Node* node);
   Reduction ReduceCallFunction(Node* node);
 
   Reduction Change(Node* node, const Operator* op);

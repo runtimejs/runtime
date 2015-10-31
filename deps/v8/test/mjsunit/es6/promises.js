@@ -29,7 +29,6 @@
 
 // Make sure we don't rely on functions patchable by monkeys.
 var call = Function.prototype.call.call.bind(Function.prototype.call)
-var observe = Object.observe;
 var getOwnPropertyNames = Object.getOwnPropertyNames;
 var defineProperty = Object.defineProperty;
 var numberPrototype = Number.prototype;
@@ -63,7 +62,15 @@ function clearProp(o, name) {
 
 // Find intrinsics and null them out.
 var globals = Object.getOwnPropertyNames(this)
-var whitelist = {Promise: true, TypeError: true}
+var whitelist = {
+  Promise: true,
+  TypeError: true,
+  String: true,
+  JSON: true,
+  Error: true,
+  MjsUnitAssertionError: true
+};
+
 for (var i in globals) {
   var name = globals[i]
   if (name in whitelist || name[0] === name[0].toLowerCase()) delete globals[i]
@@ -87,21 +94,16 @@ function assertAsync(b, s) {
 }
 
 function assertAsyncDone(iteration) {
-  var iteration = iteration || 0
-  var dummy = {}
-  observe(dummy,
-    function() {
-      if (asyncAssertsExpected === 0)
-        assertAsync(true, "all")
-      else if (iteration > 10)  // Shouldn't take more.
-        assertAsync(false, "all")
-      else
-        assertAsyncDone(iteration + 1)
-    }
-  )
-  dummy.dummy = dummy
+  var iteration = iteration || 0;
+  %EnqueueMicrotask(function() {
+    if (asyncAssertsExpected === 0)
+      assertAsync(true, "all")
+    else if (iteration > 10)  // Shouldn't take more.
+      assertAsync(false, "all")
+    else
+      assertAsyncDone(iteration + 1)
+  });
 }
-
 
 (function() {
   assertThrows(function() { Promise(function() {}) }, TypeError)

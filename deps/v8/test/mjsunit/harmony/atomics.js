@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --harmony-atomics --harmony-sharedarraybuffer
+// Flags: --harmony-sharedarraybuffer
 //
 
 function toRangeWrapped(value) {
@@ -38,11 +38,6 @@ var IntegerTypedArrayConstructors = [
   makeConstructorObject(Uint32Array, 0, 0xffffffff, toRangeWrapped),
 ];
 
-var TypedArrayConstructors = IntegerTypedArrayConstructors.concat([
-  {constr: Float32Array},
-  {constr: Float64Array},
-]);
-
 (function TestBadArray() {
   var ab = new ArrayBuffer(16);
   var u32a = new Uint32Array(16);
@@ -50,22 +45,12 @@ var TypedArrayConstructors = IntegerTypedArrayConstructors.concat([
   var sf32a = new Float32Array(sab);
   var sf64a = new Float64Array(sab);
 
-  // Atomic ops required shared typed arrays
-  [undefined, 1, 'hi', 3.4, ab, u32a, sab].forEach(function(o) {
+  // Atomic ops required integer shared typed arrays
+  [undefined, 1, 'hi', 3.4, ab, u32a, sab, sf32a, sf64a].forEach(function(o) {
     assertThrows(function() { Atomics.compareExchange(o, 0, 0, 0); },
                  TypeError);
     assertThrows(function() { Atomics.load(o, 0); }, TypeError);
     assertThrows(function() { Atomics.store(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.add(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.sub(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.and(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.or(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.xor(o, 0, 0); }, TypeError);
-    assertThrows(function() { Atomics.exchange(o, 0, 0); }, TypeError);
-  });
-
-  // Arithmetic atomic ops require integer shared arrays
-  [sab, sf32a, sf64a].forEach(function(o) {
     assertThrows(function() { Atomics.add(o, 0, 0); }, TypeError);
     assertThrows(function() { Atomics.sub(o, 0, 0); }, TypeError);
     assertThrows(function() { Atomics.and(o, 0, 0); }, TypeError);
@@ -123,6 +108,21 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
     assertEquals(undefined, Atomics.xor(si32a, i, 0), name);
     assertEquals(undefined, Atomics.exchange(si32a, i, 0), name);
   });
+
+  // Monkey-patch length and make sure these functions still return undefined.
+  Object.defineProperty(si32a, 'length', {get: function() { return 1000; }});
+  [2, 100].forEach(function(i) {
+    var name = String(i);
+    assertEquals(undefined, Atomics.compareExchange(si32a, i, 0, 0), name);
+    assertEquals(undefined, Atomics.load(si32a, i), name);
+    assertEquals(undefined, Atomics.store(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.add(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.sub(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.and(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.or(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.xor(si32a, i, 0), name);
+    assertEquals(undefined, Atomics.exchange(si32a, i, 0), name);
+  });
 })();
 
 (function TestGoodIndex() {
@@ -148,7 +148,7 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
 })();
 
 (function TestCompareExchange() {
-  TypedArrayConstructors.forEach(function(t) {
+  IntegerTypedArrayConstructors.forEach(function(t) {
     var sab = new SharedArrayBuffer(10 * t.constr.BYTES_PER_ELEMENT);
     var sta = new t.constr(sab);
     var name = Object.prototype.toString.call(sta);
@@ -162,32 +162,10 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
       assertEquals(50, sta[i], name);
     }
   });
-
-  // * Exact float values should be OK
-  // * Infinity, -Infinity should be OK (has exact representation)
-  // * NaN is not OK, it has many representations, cannot ensure successful CAS
-  // because it does a bitwise compare
-  [1.5, 4.25, -1e8, -Infinity, Infinity].forEach(function(v) {
-    var sab = new SharedArrayBuffer(10 * Float32Array.BYTES_PER_ELEMENT);
-    var sf32a = new Float32Array(sab);
-    sf32a[0] = 0;
-    assertEquals(0, Atomics.compareExchange(sf32a, 0, 0, v));
-    assertEquals(v, sf32a[0]);
-    assertEquals(v, Atomics.compareExchange(sf32a, 0, v, 0));
-    assertEquals(0, sf32a[0]);
-
-    var sab2 = new SharedArrayBuffer(10 * Float64Array.BYTES_PER_ELEMENT);
-    var sf64a = new Float64Array(sab2);
-    sf64a[0] = 0;
-    assertEquals(0, Atomics.compareExchange(sf64a, 0, 0, v));
-    assertEquals(v, sf64a[0]);
-    assertEquals(v, Atomics.compareExchange(sf64a, 0, v, 0));
-    assertEquals(0, sf64a[0]);
-  });
 })();
 
 (function TestLoad() {
-  TypedArrayConstructors.forEach(function(t) {
+  IntegerTypedArrayConstructors.forEach(function(t) {
     var sab = new SharedArrayBuffer(10 * t.constr.BYTES_PER_ELEMENT);
     var sta = new t.constr(sab);
     var name = Object.prototype.toString.call(sta);
@@ -201,7 +179,7 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
 })();
 
 (function TestStore() {
-  TypedArrayConstructors.forEach(function(t) {
+  IntegerTypedArrayConstructors.forEach(function(t) {
     var sab = new SharedArrayBuffer(10 * t.constr.BYTES_PER_ELEMENT);
     var sta = new t.constr(sab);
     var name = Object.prototype.toString.call(sta);
@@ -212,20 +190,6 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
       assertEquals(100, Atomics.store(sta, i, 100), name);
       assertEquals(100, sta[i], name);
     }
-  });
-
-  [1.5, 4.25, -1e8, -Infinity, Infinity, NaN].forEach(function(v) {
-    var sab = new SharedArrayBuffer(10 * Float32Array.BYTES_PER_ELEMENT);
-    var sf32a = new Float32Array(sab);
-    sf32a[0] = 0;
-    assertEquals(v, Atomics.store(sf32a, 0, v));
-    assertEquals(v, sf32a[0]);
-
-    var sab2 = new SharedArrayBuffer(10 * Float64Array.BYTES_PER_ELEMENT);
-    var sf64a = new Float64Array(sab2);
-    sf64a[0] = 0;
-    assertEquals(v, Atomics.store(sf64a, 0, v));
-    assertEquals(v, sf64a[0]);
   });
 })();
 
@@ -333,7 +297,7 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
   // Sizes that aren't equal to a typedarray BYTES_PER_ELEMENT always return
   // false.
   var validSizes = {};
-  TypedArrayConstructors.forEach(function(t) {
+  IntegerTypedArrayConstructors.forEach(function(t) {
     validSizes[t.constr.BYTES_PER_ELEMENT] = true;
   });
 
@@ -342,6 +306,58 @@ function testAtomicOp(op, ia, index, expectedIndex, name) {
       assertEquals(false, Atomics.isLockFree(i));
     }
   }
+})();
+
+(function TestToNumber() {
+  IntegerTypedArrayConstructors.forEach(function(t) {
+    var sab = new SharedArrayBuffer(1 * t.constr.BYTES_PER_ELEMENT);
+    var sta = new t.constr(sab);
+
+    var valueOf = {valueOf: function(){ return 3;}};
+    var toString = {toString: function(){ return '3';}};
+
+    [false, true, undefined, valueOf, toString].forEach(function(v) {
+      var name = Object.prototype.toString.call(sta) + ' - ' + v;
+
+      // CompareExchange
+      sta[0] = 50;
+      assertEquals(50, Atomics.compareExchange(sta, 0, v, v), name);
+
+      // Store
+      assertEquals(+v, Atomics.store(sta, 0, v), name);
+      assertEquals(v|0, sta[0], name);
+
+      // Add
+      sta[0] = 120;
+      assertEquals(120, Atomics.add(sta, 0, v), name);
+      assertEquals(120 + (v|0), sta[0], name);
+
+      // Sub
+      sta[0] = 70;
+      assertEquals(70, Atomics.sub(sta, 0, v), name);
+      assertEquals(70 - (v|0), sta[0]);
+
+      // And
+      sta[0] = 0x20;
+      assertEquals(0x20, Atomics.and(sta, 0, v), name);
+      assertEquals(0x20 & (v|0), sta[0]);
+
+      // Or
+      sta[0] = 0x3d;
+      assertEquals(0x3d, Atomics.or(sta, 0, v), name);
+      assertEquals(0x3d | (v|0), sta[0]);
+
+      // Xor
+      sta[0] = 0x25;
+      assertEquals(0x25, Atomics.xor(sta, 0, v), name);
+      assertEquals(0x25 ^ (v|0), sta[0]);
+
+      // Exchange
+      sta[0] = 0x09;
+      assertEquals(0x09, Atomics.exchange(sta, 0, v), name);
+      assertEquals(v|0, sta[0]);
+    });
+  });
 })();
 
 (function TestWrapping() {

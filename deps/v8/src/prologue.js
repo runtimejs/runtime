@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function(global, utils) {
+(function(global, utils, extrasUtils) {
 
 "use strict";
 
@@ -12,28 +12,37 @@
 // Utils
 
 var imports = UNDEFINED;
-var exports = UNDEFINED;
 var imports_from_experimental = UNDEFINED;
-
+var exports_container = %ExportFromRuntime({});
 
 // Export to other scripts.
 // In normal natives, this exports functions to other normal natives.
 // In experimental natives, this exports to other experimental natives and
 // to normal natives that import using utils.ImportFromExperimental.
 function Export(f) {
-  f.next = exports;
-  exports = f;
-};
+  f(exports_container);
+}
 
 
-// Import from other scripts.
+// Import from other scripts. The actual importing happens in PostNatives and
+// PostExperimental so that we can import from scripts executed later. However,
+// that means that the import is not available until the very end. If the
+// import needs to be available immediate, use ImportNow.
 // In normal natives, this imports from other normal natives.
 // In experimental natives, this imports from other experimental natives and
 // whitelisted exports from normal natives.
 function Import(f) {
   f.next = imports;
   imports = f;
-};
+}
+
+
+// Import immediately from exports of previous scripts. We need this for
+// functions called during bootstrapping. Hooking up imports in PostNatives
+// would be too late.
+function ImportNow(name) {
+  return exports_container[name];
+}
 
 
 // In normal natives, import from experimental natives.
@@ -41,7 +50,7 @@ function Import(f) {
 function ImportFromExperimental(f) {
   f.next = imports_from_experimental;
   imports_from_experimental = f;
-};
+}
 
 
 function SetFunctionName(f, name, prefix) {
@@ -140,21 +149,21 @@ function SetUpLockedPrototype(
   %ToFastProperties(prototype);
 }
 
+
 // -----------------------------------------------------------------------
 // To be called by bootstrapper
-
-var experimental_exports = UNDEFINED;
 
 function PostNatives(utils) {
   %CheckIsBootstrapping();
 
-  var container = {};
-  for ( ; !IS_UNDEFINED(exports); exports = exports.next) exports(container);
-  for ( ; !IS_UNDEFINED(imports); imports = imports.next) imports(container);
+  for ( ; !IS_UNDEFINED(imports); imports = imports.next) {
+    imports(exports_container);
+  }
 
-  // Whitelist of exports from normal natives to experimental natives.
-  var expose_to_experimental = [
+  // Whitelist of exports from normal natives to experimental natives and debug.
+  var expose_list = [
     "ArrayToString",
+    "FunctionSourceString",
     "GetIterator",
     "GetMethod",
     "InnerArrayEvery",
@@ -176,57 +185,131 @@ function PostNatives(utils) {
     "ObjectIsFrozen",
     "ObjectDefineProperty",
     "OwnPropertyKeys",
+    "SymbolToString",
     "ToNameArray",
+    "ToBoolean",
+    "ToNumber",
+    "ToString",
+    // From runtime:
+    "is_concat_spreadable_symbol",
+    "iterator_symbol",
+    "promise_status_symbol",
+    "promise_value_symbol",
+    "reflect_apply",
+    "reflect_construct",
+    "to_string_tag_symbol",
   ];
-  experimental_exports = {};
+
+  var filtered_exports = {};
   %OptimizeObjectForAddingMultipleProperties(
-      experimental_exports, expose_to_experimental.length);
-  for (var key of expose_to_experimental) {
-    experimental_exports[key] = container[key];
+      filtered_exports, expose_list.length);
+  for (var key of expose_list) {
+    filtered_exports[key] = exports_container[key];
   }
-  %ToFastProperties(experimental_exports);
-  container = UNDEFINED;
+  %ToFastProperties(filtered_exports);
+  exports_container = filtered_exports;
 
   utils.PostNatives = UNDEFINED;
   utils.ImportFromExperimental = UNDEFINED;
-};
+}
 
 
 function PostExperimentals(utils) {
   %CheckIsBootstrapping();
-
-  for ( ; !IS_UNDEFINED(exports); exports = exports.next) {
-    exports(experimental_exports);
-  }
+  %ExportExperimentalFromRuntime(exports_container);
   for ( ; !IS_UNDEFINED(imports); imports = imports.next) {
-    imports(experimental_exports);
+    imports(exports_container);
   }
   for ( ; !IS_UNDEFINED(imports_from_experimental);
           imports_from_experimental = imports_from_experimental.next) {
-    imports_from_experimental(experimental_exports);
+    imports_from_experimental(exports_container);
   }
 
-  experimental_exports = UNDEFINED;
+  exports_container = UNDEFINED;
 
+  utils.PostExperimentals = UNDEFINED;
+  utils.PostDebug = UNDEFINED;
+  utils.Import = UNDEFINED;
+  utils.Export = UNDEFINED;
+}
+
+
+function PostDebug(utils) {
+  for ( ; !IS_UNDEFINED(imports); imports = imports.next) {
+    imports(exports_container);
+  }
+
+  exports_container = UNDEFINED;
+
+  utils.PostDebug = UNDEFINED;
   utils.PostExperimentals = UNDEFINED;
   utils.Import = UNDEFINED;
   utils.Export = UNDEFINED;
-};
+}
 
 // -----------------------------------------------------------------------
 
-InstallFunctions(utils, NONE, [
-  "Import", Import,
-  "Export", Export,
-  "ImportFromExperimental", ImportFromExperimental,
-  "SetFunctionName", SetFunctionName,
-  "InstallConstants", InstallConstants,
-  "InstallFunctions", InstallFunctions,
-  "InstallGetter", InstallGetter,
-  "InstallGetterSetter", InstallGetterSetter,
-  "SetUpLockedPrototype", SetUpLockedPrototype,
-  "PostNatives", PostNatives,
-  "PostExperimentals", PostExperimentals,
-]);
+%OptimizeObjectForAddingMultipleProperties(utils, 13);
+
+utils.Import = Import;
+utils.ImportNow = ImportNow;
+utils.Export = Export;
+utils.ImportFromExperimental = ImportFromExperimental;
+utils.SetFunctionName = SetFunctionName;
+utils.InstallConstants = InstallConstants;
+utils.InstallFunctions = InstallFunctions;
+utils.InstallGetter = InstallGetter;
+utils.InstallGetterSetter = InstallGetterSetter;
+utils.SetUpLockedPrototype = SetUpLockedPrototype;
+utils.PostNatives = PostNatives;
+utils.PostExperimentals = PostExperimentals;
+utils.PostDebug = PostDebug;
+
+%ToFastProperties(utils);
+
+// -----------------------------------------------------------------------
+
+%OptimizeObjectForAddingMultipleProperties(extrasUtils, 5);
+
+extrasUtils.logStackTrace = function logStackTrace() {
+  %DebugTrace();
+};
+
+extrasUtils.log = function log() {
+  let message = '';
+  for (const arg of arguments) {
+    message += arg;
+  }
+
+  %GlobalPrint(message);
+};
+
+// Extras need the ability to store private state on their objects without
+// exposing it to the outside world.
+
+extrasUtils.createPrivateSymbol = function createPrivateSymbol(name) {
+  return %CreatePrivateSymbol(name);
+};
+
+// These functions are key for safe meta-programming:
+// http://wiki.ecmascript.org/doku.php?id=conventions:safe_meta_programming
+//
+// Technically they could all be derived from combinations of
+// Function.prototype.{bind,call,apply} but that introduces lots of layers of
+// indirection and slowness given how un-optimized bind is.
+
+extrasUtils.simpleBind = function simpleBind(func, thisArg) {
+  return function() {
+    return %Apply(func, thisArg, arguments, 0, arguments.length);
+  };
+};
+
+extrasUtils.uncurryThis = function uncurryThis(func) {
+  return function(thisArg) {
+    return %Apply(func, thisArg, arguments, 1, arguments.length - 1);
+  };
+};
+
+%ToFastProperties(extrasUtils);
 
 })
