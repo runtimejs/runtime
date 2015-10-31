@@ -17,19 +17,34 @@
 namespace v8 {
 namespace internal {
 
-class FeedbackVectorSpec {
+
+enum class FeedbackVectorSlotKind {
+  UNUSED,
+  CALL_IC,
+  LOAD_IC,
+  KEYED_LOAD_IC,
+  STORE_IC,
+  KEYED_STORE_IC,
+
+  KINDS_NUMBER  // Last value indicating number of kinds.
+};
+
+
+std::ostream& operator<<(std::ostream& os, FeedbackVectorSlotKind kind);
+
+
+class StaticFeedbackVectorSpec {
  public:
-  FeedbackVectorSpec() : slots_(0), ic_slots_(0), ic_kinds_(NULL) {}
-  explicit FeedbackVectorSpec(int slots)
-      : slots_(slots), ic_slots_(0), ic_kinds_(NULL) {}
-  FeedbackVectorSpec(int slots, int ic_slots, Code::Kind* ic_slot_kinds)
+  StaticFeedbackVectorSpec() : slots_(0), ic_slots_(0), ic_kinds_(NULL) {}
+  StaticFeedbackVectorSpec(int slots, int ic_slots,
+                           FeedbackVectorSlotKind* ic_slot_kinds)
       : slots_(slots), ic_slots_(ic_slots), ic_kinds_(ic_slot_kinds) {}
 
   int slots() const { return slots_; }
 
   int ic_slots() const { return ic_slots_; }
 
-  Code::Kind GetKind(int ic_slot) const {
+  FeedbackVectorSlotKind GetKind(int ic_slot) const {
     DCHECK(ic_slots_ > 0 && ic_slot < ic_slots_);
     return ic_kinds_[ic_slot];
   }
@@ -37,33 +52,78 @@ class FeedbackVectorSpec {
  private:
   int slots_;
   int ic_slots_;
-  Code::Kind* ic_kinds_;
+  FeedbackVectorSlotKind* ic_kinds_;
 };
 
 
-class ZoneFeedbackVectorSpec {
+class FeedbackVectorSpec {
  public:
-  explicit ZoneFeedbackVectorSpec(Zone* zone)
+  explicit FeedbackVectorSpec(Zone* zone)
       : slots_(0), ic_slots_(0), ic_slot_kinds_(zone) {}
 
-  ZoneFeedbackVectorSpec(Zone* zone, int slots, int ic_slots)
-      : slots_(slots), ic_slots_(ic_slots), ic_slot_kinds_(ic_slots, zone) {}
-
   int slots() const { return slots_; }
-  void increase_slots(int count) { slots_ += count; }
+  void increase_slots(int count) {
+    DCHECK_LT(0, count);
+    slots_ += count;
+  }
 
   int ic_slots() const { return ic_slots_; }
   void increase_ic_slots(int count) {
+    DCHECK_LT(0, count);
     ic_slots_ += count;
     ic_slot_kinds_.resize(ic_slots_);
   }
 
-  void SetKind(int ic_slot, Code::Kind kind) {
-    ic_slot_kinds_[ic_slot] = kind;
+  FeedbackVectorICSlot AddSlot(FeedbackVectorSlotKind kind) {
+    int slot = ic_slots_;
+    increase_ic_slots(1);
+    ic_slot_kinds_[slot] = static_cast<unsigned char>(kind);
+    return FeedbackVectorICSlot(slot);
   }
 
-  Code::Kind GetKind(int ic_slot) const {
-    return static_cast<Code::Kind>(ic_slot_kinds_.at(ic_slot));
+  FeedbackVectorICSlot AddSlots(FeedbackVectorSlotKind kind, int count) {
+    int slot = ic_slots_;
+    increase_ic_slots(count);
+    for (int i = 0; i < count; i++) {
+      ic_slot_kinds_[slot + i] = static_cast<unsigned char>(kind);
+    }
+    return FeedbackVectorICSlot(slot);
+  }
+
+  FeedbackVectorICSlot AddCallICSlot() {
+    return AddSlot(FeedbackVectorSlotKind::CALL_IC);
+  }
+
+  FeedbackVectorICSlot AddLoadICSlot() {
+    return AddSlot(FeedbackVectorSlotKind::LOAD_IC);
+  }
+
+  FeedbackVectorICSlot AddLoadICSlots(int count) {
+    return AddSlots(FeedbackVectorSlotKind::LOAD_IC, count);
+  }
+
+  FeedbackVectorICSlot AddKeyedLoadICSlot() {
+    return AddSlot(FeedbackVectorSlotKind::KEYED_LOAD_IC);
+  }
+
+  FeedbackVectorICSlot AddStoreICSlot() {
+    return AddSlot(FeedbackVectorSlotKind::STORE_IC);
+  }
+
+  FeedbackVectorSlot AddStubSlot() {
+    int slot = slots_;
+    increase_slots(1);
+    return FeedbackVectorSlot(slot);
+  }
+
+  FeedbackVectorSlot AddStubSlots(int count) {
+    int slot = slots_;
+    increase_slots(count);
+    return FeedbackVectorSlot(slot);
+  }
+
+  FeedbackVectorSlotKind GetKind(int ic_slot) const {
+    return static_cast<FeedbackVectorSlotKind>(ic_slot_kinds_.at(ic_slot));
   }
 
  private:
@@ -103,7 +163,7 @@ class TypeFeedbackVector : public FixedArray {
   inline void change_ic_generic_count(int delta);
   inline int ic_metadata_length() const;
 
-  bool SpecDiffersFrom(const ZoneFeedbackVectorSpec* other_spec) const;
+  bool SpecDiffersFrom(const FeedbackVectorSpec* other_spec) const;
 
   inline int Slots() const;
   inline int ICSlots() const;
@@ -112,6 +172,11 @@ class TypeFeedbackVector : public FixedArray {
   // array.
   inline int GetIndex(FeedbackVectorSlot slot) const;
   inline int GetIndex(FeedbackVectorICSlot slot) const;
+
+  template <typename Spec>
+  static int GetIndexFromSpec(const Spec* spec, FeedbackVectorSlot slot);
+  template <typename Spec>
+  static int GetIndexFromSpec(const Spec* spec, FeedbackVectorICSlot slot);
 
   // Conversion from an integer index to either a slot or an ic slot. The caller
   // should know what kind she expects.
@@ -125,7 +190,7 @@ class TypeFeedbackVector : public FixedArray {
                   WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
 
   // IC slots need metadata to recognize the type of IC.
-  Code::Kind GetKind(FeedbackVectorICSlot slot) const;
+  FeedbackVectorSlotKind GetKind(FeedbackVectorICSlot slot) const;
 
   template <typename Spec>
   static Handle<TypeFeedbackVector> Allocate(Isolate* isolate,
@@ -185,23 +250,17 @@ class TypeFeedbackVector : public FixedArray {
   static Handle<TypeFeedbackVector> CreatePushAppliedArgumentsVector(
       Isolate* isolate);
 
+  static const char* Kind2String(FeedbackVectorSlotKind kind);
+
  private:
-  enum VectorICKind {
-    KindUnused = 0x0,
-    KindCallIC = 0x1,
-    KindLoadIC = 0x2,
-    KindKeyedLoadIC = 0x3,
-    KindStoreIC = 0x4,
-    KindKeyedStoreIC = 0x5,
-  };
+  static const int kFeedbackVectorSlotKindBits = 3;
+  STATIC_ASSERT(static_cast<int>(FeedbackVectorSlotKind::KINDS_NUMBER) <
+                (1 << kFeedbackVectorSlotKindBits));
 
-  static const int kVectorICKindBits = 3;
-  static VectorICKind FromCodeKind(Code::Kind kind);
-  static Code::Kind FromVectorICKind(VectorICKind kind);
-  void SetKind(FeedbackVectorICSlot slot, Code::Kind kind);
+  void SetKind(FeedbackVectorICSlot slot, FeedbackVectorSlotKind kind);
 
-  typedef BitSetComputer<VectorICKind, kVectorICKindBits, kSmiValueSize,
-                         uint32_t> VectorICComputer;
+  typedef BitSetComputer<FeedbackVectorSlotKind, kFeedbackVectorSlotKindBits,
+                         kSmiValueSize, uint32_t> VectorICComputer;
 
   void ClearSlotsImpl(SharedFunctionInfo* shared, bool force_clear);
   void ClearICSlotsImpl(SharedFunctionInfo* shared, bool force_clear);
@@ -300,11 +359,11 @@ class CallICNexus : public FeedbackNexus {
 
   CallICNexus(Handle<TypeFeedbackVector> vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::CALL_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::CALL_IC, vector->GetKind(slot));
   }
   CallICNexus(TypeFeedbackVector* vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::CALL_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::CALL_IC, vector->GetKind(slot));
   }
 
   void Clear(Code* host);
@@ -333,7 +392,7 @@ class LoadICNexus : public FeedbackNexus {
  public:
   LoadICNexus(Handle<TypeFeedbackVector> vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::LOAD_IC, vector->GetKind(slot));
   }
   explicit LoadICNexus(Isolate* isolate)
       : FeedbackNexus(TypeFeedbackVector::DummyVector(isolate),
@@ -341,7 +400,7 @@ class LoadICNexus : public FeedbackNexus {
                           TypeFeedbackVector::kDummyLoadICSlot)) {}
   LoadICNexus(TypeFeedbackVector* vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::LOAD_IC, vector->GetKind(slot));
   }
 
   void Clear(Code* host);
@@ -358,11 +417,11 @@ class KeyedLoadICNexus : public FeedbackNexus {
  public:
   KeyedLoadICNexus(Handle<TypeFeedbackVector> vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::KEYED_LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_LOAD_IC, vector->GetKind(slot));
   }
   KeyedLoadICNexus(TypeFeedbackVector* vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::KEYED_LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_LOAD_IC, vector->GetKind(slot));
   }
 
   void Clear(Code* host);
@@ -383,7 +442,7 @@ class StoreICNexus : public FeedbackNexus {
  public:
   StoreICNexus(Handle<TypeFeedbackVector> vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::STORE_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::STORE_IC, vector->GetKind(slot));
   }
   explicit StoreICNexus(Isolate* isolate)
       : FeedbackNexus(TypeFeedbackVector::DummyVector(isolate),
@@ -391,7 +450,7 @@ class StoreICNexus : public FeedbackNexus {
                           TypeFeedbackVector::kDummyStoreICSlot)) {}
   StoreICNexus(TypeFeedbackVector* vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::STORE_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::STORE_IC, vector->GetKind(slot));
   }
 
   void Clear(Code* host);
@@ -409,7 +468,7 @@ class KeyedStoreICNexus : public FeedbackNexus {
   KeyedStoreICNexus(Handle<TypeFeedbackVector> vector,
                     FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::KEYED_STORE_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_STORE_IC, vector->GetKind(slot));
   }
   explicit KeyedStoreICNexus(Isolate* isolate)
       : FeedbackNexus(TypeFeedbackVector::DummyVector(isolate),
@@ -417,7 +476,7 @@ class KeyedStoreICNexus : public FeedbackNexus {
                           TypeFeedbackVector::kDummyKeyedStoreICSlot)) {}
   KeyedStoreICNexus(TypeFeedbackVector* vector, FeedbackVectorICSlot slot)
       : FeedbackNexus(vector, slot) {
-    DCHECK(vector->GetKind(slot) == Code::KEYED_STORE_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_STORE_IC, vector->GetKind(slot));
   }
 
   void Clear(Code* host);

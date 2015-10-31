@@ -7,6 +7,7 @@
 #include "src/code-stubs.h"
 #include "src/compilation-cache.h"
 #include "src/conversions.h"
+#include "src/heap/gc-idle-time-handler.h"
 #include "src/heap/gc-tracer.h"
 #include "src/heap/mark-compact-inl.h"
 #include "src/heap/objects-visiting.h"
@@ -305,7 +306,7 @@ void IncrementalMarking::SetOldSpacePageFlags(MemoryChunk* chunk,
 }
 
 
-void IncrementalMarking::SetNewSpacePageFlags(NewSpacePage* chunk,
+void IncrementalMarking::SetNewSpacePageFlags(MemoryChunk* chunk,
                                               bool is_marking) {
   chunk->SetFlag(MemoryChunk::POINTERS_TO_HERE_ARE_INTERESTING);
   if (is_marking) {
@@ -486,7 +487,7 @@ void IncrementalMarking::Start(const char* reason) {
     state_ = SWEEPING;
   }
 
-  heap_->new_space()->LowerInlineAllocationLimit(kAllocatedThreshold);
+  heap_->LowerInlineAllocationLimit(kAllocatedThreshold);
   incremental_marking_job()->Start(heap_);
 }
 
@@ -738,7 +739,7 @@ void IncrementalMarking::Stop() {
   if (FLAG_trace_incremental_marking) {
     PrintF("[IncrementalMarking] Stopping.\n");
   }
-  heap_->new_space()->LowerInlineAllocationLimit(0);
+  heap_->ResetInlineAllocationLimit();
   IncrementalMarking::set_should_hurry(false);
   ResetStepCounters();
   if (IsMarking()) {
@@ -766,7 +767,7 @@ void IncrementalMarking::Finalize() {
   Hurry();
   state_ = STOPPED;
   is_compacting_ = false;
-  heap_->new_space()->LowerInlineAllocationLimit(0);
+  heap_->ResetInlineAllocationLimit();
   IncrementalMarking::set_should_hurry(false);
   ResetStepCounters();
   PatchIncrementalMarkingRecordWriteStubs(heap_,
@@ -812,6 +813,34 @@ void IncrementalMarking::Epilogue() {
   was_activated_ = false;
   weak_closure_was_overapproximated_ = false;
   weak_closure_approximation_rounds_ = 0;
+}
+
+
+double IncrementalMarking::AdvanceIncrementalMarking(
+    intptr_t step_size_in_bytes, double deadline_in_ms,
+    IncrementalMarking::StepActions step_actions) {
+  DCHECK(!IsStopped());
+
+  if (step_size_in_bytes == 0) {
+    step_size_in_bytes = GCIdleTimeHandler::EstimateMarkingStepSize(
+        static_cast<size_t>(GCIdleTimeHandler::kIncrementalMarkingStepTimeInMs),
+        static_cast<size_t>(
+            heap()
+                ->tracer()
+                ->FinalIncrementalMarkCompactSpeedInBytesPerMillisecond()));
+  }
+
+  double remaining_time_in_ms = 0.0;
+  do {
+    Step(step_size_in_bytes, step_actions.completion_action,
+         step_actions.force_marking, step_actions.force_completion);
+    remaining_time_in_ms =
+        deadline_in_ms - heap()->MonotonicallyIncreasingTimeInMs();
+  } while (remaining_time_in_ms >=
+               2.0 * GCIdleTimeHandler::kIncrementalMarkingStepTimeInMs &&
+           !IsComplete() &&
+           !heap()->mark_compact_collector()->marking_deque()->IsEmpty());
+  return remaining_time_in_ms;
 }
 
 

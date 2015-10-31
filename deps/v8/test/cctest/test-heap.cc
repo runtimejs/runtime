@@ -1181,84 +1181,6 @@ TEST(Iteration) {
 }
 
 
-static int LenFromSize(int size) {
-  return (size - FixedArray::kHeaderSize) / kPointerSize;
-}
-
-
-HEAP_TEST(Regression39128) {
-  // Test case for crbug.com/39128.
-  CcTest::InitializeVM();
-  Isolate* isolate = CcTest::i_isolate();
-  Heap* heap = CcTest::heap();
-
-  // Increase the chance of 'bump-the-pointer' allocation in old space.
-  heap->CollectAllGarbage();
-
-  v8::HandleScope scope(CcTest::isolate());
-
-  // The plan: create JSObject which references objects in new space.
-  // Then clone this object (forcing it to go into old space) and check
-  // that region dirty marks are updated correctly.
-
-  // Step 1: prepare a map for the object.  We add 1 inobject property to it.
-  // Create a map with single inobject property.
-  Handle<Map> my_map = Map::Create(CcTest::i_isolate(), 1);
-  int n_properties = my_map->GetInObjectProperties();
-  CHECK_GT(n_properties, 0);
-
-  int object_size = my_map->instance_size();
-
-  // Step 2: allocate a lot of objects so to almost fill new space: we need
-  // just enough room to allocate JSObject and thus fill the newspace.
-
-  int allocation_amount = Min(FixedArray::kMaxSize,
-                              Page::kMaxRegularHeapObjectSize + kPointerSize);
-  int allocation_len = LenFromSize(allocation_amount);
-  NewSpace* new_space = heap->new_space();
-  Address* top_addr = new_space->allocation_top_address();
-  Address* limit_addr = new_space->allocation_limit_address();
-  while ((*limit_addr - *top_addr) > allocation_amount) {
-    CHECK(!heap->always_allocate());
-    Object* array = heap->AllocateFixedArray(allocation_len).ToObjectChecked();
-    CHECK(new_space->Contains(array));
-  }
-
-  // Step 3: now allocate fixed array and JSObject to fill the whole new space.
-  int to_fill = static_cast<int>(*limit_addr - *top_addr - object_size);
-  int fixed_array_len = LenFromSize(to_fill);
-  CHECK(fixed_array_len < FixedArray::kMaxLength);
-
-  CHECK(!heap->always_allocate());
-  Object* array = heap->AllocateFixedArray(fixed_array_len).ToObjectChecked();
-  CHECK(new_space->Contains(array));
-
-  Object* object = heap->AllocateJSObjectFromMap(*my_map).ToObjectChecked();
-  CHECK(new_space->Contains(object));
-  JSObject* jsobject = JSObject::cast(object);
-  CHECK_EQ(0, FixedArray::cast(jsobject->elements())->length());
-  CHECK_EQ(0, jsobject->properties()->length());
-  // Create a reference to object in new space in jsobject.
-  FieldIndex index = FieldIndex::ForInObjectOffset(
-      JSObject::kHeaderSize - kPointerSize);
-  jsobject->FastPropertyAtPut(index, array);
-
-  CHECK_EQ(0, static_cast<int>(*limit_addr - *top_addr));
-
-  // Step 4: clone jsobject, but force always allocate first to create a clone
-  // in old pointer space.
-  Address old_space_top = heap->old_space()->top();
-  AlwaysAllocateScope aa_scope(isolate);
-  Object* clone_obj = heap->CopyJSObject(jsobject).ToObjectChecked();
-  JSObject* clone = JSObject::cast(clone_obj);
-  if (clone->address() != old_space_top) {
-    // Alas, got allocated from free list, we cannot do checks.
-    return;
-  }
-  CHECK(heap->old_space()->Contains(clone->address()));
-}
-
-
 UNINITIALIZED_TEST(TestCodeFlushing) {
   // If we do not flush code this test is invalid.
   if (!FLAG_flush_code) return;
@@ -3690,38 +3612,6 @@ TEST(CountForcedGC) {
 }
 
 
-TEST(Regress2237) {
-  i::FLAG_stress_compaction = false;
-  CcTest::InitializeVM();
-  Isolate* isolate = CcTest::i_isolate();
-  Factory* factory = isolate->factory();
-  v8::HandleScope scope(CcTest::isolate());
-  Handle<String> slice(CcTest::heap()->empty_string());
-
-  {
-    // Generate a parent that lives in new-space.
-    v8::HandleScope inner_scope(CcTest::isolate());
-    const char* c = "This text is long enough to trigger sliced strings.";
-    Handle<String> s = factory->NewStringFromAsciiChecked(c);
-    CHECK(s->IsSeqOneByteString());
-    CHECK(CcTest::heap()->InNewSpace(*s));
-
-    // Generate a sliced string that is based on the above parent and
-    // lives in old-space.
-    SimulateFullSpace(CcTest::heap()->new_space());
-    AlwaysAllocateScope always_allocate(isolate);
-    Handle<String> t = factory->NewProperSubString(s, 5, 35);
-    CHECK(t->IsSlicedString());
-    CHECK(!CcTest::heap()->InNewSpace(*t));
-    *slice.location() = *t.location();
-  }
-
-  CHECK(SlicedString::cast(*slice)->parent()->IsSeqOneByteString());
-  CcTest::heap()->CollectAllGarbage();
-  CHECK(SlicedString::cast(*slice)->parent()->IsSeqOneByteString());
-}
-
-
 #ifdef OBJECT_PRINT
 TEST(PrintSharedFunctionInfo) {
   CcTest::InitializeVM();
@@ -3809,11 +3699,11 @@ static void CheckVectorIC(Handle<JSFunction> f, int ic_slot_index,
   Handle<TypeFeedbackVector> vector =
       Handle<TypeFeedbackVector>(f->shared()->feedback_vector());
   FeedbackVectorICSlot slot(ic_slot_index);
-  if (vector->GetKind(slot) == Code::LOAD_IC) {
+  if (vector->GetKind(slot) == FeedbackVectorSlotKind::LOAD_IC) {
     LoadICNexus nexus(vector, slot);
     CHECK(nexus.StateFromFeedback() == desired_state);
   } else {
-    CHECK(vector->GetKind(slot) == Code::KEYED_LOAD_IC);
+    CHECK_EQ(FeedbackVectorSlotKind::KEYED_LOAD_IC, vector->GetKind(slot));
     KeyedLoadICNexus nexus(vector, slot);
     CHECK(nexus.StateFromFeedback() == desired_state);
   }
@@ -4574,7 +4464,9 @@ TEST(Regress513507) {
     if (!code->is_optimized_code()) return;
   }
 
-  Handle<FixedArray> lit = isolate->factory()->empty_fixed_array();
+  Handle<TypeFeedbackVector> vector = handle(shared->feedback_vector());
+  Handle<LiteralsArray> lit =
+      LiteralsArray::New(isolate, vector, shared->num_literals(), TENURED);
   Handle<Context> context(isolate->context());
 
   // Add the new code several times to the optimized code map and also set an
@@ -4630,7 +4522,9 @@ TEST(Regress514122) {
     if (!code->is_optimized_code()) return;
   }
 
-  Handle<FixedArray> lit = isolate->factory()->empty_fixed_array();
+  Handle<TypeFeedbackVector> vector = handle(shared->feedback_vector());
+  Handle<LiteralsArray> lit =
+      LiteralsArray::New(isolate, vector, shared->num_literals(), TENURED);
   Handle<Context> context(isolate->context());
 
   // Add the code several times to the optimized code map.
@@ -4648,7 +4542,11 @@ TEST(Regress514122) {
     AlwaysAllocateScope always_allocate(isolate);
     // Make sure literal is placed on an old-space evacuation candidate.
     SimulateFullSpace(heap->old_space());
-    Handle<FixedArray> lit = isolate->factory()->NewFixedArray(23, TENURED);
+
+    // Make sure there the number of literals is > 0.
+    Handle<LiteralsArray> lit =
+        LiteralsArray::New(isolate, vector, 23, TENURED);
+
     evac_page = Page::FromAddress(lit->address());
     BailoutId id = BailoutId(100);
     SharedFunctionInfo::AddToOptimizedCodeMap(shared, context, code, lit, id);
@@ -4698,8 +4596,8 @@ TEST(LargeObjectSlotRecording) {
 
   // Start incremental marking to active write barrier.
   SimulateIncrementalMarking(heap, false);
-  heap->AdvanceIncrementalMarking(10000000, 10000000,
-                                  IncrementalMarking::IdleStepActions());
+  heap->incremental_marking()->AdvanceIncrementalMarking(
+      10000000, 10000000, IncrementalMarking::IdleStepActions());
 
   // Create references from the large object to the object on the evacuation
   // candidate.
@@ -5577,6 +5475,38 @@ static void RequestInterrupt(const v8::FunctionCallbackInfo<v8::Value>& args) {
 }
 
 
+UNINITIALIZED_TEST(Regress538257) {
+  i::FLAG_manual_evacuation_candidates_selection = true;
+  v8::Isolate::CreateParams create_params;
+  // Set heap limits.
+  create_params.constraints.set_max_semi_space_size(1 * Page::kPageSize / MB);
+  create_params.constraints.set_max_old_space_size(6 * Page::kPageSize / MB);
+  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
+  v8::Isolate* isolate = v8::Isolate::New(create_params);
+  isolate->Enter();
+  {
+    i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
+    HandleScope handle_scope(i_isolate);
+    PagedSpace* old_space = i_isolate->heap()->old_space();
+    const int kMaxObjects = 10000;
+    const int kFixedArrayLen = 512;
+    Handle<FixedArray> objects[kMaxObjects];
+    for (int i = 0; (i < kMaxObjects) && old_space->CanExpand(Page::kPageSize);
+         i++) {
+      objects[i] = i_isolate->factory()->NewFixedArray(kFixedArrayLen, TENURED);
+      Page::FromAddress(objects[i]->address())
+          ->SetFlag(MemoryChunk::FORCE_EVACUATION_CANDIDATE_FOR_TESTING);
+    }
+    SimulateFullSpace(old_space);
+    i_isolate->heap()->CollectGarbage(OLD_SPACE);
+    // If we get this far, we've successfully aborted compaction. Any further
+    // allocations might trigger OOM.
+  }
+  isolate->Exit();
+  isolate->Dispose();
+}
+
+
 TEST(Regress357137) {
   CcTest::InitializeVM();
   v8::Isolate* isolate = CcTest::isolate();
@@ -5663,6 +5593,7 @@ UNINITIALIZED_TEST(PromotionQueue) {
     v8::Context::New(isolate)->Enter();
     Heap* heap = i_isolate->heap();
     NewSpace* new_space = heap->new_space();
+    DisableInlineAllocationSteps(new_space);
 
     // In this test we will try to overwrite the promotion queue which is at the
     // end of to-space. To actually make that possible, we need at least two

@@ -76,7 +76,7 @@ class FullCodeGenerator: public AstVisitor {
 #if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X87
   static const int kCodeSizeMultiplier = 105;
 #elif V8_TARGET_ARCH_X64
-  static const int kCodeSizeMultiplier = 170;
+  static const int kCodeSizeMultiplier = 165;
 #elif V8_TARGET_ARCH_ARM
   static const int kCodeSizeMultiplier = 149;
 #elif V8_TARGET_ARCH_ARM64
@@ -420,22 +420,16 @@ class FullCodeGenerator: public AstVisitor {
   void PrepareForBailout(Expression* node, State state);
   void PrepareForBailoutForId(BailoutId id, State state);
 
-  // Feedback slot support. The feedback vector will be cleared during gc and
-  // collected by the type-feedback oracle.
-  Handle<TypeFeedbackVector> FeedbackVector() const {
-    return info_->feedback_vector();
-  }
-  void EnsureSlotContainsAllocationSite(FeedbackVectorSlot slot);
-  void EnsureSlotContainsAllocationSite(FeedbackVectorICSlot slot);
-
   // Returns a smi for the index into the FixedArray that backs the feedback
   // vector
   Smi* SmiFromSlot(FeedbackVectorSlot slot) const {
-    return Smi::FromInt(FeedbackVector()->GetIndex(slot));
+    return Smi::FromInt(TypeFeedbackVector::GetIndexFromSpec(
+        literal()->feedback_vector_spec(), slot));
   }
 
   Smi* SmiFromSlot(FeedbackVectorICSlot slot) const {
-    return Smi::FromInt(FeedbackVector()->GetIndex(slot));
+    return Smi::FromInt(TypeFeedbackVector::GetIndexFromSpec(
+        literal()->feedback_vector_spec(), slot));
   }
 
   // Record a call's return site offset, used to rebuild the frame if the
@@ -486,49 +480,50 @@ class FullCodeGenerator: public AstVisitor {
   void EmitKeyedCallWithLoadIC(Call* expr, Expression* key);
   void EmitKeyedSuperCallWithLoadIC(Call* expr);
 
-#define FOR_EACH_FULL_CODE_INTRINSIC(F)   \
-  F(IsSmi)                                \
-  F(IsArray)                              \
-  F(IsTypedArray)                         \
-  F(IsRegExp)                             \
-  F(IsJSProxy)                            \
-  F(IsConstructCall)                      \
-  F(Call)                                 \
-  F(CallFunction)                         \
-  F(DefaultConstructorCallSuper)          \
-  F(ArgumentsLength)                      \
-  F(Arguments)                            \
-  F(ValueOf)                              \
-  F(SetValueOf)                           \
-  F(IsDate)                               \
-  F(DateField)                            \
-  F(StringCharFromCode)                   \
-  F(StringCharAt)                         \
-  F(OneByteSeqStringSetChar)              \
-  F(TwoByteSeqStringSetChar)              \
-  F(ObjectEquals)                         \
-  F(IsFunction)                           \
-  F(IsSpecObject)                         \
-  F(IsSimdValue)                          \
-  F(MathPow)                              \
-  F(IsMinusZero)                          \
-  F(HasCachedArrayIndex)                  \
-  F(GetCachedArrayIndex)                  \
-  F(FastOneByteArrayJoin)                 \
-  F(GeneratorNext)                        \
-  F(GeneratorThrow)                       \
-  F(DebugBreakInOptimizedCode)            \
-  F(ClassOf)                              \
-  F(StringCharCodeAt)                     \
-  F(StringAdd)                            \
-  F(SubString)                            \
-  F(RegExpExec)                           \
-  F(RegExpConstructResult)                \
-  F(NumberToString)                       \
-  F(ToString)                             \
-  F(ToName)                               \
-  F(ToObject)                             \
-  F(DebugIsActive)                        \
+#define FOR_EACH_FULL_CODE_INTRINSIC(F) \
+  F(IsSmi)                              \
+  F(IsArray)                            \
+  F(IsTypedArray)                       \
+  F(IsRegExp)                           \
+  F(IsJSProxy)                          \
+  F(IsConstructCall)                    \
+  F(Call)                               \
+  F(CallFunction)                       \
+  F(DefaultConstructorCallSuper)        \
+  F(ArgumentsLength)                    \
+  F(Arguments)                          \
+  F(ValueOf)                            \
+  F(SetValueOf)                         \
+  F(IsDate)                             \
+  F(DateField)                          \
+  F(StringCharFromCode)                 \
+  F(StringCharAt)                       \
+  F(OneByteSeqStringSetChar)            \
+  F(TwoByteSeqStringSetChar)            \
+  F(ObjectEquals)                       \
+  F(IsFunction)                         \
+  F(IsSpecObject)                       \
+  F(IsSimdValue)                        \
+  F(MathPow)                            \
+  F(IsMinusZero)                        \
+  F(HasCachedArrayIndex)                \
+  F(GetCachedArrayIndex)                \
+  F(FastOneByteArrayJoin)               \
+  F(GeneratorNext)                      \
+  F(GeneratorThrow)                     \
+  F(DebugBreakInOptimizedCode)          \
+  F(ClassOf)                            \
+  F(StringCharCodeAt)                   \
+  F(StringAdd)                          \
+  F(SubString)                          \
+  F(RegExpExec)                         \
+  F(RegExpConstructResult)              \
+  F(ToInteger)                          \
+  F(NumberToString)                     \
+  F(ToString)                           \
+  F(ToName)                             \
+  F(ToObject)                           \
+  F(DebugIsActive)                      \
   F(CreateIterResultObject)
 
 #define GENERATOR_DECLARATION(Name) void Emit##Name(CallRuntime* call);
@@ -702,7 +697,7 @@ class FullCodeGenerator: public AstVisitor {
   bool is_native() { return info_->is_native(); }
   LanguageMode language_mode() { return literal()->language_mode(); }
   bool has_simple_parameters() { return info_->has_simple_parameters(); }
-  FunctionLiteral* literal() { return info_->literal(); }
+  FunctionLiteral* literal() const { return info_->literal(); }
   Scope* scope() { return scope_; }
 
   static Register result_register();

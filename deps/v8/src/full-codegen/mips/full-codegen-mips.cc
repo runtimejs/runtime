@@ -299,32 +299,26 @@ void FullCodeGenerator::Generate() {
   if (arguments != NULL) {
     // Function uses arguments object.
     Comment cmnt(masm_, "[ Allocate arguments object");
+    DCHECK(a1.is(ArgumentsAccessNewDescriptor::function()));
     if (!function_in_register_a1) {
       // Load this again, if it's used by the local context below.
-      __ lw(a3, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-    } else {
-      __ mov(a3, a1);
+      __ lw(a1, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
     }
     // Receiver is just before the parameters on the caller's stack.
     int num_parameters = info->scope()->num_parameters();
     int offset = num_parameters * kPointerSize;
-    __ Addu(a2, fp,
-           Operand(StandardFrameConstants::kCallerSPOffset + offset));
-    __ li(a1, Operand(Smi::FromInt(num_parameters)));
-    __ Push(a3, a2, a1);
+    __ li(ArgumentsAccessNewDescriptor::parameter_count(),
+          Operand(Smi::FromInt(num_parameters)));
+    __ Addu(ArgumentsAccessNewDescriptor::parameter_pointer(), fp,
+            Operand(StandardFrameConstants::kCallerSPOffset + offset));
 
     // Arguments to ArgumentsAccessStub:
-    //   function, receiver address, parameter count.
-    // The stub will rewrite receiever and parameter count if the previous
-    // stack frame was an arguments adapter frame.
-    ArgumentsAccessStub::Type type;
-    if (is_strict(language_mode()) || !has_simple_parameters()) {
-      type = ArgumentsAccessStub::NEW_STRICT;
-    } else if (literal()->has_duplicate_parameters()) {
-      type = ArgumentsAccessStub::NEW_SLOPPY_SLOW;
-    } else {
-      type = ArgumentsAccessStub::NEW_SLOPPY_FAST;
-    }
+    //   function, parameter pointer, parameter count.
+    // The stub will rewrite parameter pointer and parameter count if the
+    // previous stack frame was an arguments adapter frame.
+    bool is_unmapped = is_strict(language_mode()) || !has_simple_parameters();
+    ArgumentsAccessStub::Type type = ArgumentsAccessStub::ComputeType(
+        is_unmapped, literal()->has_duplicate_parameters());
     ArgumentsAccessStub stub(isolate(), type);
     __ CallStub(&stub);
 
@@ -1130,9 +1124,9 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   Label non_proxy;
   __ bind(&fixed_array);
 
-  __ li(a1, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(a1);
   __ li(a2, Operand(TypeFeedbackVector::MegamorphicSentinel(isolate())));
-  int vector_index = FeedbackVector()->GetIndex(slot);
+  int vector_index = SmiFromSlot(slot)->value();
   __ sw(a2, FieldMemOperand(a1, FixedArray::OffsetOfElementAt(vector_index)));
 
   __ li(a1, Operand(Smi::FromInt(1)));  // Smi indicates slow check
@@ -1503,8 +1497,7 @@ void FullCodeGenerator::VisitRegExpLiteral(RegExpLiteral* expr) {
   // a0 = RegExp literal clone
   __ lw(a0, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
   __ lw(t0, FieldMemOperand(a0, JSFunction::kLiteralsOffset));
-  int literal_offset =
-      FixedArray::kHeaderSize + expr->literal_index() * kPointerSize;
+  int literal_offset = LiteralsArray::OffsetOfLiteralAt(expr->literal_index());
   __ lw(t1, FieldMemOperand(t0, literal_offset));
   __ LoadRoot(at, Heap::kUndefinedValueRootIndex);
   __ Branch(&materialized, ne, t1, Operand(at));
@@ -3183,7 +3176,7 @@ void FullCodeGenerator::VisitCallNew(CallNew* expr) {
   __ lw(a1, MemOperand(sp, arg_count * kPointerSize));
 
   // Record call targets in unoptimized code.
-  __ li(a2, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(a2);
   __ li(a3, Operand(SmiFromSlot(expr->CallNewFeedbackSlot())));
 
   CallConstructStub stub(isolate(), RECORD_CONSTRUCTOR_TARGET);
@@ -3223,7 +3216,7 @@ void FullCodeGenerator::EmitSuperConstructorCall(Call* expr) {
   __ lw(a1, MemOperand(sp, arg_count * kPointerSize));
 
   // Record call targets in unoptimized code.
-  __ li(a2, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(a2);
   __ li(a3, Operand(SmiFromSlot(expr->CallFeedbackSlot())));
 
   CallConstructStub stub(isolate(), SUPER_CALL_RECORD_TARGET);
@@ -3784,6 +3777,23 @@ void FullCodeGenerator::EmitSetValueOf(CallRuntime* expr) {
 }
 
 
+void FullCodeGenerator::EmitToInteger(CallRuntime* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  DCHECK_EQ(1, args->length());
+
+  // Load the argument into v0 and convert it.
+  VisitForAccumulatorValue(args->at(0));
+
+  // Convert the object to an integer.
+  Label done_convert;
+  __ JumpIfSmi(v0, &done_convert);
+  __ Push(v0);
+  __ CallRuntime(Runtime::kToInteger, 1);
+  __ bind(&done_convert);
+  context()->Plug(v0);
+}
+
+
 void FullCodeGenerator::EmitNumberToString(CallRuntime* expr) {
   ZoneList<Expression*>* args = expr->arguments();
   DCHECK_EQ(args->length(), 1);
@@ -3825,9 +3835,8 @@ void FullCodeGenerator::EmitToName(CallRuntime* expr) {
   __ GetObjectType(v0, a1, a1);
   __ Branch(&done_convert, le, a1, Operand(LAST_NAME_TYPE));
   __ bind(&convert);
-  ToStringStub stub(isolate());
-  __ mov(a0, v0);
-  __ CallStub(&stub);
+  __ Push(v0);
+  __ CallRuntime(Runtime::kToName, 1);
   __ bind(&done_convert);
   context()->Plug(v0);
 }
@@ -4036,14 +4045,14 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
   VisitForStackValue(args->at(0));
   VisitForStackValue(args->at(1));
 
-  // Load original constructor into t0.
-  __ lw(t0, MemOperand(sp, 1 * kPointerSize));
+  // Load original constructor into a3.
+  __ lw(a3, MemOperand(sp, 1 * kPointerSize));
 
   // Check if the calling frame is an arguments adaptor frame.
   Label adaptor_frame, args_set_up, runtime;
   __ lw(a2, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
-  __ lw(a3, MemOperand(a2, StandardFrameConstants::kContextOffset));
-  __ Branch(&adaptor_frame, eq, a3,
+  __ lw(t0, MemOperand(a2, StandardFrameConstants::kContextOffset));
+  __ Branch(&adaptor_frame, eq, t0,
             Operand(Smi::FromInt(StackFrame::ARGUMENTS_ADAPTOR)));
   // default constructor has no arguments, so no adaptor frame means no args.
   __ mov(a0, zero_reg);
@@ -4066,8 +4075,8 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
     // Pre-decrement a2 with kPointerSize on each iteration.
     // Pre-decrement in order to skip receiver.
     __ Addu(a2, a2, Operand(-kPointerSize));
-    __ lw(a3, MemOperand(a2));
-    __ Push(a3);
+    __ lw(t0, MemOperand(a2));
+    __ Push(t0);
     __ Addu(a1, a1, Operand(-1));
     __ Branch(&loop, ne, a1, Operand(zero_reg));
   }
@@ -4076,10 +4085,7 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
   __ sll(at, a0, kPointerSizeLog2);
   __ Addu(at, at, Operand(sp));
   __ lw(a1, MemOperand(at, 0));
-  __ LoadRoot(a2, Heap::kUndefinedValueRootIndex);
-
-  CallConstructStub stub(isolate(), SUPER_CONSTRUCTOR_CALL);
-  __ Call(stub.GetCode(), RelocInfo::CONSTRUCT_CALL);
+  __ Call(isolate()->builtins()->Construct(), RelocInfo::CONSTRUCT_CALL);
 
   // Restore context register.
   __ lw(cp, MemOperand(fp, StandardFrameConstants::kContextOffset));

@@ -676,7 +676,11 @@ enum StringAddFlags {
   // Check right parameter.
   STRING_ADD_CHECK_RIGHT = 1 << 1,
   // Check both parameters.
-  STRING_ADD_CHECK_BOTH = STRING_ADD_CHECK_LEFT | STRING_ADD_CHECK_RIGHT
+  STRING_ADD_CHECK_BOTH = STRING_ADD_CHECK_LEFT | STRING_ADD_CHECK_RIGHT,
+  // Convert parameters when check fails (instead of throwing an exception).
+  STRING_ADD_CONVERT = 1 << 2,
+  STRING_ADD_CONVERT_LEFT = STRING_ADD_CHECK_LEFT | STRING_ADD_CONVERT,
+  STRING_ADD_CONVERT_RIGHT = STRING_ADD_CHECK_RIGHT | STRING_ADD_CONVERT
 };
 
 
@@ -701,8 +705,8 @@ class StringAddTFStub : public TurboFanCodeStub {
   }
 
  private:
-  class StringAddFlagsBits : public BitField<StringAddFlags, 0, 2> {};
-  class PretenureFlagBits : public BitField<PretenureFlag, 2, 1> {};
+  class StringAddFlagsBits : public BitField<StringAddFlags, 0, 3> {};
+  class PretenureFlagBits : public BitField<PretenureFlag, 3, 1> {};
 
   void PrintBaseName(std::ostream& os) const override;  // NOLINT
 
@@ -1647,8 +1651,8 @@ class StringAddStub final : public HydrogenCodeStub {
   static const int kRight = 1;
 
  private:
-  class StringAddFlagsBits: public BitField<StringAddFlags, 0, 2> {};
-  class PretenureFlagBits: public BitField<PretenureFlag, 2, 1> {};
+  class StringAddFlagsBits : public BitField<StringAddFlags, 0, 3> {};
+  class PretenureFlagBits : public BitField<PretenureFlag, 3, 1> {};
 
   void PrintBaseName(std::ostream& os) const override;  // NOLINT
 
@@ -1693,6 +1697,7 @@ class CompareICStub : public PlatformCodeStub {
  private:
   Code::Kind GetCodeKind() const override { return Code::COMPARE_IC; }
 
+  void GenerateBooleans(MacroAssembler* masm);
   void GenerateSmis(MacroAssembler* masm);
   void GenerateNumbers(MacroAssembler* masm);
   void GenerateInternalizedStrings(MacroAssembler* masm);
@@ -1894,8 +1899,19 @@ class ArgumentsAccessStub: public PlatformCodeStub {
   CallInterfaceDescriptor GetCallInterfaceDescriptor() const override {
     if (type() == READ_ELEMENT) {
       return ArgumentsAccessReadDescriptor(isolate());
+    } else {
+      return ArgumentsAccessNewDescriptor(isolate());
     }
-    return ContextOnlyDescriptor(isolate());
+  }
+
+  static Type ComputeType(bool is_unmapped, bool has_duplicate_parameters) {
+    if (is_unmapped) {
+      return Type::NEW_STRICT;
+    } else if (has_duplicate_parameters) {
+      return Type::NEW_SLOPPY_SLOW;
+    } else {
+      return Type::NEW_SLOPPY_FAST;
+    }
   }
 
  private:

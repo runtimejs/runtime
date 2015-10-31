@@ -23,12 +23,19 @@ void Builtins::Generate_Adaptor(MacroAssembler* masm, CFunctionId id,
   //  -- r3                 : number of arguments excluding receiver
   //  -- r4                 : called function (only guaranteed when
   //                          extra_args requires it)
-  //  -- cp                 : context
   //  -- sp[0]              : last argument
   //  -- ...
   //  -- sp[4 * (argc - 1)] : first argument (argc == r0)
   //  -- sp[4 * argc]       : receiver
   // -----------------------------------
+  __ AssertFunction(r4);
+
+  // Make sure we operate in the context of the called function (for example
+  // ConstructStubs implemented in C++ will be run in the context of the caller
+  // instead of the callee, due to the way that [[Construct]] is defined for
+  // ordinary functions).
+  // TODO(bmeurer): Can we make this more robust?
+  __ LoadP(cp, FieldMemOperand(r4, JSFunction::kContextOffset));
 
   // Insert extra arguments.
   int num_extra_args = 0;
@@ -689,8 +696,7 @@ enum IsTagged { kArgcIsSmiTagged, kArgcIsUntaggedInt };
 
 
 // Clobbers r5; preserves all other registers.
-static void Generate_CheckStackOverflow(MacroAssembler* masm,
-                                        const int calleeOffset, Register argc,
+static void Generate_CheckStackOverflow(MacroAssembler* masm, Register argc,
                                         IsTagged argc_is_tagged) {
   // Check the stack for overflow. We are not trying to catch
   // interruptions (e.g. debug break and preemption) here, so the "real stack
@@ -711,11 +717,6 @@ static void Generate_CheckStackOverflow(MacroAssembler* masm,
   __ bgt(&okay);  // Signed comparison.
 
   // Out of stack space.
-  __ LoadP(r4, MemOperand(fp, calleeOffset));
-  if (argc_is_tagged == kArgcIsUntaggedInt) {
-    __ SmiTag(argc);
-  }
-  __ Push(r4, argc);
   __ CallRuntime(Runtime::kThrowStackOverflow, 0);
 
   __ bind(&okay);
@@ -725,7 +726,7 @@ static void Generate_CheckStackOverflow(MacroAssembler* masm,
 static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
                                              bool is_construct) {
   // Called from Generate_JS_Entry
-  // r3: code entry
+  // r3: new.target
   // r4: function
   // r5: receiver
   // r6: argc
@@ -740,22 +741,20 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
   {
     FrameScope scope(masm, StackFrame::INTERNAL);
 
-    // Set up the context from the function argument.
-    __ LoadP(cp, FieldMemOperand(r4, JSFunction::kContextOffset));
+    // Setup the context (we need to use the caller context from the isolate).
+    ExternalReference context_address(Isolate::kContextAddress,
+                                      masm->isolate());
+    __ mov(cp, Operand(context_address));
+    __ LoadP(cp, MemOperand(cp));
 
     __ InitializeRootRegister();
 
     // Push the function and the receiver onto the stack.
-    __ push(r4);
-    __ push(r5);
+    __ Push(r4, r5);
 
     // Check if we have enough stack space to push all arguments.
-    // The function is the first thing that was pushed above after entering
-    // the internal frame.
-    const int kFunctionOffset =
-        InternalFrameConstants::kCodeOffset - kPointerSize;
     // Clobbers r5.
-    Generate_CheckStackOverflow(masm, kFunctionOffset, r6, kArgcIsUntaggedInt);
+    Generate_CheckStackOverflow(masm, r6, kArgcIsUntaggedInt);
 
     // Copy arguments to the stack in a loop.
     // r4: function
@@ -775,6 +774,11 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     __ cmp(r7, r5);
     __ bne(&loop);
 
+    // Setup new.target and argc.
+    __ mr(r7, r3);
+    __ mr(r3, r6);
+    __ mr(r6, r7);
+
     // Initialize all JavaScript callee-saved registers, since they will be seen
     // by the garbage collector as part of handlers.
     __ LoadRoot(r7, Heap::kUndefinedValueRootIndex);
@@ -783,16 +787,12 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     __ mr(r16, r7);
     __ mr(r17, r7);
 
-    // Invoke the code and pass argc as r3.
-    __ mr(r3, r6);
-    if (is_construct) {
-      // No type feedback cell is available
-      __ LoadRoot(r5, Heap::kUndefinedValueRootIndex);
-      CallConstructStub stub(masm->isolate(), NO_CALL_CONSTRUCTOR_FLAGS);
-      __ CallStub(&stub);
-    } else {
-      __ Call(masm->isolate()->builtins()->Call(), RelocInfo::CODE_TARGET);
-    }
+    // Invoke the code.
+    Handle<Code> builtin = is_construct
+                               ? masm->isolate()->builtins()->Construct()
+                               : masm->isolate()->builtins()->Call();
+    __ Call(builtin, RelocInfo::CODE_TARGET);
+
     // Exit the JS frame and remove the parameters (except function), and
     // return.
   }
@@ -1339,7 +1339,7 @@ static void Generate_ApplyHelper(MacroAssembler* masm, bool targetIsArgument) {
       __ InvokeBuiltin(Context::APPLY_PREPARE_BUILTIN_INDEX, CALL_FUNCTION);
     }
 
-    Generate_CheckStackOverflow(masm, kFunctionOffset, r3, kArgcIsSmiTagged);
+    Generate_CheckStackOverflow(masm, r3, kArgcIsSmiTagged);
 
     // Push current limit and index.
     const int kIndexOffset = kVectorOffset - (2 * kPointerSize);
@@ -1401,7 +1401,7 @@ static void Generate_ConstructHelper(MacroAssembler* masm) {
     __ InvokeBuiltin(Context::REFLECT_CONSTRUCT_PREPARE_BUILTIN_INDEX,
                      CALL_FUNCTION);
 
-    Generate_CheckStackOverflow(masm, kFunctionOffset, r3, kArgcIsSmiTagged);
+    Generate_CheckStackOverflow(masm, r3, kArgcIsSmiTagged);
 
     // Push current limit and index.
     const int kIndexOffset = kVectorOffset - (2 * kPointerSize);
@@ -1595,13 +1595,13 @@ void Builtins::Generate_Call(MacroAssembler* masm) {
   //  -- r4 : the target to call (can be any Object).
   // -----------------------------------
 
-  Label non_smi, non_function;
-  __ JumpIfSmi(r4, &non_function);
+  Label non_callable, non_function, non_smi;
+  __ JumpIfSmi(r4, &non_callable);
   __ bind(&non_smi);
-  __ CompareObjectType(r4, r5, r5, JS_FUNCTION_TYPE);
+  __ CompareObjectType(r4, r7, r8, JS_FUNCTION_TYPE);
   __ Jump(masm->isolate()->builtins()->CallFunction(), RelocInfo::CODE_TARGET,
           eq);
-  __ cmpi(r5, Operand(JS_FUNCTION_PROXY_TYPE));
+  __ cmpi(r8, Operand(JS_FUNCTION_PROXY_TYPE));
   __ bne(&non_function);
 
   // 1. Call to function proxy.
@@ -1613,28 +1613,109 @@ void Builtins::Generate_Call(MacroAssembler* masm) {
   // 2. Call to something else, which might have a [[Call]] internal method (if
   // not we raise an exception).
   __ bind(&non_function);
-  // TODO(bmeurer): I wonder why we prefer to have slow API calls? This could
-  // be awesome instead; i.e. a trivial improvement would be to call into the
-  // runtime and just deal with the API function there instead of returning a
-  // delegate from a runtime call that just jumps back to the runtime once
-  // called. Or, bonus points, call directly into the C API function here, as
-  // we do in some Crankshaft fast cases.
-  // Overwrite the original receiver with the (original) target.
-  __ ShiftLeftImm(r5, r3, Operand(kPointerSizeLog2));
-  __ StorePX(r4, MemOperand(sp, r5));
-  {
-    // Determine the delegate for the target (if any).
-    FrameAndConstantPoolScope scope(masm, StackFrame::INTERNAL);
-    __ SmiTag(r3);
-    __ Push(r3, r4);
-    __ CallRuntime(Runtime::kGetFunctionDelegate, 1);
-    __ mr(r4, r3);
-    __ Pop(r3);
-    __ SmiUntag(r3);
-  }
-  // The delegate is always a regular function.
-  __ AssertFunction(r4);
+  // Check if target has a [[Call]] internal method.
+  __ lbz(r7, FieldMemOperand(r7, Map::kBitFieldOffset));
+  __ TestBit(r7, Map::kIsCallable, r0);
+  __ beq(&non_callable, cr0);
+  // Overwrite the original receiver the (original) target.
+  __ ShiftLeftImm(r8, r3, Operand(kPointerSizeLog2));
+  __ StorePX(r4, MemOperand(sp, r8));
+  // Let the "call_as_function_delegate" take care of the rest.
+  __ LoadGlobalFunction(Context::CALL_AS_FUNCTION_DELEGATE_INDEX, r4);
   __ Jump(masm->isolate()->builtins()->CallFunction(), RelocInfo::CODE_TARGET);
+
+  // 3. Call to something that is not callable.
+  __ bind(&non_callable);
+  {
+    FrameAndConstantPoolScope scope(masm, StackFrame::INTERNAL);
+    __ Push(r4);
+    __ CallRuntime(Runtime::kThrowCalledNonCallable, 1);
+  }
+}
+
+
+// static
+void Builtins::Generate_ConstructFunction(MacroAssembler* masm) {
+  // ----------- S t a t e -------------
+  //  -- r3 : the number of arguments (not including the receiver)
+  //  -- r4 : the constructor to call (checked to be a JSFunction)
+  //  -- r6 : the original constructor (checked to be a JSFunction)
+  // -----------------------------------
+  __ AssertFunction(r4);
+  __ AssertFunction(r6);
+
+  // Calling convention for function specific ConstructStubs require
+  // r5 to contain either an AllocationSite or undefined.
+  __ LoadRoot(r5, Heap::kUndefinedValueRootIndex);
+
+  // Tail call to the function-specific construct stub (still in the caller
+  // context at this point).
+  __ LoadP(r7, FieldMemOperand(r4, JSFunction::kSharedFunctionInfoOffset));
+  __ LoadP(r7, FieldMemOperand(r7, SharedFunctionInfo::kConstructStubOffset));
+  __ addi(ip, r7, Operand(Code::kHeaderSize - kHeapObjectTag));
+  __ JumpToJSEntry(ip);
+}
+
+
+// static
+void Builtins::Generate_ConstructProxy(MacroAssembler* masm) {
+  // ----------- S t a t e -------------
+  //  -- r3 : the number of arguments (not including the receiver)
+  //  -- r4 : the constructor to call (checked to be a JSFunctionProxy)
+  //  -- r6 : the original constructor (either the same as the constructor or
+  //          the JSFunction on which new was invoked initially)
+  // -----------------------------------
+
+  // TODO(neis): This doesn't match the ES6 spec for [[Construct]] on proxies.
+  __ LoadP(r4, FieldMemOperand(r4, JSFunctionProxy::kConstructTrapOffset));
+  __ Jump(masm->isolate()->builtins()->Call(), RelocInfo::CODE_TARGET);
+}
+
+
+// static
+void Builtins::Generate_Construct(MacroAssembler* masm) {
+  // ----------- S t a t e -------------
+  //  -- r3 : the number of arguments (not including the receiver)
+  //  -- r4 : the constructor to call (can be any Object)
+  //  -- r6 : the original constructor (either the same as the constructor or
+  //          the JSFunction on which new was invoked initially)
+  // -----------------------------------
+
+  // Check if target has a [[Construct]] internal method.
+  Label non_constructor;
+  __ JumpIfSmi(r4, &non_constructor);
+  __ LoadP(r7, FieldMemOperand(r4, HeapObject::kMapOffset));
+  __ lbz(r5, FieldMemOperand(r7, Map::kBitFieldOffset));
+  __ TestBit(r5, Map::kIsConstructor, r0);
+  __ beq(&non_constructor, cr0);
+
+  // Dispatch based on instance type.
+  __ CompareInstanceType(r7, r8, JS_FUNCTION_TYPE);
+  __ Jump(masm->isolate()->builtins()->ConstructFunction(),
+          RelocInfo::CODE_TARGET, eq);
+  __ cmpi(r8, Operand(JS_FUNCTION_PROXY_TYPE));
+  __ Jump(masm->isolate()->builtins()->ConstructProxy(), RelocInfo::CODE_TARGET,
+          eq);
+
+  // Called Construct on an exotic Object with a [[Construct]] internal method.
+  {
+    // Overwrite the original receiver with the (original) target.
+    __ ShiftLeftImm(r8, r3, Operand(kPointerSizeLog2));
+    __ StorePX(r4, MemOperand(sp, r8));
+    // Let the "call_as_constructor_delegate" take care of the rest.
+    __ LoadGlobalFunction(Context::CALL_AS_CONSTRUCTOR_DELEGATE_INDEX, r4);
+    __ Jump(masm->isolate()->builtins()->CallFunction(),
+            RelocInfo::CODE_TARGET);
+  }
+
+  // Called Construct on an Object that doesn't have a [[Construct]] internal
+  // method.
+  __ bind(&non_constructor);
+  {
+    FrameAndConstantPoolScope scope(masm, StackFrame::INTERNAL);
+    __ Push(r4);
+    __ CallRuntime(Runtime::kThrowCalledNonCallable, 1);
+  }
 }
 
 

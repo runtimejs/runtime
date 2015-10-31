@@ -8,11 +8,14 @@
 #include "src/cancelable-task.h"
 #include "src/execution.h"
 #include "src/heap/incremental-marking-job.h"
-#include "src/heap/mark-compact.h"
 #include "src/objects.h"
 
 namespace v8 {
 namespace internal {
+
+// Forward declarations.
+class MarkBit;
+class PagedSpace;
 
 class IncrementalMarking {
  public:
@@ -100,6 +103,15 @@ class IncrementalMarking {
 
   void Epilogue();
 
+  // Performs incremental marking steps of step_size_in_bytes as long as
+  // deadline_ins_ms is not reached. step_size_in_bytes can be 0 to compute
+  // an estimate increment. Returns the remaining time that cannot be used
+  // for incremental marking anymore because a single step would exceed the
+  // deadline.
+  double AdvanceIncrementalMarking(intptr_t step_size_in_bytes,
+                                   double deadline_in_ms,
+                                   StepActions step_actions);
+
   // It's hard to know how much work the incremental marker should do to make
   // progress in the face of the mutator creating new work for it.  We start
   // of at a moderate rate of work and gradually increase the speed of the
@@ -172,7 +184,7 @@ class IncrementalMarking {
     SetOldSpacePageFlags(chunk, IsMarking(), IsCompacting());
   }
 
-  inline void SetNewSpacePageFlags(NewSpacePage* chunk) {
+  inline void SetNewSpacePageFlags(MemoryChunk* chunk) {
     SetNewSpacePageFlags(chunk, IsMarking());
   }
 
@@ -222,7 +234,7 @@ class IncrementalMarking {
   static void SetOldSpacePageFlags(MemoryChunk* chunk, bool is_marking,
                                    bool is_compacting);
 
-  static void SetNewSpacePageFlags(NewSpacePage* chunk, bool is_marking);
+  static void SetNewSpacePageFlags(MemoryChunk* chunk, bool is_marking);
 
   INLINE(void ProcessMarkingDeque());
 

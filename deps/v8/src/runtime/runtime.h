@@ -80,7 +80,6 @@ namespace internal {
   F(ThrowArrayNotSubclassableError, 0, 1)     \
   F(ThrowStaticPrototypeError, 0, 1)          \
   F(ThrowIfStaticPrototype, 1, 1)             \
-  F(ToMethod, 2, 1)                           \
   F(HomeObjectSymbol, 0, 1)                   \
   F(DefineClass, 5, 1)                        \
   F(FinalizeClassDefinition, 2, 1)            \
@@ -217,6 +216,18 @@ namespace internal {
   F(ForInStep, 1, 1)
 
 
+#define FOR_EACH_INTRINSIC_INTERPRETER(F) \
+  F(InterpreterEquals, 2, 1)              \
+  F(InterpreterNotEquals, 2, 1)           \
+  F(InterpreterStrictEquals, 2, 1)        \
+  F(InterpreterStrictNotEquals, 2, 1)     \
+  F(InterpreterLessThan, 2, 1)            \
+  F(InterpreterGreaterThan, 2, 1)         \
+  F(InterpreterLessThanOrEqual, 2, 1)     \
+  F(InterpreterGreaterThanOrEqual, 2, 1)  \
+  F(InterpreterToBoolean, 1, 1)
+
+
 #define FOR_EACH_INTRINSIC_FUNCTION(F)                      \
   F(FunctionGetName, 1, 1)                                  \
   F(FunctionSetName, 2, 1)                                  \
@@ -244,8 +255,6 @@ namespace internal {
   F(NewObjectFromBound, 1, 1)                               \
   F(Call, -1 /* >= 2 */, 1)                                 \
   F(Apply, 5, 1)                                            \
-  F(GetFunctionDelegate, 1, 1)                              \
-  F(GetConstructorDelegate, 1, 1)                           \
   F(GetOriginalConstructor, 0, 1)                           \
   F(CallFunction, -1 /* receiver + n args + function */, 1) \
   F(IsConstructCall, 0, 1)                                  \
@@ -341,7 +350,8 @@ namespace internal {
   F(HarmonyToString, 0, 1)                    \
   F(GetTypeFeedbackVector, 1, 1)              \
   F(GetCallerJSFunction, 0, 1)                \
-  F(GetCodeStubExportsObject, 0, 1)
+  F(GetCodeStubExportsObject, 0, 1)           \
+  F(ThrowCalledNonCallable, 1, 1)
 
 
 #define FOR_EACH_INTRINSIC_JSON(F) \
@@ -403,7 +413,6 @@ namespace internal {
   F(StringParseFloat, 1, 1)            \
   F(NumberToString, 1, 1)              \
   F(NumberToStringSkipCache, 1, 1)     \
-  F(NumberToInteger, 1, 1)             \
   F(NumberToIntegerMapMinusZero, 1, 1) \
   F(NumberToSmi, 1, 1)                 \
   F(NumberImul, 2, 1)                  \
@@ -475,6 +484,8 @@ namespace internal {
   F(ToPrimitive_Number, 1, 1)                        \
   F(ToPrimitive_String, 1, 1)                        \
   F(ToNumber, 1, 1)                                  \
+  F(ToInteger, 1, 1)                                 \
+  F(ToLength, 1, 1)                                  \
   F(ToString, 1, 1)                                  \
   F(ToName, 1, 1)                                    \
   F(Equals, 2, 1)                                    \
@@ -685,7 +696,6 @@ namespace internal {
   F(Uint32x4Not, 1, 1)                       \
   F(Uint32x4ShiftLeftByScalar, 2, 1)         \
   F(Uint32x4ShiftRightByScalar, 2, 1)        \
-  F(Uint32x4HorizontalSum, 1, 1)             \
   F(Uint32x4Equal, 2, 1)                     \
   F(Uint32x4NotEqual, 2, 1)                  \
   F(Uint32x4LessThan, 2, 1)                  \
@@ -773,9 +783,6 @@ namespace internal {
   F(Uint16x8Not, 1, 1)                       \
   F(Uint16x8ShiftLeftByScalar, 2, 1)         \
   F(Uint16x8ShiftRightByScalar, 2, 1)        \
-  F(Uint16x8HorizontalSum, 1, 1)             \
-  F(Uint16x8AbsoluteDifference, 2, 1)        \
-  F(Uint16x8WidenedAbsoluteDifference, 2, 1) \
   F(Uint16x8Equal, 2, 1)                     \
   F(Uint16x8NotEqual, 2, 1)                  \
   F(Uint16x8LessThan, 2, 1)                  \
@@ -856,9 +863,6 @@ namespace internal {
   F(Uint8x16Not, 1, 1)                       \
   F(Uint8x16ShiftLeftByScalar, 2, 1)         \
   F(Uint8x16ShiftRightByScalar, 2, 1)        \
-  F(Uint8x16HorizontalSum, 1, 1)             \
-  F(Uint8x16AbsoluteDifference, 2, 1)        \
-  F(Uint8x16WidenedAbsoluteDifference, 2, 1) \
   F(Uint8x16Equal, 2, 1)                     \
   F(Uint8x16NotEqual, 2, 1)                  \
   F(Uint8x16LessThan, 2, 1)                  \
@@ -911,7 +915,6 @@ namespace internal {
   F(StringTrim, 3, 1)                           \
   F(TruncateString, 2, 1)                       \
   F(NewString, 2, 1)                            \
-  F(NewConsString, 4, 1)                        \
   F(StringEquals, 2, 1)                         \
   F(FlattenString, 1, 1)                        \
   F(StringCharFromCode, 1, 1)                   \
@@ -1067,6 +1070,7 @@ namespace internal {
   FOR_EACH_INTRINSIC_DATE(F)                \
   FOR_EACH_INTRINSIC_DEBUG(F)               \
   FOR_EACH_INTRINSIC_FORIN(F)               \
+  FOR_EACH_INTRINSIC_INTERPRETER(F)         \
   FOR_EACH_INTRINSIC_FUNCTION(F)            \
   FOR_EACH_INTRINSIC_FUTEX(F)               \
   FOR_EACH_INTRINSIC_GENERATOR(F)           \
@@ -1208,7 +1212,7 @@ class Runtime : public AllStatic {
 
   // Used in runtime.cc and hydrogen's VisitArrayLiteral.
   MUST_USE_RESULT static MaybeHandle<Object> CreateArrayLiteralBoilerplate(
-      Isolate* isolate, Handle<FixedArray> literals,
+      Isolate* isolate, Handle<LiteralsArray> literals,
       Handle<FixedArray> elements, bool is_strong);
 
   static MaybeHandle<JSArray> GetInternalProperties(Isolate* isolate,

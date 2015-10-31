@@ -19,7 +19,6 @@
 #include "src/codegen.h"
 #include "src/compilation-dependencies.h"
 #include "src/compiler.h"
-#include "src/cpu-profiler.h"
 #include "src/date.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
@@ -37,6 +36,7 @@
 #include "src/macro-assembler.h"
 #include "src/messages.h"
 #include "src/objects-inl.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/prototype.h"
 #include "src/safepoint-table.h"
 #include "src/string-builder.h"
@@ -94,6 +94,16 @@ MaybeHandle<JSReceiver> Object::ToObject(Isolate* isolate,
 
 
 // static
+MaybeHandle<Name> Object::ToName(Isolate* isolate, Handle<Object> input) {
+  ASSIGN_RETURN_ON_EXCEPTION(
+      isolate, input, Object::ToPrimitive(input, ToPrimitiveHint::kString),
+      Name);
+  if (input->IsName()) return Handle<Name>::cast(input);
+  return ToString(isolate, input);
+}
+
+
+// static
 MaybeHandle<Object> Object::ToNumber(Handle<Object> input) {
   while (true) {
     if (input->IsNumber()) {
@@ -123,6 +133,27 @@ MaybeHandle<Object> Object::ToNumber(Handle<Object> input) {
 
 
 // static
+MaybeHandle<Object> Object::ToInteger(Isolate* isolate, Handle<Object> input) {
+  ASSIGN_RETURN_ON_EXCEPTION(isolate, input, ToNumber(input), Object);
+  return isolate->factory()->NewNumber(DoubleToInteger(input->Number()));
+}
+
+
+// static
+MaybeHandle<Object> Object::ToInt32(Isolate* isolate, Handle<Object> input) {
+  ASSIGN_RETURN_ON_EXCEPTION(isolate, input, ToNumber(input), Object);
+  return isolate->factory()->NewNumberFromInt(DoubleToInt32(input->Number()));
+}
+
+
+// static
+MaybeHandle<Object> Object::ToUint32(Isolate* isolate, Handle<Object> input) {
+  ASSIGN_RETURN_ON_EXCEPTION(isolate, input, ToNumber(input), Object);
+  return isolate->factory()->NewNumberFromUint(DoubleToUint32(input->Number()));
+}
+
+
+// static
 MaybeHandle<String> Object::ToString(Isolate* isolate, Handle<Object> input) {
   while (true) {
     if (input->IsString()) {
@@ -146,6 +177,19 @@ MaybeHandle<String> Object::ToString(Isolate* isolate, Handle<Object> input) {
                                                 ToPrimitiveHint::kString),
         String);
   }
+}
+
+
+// static
+MaybeHandle<Object> Object::ToLength(Isolate* isolate, Handle<Object> input) {
+  ASSIGN_RETURN_ON_EXCEPTION(isolate, input, ToNumber(input), Object);
+  double len = DoubleToInteger(input->Number());
+  if (len <= 0.0) {
+    len = 0.0;
+  } else if (len >= kMaxSafeInteger) {
+    len = kMaxSafeInteger;
+  }
+  return isolate->factory()->NewNumber(len);
 }
 
 
@@ -798,7 +842,7 @@ MaybeHandle<Object> Object::GetPropertyWithAccessor(
 
   // Regular accessor.
   Handle<Object> getter(AccessorPair::cast(*structure)->getter(), isolate);
-  if (getter->IsSpecFunction()) {
+  if (getter->IsCallable()) {
     // TODO(rossberg): nicer would be to cast to some JSCallable here...
     return Object::GetPropertyWithDefinedGetter(
         receiver, Handle<JSReceiver>::cast(getter));
@@ -854,7 +898,7 @@ MaybeHandle<Object> Object::SetPropertyWithAccessor(
 
   // Regular accessor.
   Handle<Object> setter(AccessorPair::cast(*structure)->setter(), isolate);
-  if (setter->IsSpecFunction()) {
+  if (setter->IsCallable()) {
     // TODO(rossberg): nicer would be to cast to some JSCallable here...
     return SetPropertyWithDefinedSetter(
         receiver, Handle<JSReceiver>::cast(setter), value);
@@ -2726,10 +2770,23 @@ void Map::UpdateFieldType(int descriptor, Handle<Name> name,
 }
 
 
+bool FieldTypeIsCleared(Representation rep, Handle<HeapType> type) {
+  return type->Is(HeapType::None()) && rep.IsHeapObject();
+}
+
+
 // static
-Handle<HeapType> Map::GeneralizeFieldType(Handle<HeapType> type1,
+Handle<HeapType> Map::GeneralizeFieldType(Representation rep1,
+                                          Handle<HeapType> type1,
+                                          Representation rep2,
                                           Handle<HeapType> type2,
                                           Isolate* isolate) {
+  // Cleared field types need special treatment. They represent lost knowledge,
+  // so we must be conservative, so their generalization with any other type
+  // is "Any".
+  if (FieldTypeIsCleared(rep1, type1) || FieldTypeIsCleared(rep2, type2)) {
+    return HeapType::Any(isolate);
+  }
   if (type1->NowIs(type2)) return type2;
   if (type2->NowIs(type1)) return type1;
   return HeapType::Any(isolate);
@@ -2750,10 +2807,13 @@ void Map::GeneralizeFieldType(Handle<Map> map, int modify_index,
                                   isolate);
 
   if (old_representation.Equals(new_representation) &&
+      !FieldTypeIsCleared(new_representation, new_field_type) &&
+      // Checking old_field_type for being cleared is not necessary because
+      // the NowIs check below would fail anyway in that case.
       new_field_type->NowIs(old_field_type)) {
-    DCHECK(Map::GeneralizeFieldType(old_field_type,
-                                    new_field_type,
-                                    isolate)->NowIs(old_field_type));
+    DCHECK(Map::GeneralizeFieldType(old_representation, old_field_type,
+                                    new_representation, new_field_type, isolate)
+               ->NowIs(old_field_type));
     return;
   }
 
@@ -2762,17 +2822,10 @@ void Map::GeneralizeFieldType(Handle<Map> map, int modify_index,
   Handle<DescriptorArray> descriptors(
       field_owner->instance_descriptors(), isolate);
   DCHECK_EQ(*old_field_type, descriptors->GetFieldType(modify_index));
-  bool old_field_type_was_cleared =
-      old_field_type->Is(HeapType::None()) && old_representation.IsHeapObject();
 
-  // Determine the generalized new field type. Conservatively assume type Any
-  // for cleared field types because the cleared type could have been a
-  // deprecated map and there still could be live instances with a non-
-  // deprecated version of the map.
   new_field_type =
-      old_field_type_was_cleared
-          ? HeapType::Any(isolate)
-          : Map::GeneralizeFieldType(old_field_type, new_field_type, isolate);
+      Map::GeneralizeFieldType(old_representation, old_field_type,
+                               new_representation, new_field_type, isolate);
 
   PropertyDetails details = descriptors->GetDetails(modify_index);
   Handle<Name> name(descriptors->GetKey(modify_index));
@@ -2996,8 +3049,10 @@ Handle<Map> Map::ReconfigureProperty(Handle<Map> old_map, int modify_index,
             Handle<HeapType> old_field_type =
                 GetFieldType(isolate, old_descriptors, i,
                              old_details.location(), tmp_representation);
-            next_field_type =
-                GeneralizeFieldType(next_field_type, old_field_type, isolate);
+            Representation old_representation = old_details.representation();
+            next_field_type = GeneralizeFieldType(
+                old_representation, old_field_type, new_representation,
+                next_field_type, isolate);
           }
         } else {
           Handle<HeapType> old_field_type =
@@ -3161,21 +3216,24 @@ Handle<Map> Map::ReconfigureProperty(Handle<Map> old_map, int modify_index,
 
         Handle<HeapType> next_field_type;
         if (modify_index == i) {
-          next_field_type =
-              GeneralizeFieldType(target_field_type, new_field_type, isolate);
+          next_field_type = GeneralizeFieldType(
+              target_details.representation(), target_field_type,
+              new_representation, new_field_type, isolate);
           if (!property_kind_reconfiguration) {
             Handle<HeapType> old_field_type =
                 GetFieldType(isolate, old_descriptors, i,
                              old_details.location(), next_representation);
-            next_field_type =
-                GeneralizeFieldType(next_field_type, old_field_type, isolate);
+            next_field_type = GeneralizeFieldType(
+                old_details.representation(), old_field_type,
+                next_representation, next_field_type, isolate);
           }
         } else {
           Handle<HeapType> old_field_type =
               GetFieldType(isolate, old_descriptors, i, old_details.location(),
                            next_representation);
-          next_field_type =
-              GeneralizeFieldType(target_field_type, old_field_type, isolate);
+          next_field_type = GeneralizeFieldType(
+              old_details.representation(), old_field_type, next_representation,
+              target_field_type, isolate);
         }
         Handle<Object> wrapped_type(WrapType(next_field_type));
         DataDescriptor d(target_key, current_offset, wrapped_type,
@@ -3236,8 +3294,9 @@ Handle<Map> Map::ReconfigureProperty(Handle<Map> old_map, int modify_index,
             Handle<HeapType> old_field_type =
                 GetFieldType(isolate, old_descriptors, i,
                              old_details.location(), next_representation);
-            next_field_type =
-                GeneralizeFieldType(next_field_type, old_field_type, isolate);
+            next_field_type = GeneralizeFieldType(
+                old_details.representation(), old_field_type,
+                next_representation, next_field_type, isolate);
           }
         } else {
           Handle<HeapType> old_field_type =
@@ -3798,6 +3857,11 @@ MaybeHandle<Object> Object::SetDataProperty(LookupIterator* it,
                         Object);
   }
 
+#if VERIFY_HEAP
+  if (FLAG_verify_heap) {
+    receiver->JSObjectVerify();
+  }
+#endif
   return value;
 }
 
@@ -3920,6 +3984,11 @@ MaybeHandle<Object> Object::AddDataProperty(LookupIterator* it,
                                        it->factory()->the_hole_value()),
                           Object);
     }
+#if VERIFY_HEAP
+    if (FLAG_verify_heap) {
+      receiver->JSObjectVerify();
+    }
+#endif
   }
 
   return value;
@@ -4572,6 +4641,11 @@ void JSObject::MigrateInstance(Handle<JSObject> object) {
   if (FLAG_trace_migration) {
     object->PrintInstanceMigration(stdout, *original_map, *map);
   }
+#if VERIFY_HEAP
+  if (FLAG_verify_heap) {
+    object->JSObjectVerify();
+  }
+#endif
 }
 
 
@@ -4588,6 +4662,11 @@ bool JSObject::TryMigrateInstance(Handle<JSObject> object) {
   if (FLAG_trace_migration) {
     object->PrintInstanceMigration(stdout, *original_map, object->map());
   }
+#if VERIFY_HEAP
+  if (FLAG_verify_heap) {
+    object->JSObjectVerify();
+  }
+#endif
   return true;
 }
 
@@ -4696,7 +4775,6 @@ MaybeHandle<Object> JSObject::DefineOwnPropertyIgnoreAttributes(
           it->TransitionToAccessorPair(new_data, attributes);
         } else {
           it->ReconfigureDataProperty(value, attributes);
-          it->WriteDataValue(value);
         }
 
         if (is_observed) {
@@ -4732,7 +4810,6 @@ MaybeHandle<Object> JSObject::DefineOwnPropertyIgnoreAttributes(
         if (is_observed) old_value = it->GetDataValue();
 
         it->ReconfigureDataProperty(value, attributes);
-        it->WriteDataValue(value);
 
         if (is_observed) {
           if (old_value->SameValue(*value)) {
@@ -6918,8 +6995,8 @@ MaybeHandle<Object> JSObject::DefineAccessor(Handle<JSObject> object,
     }
   }
 
-  DCHECK(getter->IsSpecFunction() || getter->IsUndefined() || getter->IsNull());
-  DCHECK(setter->IsSpecFunction() || setter->IsUndefined() || setter->IsNull());
+  DCHECK(getter->IsCallable() || getter->IsUndefined() || getter->IsNull());
+  DCHECK(setter->IsCallable() || setter->IsUndefined() || setter->IsNull());
   // At least one of the accessors needs to be a new value.
   DCHECK(!getter->IsNull() || !setter->IsNull());
   if (!getter->IsNull()) {
@@ -8705,6 +8782,19 @@ Handle<DeoptimizationOutputData> DeoptimizationOutputData::New(
 }
 
 
+// static
+Handle<LiteralsArray> LiteralsArray::New(Isolate* isolate,
+                                         Handle<TypeFeedbackVector> vector,
+                                         int number_of_literals,
+                                         PretenureFlag pretenure) {
+  Handle<FixedArray> literals = isolate->factory()->NewFixedArray(
+      number_of_literals + kFirstLiteralIndex, pretenure);
+  Handle<LiteralsArray> casted_literals = Handle<LiteralsArray>::cast(literals);
+  casted_literals->set_feedback_vector(*vector);
+  return casted_literals;
+}
+
+
 int HandlerTable::LookupRange(int pc_offset, int* stack_depth_out,
                               CatchPrediction* prediction_out) {
   int innermost_handler = -1, innermost_start = -1;
@@ -9838,16 +9928,9 @@ Handle<String> SeqString::Truncate(Handle<SeqString> string, int new_length) {
   DCHECK_OBJECT_ALIGNED(start_of_string + new_size);
 
   Heap* heap = string->GetHeap();
-  NewSpace* newspace = heap->new_space();
-  if (newspace->Contains(start_of_string) &&
-      newspace->top() == start_of_string + old_size) {
-    // Last allocated object in new space.  Simply lower allocation top.
-    newspace->set_top(start_of_string + new_size);
-  } else {
-    // Sizes are pointer size aligned, so that we can use filler objects
-    // that are a multiple of pointer size.
-    heap->CreateFillerObjectAt(start_of_string + new_size, delta);
-  }
+  // Sizes are pointer size aligned, so that we can use filler objects
+  // that are a multiple of pointer size.
+  heap->CreateFillerObjectAt(start_of_string + new_size, delta);
   heap->AdjustLiveBytes(*string, -delta, Heap::CONCURRENT_TO_SWEEPER);
 
   // We are storing the new length using release store after creating a filler
@@ -10101,30 +10184,6 @@ void JSFunction::AttemptConcurrentOptimization() {
 }
 
 
-Handle<JSFunction> JSFunction::CloneClosure(Handle<JSFunction> function) {
-  Isolate* isolate = function->GetIsolate();
-  Handle<Map> map(function->map());
-  Handle<SharedFunctionInfo> shared(function->shared());
-  Handle<Context> context(function->context());
-  Handle<JSFunction> clone =
-      isolate->factory()->NewFunctionFromSharedFunctionInfo(shared, context);
-
-  if (shared->bound()) {
-    clone->set_function_bindings(function->function_bindings());
-  }
-
-  // In typical case, __proto__ of ``function`` is the default Function
-  // prototype, which means that SetPrototype below is a no-op.
-  // In rare cases when that is not true, we mutate the clone's __proto__.
-  Handle<Object> original_prototype(map->prototype(), isolate);
-  if (*original_prototype != clone->map()->prototype()) {
-    JSObject::SetPrototype(clone, original_prototype, false).Assert();
-  }
-
-  return clone;
-}
-
-
 void SharedFunctionInfo::AddSharedCodeToOptimizedCodeMap(
     Handle<SharedFunctionInfo> shared, Handle<Code> code) {
   Isolate* isolate = shared->GetIsolate();
@@ -10137,47 +10196,60 @@ void SharedFunctionInfo::AddSharedCodeToOptimizedCodeMap(
 
 
 void SharedFunctionInfo::AddToOptimizedCodeMap(
-    Handle<SharedFunctionInfo> shared,
-    Handle<Context> native_context,
-    Handle<Code> code,
-    Handle<FixedArray> literals,
+    Handle<SharedFunctionInfo> shared, Handle<Context> native_context,
+    Handle<HeapObject> code, Handle<LiteralsArray> literals,
     BailoutId osr_ast_id) {
   Isolate* isolate = shared->GetIsolate();
-  DCHECK(!shared->SearchOptimizedCodeMap(*native_context, osr_ast_id).code);
-  DCHECK(code->kind() == Code::OPTIMIZED_FUNCTION);
+  DCHECK(*code == isolate->heap()->undefined_value() ||
+         !shared->SearchOptimizedCodeMap(*native_context, osr_ast_id).code);
+  DCHECK(*code == isolate->heap()->undefined_value() ||
+         Code::cast(*code)->kind() == Code::OPTIMIZED_FUNCTION);
   DCHECK(native_context->IsNativeContext());
   STATIC_ASSERT(kEntryLength == 4);
   Handle<FixedArray> new_code_map;
   Handle<Object> value(shared->optimized_code_map(), isolate);
-  int old_length;
+  int entry;
   if (value->IsSmi()) {
     // No optimized code map.
     DCHECK_EQ(0, Smi::cast(*value)->value());
     new_code_map = isolate->factory()->NewFixedArray(kInitialLength, TENURED);
-    old_length = kEntriesStart;
+    entry = kEntriesStart;
   } else {
-    // Copy old optimized code map and append one new entry.
     Handle<FixedArray> old_code_map = Handle<FixedArray>::cast(value);
+    entry = shared->SearchOptimizedCodeMapEntry(*native_context, osr_ast_id);
+    if (entry > kSharedCodeIndex) {
+      // Found an existing context-specific entry, it must not contain any code.
+      DCHECK_EQ(isolate->heap()->undefined_value(),
+                old_code_map->get(entry + kCachedCodeOffset));
+      // Just set the code and literals to the entry.
+      old_code_map->set(entry + kCachedCodeOffset, *code);
+      old_code_map->set(entry + kLiteralsOffset, *literals);
+      return;
+    }
+
+    // Copy old optimized code map and append one new entry.
     new_code_map = isolate->factory()->CopyFixedArrayAndGrow(
         old_code_map, kEntryLength, TENURED);
-    old_length = old_code_map->length();
+    int old_length = old_code_map->length();
     // Zap the old map to avoid any stale entries. Note that this is required
     // for correctness because entries are being treated weakly by the GC.
     MemsetPointer(old_code_map->data_start(), isolate->heap()->the_hole_value(),
                   old_length);
+    entry = old_length;
   }
-  new_code_map->set(old_length + kContextOffset, *native_context);
-  new_code_map->set(old_length + kCachedCodeOffset, *code);
-  new_code_map->set(old_length + kLiteralsOffset, *literals);
-  new_code_map->set(old_length + kOsrAstIdOffset,
-                    Smi::FromInt(osr_ast_id.ToInt()));
+  new_code_map->set(entry + kContextOffset, *native_context);
+  new_code_map->set(entry + kCachedCodeOffset, *code);
+  new_code_map->set(entry + kLiteralsOffset, *literals);
+  new_code_map->set(entry + kOsrAstIdOffset, Smi::FromInt(osr_ast_id.ToInt()));
 
 #ifdef DEBUG
   for (int i = kEntriesStart; i < new_code_map->length(); i += kEntryLength) {
     DCHECK(new_code_map->get(i + kContextOffset)->IsNativeContext());
-    DCHECK(new_code_map->get(i + kCachedCodeOffset)->IsCode());
-    DCHECK(Code::cast(new_code_map->get(i + kCachedCodeOffset))->kind() ==
-           Code::OPTIMIZED_FUNCTION);
+    Object* code = new_code_map->get(i + kCachedCodeOffset);
+    if (code != isolate->heap()->undefined_value()) {
+      DCHECK(code->IsCode());
+      DCHECK(Code::cast(code)->kind() == Code::OPTIMIZED_FUNCTION);
+    }
     DCHECK(new_code_map->get(i + kLiteralsOffset)->IsFixedArray());
     DCHECK(new_code_map->get(i + kOsrAstIdOffset)->IsSmi());
   }
@@ -10206,37 +10278,43 @@ void SharedFunctionInfo::EvictFromOptimizedCodeMap(Code* optimized_code,
   DisallowHeapAllocation no_gc;
   if (optimized_code_map()->IsSmi()) return;
 
+  Heap* heap = GetHeap();
   FixedArray* code_map = FixedArray::cast(optimized_code_map());
   int dst = kEntriesStart;
   int length = code_map->length();
   for (int src = kEntriesStart; src < length; src += kEntryLength) {
     DCHECK(code_map->get(src)->IsNativeContext());
-    if (Code::cast(code_map->get(src + kCachedCodeOffset)) == optimized_code) {
-      // Evict the src entry by not copying it to the dst entry.
+    if (code_map->get(src + kCachedCodeOffset) == optimized_code) {
+      BailoutId osr(Smi::cast(code_map->get(src + kOsrAstIdOffset))->value());
       if (FLAG_trace_opt) {
         PrintF("[evicting entry from optimizing code map (%s) for ", reason);
         ShortPrint();
-        BailoutId osr(Smi::cast(code_map->get(src + kOsrAstIdOffset))->value());
         if (osr.IsNone()) {
           PrintF("]\n");
         } else {
           PrintF(" (osr ast id %d)]\n", osr.ToInt());
         }
       }
-    } else {
-      // Keep the src entry by copying it to the dst entry.
-      if (dst != src) {
-        code_map->set(dst + kContextOffset,
-                      code_map->get(src + kContextOffset));
-        code_map->set(dst + kCachedCodeOffset,
-                      code_map->get(src + kCachedCodeOffset));
-        code_map->set(dst + kLiteralsOffset,
-                      code_map->get(src + kLiteralsOffset));
-        code_map->set(dst + kOsrAstIdOffset,
-                      code_map->get(src + kOsrAstIdOffset));
+      if (!osr.IsNone()) {
+        // Evict the src entry by not copying it to the dst entry.
+        continue;
       }
-      dst += kEntryLength;
+      // In case of non-OSR entry just clear the code in order to proceed
+      // sharing literals.
+      code_map->set_undefined(src + kCachedCodeOffset);
     }
+
+    // Keep the src entry by copying it to the dst entry.
+    if (dst != src) {
+      code_map->set(dst + kContextOffset, code_map->get(src + kContextOffset));
+      code_map->set(dst + kCachedCodeOffset,
+                    code_map->get(src + kCachedCodeOffset));
+      code_map->set(dst + kLiteralsOffset,
+                    code_map->get(src + kLiteralsOffset));
+      code_map->set(dst + kOsrAstIdOffset,
+                    code_map->get(src + kOsrAstIdOffset));
+    }
+    dst += kEntryLength;
   }
   if (code_map->get(kSharedCodeIndex) == optimized_code) {
     // Evict context-independent code as well.
@@ -10249,8 +10327,8 @@ void SharedFunctionInfo::EvictFromOptimizedCodeMap(Code* optimized_code,
   }
   if (dst != length) {
     // Always trim even when array is cleared because of heap verifier.
-    GetHeap()->RightTrimFixedArray<Heap::CONCURRENT_TO_SWEEPER>(code_map,
-                                                                length - dst);
+    heap->RightTrimFixedArray<Heap::CONCURRENT_TO_SWEEPER>(code_map,
+                                                           length - dst);
     if (code_map->length() == kEntriesStart &&
         code_map->get(kSharedCodeIndex)->IsUndefined()) {
       ClearOptimizedCodeMap();
@@ -10627,6 +10705,9 @@ void JSFunction::SetInstancePrototype(Handle<JSFunction> function,
       function->set_prototype_or_initial_map(*value);
     } else {
       Handle<Map> new_map = Map::Copy(initial_map, "SetInstancePrototype");
+      if (function->map()->is_strong()) {
+        new_map->set_is_strong();
+      }
       JSFunction::SetInitialMap(function, new_map, value);
 
       // If the function is used as the global Array function, cache the
@@ -10664,7 +10745,7 @@ void JSFunction::SetInstancePrototype(Handle<JSFunction> function,
 
 void JSFunction::SetPrototype(Handle<JSFunction> function,
                               Handle<Object> value) {
-  DCHECK(function->should_have_prototype());
+  DCHECK(function->IsConstructor());
   Handle<Object> construct_prototype = value;
 
   // If the value is not a JSReceiver, store the value in the map's
@@ -10751,6 +10832,9 @@ void JSFunction::EnsureHasInitialMap(Handle<JSFunction> function) {
     in_object_properties = function->shared()->CalculateInObjectProperties();
   }
   Handle<Map> map = isolate->factory()->NewMap(instance_type, instance_size);
+  if (function->map()->is_strong()) {
+    map->set_is_strong();
+  }
 
   // Fetch or allocate prototype.
   Handle<Object> prototype;
@@ -10764,7 +10848,8 @@ void JSFunction::EnsureHasInitialMap(Handle<JSFunction> function) {
   DCHECK(map->has_fast_object_elements());
 
   // Finally link initial map and constructor function.
-  JSFunction::SetInitialMap(function, map, Handle<JSReceiver>::cast(prototype));
+  DCHECK(prototype->IsJSReceiver());
+  JSFunction::SetInitialMap(function, map, prototype);
 
   if (!function->shared()->is_generator()) {
     function->StartInobjectSlackTracking();
@@ -10875,8 +10960,8 @@ int Script::GetColumnNumber(Handle<Script> script, int code_pos) {
 
   DisallowHeapAllocation no_allocation;
   FixedArray* line_ends_array = FixedArray::cast(script->line_ends());
-  line_number = line_number - script->line_offset()->value();
-  if (line_number == 0) return code_pos + script->column_offset()->value();
+  line_number = line_number - script->line_offset();
+  if (line_number == 0) return code_pos + script->column_offset();
   int prev_line_end_pos =
       Smi::cast(line_ends_array->get(line_number - 1))->value();
   return code_pos - (prev_line_end_pos + 1);
@@ -10891,7 +10976,7 @@ int Script::GetLineNumberWithArray(int code_pos) {
   if (line_ends_len == 0) return -1;
 
   if ((Smi::cast(line_ends_array->get(0)))->value() >= code_pos) {
-    return line_offset()->value();
+    return line_offset();
   }
 
   int left = 0;
@@ -10903,7 +10988,7 @@ int Script::GetLineNumberWithArray(int code_pos) {
       left += half;
     }
   }
-  return right + line_offset()->value();
+  return right + line_offset();
 }
 
 
@@ -11265,8 +11350,8 @@ void SharedFunctionInfo::ResetForNewContext(int new_ic_age) {
 }
 
 
-CodeAndLiterals SharedFunctionInfo::SearchOptimizedCodeMap(
-    Context* native_context, BailoutId osr_ast_id) {
+int SharedFunctionInfo::SearchOptimizedCodeMapEntry(Context* native_context,
+                                                    BailoutId osr_ast_id) {
   DisallowHeapAllocation no_gc;
   DCHECK(native_context->IsNativeContext());
   Object* value = optimized_code_map();
@@ -11277,21 +11362,41 @@ CodeAndLiterals SharedFunctionInfo::SearchOptimizedCodeMap(
     for (int i = kEntriesStart; i < length; i += kEntryLength) {
       if (optimized_code_map->get(i + kContextOffset) == native_context &&
           optimized_code_map->get(i + kOsrAstIdOffset) == osr_ast_id_smi) {
-        return {Code::cast(optimized_code_map->get(i + kCachedCodeOffset)),
-                FixedArray::cast(optimized_code_map->get(i + kLiteralsOffset))};
+        return i;
       }
     }
     Object* shared_code = optimized_code_map->get(kSharedCodeIndex);
     if (shared_code->IsCode() && osr_ast_id.IsNone()) {
-      return {Code::cast(shared_code), nullptr};
-    }
-    if (FLAG_trace_opt) {
-      PrintF("[didn't find optimized code in optimized code map for ");
-      ShortPrint();
-      PrintF("]\n");
+      return kSharedCodeIndex;
     }
   }
-  return {nullptr, nullptr};
+  return -1;
+}
+
+
+CodeAndLiterals SharedFunctionInfo::SearchOptimizedCodeMap(
+    Context* native_context, BailoutId osr_ast_id) {
+  CodeAndLiterals result = {nullptr, nullptr};
+  int entry = SearchOptimizedCodeMapEntry(native_context, osr_ast_id);
+  if (entry != kNotFound) {
+    FixedArray* code_map = FixedArray::cast(optimized_code_map());
+    if (entry == kSharedCodeIndex) {
+      result = {Code::cast(code_map->get(kSharedCodeIndex)), nullptr};
+
+    } else {
+      DCHECK_LE(entry + kEntryLength, code_map->length());
+      Object* code = code_map->get(entry + kCachedCodeOffset);
+      result = {code->IsUndefined() ? nullptr : Code::cast(code),
+                LiteralsArray::cast(code_map->get(entry + kLiteralsOffset))};
+    }
+  }
+  if (FLAG_trace_opt && !optimized_code_map()->IsSmi() &&
+      result.code == nullptr) {
+    PrintF("[didn't find optimized code in optimized code map for ");
+    ShortPrint();
+    PrintF("]\n");
+  }
+  return result;
 }
 
 
@@ -14631,7 +14736,7 @@ Handle<Object> JSObject::PrepareElementsForSort(Handle<JSObject> object,
   Handle<FixedArrayBase> elements_base(object->elements());
   uint32_t elements_length = static_cast<uint32_t>(elements_base->length());
   if (limit > elements_length) {
-    limit = elements_length ;
+    limit = elements_length;
   }
   if (limit == 0) {
     return handle(Smi::FromInt(0), isolate);
@@ -16114,10 +16219,9 @@ void DebugInfo::SetBreakPoint(Handle<DebugInfo> debug_info,
   // Allocate new BreakPointInfo object and set the break point.
   Handle<BreakPointInfo> new_break_point_info = Handle<BreakPointInfo>::cast(
       isolate->factory()->NewStruct(BREAK_POINT_INFO_TYPE));
-  new_break_point_info->set_code_position(Smi::FromInt(code_position));
-  new_break_point_info->set_source_position(Smi::FromInt(source_position));
-  new_break_point_info->
-      set_statement_position(Smi::FromInt(statement_position));
+  new_break_point_info->set_code_position(code_position);
+  new_break_point_info->set_source_position(source_position);
+  new_break_point_info->set_statement_position(statement_position);
   new_break_point_info->set_break_point_objects(
       isolate->heap()->undefined_value());
   BreakPointInfo::SetBreakPoint(new_break_point_info, break_point_object);
@@ -16179,7 +16283,7 @@ int DebugInfo::GetBreakPointInfoIndex(int code_position) {
     if (!break_points()->get(i)->IsUndefined()) {
       BreakPointInfo* break_point_info =
           BreakPointInfo::cast(break_points()->get(i));
-      if (break_point_info->code_position()->value() == code_position) {
+      if (break_point_info->code_position() == code_position) {
         return i;
       }
     }

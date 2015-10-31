@@ -11,7 +11,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/mips/macro-assembler-mips.h"
 #include "src/runtime/runtime.h"
@@ -4822,6 +4821,14 @@ void MacroAssembler::Prologue(bool code_pre_aging) {
     // Adjust fp to point to caller's fp.
     Addu(fp, sp, Operand(StandardFrameConstants::kFixedFrameSizeFromFp));
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  lw(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
+  lw(vector, FieldMemOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  lw(vector,
+     FieldMemOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 

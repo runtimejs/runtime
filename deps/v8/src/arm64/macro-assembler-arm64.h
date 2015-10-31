@@ -1149,9 +1149,9 @@ class MacroAssembler : public Assembler {
   void GetBuiltinFunction(Register target, int native_context_index);
 
   void Jump(Register target);
-  void Jump(Address target, RelocInfo::Mode rmode);
-  void Jump(Handle<Code> code, RelocInfo::Mode rmode);
-  void Jump(intptr_t target, RelocInfo::Mode rmode);
+  void Jump(Address target, RelocInfo::Mode rmode, Condition cond = al);
+  void Jump(Handle<Code> code, RelocInfo::Mode rmode, Condition cond = al);
+  void Jump(intptr_t target, RelocInfo::Mode rmode, Condition cond = al);
 
   void Call(Register target);
   void Call(Label* target);
@@ -1590,6 +1590,9 @@ class MacroAssembler : public Assembler {
 
   // ---------------------------------------------------------------------------
   // Frames.
+
+  // Load the type feedback vector from a JavaScript frame.
+  void EmitLoadTypeFeedbackVector(Register vector);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type);

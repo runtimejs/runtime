@@ -249,6 +249,12 @@ void BytecodeGraphBuilder::VisitStar(
 }
 
 
+void BytecodeGraphBuilder::VisitLdaGlobal(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
 void BytecodeGraphBuilder::VisitLoadIC(
     const interpreter::BytecodeArrayIterator& iterator) {
   UNIMPLEMENTED();
@@ -323,6 +329,108 @@ void BytecodeGraphBuilder::VisitDiv(
 void BytecodeGraphBuilder::VisitMod(
     const interpreter::BytecodeArrayIterator& iterator) {
   BuildBinaryOp(javascript()->Modulus(language_mode()), iterator);
+}
+
+
+void BytecodeGraphBuilder::VisitTestEqual(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestNotEqual(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestEqualStrict(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestNotEqualStrict(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestLessThan(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestGreaterThan(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestLessThanOrEqual(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestGreaterThanOrEqual(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestIn(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitTestInstanceOf(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitToBoolean(
+    const interpreter::BytecodeArrayIterator& ToBoolean) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJump(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJumpConstant(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJumpIfTrue(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJumpIfTrueConstant(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJumpIfFalse(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
+}
+
+
+void BytecodeGraphBuilder::VisitJumpIfFalseConstant(
+    const interpreter::BytecodeArrayIterator& iterator) {
+  UNIMPLEMENTED();
 }
 
 
@@ -412,12 +520,12 @@ Node* BytecodeGraphBuilder::MergeControl(Node* control, Node* other) {
     // Control node for loop exists, add input.
     const Operator* op = common()->Loop(inputs);
     control->AppendInput(graph_zone(), other);
-    control->set_op(op);
+    NodeProperties::ChangeOp(control, op);
   } else if (control->opcode() == IrOpcode::kMerge) {
     // Control node for merge exists, add input.
     const Operator* op = common()->Merge(inputs);
     control->AppendInput(graph_zone(), other);
-    control->set_op(op);
+    NodeProperties::ChangeOp(control, op);
   } else {
     // Control node is a singleton, introduce a merge.
     const Operator* op = common()->Merge(inputs);

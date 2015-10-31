@@ -52,28 +52,33 @@ from testrunner.objects import context
 
 
 ARCH_GUESS = utils.DefaultArch()
-DEFAULT_TESTS = [
-  "mjsunit",
-  "unittests",
-  "cctest",
-  "message",
-  "preparser",
-]
 
 # Map of test name synonyms to lists of test suites. Should be ordered by
 # expected runtimes (suites with slow test cases first). These groups are
 # invoked in seperate steps on the bots.
 TEST_MAP = {
+  "bot_default": [
+    "mjsunit",
+    "cctest",
+    "webkit",
+    "message",
+    "preparser",
+    "intl",
+    "unittests",
+  ],
   "default": [
     "mjsunit",
     "cctest",
     "message",
     "preparser",
+    "intl",
+    "unittests",
   ],
   "optimize_for_size": [
     "mjsunit",
     "cctest",
     "webkit",
+    "intl",
   ],
   "unittests": [
     "unittests",
@@ -83,6 +88,10 @@ TEST_MAP = {
 TIMEOUT_DEFAULT = 60
 
 VARIANTS = ["default", "stress", "turbofan", "nocrankshaft"]
+
+EXHAUSTIVE_VARIANTS = VARIANTS + [
+  # TODO(machenbach): Add always opt turbo variant.
+]
 
 DEBUG_FLAGS = ["--nohard-abort", "--nodead-code-elimination",
                "--nofold-constants", "--enable-slow-asserts",
@@ -146,6 +155,7 @@ SUPPORTED_ARCHS = ["android_arm",
                    "x87",
                    "mips",
                    "mipsel",
+                   "mips64",
                    "mips64el",
                    "nacl_ia32",
                    "nacl_x64",
@@ -162,6 +172,7 @@ SLOW_ARCHS = ["android_arm",
               "arm",
               "mips",
               "mipsel",
+              "mips64",
               "mips64el",
               "nacl_ia32",
               "nacl_x64",
@@ -171,9 +182,11 @@ SLOW_ARCHS = ["android_arm",
 
 def BuildOptions():
   result = optparse.OptionParser()
+  result.usage = '%prog [options] [tests]'
+  result.description = """TESTS: %s""" % (TEST_MAP["default"])
   result.add_option("--arch",
                     help=("The architecture to run tests for, "
-                          "'auto' or 'native' for auto-detect"),
+                          "'auto' or 'native' for auto-detect: %s" % SUPPORTED_ARCHS),
                     default="ia32,x64,arm")
   result.add_option("--arch-and-mode",
                     help="Architecture and mode in the format 'arch.mode'",
@@ -220,7 +233,8 @@ def BuildOptions():
   result.add_option("-j", help="The number of parallel tasks to run",
                     default=0, type="int")
   result.add_option("-m", "--mode",
-                    help="The test modes in which to run (comma-separated)",
+                    help="The test modes in which to run (comma-separated,"
+                    " uppercase for ninja and buildbot builds): %s" % MODES.keys(),
                     default="release,debug")
   result.add_option("--no-harness", "--noharness",
                     help="Run without test harness of a given suite",
@@ -248,7 +262,10 @@ def BuildOptions():
                     help="Don't run any testing variants",
                     default=False, dest="no_variants", action="store_true")
   result.add_option("--variants",
-                    help="Comma-separated list of testing variants")
+                    help="Comma-separated list of testing variants: %s" % VARIANTS)
+  result.add_option("--exhaustive-variants",
+                    default=False, action="store_true",
+                    help="Use exhaustive set of default variants.")
   result.add_option("--outdir", help="Base directory with compile output",
                     default="out")
   result.add_option("--predictable",
@@ -333,6 +350,7 @@ def BuildbotToV8Mode(config):
 
 def ProcessOptions(options):
   global ALL_VARIANTS
+  global EXHAUSTIVE_VARIANTS
   global VARIANTS
 
   # Architecture and mode related stuff.
@@ -383,6 +401,11 @@ def ProcessOptions(options):
 
   if options.novfp3:
     options.extra_flags.append("--noenable-vfp3")
+
+  if options.exhaustive_variants:
+    # This is used on many bots. It includes a larger set of default variants.
+    # Other options for manipulating variants still apply afterwards.
+    VARIANTS = EXHAUSTIVE_VARIANTS
 
   if options.msan:
     VARIANTS = ["default"]
@@ -452,8 +475,8 @@ def ProcessOptions(options):
     return False
   if not CheckTestMode("pass|fail test", options.pass_fail_tests):
     return False
-  if not options.no_i18n:
-    DEFAULT_TESTS.append("intl")
+  if options.no_i18n:
+    TEST_MAP["default"].remove("intl")
   return True
 
 
@@ -489,6 +512,10 @@ def Main():
 
   suite_paths = utils.GetSuitePaths(join(workspace, "test"))
 
+  # Use default tests if no test configuration was provided at the cmd line.
+  if len(args) == 0:
+    args = ["default"]
+
   # Expand arguments with grouped tests. The args should reflect the list of
   # suites as otherwise filters would break.
   def ExpandTestGroups(name):
@@ -500,13 +527,10 @@ def Main():
          [ExpandTestGroups(arg) for arg in args],
          [])
 
-  if len(args) == 0:
-    suite_paths = [ s for s in DEFAULT_TESTS if s in suite_paths ]
-  else:
-    args_suites = OrderedDict() # Used as set
-    for arg in args:
-      args_suites[arg.split('/')[0]] = True
-    suite_paths = [ s for s in args_suites if s in suite_paths ]
+  args_suites = OrderedDict() # Used as set
+  for arg in args:
+    args_suites[arg.split('/')[0]] = True
+  suite_paths = [ s for s in args_suites if s in suite_paths ]
 
   suites = []
   for root in suite_paths:
@@ -548,6 +572,8 @@ def Execute(arch, mode, args, options, suites, workspace):
           "%s.%s" % (arch, MODES[mode]["output_folder"]),
       )
   shell_dir = os.path.relpath(shell_dir)
+  if not os.path.exists(shell_dir):
+      raise Exception('Could not find shell_dir: "%s"' % shell_dir)
 
   # Populate context object.
   mode_flags = MODES[mode]["flags"]
@@ -586,7 +612,7 @@ def Execute(arch, mode, args, options, suites, workspace):
 
   # TODO(all): Combine "simulator" and "simulator_run".
   simulator_run = not options.dont_skip_simulator_slow_tests and \
-      arch in ['arm64', 'arm', 'mipsel', 'mips', 'mips64el', \
+      arch in ['arm64', 'arm', 'mipsel', 'mips', 'mips64', 'mips64el', \
                'ppc', 'ppc64'] and \
       ARCH_GUESS and arch != ARCH_GUESS
   # Find available test suites and read test cases from them.

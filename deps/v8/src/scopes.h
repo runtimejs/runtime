@@ -57,6 +57,23 @@ class DynamicScopePart : public ZoneObject {
 };
 
 
+// Sloppy block-scoped function declarations to var-bind
+class SloppyBlockFunctionMap : public ZoneHashMap {
+ public:
+  explicit SloppyBlockFunctionMap(Zone* zone);
+
+  virtual ~SloppyBlockFunctionMap();
+
+  void Declare(const AstRawString* name,
+               SloppyBlockFunctionStatement* statement);
+
+  typedef ZoneVector<SloppyBlockFunctionStatement*> Vector;
+
+ private:
+  Zone* zone_;
+};
+
+
 // Global invariants after AST construction: Each reference (i.e. identifier)
 // to a JavaScript variable (including global properties) is represented by a
 // VariableProxy node. Immediately after AST construction and before variable
@@ -330,7 +347,7 @@ class Scope: public ZoneObject {
     return scope_uses_super_property_ ||
            (scope_calls_eval_ && (IsConciseMethod(function_kind()) ||
                                   IsAccessorFunction(function_kind()) ||
-                                  IsConstructor(function_kind())));
+                                  IsClassConstructor(function_kind())));
   }
 
   const Scope* NearestOuterEvalScope() const {
@@ -428,7 +445,7 @@ class Scope: public ZoneObject {
   Variable* this_function_var() const {
     // This is only used in derived constructors atm.
     DCHECK(this_function_ == nullptr ||
-           (is_function_scope() && (IsConstructor(function_kind()) ||
+           (is_function_scope() && (IsClassConstructor(function_kind()) ||
                                     IsConciseMethod(function_kind()) ||
                                     IsAccessorFunction(function_kind()))));
     return this_function_;
@@ -544,6 +561,10 @@ class Scope: public ZoneObject {
     return params_.Contains(variables_.Lookup(name));
   }
 
+  SloppyBlockFunctionMap* sloppy_block_function_map() {
+    return &sloppy_block_function_map_;
+  }
+
   // Error handling.
   void ReportMessage(int start_position, int end_position,
                      MessageTemplate::Template message,
@@ -601,6 +622,9 @@ class Scope: public ZoneObject {
   Variable* this_function_;
   // Module descriptor; module scopes only.
   ModuleDescriptor* module_descriptor_;
+
+  // Map of function names to lists of functions defined in sloppy blocks
+  SloppyBlockFunctionMap sloppy_block_function_map_;
 
   // Illegal redeclaration.
   Expression* illegal_redecl_;

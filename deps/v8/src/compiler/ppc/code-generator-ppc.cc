@@ -187,8 +187,7 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
 #else
       return ge;
 #endif
-    case kUnorderedEqual:
-    case kUnorderedNotEqual:
+    default:
       break;
   }
   UNREACHABLE();
@@ -1076,6 +1075,20 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
 #endif
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
       break;
+    case kPPC_BitcastFloat32ToInt32:
+      __ MovFloatToInt(i.OutputRegister(), i.InputDoubleRegister(0));
+      break;
+    case kPPC_BitcastInt32ToFloat32:
+      __ MovIntToFloat(i.OutputDoubleRegister(), i.InputRegister(0));
+      break;
+#if V8_TARGET_ARCH_PPC64
+    case kPPC_BitcastDoubleToInt64:
+      __ MovDoubleToInt64(i.OutputRegister(), i.InputDoubleRegister(0));
+      break;
+    case kPPC_BitcastInt64ToDouble:
+      __ MovInt64ToDouble(i.OutputDoubleRegister(), i.InputRegister(0));
+      break;
+#endif
     case kPPC_LoadWordU8:
       ASSEMBLE_LOAD_INTEGER(lbz, lbzx);
       break;

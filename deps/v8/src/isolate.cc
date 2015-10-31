@@ -18,11 +18,9 @@
 #include "src/codegen.h"
 #include "src/compilation-cache.h"
 #include "src/compilation-statistics.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
 #include "src/frames-inl.h"
-#include "src/heap-profiler.h"
 #include "src/hydrogen.h"
 #include "src/ic/stub-cache.h"
 #include "src/interpreter/interpreter.h"
@@ -30,10 +28,11 @@
 #include "src/lithium-allocator.h"
 #include "src/log.h"
 #include "src/messages.h"
+#include "src/profiler/cpu-profiler.h"
+#include "src/profiler/sampler.h"
 #include "src/prototype.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/runtime-profiler.h"
-#include "src/sampler.h"
 #include "src/scopeinfo.h"
 #include "src/simulator.h"
 #include "src/snapshot/serialize.h"
@@ -501,7 +500,7 @@ class CaptureStackTraceHelper {
     Handle<Script> script(Script::cast(fun->shared()->script()));
 
     if (!line_key_.is_null()) {
-      int script_line_offset = script->line_offset()->value();
+      int script_line_offset = script->line_offset();
       int line_number = Script::GetLineNumber(script, position);
       // line_number is already shifted by the script_line_offset.
       int relative_line_number = line_number - script_line_offset;
@@ -513,7 +512,7 @@ class CaptureStackTraceHelper {
         if (relative_line_number == 0) {
           // For the case where the code is on the same line as the script
           // tag.
-          column_offset += script->column_offset()->value();
+          column_offset += script->column_offset();
         }
         JSObject::AddProperty(stack_frame, column_key_,
                               handle(Smi::FromInt(column_offset + 1), isolate_),
@@ -526,7 +525,7 @@ class CaptureStackTraceHelper {
 
     if (!script_id_key_.is_null()) {
       JSObject::AddProperty(stack_frame, script_id_key_,
-                            handle(script->id(), isolate_), NONE);
+                            handle(Smi::FromInt(script->id()), isolate_), NONE);
     }
 
     if (!script_name_key_.is_null()) {

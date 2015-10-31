@@ -8,7 +8,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/runtime/runtime.h"
 
@@ -1877,24 +1876,31 @@ void MacroAssembler::Jump(Register target) {
 }
 
 
-void MacroAssembler::Jump(intptr_t target, RelocInfo::Mode rmode) {
+void MacroAssembler::Jump(intptr_t target, RelocInfo::Mode rmode,
+                          Condition cond) {
+  if (cond == nv) return;
   UseScratchRegisterScope temps(this);
   Register temp = temps.AcquireX();
+  Label done;
+  if (cond != al) B(NegateCondition(cond), &done);
   Mov(temp, Operand(target, rmode));
   Br(temp);
+  Bind(&done);
 }
 
 
-void MacroAssembler::Jump(Address target, RelocInfo::Mode rmode) {
+void MacroAssembler::Jump(Address target, RelocInfo::Mode rmode,
+                          Condition cond) {
   DCHECK(!RelocInfo::IsCodeTarget(rmode));
-  Jump(reinterpret_cast<intptr_t>(target), rmode);
+  Jump(reinterpret_cast<intptr_t>(target), rmode, cond);
 }
 
 
-void MacroAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode) {
+void MacroAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
+                          Condition cond) {
   DCHECK(RelocInfo::IsCodeTarget(rmode));
   AllowDeferredHandleDereference embedding_raw_address;
-  Jump(reinterpret_cast<intptr_t>(code.location()), rmode);
+  Jump(reinterpret_cast<intptr_t>(code.location()), rmode, cond);
 }
 
 
@@ -2770,6 +2776,14 @@ void MacroAssembler::Prologue(bool code_pre_aging) {
   } else {
     __ EmitFrameSetupForCodeAgePatching();
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  Ldr(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
+  Ldr(vector, FieldMemOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  Ldr(vector,
+      FieldMemOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 

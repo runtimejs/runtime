@@ -79,14 +79,11 @@ enum BindingFlags {
   V(MAKE_RANGE_ERROR_INDEX, JSFunction, make_range_error)                 \
   V(MAKE_TYPE_ERROR_INDEX, JSFunction, make_type_error)                   \
   V(NON_NUMBER_TO_NUMBER_INDEX, JSFunction, non_number_to_number)         \
-  V(NON_STRING_TO_STRING_INDEX, JSFunction, non_string_to_string)         \
   V(REFLECT_APPLY_INDEX, JSFunction, reflect_apply)                       \
   V(REFLECT_CONSTRUCT_INDEX, JSFunction, reflect_construct)               \
   V(SPREAD_ARGUMENTS_INDEX, JSFunction, spread_arguments)                 \
   V(SPREAD_ITERABLE_INDEX, JSFunction, spread_iterable)                   \
-  V(TO_LENGTH_FUN_INDEX, JSFunction, to_length_fun)                       \
-  V(TO_NUMBER_FUN_INDEX, JSFunction, to_number_fun)                       \
-  V(TO_STRING_FUN_INDEX, JSFunction, to_string_fun)
+  V(TO_NUMBER_FUN_INDEX, JSFunction, to_number_fun)
 
 
 #define NATIVE_CONTEXT_JS_BUILTINS(V)                                 \
@@ -132,6 +129,8 @@ enum BindingFlags {
   V(NATIVE_OBJECT_OBSERVE_INDEX, JSFunction, native_object_observe)           \
   V(NO_SIDE_EFFECT_TO_STRING_FUN_INDEX, JSFunction,                           \
     no_side_effect_to_string_fun)                                             \
+  V(OBJECT_VALUE_OF, JSFunction, object_value_of)                             \
+  V(OBJECT_TO_STRING, JSFunction, object_to_string)                           \
   V(OBJECT_DEFINE_OWN_PROPERTY_INDEX, JSFunction, object_define_own_property) \
   V(OBJECT_GET_OWN_PROPERTY_DESCROPTOR_INDEX, JSFunction,                     \
     object_get_own_property_descriptor)                                       \
@@ -159,7 +158,6 @@ enum BindingFlags {
   V(TO_COMPLETE_PROPERTY_DESCRIPTOR_INDEX, JSFunction,                        \
     to_complete_property_descriptor)                                          \
   V(TO_DETAIL_STRING_FUN_INDEX, JSFunction, to_detail_string_fun)             \
-  V(TO_INTEGER_FUN_INDEX, JSFunction, to_integer_fun)                         \
   V(TYPE_ERROR_FUNCTION_INDEX, JSFunction, type_error_function)               \
   V(URI_ERROR_FUNCTION_INDEX, JSFunction, uri_error_function)                 \
   NATIVE_CONTEXT_JS_BUILTINS(V)
@@ -176,7 +174,10 @@ enum BindingFlags {
   V(BOOL32X4_FUNCTION_INDEX, JSFunction, bool32x4_function)                    \
   V(BOOL8X16_FUNCTION_INDEX, JSFunction, bool8x16_function)                    \
   V(BOOLEAN_FUNCTION_INDEX, JSFunction, boolean_function)                      \
-  V(BOUND_FUNCTION_MAP_INDEX, Map, bound_function_map)                         \
+  V(BOUND_FUNCTION_WITH_CONSTRUCTOR_MAP_INDEX, Map,                            \
+    bound_function_with_constructor_map)                                       \
+  V(BOUND_FUNCTION_WITHOUT_CONSTRUCTOR_MAP_INDEX, Map,                         \
+    bound_function_without_constructor_map)                                    \
   V(CALL_AS_CONSTRUCTOR_DELEGATE_INDEX, JSFunction,                            \
     call_as_constructor_delegate)                                              \
   V(CALL_AS_FUNCTION_DELEGATE_INDEX, JSFunction, call_as_function_delegate)    \
@@ -217,6 +218,7 @@ enum BindingFlags {
   V(NORMALIZED_MAP_CACHE_INDEX, Object, normalized_map_cache)                  \
   V(NUMBER_FUNCTION_INDEX, JSFunction, number_function)                        \
   V(OBJECT_FUNCTION_INDEX, JSFunction, object_function)                        \
+  V(OBJECT_FUNCTION_PROTOTYPE_MAP_INDEX, Map, object_function_prototype_map)   \
   V(OPAQUE_REFERENCE_FUNCTION_INDEX, JSFunction, opaque_reference_function)    \
   V(REGEXP_FUNCTION_INDEX, JSFunction, regexp_function)                        \
   V(REGEXP_RESULT_MAP_INDEX, Map, regexp_result_map)                           \
@@ -512,7 +514,7 @@ class Context: public FixedArray {
                                       : SLOPPY_GENERATOR_FUNCTION_MAP_INDEX;
     }
 
-    if (IsConstructor(kind)) {
+    if (IsClassConstructor(kind)) {
       // Use strict function map (no own "caller" / "arguments")
       return is_strong(language_mode) ? STRONG_CONSTRUCTOR_MAP_INDEX
                                       : STRICT_FUNCTION_MAP_INDEX;

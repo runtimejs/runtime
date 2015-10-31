@@ -1102,14 +1102,15 @@ function initializeNumberFormat(numberFormat, locales, options) {
 
   var mnfd = options['minimumFractionDigits'];
   var mxfd = options['maximumFractionDigits'];
-  if (!IS_UNDEFINED(mnfd) || !internalOptions.style === 'currency') {
+  if (!IS_UNDEFINED(mnfd) || internalOptions.style !== 'currency') {
     mnfd = getNumberOption(options, 'minimumFractionDigits', 0, 20, 0);
     defineWEProperty(internalOptions, 'minimumFractionDigits', mnfd);
   }
 
-  if (!IS_UNDEFINED(mxfd) || !internalOptions.style === 'currency') {
+  if (!IS_UNDEFINED(mxfd) || internalOptions.style !== 'currency') {
+    var min_mxfd = internalOptions.style === 'percent' ? 0 : 3;
     mnfd = IS_UNDEFINED(mnfd) ? 0 : mnfd;
-    fallback_limit = (mnfd > 3) ? mnfd : 3;
+    fallback_limit = (mnfd > min_mxfd) ? mnfd : min_mxfd;
     mxfd = getNumberOption(options, 'maximumFractionDigits', mnfd, 20, fallback_limit);
     defineWEProperty(internalOptions, 'maximumFractionDigits', mxfd);
   }
@@ -2004,10 +2005,10 @@ OverrideFunction(GlobalString.prototype, 'normalize', function() {
     }
 
     CHECK_OBJECT_COERCIBLE(this, "String.prototype.normalize");
-    var s = TO_STRING_INLINE(this);
+    var s = TO_STRING(this);
 
     var formArg = %_Arguments(0);
-    var form = IS_UNDEFINED(formArg) ? 'NFC' : TO_STRING_INLINE(formArg);
+    var form = IS_UNDEFINED(formArg) ? 'NFC' : TO_STRING(formArg);
 
     var NORMALIZATION_FORMS = ['NFC', 'NFD', 'NFKC', 'NFKD'];
 

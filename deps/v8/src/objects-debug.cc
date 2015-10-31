@@ -22,6 +22,7 @@ void Object::ObjectVerify() {
   } else {
     HeapObject::cast(this)->HeapObjectVerify();
   }
+  CHECK(!IsConstructor() || IsCallable());
 }
 
 
@@ -37,6 +38,7 @@ void Object::VerifyPointer(Object* p) {
 void Smi::SmiVerify() {
   CHECK(IsSmi());
   CHECK(!IsCallable());
+  CHECK(!IsConstructor());
 }
 
 
@@ -209,7 +211,6 @@ void Symbol::SymbolVerify() {
   CHECK(HasHashCode());
   CHECK_GT(Hash(), 0u);
   CHECK(name()->IsUndefined() || name()->IsString());
-  CHECK(flags()->IsSmi());
 }
 
 
@@ -896,7 +897,6 @@ void PrototypeInfo::PrototypeInfoVerify() {
 
 void AccessorInfo::AccessorInfoVerify() {
   VerifyPointer(name());
-  VerifyPointer(flag());
   VerifyPointer(expected_receiver_type());
 }
 
@@ -1004,12 +1004,8 @@ void Script::ScriptVerify() {
   CHECK(IsScript());
   VerifyPointer(source());
   VerifyPointer(name());
-  line_offset()->SmiVerify();
-  column_offset()->SmiVerify();
   VerifyPointer(wrapper());
-  type()->SmiVerify();
   VerifyPointer(line_ends());
-  VerifyPointer(id());
 }
 
 
@@ -1038,9 +1034,6 @@ void DebugInfo::DebugInfoVerify() {
 
 void BreakPointInfo::BreakPointInfoVerify() {
   CHECK(IsBreakPointInfo());
-  code_position()->SmiVerify();
-  source_position()->SmiVerify();
-  statement_position()->SmiVerify();
   VerifyPointer(break_point_objects());
 }
 #endif  // VERIFY_HEAP

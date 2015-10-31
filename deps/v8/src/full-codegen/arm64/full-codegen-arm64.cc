@@ -289,31 +289,26 @@ void FullCodeGenerator::Generate() {
   if (arguments != NULL) {
     // Function uses arguments object.
     Comment cmnt(masm_, "[ Allocate arguments object");
+    DCHECK(x1.is(ArgumentsAccessNewDescriptor::function()));
     if (!function_in_register_x1) {
       // Load this again, if it's used by the local context below.
-      __ Ldr(x3, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-    } else {
-      __ Mov(x3, x1);
+      __ Ldr(x1, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
     }
     // Receiver is just before the parameters on the caller's stack.
     int num_parameters = info->scope()->num_parameters();
     int offset = num_parameters * kPointerSize;
-    __ Add(x2, fp, StandardFrameConstants::kCallerSPOffset + offset);
-    __ Mov(x1, Smi::FromInt(num_parameters));
-    __ Push(x3, x2, x1);
+    __ Mov(ArgumentsAccessNewDescriptor::parameter_count(),
+           Smi::FromInt(num_parameters));
+    __ Add(ArgumentsAccessNewDescriptor::parameter_pointer(), fp,
+           StandardFrameConstants::kCallerSPOffset + offset);
 
     // Arguments to ArgumentsAccessStub:
-    //   function, receiver address, parameter count.
-    // The stub will rewrite receiver and parameter count if the previous
-    // stack frame was an arguments adapter frame.
-    ArgumentsAccessStub::Type type;
-    if (is_strict(language_mode()) || !has_simple_parameters()) {
-      type = ArgumentsAccessStub::NEW_STRICT;
-    } else if (literal()->has_duplicate_parameters()) {
-      type = ArgumentsAccessStub::NEW_SLOPPY_SLOW;
-    } else {
-      type = ArgumentsAccessStub::NEW_SLOPPY_FAST;
-    }
+    //   function, parameter pointer, parameter count.
+    // The stub will rewrite parameter pointer and parameter count if the
+    // previous stack frame was an arguments adapter frame.
+    bool is_unmapped = is_strict(language_mode()) || !has_simple_parameters();
+    ArgumentsAccessStub::Type type = ArgumentsAccessStub::ComputeType(
+        is_unmapped, literal()->has_duplicate_parameters());
     ArgumentsAccessStub stub(isolate(), type);
     __ CallStub(&stub);
 
@@ -1128,9 +1123,9 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   // We got a fixed array in register x0. Iterate through that.
   __ Bind(&fixed_array);
 
-  __ LoadObject(x1, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(x1);
   __ Mov(x10, Operand(TypeFeedbackVector::MegamorphicSentinel(isolate())));
-  int vector_index = FeedbackVector()->GetIndex(slot);
+  int vector_index = SmiFromSlot(slot)->value();
   __ Str(x10, FieldMemOperand(x1, FixedArray::OffsetOfElementAt(vector_index)));
 
   __ Mov(x1, Smi::FromInt(1));  // Smi indicates slow check.
@@ -1492,8 +1487,7 @@ void FullCodeGenerator::VisitRegExpLiteral(RegExpLiteral* expr) {
   // x0 = RegExp literal clone
   __ Ldr(x10, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
   __ Ldr(x4, FieldMemOperand(x10, JSFunction::kLiteralsOffset));
-  int literal_offset =
-      FixedArray::kHeaderSize + expr->literal_index() * kPointerSize;
+  int literal_offset = LiteralsArray::OffsetOfLiteralAt(expr->literal_index());
   __ Ldr(x5, FieldMemOperand(x4, literal_offset));
   __ JumpIfNotRoot(x5, Heap::kUndefinedValueRootIndex, &materialized);
 
@@ -2898,7 +2892,7 @@ void FullCodeGenerator::VisitCallNew(CallNew* expr) {
   __ Peek(x1, arg_count * kXRegSize);
 
   // Record call targets in unoptimized code.
-  __ LoadObject(x2, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(x2);
   __ Mov(x3, SmiFromSlot(expr->CallNewFeedbackSlot()));
 
   CallConstructStub stub(isolate(), RECORD_CONSTRUCTOR_TARGET);
@@ -2938,7 +2932,7 @@ void FullCodeGenerator::EmitSuperConstructorCall(Call* expr) {
   __ Peek(x1, arg_count * kXRegSize);
 
   // Record call targets in unoptimized code.
-  __ LoadObject(x2, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(x2);
   __ Mov(x3, SmiFromSlot(expr->CallFeedbackSlot()));
 
   CallConstructStub stub(isolate(), SUPER_CALL_RECORD_TARGET);
@@ -3481,6 +3475,23 @@ void FullCodeGenerator::EmitSetValueOf(CallRuntime* expr) {
 }
 
 
+void FullCodeGenerator::EmitToInteger(CallRuntime* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  DCHECK_EQ(1, args->length());
+
+  // Load the argument into x0 and convert it.
+  VisitForAccumulatorValue(args->at(0));
+
+  // Convert the object to an integer.
+  Label done_convert;
+  __ JumpIfSmi(x0, &done_convert);
+  __ Push(x0);
+  __ CallRuntime(Runtime::kToInteger, 1);
+  __ bind(&done_convert);
+  context()->Plug(x0);
+}
+
+
 void FullCodeGenerator::EmitNumberToString(CallRuntime* expr) {
   ZoneList<Expression*>* args = expr->arguments();
   DCHECK_EQ(args->length(), 1);
@@ -3519,8 +3530,8 @@ void FullCodeGenerator::EmitToName(CallRuntime* expr) {
   STATIC_ASSERT(FIRST_NAME_TYPE == FIRST_TYPE);
   __ JumpIfObjectType(x0, x1, x1, LAST_NAME_TYPE, &done_convert, ls);
   __ Bind(&convert);
-  ToStringStub stub(isolate());
-  __ CallStub(&stub);
+  __ Push(x0);
+  __ CallRuntime(Runtime::kToName, 1);
   __ Bind(&done_convert);
   context()->Plug(x0);
 }
@@ -3729,8 +3740,8 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
   VisitForStackValue(args->at(0));
   VisitForStackValue(args->at(1));
 
-  // Load original constructor into x4.
-  __ Peek(x4, 1 * kPointerSize);
+  // Load original constructor into x3.
+  __ Peek(x3, 1 * kPointerSize);
 
   // Check if the calling frame is an arguments adaptor frame.
   Label adaptor_frame, args_set_up, runtime;
@@ -3765,10 +3776,7 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
 
   __ bind(&args_set_up);
   __ Peek(x1, Operand(x0, LSL, kPointerSizeLog2));
-  __ LoadRoot(x2, Heap::kUndefinedValueRootIndex);
-
-  CallConstructStub stub(isolate(), SUPER_CONSTRUCTOR_CALL);
-  __ Call(stub.GetCode(), RelocInfo::CONSTRUCT_CALL);
+  __ Call(isolate()->builtins()->Construct(), RelocInfo::CONSTRUCT_CALL);
 
   // Restore context register.
   __ Ldr(cp, MemOperand(fp, StandardFrameConstants::kContextOffset));

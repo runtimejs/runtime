@@ -121,7 +121,7 @@ class CompilationInfo {
     kDeoptimizationSupport = 1 << 5,
     kDebug = 1 << 6,
     kSerializing = 1 << 7,
-    kContextSpecializing = 1 << 8,
+    kFunctionContextSpecializing = 1 << 8,
     kFrameSpecializing = 1 << 9,
     kInliningEnabled = 1 << 10,
     kTypingEnabled = 1 << 11,
@@ -221,9 +221,13 @@ class CompilationInfo {
 
   bool will_serialize() const { return GetFlag(kSerializing); }
 
-  void MarkAsContextSpecializing() { SetFlag(kContextSpecializing); }
+  void MarkAsFunctionContextSpecializing() {
+    SetFlag(kFunctionContextSpecializing);
+  }
 
-  bool is_context_specializing() const { return GetFlag(kContextSpecializing); }
+  bool is_function_context_specializing() const {
+    return GetFlag(kFunctionContextSpecializing);
+  }
 
   void MarkAsFrameSpecializing() { SetFlag(kFrameSpecializing); }
 
@@ -299,6 +303,7 @@ class CompilationInfo {
     osr_ast_id_ = osr_ast_id;
     unoptimized_code_ = unoptimized;
     optimization_id_ = isolate()->NextOptimizationId();
+    set_output_code_kind(Code::OPTIMIZED_FUNCTION);
   }
 
   void SetFunctionType(Type::FunctionType* function_type) {
@@ -412,6 +417,10 @@ class CompilationInfo {
 
   base::SmartArrayPointer<char> GetDebugName() const;
 
+  Code::Kind output_code_kind() const { return output_code_kind_; }
+
+  void set_output_code_kind(Code::Kind kind) { output_code_kind_ = kind; }
+
  protected:
   ParseInfo* parse_info_;
 
@@ -450,6 +459,8 @@ class CompilationInfo {
   bool GetFlag(Flag flag) const { return (flags_ & flag) != 0; }
 
   unsigned flags_;
+
+  Code::Kind output_code_kind_;
 
   // For compiled stubs, the stub object
   CodeStub* code_stub_;

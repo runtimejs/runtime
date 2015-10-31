@@ -187,8 +187,8 @@ class Simulator : public DecoderVisitor {
   // generated RegExp code with 10 parameters. These are convenience functions,
   // which set up the simulator state and grab the result on return.
   int64_t CallJS(byte* entry,
-                 byte* function_entry,
-                 JSFunction* func,
+                 Object* new_target,
+                 Object* target,
                  Object* revc,
                  int64_t argc,
                  Object*** argv);

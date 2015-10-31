@@ -8,13 +8,13 @@
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/hydrogen-osr.h"
 #include "src/ia32/frames-ia32.h"
 #include "src/ia32/lithium-codegen-ia32.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -5281,7 +5281,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // eax = regexp literal clone.
   // esi = context.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ LoadHeapObject(ecx, instr->hydrogen()->literals());
   __ mov(ebx, FieldOperand(ecx, literal_offset));
   __ cmp(ebx, factory()->undefined_value());

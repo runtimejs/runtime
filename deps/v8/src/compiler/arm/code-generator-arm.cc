@@ -220,12 +220,27 @@ Condition FlagsConditionToCondition(FlagsCondition condition) {
       return ls;
     case kUnsignedGreaterThan:
       return hi;
+    case kFloatLessThanOrUnordered:
+      return lt;
+    case kFloatGreaterThanOrEqual:
+      return ge;
+    case kFloatLessThanOrEqual:
+      return ls;
+    case kFloatGreaterThanOrUnordered:
+      return hi;
+    case kFloatLessThan:
+      return lo;
+    case kFloatGreaterThanOrEqualOrUnordered:
+      return hs;
+    case kFloatLessThanOrEqualOrUnordered:
+      return le;
+    case kFloatGreaterThan:
+      return gt;
     case kOverflow:
       return vs;
     case kNotOverflow:
       return vc;
-    case kUnorderedEqual:
-    case kUnorderedNotEqual:
+    default:
       break;
   }
   UNREACHABLE();
@@ -573,8 +588,8 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       } else {
         DCHECK(instr->InputAt(1)->IsImmediate());
         // 0.0 is the only immediate supported by vcmp instructions.
-        DCHECK(i.InputDouble(1) == 0.0);
-        __ VFPCompareAndSetFlags(i.InputFloat32Register(0), i.InputDouble(1));
+        DCHECK(i.InputFloat32(1) == 0.0f);
+        __ VFPCompareAndSetFlags(i.InputFloat32Register(0), i.InputFloat32(1));
       }
       DCHECK_EQ(SetCC, i.OutputSBit());
       break;
@@ -816,10 +831,9 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
     }
     case kArmPush:
       if (instr->InputAt(0)->IsDoubleRegister()) {
-        __ vstr(i.InputDoubleRegister(0), MemOperand(sp, -kDoubleSize));
-        __ sub(sp, sp, Operand(kDoubleSize));
+        __ vpush(i.InputDoubleRegister(0));
       } else {
-        __ Push(i.InputRegister(0));
+        __ push(i.InputRegister(0));
       }
       DCHECK_EQ(LeaveCC, i.OutputSBit());
       break;

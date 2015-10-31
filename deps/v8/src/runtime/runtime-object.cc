@@ -1056,9 +1056,8 @@ static Object* Runtime_NewObjectHelper(Isolate* isolate,
       Handle<JSFunction>::cast(original_constructor);
 
 
-  // If function should not have prototype, construction is not allowed. In this
-  // case generated code bailouts here, since function has no initial_map.
-  if (!function->should_have_prototype() && !function->shared()->bound()) {
+  // Check that function is a constructor.
+  if (!function->IsConstructor()) {
     THROW_NEW_ERROR_RETURN_FAILURE(
         isolate, NewTypeError(MessageTemplate::kNotConstructor, constructor));
   }
@@ -1204,7 +1203,7 @@ RUNTIME_FUNCTION(Runtime_IsJSGlobalProxy) {
 
 
 static bool IsValidAccessor(Handle<Object> obj) {
-  return obj->IsUndefined() || obj->IsSpecFunction() || obj->IsNull();
+  return obj->IsUndefined() || obj->IsCallable() || obj->IsNull();
 }
 
 
@@ -1443,6 +1442,28 @@ RUNTIME_FUNCTION(Runtime_ToNumber) {
   CONVERT_ARG_HANDLE_CHECKED(Object, input, 0);
   Handle<Object> result;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result, Object::ToNumber(input));
+  return *result;
+}
+
+
+RUNTIME_FUNCTION(Runtime_ToInteger) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(Object, input, 0);
+  Handle<Object> result;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result,
+                                     Object::ToInteger(isolate, input));
+  return *result;
+}
+
+
+RUNTIME_FUNCTION(Runtime_ToLength) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(Object, input, 0);
+  Handle<Object> result;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result,
+                                     Object::ToLength(isolate, input));
   return *result;
 }
 

@@ -454,10 +454,10 @@ const CreateClosureParameters& CreateClosureParametersOf(const Operator* op) {
 #define CACHED_OP_LIST(V)                                 \
   V(Equal, Operator::kNoProperties, 2, 1)                 \
   V(NotEqual, Operator::kNoProperties, 2, 1)              \
-  V(StrictEqual, Operator::kPure, 2, 1)                   \
-  V(StrictNotEqual, Operator::kPure, 2, 1)                \
-  V(UnaryNot, Operator::kPure, 1, 1)                      \
-  V(ToBoolean, Operator::kPure, 1, 1)                     \
+  V(StrictEqual, Operator::kNoThrow, 2, 1)                \
+  V(StrictNotEqual, Operator::kNoThrow, 2, 1)             \
+  V(UnaryNot, Operator::kEliminatable, 1, 1)              \
+  V(ToBoolean, Operator::kEliminatable, 1, 1)             \
   V(ToNumber, Operator::kNoProperties, 1, 1)              \
   V(ToString, Operator::kNoProperties, 1, 1)              \
   V(ToName, Operator::kNoProperties, 1, 1)                \
@@ -465,7 +465,7 @@ const CreateClosureParameters& CreateClosureParametersOf(const Operator* op) {
   V(Yield, Operator::kNoProperties, 1, 1)                 \
   V(Create, Operator::kEliminatable, 0, 1)                \
   V(HasProperty, Operator::kNoProperties, 2, 1)           \
-  V(TypeOf, Operator::kPure, 1, 1)                        \
+  V(TypeOf, Operator::kEliminatable, 1, 1)                \
   V(InstanceOf, Operator::kNoProperties, 2, 1)            \
   V(ForInDone, Operator::kPure, 2, 1)                     \
   V(ForInNext, Operator::kNoProperties, 4, 1)             \
@@ -474,9 +474,7 @@ const CreateClosureParameters& CreateClosureParametersOf(const Operator* op) {
   V(StackCheck, Operator::kNoProperties, 0, 0)            \
   V(CreateFunctionContext, Operator::kNoProperties, 1, 1) \
   V(CreateWithContext, Operator::kNoProperties, 2, 1)     \
-  V(CreateBlockContext, Operator::kNoProperties, 2, 1)    \
-  V(CreateModuleContext, Operator::kNoProperties, 2, 1)   \
-  V(CreateScriptContext, Operator::kNoProperties, 2, 1)
+  V(CreateModuleContext, Operator::kNoProperties, 2, 1)
 
 
 #define CACHED_OP_LIST_WITH_LANGUAGE_MODE(V)           \
@@ -783,6 +781,28 @@ const Operator* JSOperatorBuilder::CreateCatchContext(
       "JSCreateCatchContext",                                    // name
       2, 1, 1, 1, 1, 2,                                          // counts
       name);                                                     // parameter
+}
+
+
+const Operator* JSOperatorBuilder::CreateBlockContext(
+    const Handle<ScopeInfo>& scpope_info) {
+  return new (zone()) Operator1<Handle<ScopeInfo>, Handle<ScopeInfo>::equal_to,
+                                Handle<ScopeInfo>::hash>(        // --
+      IrOpcode::kJSCreateBlockContext, Operator::kNoProperties,  // opcode
+      "JSCreateBlockContext",                                    // name
+      1, 1, 1, 1, 1, 2,                                          // counts
+      scpope_info);                                              // parameter
+}
+
+
+const Operator* JSOperatorBuilder::CreateScriptContext(
+    const Handle<ScopeInfo>& scpope_info) {
+  return new (zone()) Operator1<Handle<ScopeInfo>, Handle<ScopeInfo>::equal_to,
+                                Handle<ScopeInfo>::hash>(         // --
+      IrOpcode::kJSCreateScriptContext, Operator::kNoProperties,  // opcode
+      "JSCreateScriptContext",                                    // name
+      1, 1, 1, 1, 1, 2,                                           // counts
+      scpope_info);                                               // parameter
 }
 
 }  // namespace compiler

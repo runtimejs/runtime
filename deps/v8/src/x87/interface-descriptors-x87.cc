@@ -57,8 +57,17 @@ const Register InstanceOfDescriptor::LeftRegister() { return edx; }
 const Register InstanceOfDescriptor::RightRegister() { return eax; }
 
 
+const Register StringCompareDescriptor::LeftRegister() { return edx; }
+const Register StringCompareDescriptor::RightRegister() { return eax; }
+
+
 const Register ArgumentsAccessReadDescriptor::index() { return edx; }
 const Register ArgumentsAccessReadDescriptor::parameter_count() { return eax; }
+
+
+const Register ArgumentsAccessNewDescriptor::function() { return edi; }
+const Register ArgumentsAccessNewDescriptor::parameter_count() { return ecx; }
+const Register ArgumentsAccessNewDescriptor::parameter_pointer() { return edx; }
 
 
 const Register ApiGetterDescriptor::function_address() { return edx; }

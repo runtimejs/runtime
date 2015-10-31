@@ -28,12 +28,12 @@
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
 #include "src/mips/lithium-codegen-mips.h"
 #include "src/mips/lithium-gap-resolver-mips.h"
+#include "src/profiler/cpu-profiler.h"
 
 
 namespace v8 {
@@ -5414,7 +5414,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // a0 = regexp literal clone.
   // a2 and t0-t2 are used as temporaries.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ li(t3, instr->hydrogen()->literals());
   __ lw(a1, FieldMemOperand(t3, literal_offset));
   __ LoadRoot(at, Heap::kUndefinedValueRootIndex);

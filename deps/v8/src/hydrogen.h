@@ -2223,7 +2223,9 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
   F(OneByteSeqStringSetChar)           \
   F(TwoByteSeqStringSetChar)           \
   F(ObjectEquals)                      \
+  F(ToInteger)                         \
   F(ToObject)                          \
+  F(ToString)                          \
   F(IsFunction)                        \
   F(IsSpecObject)                      \
   F(MathPow)                           \
@@ -2543,7 +2545,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
    public:
     PropertyAccessInfo(HOptimizedGraphBuilder* builder,
                        PropertyAccessType access_type, Handle<Map> map,
-                       Handle<String> name)
+                       Handle<Name> name)
         : builder_(builder),
           access_type_(access_type),
           map_(map),
@@ -2569,7 +2571,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
     bool NeedsWrappingFor(Handle<JSFunction> target) const;
 
     Handle<Map> map();
-    Handle<String> name() const { return name_; }
+    Handle<Name> name() const { return name_; }
 
     bool IsJSObjectFieldAccessor() {
       int offset;  // unused
@@ -2580,10 +2582,10 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
       int offset;
       if (Accessors::IsJSObjectFieldAccessor(map_, name_, &offset)) {
         if (IsStringType()) {
-          DCHECK(String::Equals(isolate()->factory()->length_string(), name_));
+          DCHECK(Name::Equals(isolate()->factory()->length_string(), name_));
           *access = HObjectAccess::ForStringLength();
         } else if (IsArrayType()) {
-          DCHECK(String::Equals(isolate()->factory()->length_string(), name_));
+          DCHECK(Name::Equals(isolate()->factory()->length_string(), name_));
           *access = HObjectAccess::ForArrayLength(map_->elements_kind());
         } else {
           *access = HObjectAccess::ForMapAndOffset(map_, offset);
@@ -2716,7 +2718,7 @@ class HOptimizedGraphBuilder : public HGraphBuilder, public AstVisitor {
     HOptimizedGraphBuilder* builder_;
     PropertyAccessType access_type_;
     Handle<Map> map_;
-    Handle<String> name_;
+    Handle<Name> name_;
     Handle<JSObject> holder_;
     Handle<JSFunction> accessor_;
     Handle<JSObject> api_holder_;
