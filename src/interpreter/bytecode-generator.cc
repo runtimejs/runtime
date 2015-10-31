@@ -45,13 +45,6 @@ Handle<BytecodeArray> BytecodeGenerator::MakeBytecode(CompilationInfo* info) {
   // Visit statements in the function body.
   VisitStatements(info->literal()->body());
 
-  // If the last bytecode wasn't a return, then return 'undefined' to avoid
-  // falling off the end.
-  if (!builder_.HasExplicitReturn()) {
-    builder_.LoadUndefined();
-    builder_.Return();
-  }
-
   set_scope(nullptr);
   set_info(nullptr);
   return builder_.ToBytecodeArray();
@@ -59,6 +52,7 @@ Handle<BytecodeArray> BytecodeGenerator::MakeBytecode(CompilationInfo* info) {
 
 
 void BytecodeGenerator::VisitBlock(Block* node) {
+  builder().EnterBlock();
   if (node->scope() == NULL) {
     // Visit statements in the same scope, no declarations.
     VisitStatements(node->statements());
@@ -71,6 +65,7 @@ void BytecodeGenerator::VisitBlock(Block* node) {
       VisitStatements(node->statements());
     }
   }
+  builder().LeaveBlock();
 }
 
 
@@ -114,11 +109,32 @@ void BytecodeGenerator::VisitExpressionStatement(ExpressionStatement* stmt) {
 
 
 void BytecodeGenerator::VisitEmptyStatement(EmptyStatement* stmt) {
-  UNIMPLEMENTED();
+  // TODO(oth): For control-flow it could be useful to signal empty paths here.
 }
 
 
-void BytecodeGenerator::VisitIfStatement(IfStatement* stmt) { UNIMPLEMENTED(); }
+void BytecodeGenerator::VisitIfStatement(IfStatement* stmt) {
+  BytecodeLabel else_start, else_end;
+  // TODO(oth): Spot easy cases where there code would not need to
+  // emit the then block or the else block, e.g. condition is
+  // obviously true/1/false/0.
+  Visit(stmt->condition());
+  builder().CastAccumulatorToBoolean();
+  builder().JumpIfFalse(&else_start);
+
+  Visit(stmt->then_statement());
+  builder().Jump(&else_end);
+  builder().Bind(&else_start);
+
+  Visit(stmt->else_statement());
+  builder().Bind(&else_end);
+}
+
+
+void BytecodeGenerator::VisitSloppyBlockFunctionStatement(
+    SloppyBlockFunctionStatement* stmt) {
+  Visit(stmt->statement());
+}
 
 
 void BytecodeGenerator::VisitContinueStatement(ContinueStatement* stmt) {
@@ -245,7 +261,11 @@ void BytecodeGenerator::VisitArrayLiteral(ArrayLiteral* expr) {
 
 
 void BytecodeGenerator::VisitVariableProxy(VariableProxy* proxy) {
-  Variable* variable = proxy->var();
+  VisitVariableLoad(proxy->var());
+}
+
+
+void BytecodeGenerator::VisitVariableLoad(Variable* variable) {
   switch (variable->location()) {
     case VariableLocation::LOCAL: {
       Register source(variable->index());
@@ -259,7 +279,15 @@ void BytecodeGenerator::VisitVariableProxy(VariableProxy* proxy) {
       builder().LoadAccumulatorWithRegister(source);
       break;
     }
-    case VariableLocation::GLOBAL:
+    case VariableLocation::GLOBAL: {
+      // Global var, const, or let variable.
+      // TODO(rmcilroy): If context chain depth is short enough, do this using
+      // a generic version of LoadGlobalViaContextStub rather than calling the
+      // runtime.
+      DCHECK(variable->IsStaticGlobalObjectProperty());
+      builder().LoadGlobal(variable->index());
+      break;
+    }
     case VariableLocation::UNALLOCATED:
     case VariableLocation::CONTEXT:
     case VariableLocation::LOOKUP:
@@ -397,7 +425,15 @@ void BytecodeGenerator::VisitCall(Call* expr) {
       builder().StoreAccumulatorInRegister(callee);
       break;
     }
-    case Call::GLOBAL_CALL:
+    case Call::GLOBAL_CALL: {
+      // Receiver is undefined for global calls.
+      builder().LoadUndefined().StoreAccumulatorInRegister(receiver);
+      // Load callee as a global variable.
+      VariableProxy* proxy = callee_expr->AsVariableProxy();
+      VisitVariableLoad(proxy->var());
+      builder().StoreAccumulatorInRegister(callee);
+      break;
+    }
     case Call::LOOKUP_SLOT_CALL:
     case Call::SUPER_CALL:
     case Call::POSSIBLY_EVAL_CALL:
@@ -452,7 +488,17 @@ void BytecodeGenerator::VisitBinaryOperation(BinaryOperation* binop) {
 
 
 void BytecodeGenerator::VisitCompareOperation(CompareOperation* expr) {
-  UNIMPLEMENTED();
+  Token::Value op = expr->op();
+  Expression* left = expr->left();
+  Expression* right = expr->right();
+
+  TemporaryRegisterScope temporary_register_scope(&builder_);
+  Register temporary = temporary_register_scope.NewRegister();
+
+  Visit(left);
+  builder().StoreAccumulatorInRegister(temporary);
+  Visit(right);
+  builder().CompareOperation(op, temporary, language_mode());
 }
 
 

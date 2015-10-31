@@ -8,11 +8,11 @@
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/x87/frames-x87.h"
 #include "src/x87/lithium-codegen-x87.h"
 
@@ -1372,11 +1372,6 @@ void LCodeGen::DoCallStub(LCallStub* instr) {
       CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
       break;
     }
-    case CodeStub::StringCompare: {
-      StringCompareStub stub(isolate());
-      CallCode(stub.GetCode(), RelocInfo::CODE_TARGET, instr);
-      break;
-    }
     default:
       UNREACHABLE();
   }
@@ -2724,16 +2719,15 @@ static Condition ComputeCompareCondition(Token::Value op) {
 
 
 void LCodeGen::DoStringCompareAndBranch(LStringCompareAndBranch* instr) {
-  Token::Value op = instr->op();
+  DCHECK(ToRegister(instr->context()).is(esi));
+  DCHECK(ToRegister(instr->left()).is(edx));
+  DCHECK(ToRegister(instr->right()).is(eax));
 
-  Handle<Code> ic =
-      CodeFactory::CompareIC(isolate(), op, Strength::WEAK).code();
-  CallCode(ic, RelocInfo::CODE_TARGET, instr);
+  Handle<Code> code = CodeFactory::StringCompare(isolate()).code();
+  CallCode(code, RelocInfo::CODE_TARGET, instr);
+  __ test(eax, eax);
 
-  Condition condition = ComputeCompareCondition(op);
-  __ test(eax, Operand(eax));
-
-  EmitBranch(instr, condition);
+  EmitBranch(instr, ComputeCompareCondition(instr->op()));
 }
 
 
@@ -5899,7 +5893,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // eax = regexp literal clone.
   // esi = context.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ LoadHeapObject(ecx, instr->hydrogen()->literals());
   __ mov(ebx, FieldOperand(ecx, literal_offset));
   __ cmp(ebx, factory()->undefined_value());

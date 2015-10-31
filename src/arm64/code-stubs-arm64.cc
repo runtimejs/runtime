@@ -1659,10 +1659,13 @@ void ArgumentsAccessStub::GenerateReadElement(MacroAssembler* masm) {
 
 
 void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
-  // Stack layout on entry.
-  //  jssp[0]:  number of parameters (tagged)
-  //  jssp[8]:  address of receiver argument
-  //  jssp[16]: function
+  // x1 : function
+  // x2 : number of parameters (tagged)
+  // x3 : parameters pointer
+
+  DCHECK(x1.is(ArgumentsAccessNewDescriptor::function()));
+  DCHECK(x2.is(ArgumentsAccessNewDescriptor::parameter_count()));
+  DCHECK(x3.is(ArgumentsAccessNewDescriptor::parameter_pointer()));
 
   // Check if the calling frame is an arguments adaptor frame.
   Label runtime;
@@ -1675,33 +1678,35 @@ void ArgumentsAccessStub::GenerateNewSloppySlow(MacroAssembler* masm) {
   __ B(ne, &runtime);
 
   // Patch the arguments.length and parameters pointer in the current frame.
-  __ Ldr(x11, MemOperand(caller_fp,
-                         ArgumentsAdaptorFrameConstants::kLengthOffset));
-  __ Poke(x11, 0 * kXRegSize);
-  __ Add(x10, caller_fp, Operand::UntagSmiAndScale(x11, kPointerSizeLog2));
-  __ Add(x10, x10, StandardFrameConstants::kCallerSPOffset);
-  __ Poke(x10, 1 * kXRegSize);
+  __ Ldr(x2,
+         MemOperand(caller_fp, ArgumentsAdaptorFrameConstants::kLengthOffset));
+  __ Add(x3, caller_fp, Operand::UntagSmiAndScale(x2, kPointerSizeLog2));
+  __ Add(x3, x3, StandardFrameConstants::kCallerSPOffset);
 
   __ Bind(&runtime);
+  __ Push(x1, x3, x2);
   __ TailCallRuntime(Runtime::kNewSloppyArguments, 3, 1);
 }
 
 
 void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
-  // Stack layout on entry.
-  //  jssp[0]:  number of parameters (tagged)
-  //  jssp[8]:  address of receiver argument
-  //  jssp[16]: function
+  // x1 : function
+  // x2 : number of parameters (tagged)
+  // x3 : parameters pointer
   //
   // Returns pointer to result object in x0.
 
+  DCHECK(x1.is(ArgumentsAccessNewDescriptor::function()));
+  DCHECK(x2.is(ArgumentsAccessNewDescriptor::parameter_count()));
+  DCHECK(x3.is(ArgumentsAccessNewDescriptor::parameter_pointer()));
+
+  // Make an untagged copy of the parameter count.
   // Note: arg_count_smi is an alias of param_count_smi.
-  Register arg_count_smi = x3;
-  Register param_count_smi = x3;
+  Register function = x1;
+  Register arg_count_smi = x2;
+  Register param_count_smi = x2;
+  Register recv_arg = x3;
   Register param_count = x7;
-  Register recv_arg = x14;
-  Register function = x4;
-  __ Pop(param_count_smi, recv_arg, function);
   __ SmiUntag(param_count, param_count_smi);
 
   // Check if the calling frame is an arguments adaptor frame.
@@ -1717,16 +1722,18 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   // No adaptor, parameter count = argument count.
 
-  //   x1   mapped_params number of mapped params, min(params, args) (uninit)
-  //   x2   arg_count     number of function arguments (uninit)
-  //   x3   arg_count_smi number of function arguments (smi)
-  //   x4   function      function pointer
+  //   x1   function      function pointer
+  //   x2   arg_count_smi number of function arguments (smi)
+  //   x3   recv_arg      pointer to receiver arguments
+  //   x4   mapped_params number of mapped params, min(params, args) (uninit)
   //   x7   param_count   number of function parameters
   //   x11  caller_fp     caller's frame pointer
-  //   x14  recv_arg      pointer to receiver arguments
+  //   x14  arg_count     number of function arguments (uninit)
 
-  Register arg_count = x2;
+  Register arg_count = x14;
+  Register mapped_params = x4;
   __ Mov(arg_count, param_count);
+  __ Mov(mapped_params, param_count);
   __ B(&try_allocate);
 
   // We have an adaptor frame. Patch the parameters pointer.
@@ -1739,7 +1746,6 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
   __ Add(recv_arg, x10, StandardFrameConstants::kCallerSPOffset);
 
   // Compute the mapped parameter count = min(param_count, arg_count)
-  Register mapped_params = x1;
   __ Cmp(param_count, arg_count);
   __ Csel(mapped_params, param_count, arg_count, lt);
 
@@ -1747,13 +1753,13 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   //   x0   alloc_obj     pointer to allocated objects: param map, backing
   //                      store, arguments (uninit)
-  //   x1   mapped_params number of mapped parameters, min(params, args)
-  //   x2   arg_count     number of function arguments
-  //   x3   arg_count_smi number of function arguments (smi)
-  //   x4   function      function pointer
+  //   x1   function      function pointer
+  //   x2   arg_count_smi number of function arguments (smi)
+  //   x3   recv_arg      pointer to receiver arguments
+  //   x4   mapped_params number of mapped parameters, min(params, args)
   //   x7   param_count   number of function parameters
   //   x10  size          size of objects to allocate (uninit)
-  //   x14  recv_arg      pointer to receiver arguments
+  //   x14  arg_count     number of function arguments
 
   // Compute the size of backing store, parameter map, and arguments object.
   // 1. Parameter map, has two extra words containing context and backing
@@ -1785,13 +1791,13 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   //   x0   alloc_obj       pointer to allocated objects (param map, backing
   //                        store, arguments)
-  //   x1   mapped_params   number of mapped parameters, min(params, args)
-  //   x2   arg_count       number of function arguments
-  //   x3   arg_count_smi   number of function arguments (smi)
-  //   x4   function        function pointer
+  //   x1   function        function pointer
+  //   x2   arg_count_smi   number of function arguments (smi)
+  //   x3   recv_arg        pointer to receiver arguments
+  //   x4   mapped_params   number of mapped parameters, min(params, args)
   //   x7   param_count     number of function parameters
   //   x11  sloppy_args_map offset to args (or aliased args) map (uninit)
-  //   x14  recv_arg        pointer to receiver arguments
+  //   x14  arg_count       number of function arguments
 
   Register global_object = x10;
   Register global_ctx = x10;
@@ -1834,14 +1840,14 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   //   x0   alloc_obj     pointer to allocated objects (param map, backing
   //                      store, arguments)
-  //   x1   mapped_params number of mapped parameters, min(params, args)
-  //   x2   arg_count     number of function arguments
-  //   x3   arg_count_smi number of function arguments (smi)
-  //   x4   function      function pointer
+  //   x1   function      function pointer
+  //   x2   arg_count_smi number of function arguments (smi)
+  //   x3   recv_arg      pointer to receiver arguments
+  //   x4   mapped_params number of mapped parameters, min(params, args)
   //   x5   elements      pointer to parameter map or backing store (uninit)
   //   x6   backing_store pointer to backing store (uninit)
   //   x7   param_count   number of function parameters
-  //   x14  recv_arg      pointer to receiver arguments
+  //   x14  arg_count     number of function arguments
 
   Register elements = x5;
   __ Add(elements, alloc_obj, Heap::kSloppyArgumentsObjectSize);
@@ -1883,17 +1889,17 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   //   x0   alloc_obj     pointer to allocated objects (param map, backing
   //                      store, arguments)
-  //   x1   mapped_params number of mapped parameters, min(params, args)
-  //   x2   arg_count     number of function arguments
-  //   x3   arg_count_smi number of function arguments (smi)
-  //   x4   function      function pointer
+  //   x1   function      function pointer
+  //   x2   arg_count_smi number of function arguments (smi)
+  //   x3   recv_arg      pointer to receiver arguments
+  //   x4   mapped_params number of mapped parameters, min(params, args)
   //   x5   elements      pointer to parameter map or backing store (uninit)
   //   x6   backing_store pointer to backing store (uninit)
   //   x7   param_count   number of function parameters
   //   x11  loop_count    parameter loop counter (uninit)
   //   x12  index         parameter index (smi, uninit)
   //   x13  the_hole      hole value (uninit)
-  //   x14  recv_arg      pointer to receiver arguments
+  //   x14  arg_count     number of function arguments
 
   Register loop_count = x11;
   Register index = x12;
@@ -1929,12 +1935,12 @@ void ArgumentsAccessStub::GenerateNewSloppyFast(MacroAssembler* masm) {
 
   //   x0   alloc_obj     pointer to allocated objects (param map, backing
   //                      store, arguments)
-  //   x1   mapped_params number of mapped parameters, min(params, args)
-  //   x2   arg_count     number of function arguments
-  //   x4   function      function pointer
-  //   x3   arg_count_smi number of function arguments (smi)
+  //   x1   function      function pointer
+  //   x2   arg_count_smi number of function arguments (smi)
+  //   x3   recv_arg      pointer to receiver arguments
+  //   x4   mapped_params number of mapped parameters, min(params, args)
   //   x6   backing_store pointer to backing store (uninit)
-  //   x14  recv_arg      pointer to receiver arguments
+  //   x14  arg_count     number of function arguments
 
   Label arguments_loop, arguments_test;
   __ Mov(x10, mapped_params);
@@ -1982,20 +1988,21 @@ void LoadIndexedInterceptorStub::Generate(MacroAssembler* masm) {
 
 
 void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
-  // Stack layout on entry.
-  //  jssp[0]:  number of parameters (tagged)
-  //  jssp[8]:  address of receiver argument
-  //  jssp[16]: function
+  // x1 : function
+  // x2 : number of parameters (tagged)
+  // x3 : parameters pointer
   //
   // Returns pointer to result object in x0.
 
-  // Get the stub arguments from the frame, and make an untagged copy of the
-  // parameter count.
-  Register param_count_smi = x1;
-  Register params = x2;
-  Register function = x3;
+  DCHECK(x1.is(ArgumentsAccessNewDescriptor::function()));
+  DCHECK(x2.is(ArgumentsAccessNewDescriptor::parameter_count()));
+  DCHECK(x3.is(ArgumentsAccessNewDescriptor::parameter_pointer()));
+
+  // Make an untagged copy of the parameter count.
+  Register function = x1;
+  Register param_count_smi = x2;
+  Register params = x3;
   Register param_count = x13;
-  __ Pop(param_count_smi, params, function);
   __ SmiUntag(param_count, param_count_smi);
 
   // Test if arguments adaptor needed.
@@ -2008,9 +2015,9 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
   __ Cmp(caller_ctx, Smi::FromInt(StackFrame::ARGUMENTS_ADAPTOR));
   __ B(ne, &try_allocate);
 
-  //   x1   param_count_smi   number of parameters passed to function (smi)
-  //   x2   params            pointer to parameters
-  //   x3   function          function pointer
+  //   x1   function          function pointer
+  //   x2   param_count_smi   number of parameters passed to function (smi)
+  //   x3   params            pointer to parameters
   //   x11  caller_fp         caller's frame pointer
   //   x13  param_count       number of parameters passed to function
 
@@ -2049,9 +2056,9 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
 
   //   x0   alloc_obj         pointer to allocated objects: parameter array and
   //                          arguments object
-  //   x1   param_count_smi   number of parameters passed to function (smi)
-  //   x2   params            pointer to parameters
-  //   x3   function          function pointer
+  //   x1   function          function pointer
+  //   x2   param_count_smi   number of parameters passed to function (smi)
+  //   x3   params            pointer to parameters
   //   x4   strict_args_map   offset to arguments map
   //   x13  param_count       number of parameters passed to function
   __ Str(strict_args_map, FieldMemOperand(alloc_obj, JSObject::kMapOffset));
@@ -2080,9 +2087,9 @@ void ArgumentsAccessStub::GenerateNewStrict(MacroAssembler* masm) {
 
   //   x0   alloc_obj         pointer to allocated objects: parameter array and
   //                          arguments object
-  //   x1   param_count_smi   number of parameters passed to function (smi)
-  //   x2   params            pointer to parameters
-  //   x3   function          function pointer
+  //   x1   function          function pointer
+  //   x2   param_count_smi   number of parameters passed to function (smi)
+  //   x3   params            pointer to parameters
   //   x4   array             pointer to array slot (uninit)
   //   x5   elements          pointer to elements array of alloc_obj
   //   x13  param_count       number of parameters passed to function
@@ -2841,14 +2848,14 @@ void CallConstructStub::Generate(MacroAssembler* masm) {
   // x3 : slot in feedback vector (Smi, for RecordCallTarget)
   // x4 : original constructor (for IsSuperConstructorCall)
   Register function = x1;
-  Label slow, non_function_call;
 
+  Label non_function;
   // Check that the function is not a smi.
-  __ JumpIfSmi(function, &non_function_call);
+  __ JumpIfSmi(function, &non_function);
   // Check that the function is a JSFunction.
   Register object_type = x10;
   __ JumpIfNotObjectType(function, object_type, object_type, JS_FUNCTION_TYPE,
-                         &slow);
+                         &non_function);
 
   if (RecordCallTarget()) {
     GenerateRecordCallTarget(masm, x0, function, x2, x3, x4, x5, x11, x12,
@@ -2873,52 +2880,16 @@ void CallConstructStub::Generate(MacroAssembler* masm) {
     __ Mov(x3, function);
   }
 
-  // Jump to the function-specific construct stub.
-  Register jump_reg = x4;
-  Register shared_func_info = jump_reg;
-  Register cons_stub = jump_reg;
-  Register cons_stub_code = jump_reg;
-  __ Ldr(shared_func_info,
-         FieldMemOperand(function, JSFunction::kSharedFunctionInfoOffset));
-  __ Ldr(cons_stub,
-         FieldMemOperand(shared_func_info,
-                         SharedFunctionInfo::kConstructStubOffset));
-  __ Add(cons_stub_code, cons_stub, Code::kHeaderSize - kHeapObjectTag);
-  __ Br(cons_stub_code);
+  // Tail call to the function-specific construct stub (still in the caller
+  // context at this point).
+  __ Ldr(x4, FieldMemOperand(x1, JSFunction::kSharedFunctionInfoOffset));
+  __ Ldr(x4, FieldMemOperand(x4, SharedFunctionInfo::kConstructStubOffset));
+  __ Add(x4, x4, Code::kHeaderSize - kHeapObjectTag);
+  __ Br(x4);
 
-  __ Bind(&slow);
-  {
-    __ Cmp(object_type, JS_FUNCTION_PROXY_TYPE);
-    __ B(ne, &non_function_call);
-    // TODO(neis): This doesn't match the ES6 spec for [[Construct]] on proxies.
-    __ Ldr(x1, FieldMemOperand(x1, JSFunctionProxy::kConstructTrapOffset));
-    __ Jump(isolate()->builtins()->Call(), RelocInfo::CODE_TARGET);
-
-    __ Bind(&non_function_call);
-    {
-      // Determine the delegate for the target (if any).
-      FrameScope scope(masm, StackFrame::INTERNAL);
-      __ SmiTag(x0);
-      __ Push(x0, x1);
-      __ CallRuntime(Runtime::kGetConstructorDelegate, 1);
-      __ Mov(x1, x0);
-      __ Pop(x0);
-      __ SmiUntag(x0);
-    }
-    // The delegate is always a regular function.
-    __ AssertFunction(x1);
-    __ Jump(masm->isolate()->builtins()->CallFunction(),
-            RelocInfo::CODE_TARGET);
-  }
-}
-
-
-static void EmitLoadTypeFeedbackVector(MacroAssembler* masm, Register vector) {
-  __ Ldr(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-  __ Ldr(vector, FieldMemOperand(vector,
-                                 JSFunction::kSharedFunctionInfoOffset));
-  __ Ldr(vector, FieldMemOperand(vector,
-                                 SharedFunctionInfo::kFeedbackVectorOffset));
+  __ Bind(&non_function);
+  __ Mov(x3, function);
+  __ Jump(isolate()->builtins()->Construct(), RelocInfo::CODE_TARGET);
 }
 
 
@@ -3273,6 +3244,32 @@ void StringCharFromCodeGenerator::GenerateSlow(
 }
 
 
+void CompareICStub::GenerateBooleans(MacroAssembler* masm) {
+  // Inputs are in x0 (lhs) and x1 (rhs).
+  DCHECK_EQ(CompareICState::BOOLEAN, state());
+  ASM_LOCATION("CompareICStub[Booleans]");
+  Label miss;
+
+  __ CheckMap(x1, x2, Heap::kBooleanMapRootIndex, &miss, DO_SMI_CHECK);
+  __ CheckMap(x0, x3, Heap::kBooleanMapRootIndex, &miss, DO_SMI_CHECK);
+  if (op() != Token::EQ_STRICT && is_strong(strength())) {
+    __ TailCallRuntime(Runtime::kThrowStrongModeImplicitConversion, 0, 1);
+  } else {
+    if (!Token::IsEqualityOp(op())) {
+      __ Ldr(x1, FieldMemOperand(x1, Oddball::kToNumberOffset));
+      __ AssertSmi(x1);
+      __ Ldr(x0, FieldMemOperand(x0, Oddball::kToNumberOffset));
+      __ AssertSmi(x0);
+    }
+    __ Sub(x0, x1, x0);
+    __ Ret();
+  }
+
+  __ Bind(&miss);
+  GenerateMiss(masm);
+}
+
+
 void CompareICStub::GenerateSmis(MacroAssembler* masm) {
   // Inputs are in x0 (lhs) and x1 (rhs).
   DCHECK(state() == CompareICState::SMI);
@@ -3567,8 +3564,21 @@ void CompareICStub::GenerateKnownObjects(MacroAssembler* masm) {
   __ Cmp(lhs_map, map);
   __ B(ne, &miss);
 
+  if (Token::IsEqualityOp(op())) {
   __ Sub(result, rhs, lhs);
   __ Ret();
+  } else if (is_strong(strength())) {
+    __ TailCallRuntime(Runtime::kThrowStrongModeImplicitConversion, 0, 1);
+  } else {
+    Register ncr = x2;
+    if (op() == Token::LT || op() == Token::LTE) {
+      __ Mov(ncr, Smi::FromInt(GREATER));
+    } else {
+      __ Mov(ncr, Smi::FromInt(LESS));
+    }
+    __ Push(lhs, rhs, ncr);
+    __ TailCallRuntime(Runtime::kCompare, 3, 1);
+  }
 
   __ Bind(&miss);
   GenerateMiss(masm);
@@ -4358,21 +4368,21 @@ void StubFailureTrampolineStub::Generate(MacroAssembler* masm) {
 
 
 void LoadICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
+  __ EmitLoadTypeFeedbackVector(LoadWithVectorDescriptor::VectorRegister());
   LoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
 
 void KeyedLoadICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, LoadWithVectorDescriptor::VectorRegister());
+  __ EmitLoadTypeFeedbackVector(LoadWithVectorDescriptor::VectorRegister());
   KeyedLoadICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
 
 void CallICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, x2);
+  __ EmitLoadTypeFeedbackVector(x2);
   CallICStub stub(isolate(), state());
   __ Jump(stub.GetCode(), RelocInfo::CODE_TARGET);
 }
@@ -4589,14 +4599,14 @@ void KeyedLoadICStub::GenerateImpl(MacroAssembler* masm, bool in_frame) {
 
 
 void VectorStoreICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, VectorStoreICDescriptor::VectorRegister());
+  __ EmitLoadTypeFeedbackVector(VectorStoreICDescriptor::VectorRegister());
   VectorStoreICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }
 
 
 void VectorKeyedStoreICTrampolineStub::Generate(MacroAssembler* masm) {
-  EmitLoadTypeFeedbackVector(masm, VectorStoreICDescriptor::VectorRegister());
+  __ EmitLoadTypeFeedbackVector(VectorStoreICDescriptor::VectorRegister());
   VectorKeyedStoreICStub stub(isolate(), state());
   stub.GenerateForTrampoline(masm);
 }

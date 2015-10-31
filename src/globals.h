@@ -601,6 +601,10 @@ enum CallConstructorFlags {
   NO_CALL_CONSTRUCTOR_FLAGS = 0,
   // The call target is cached in the instruction stream.
   RECORD_CONSTRUCTOR_TARGET = 1,
+  // TODO(bmeurer): Kill these SUPER_* modes and use the Construct builtin
+  // directly instead; also there's no point in collecting any "targets" for
+  // super constructor calls, since these are known when we optimize the
+  // constructor that contains the super call.
   SUPER_CONSTRUCTOR_CALL = 1 << 1,
   SUPER_CALL_RECORD_TARGET = SUPER_CONSTRUCTOR_CALL | RECORD_CONSTRUCTOR_TARGET
 };
@@ -768,6 +772,10 @@ const uint32_t kHoleNanLower32 = 0xFFF7FFFF;
 
 const uint64_t kHoleNanInt64 =
     (static_cast<uint64_t>(kHoleNanUpper32) << 32) | kHoleNanLower32;
+
+
+// ES6 section 20.1.2.6 Number.MAX_SAFE_INTEGER
+const double kMaxSafeInteger = 9007199254740991.0;  // 2^53-1
 
 
 // The order of this enum has to be kept in sync with the predicates below.
@@ -993,7 +1001,7 @@ inline bool IsSubclassConstructor(FunctionKind kind) {
 }
 
 
-inline bool IsConstructor(FunctionKind kind) {
+inline bool IsClassConstructor(FunctionKind kind) {
   DCHECK(IsValidFunctionKind(kind));
   return kind &
          (FunctionKind::kBaseConstructor | FunctionKind::kSubclassConstructor |

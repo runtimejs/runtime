@@ -7,10 +7,10 @@
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -5398,7 +5398,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // r0 = regexp literal clone.
   // r2-5 are used as temporaries.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ Move(r6, instr->hydrogen()->literals());
   __ ldr(r1, FieldMemOperand(r6, literal_offset));
   __ LoadRoot(ip, Heap::kUndefinedValueRootIndex);

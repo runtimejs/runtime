@@ -497,6 +497,8 @@ class MacroAssembler : public Assembler {
       Register dst_hi,
 #endif
       Register dst, DoubleRegister src);
+  void MovIntToFloat(DoubleRegister dst, Register src);
+  void MovFloatToInt(Register dst, DoubleRegister src);
 
   void Add(Register dst, Register src, intptr_t value, Register scratch);
   void Cmpi(Register src1, const Operand& src2, Register scratch,
@@ -1413,6 +1415,9 @@ class MacroAssembler : public Assembler {
   void DecodeFieldToSmi(Register reg) {
     DecodeFieldToSmi<Field>(reg, reg);
   }
+
+  // Load the type feedback vector from a JavaScript frame.
+  void EmitLoadTypeFeedbackVector(Register vector);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type,

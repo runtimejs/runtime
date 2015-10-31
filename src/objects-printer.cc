@@ -457,6 +457,7 @@ void Map::MapPrint(std::ostream& os) {  // NOLINT
   if (has_indexed_interceptor()) os << " - indexed_interceptor\n";
   if (is_undetectable()) os << " - undetectable\n";
   if (is_callable()) os << " - callable\n";
+  if (is_constructor()) os << " - constructor\n";
   if (is_access_check_needed()) os << " - access_check_needed\n";
   if (!is_extensible()) os << " - non-extensible\n";
   if (is_observed()) os << " - observed\n";
@@ -569,26 +570,38 @@ void TypeFeedbackVector::TypeFeedbackVectorPrint(std::ostream& os) {  // NOLINT
 
     for (int i = 0; i < ICSlots(); i++) {
       FeedbackVectorICSlot slot(i);
-      Code::Kind kind = GetKind(slot);
-      os << "\n ICSlot " << i;
-      if (kind == Code::LOAD_IC) {
-        LoadICNexus nexus(this, slot);
-        os << " LOAD_IC " << Code::ICState2String(nexus.StateFromFeedback());
-      } else if (kind == Code::KEYED_LOAD_IC) {
-        KeyedLoadICNexus nexus(this, slot);
-        os << " KEYED_LOAD_IC "
-           << Code::ICState2String(nexus.StateFromFeedback());
-      } else if (kind == Code::CALL_IC) {
-        CallICNexus nexus(this, slot);
-        os << " CALL_IC " << Code::ICState2String(nexus.StateFromFeedback());
-      } else if (kind == Code::STORE_IC) {
-        StoreICNexus nexus(this, slot);
-        os << " STORE_IC " << Code::ICState2String(nexus.StateFromFeedback());
-      } else {
-        DCHECK(kind == Code::KEYED_STORE_IC);
-        KeyedStoreICNexus nexus(this, slot);
-        os << " KEYED_STORE_IC "
-           << Code::ICState2String(nexus.StateFromFeedback());
+      FeedbackVectorSlotKind kind = GetKind(slot);
+      os << "\n ICSlot " << i << " " << kind << " ";
+      switch (kind) {
+        case FeedbackVectorSlotKind::LOAD_IC: {
+          LoadICNexus nexus(this, slot);
+          os << Code::ICState2String(nexus.StateFromFeedback());
+          break;
+        }
+        case FeedbackVectorSlotKind::KEYED_LOAD_IC: {
+          KeyedLoadICNexus nexus(this, slot);
+          os << Code::ICState2String(nexus.StateFromFeedback());
+          break;
+        }
+        case FeedbackVectorSlotKind::CALL_IC: {
+          CallICNexus nexus(this, slot);
+          os << Code::ICState2String(nexus.StateFromFeedback());
+          break;
+        }
+        case FeedbackVectorSlotKind::STORE_IC: {
+          StoreICNexus nexus(this, slot);
+          os << Code::ICState2String(nexus.StateFromFeedback());
+          break;
+        }
+        case FeedbackVectorSlotKind::KEYED_STORE_IC: {
+          KeyedStoreICNexus nexus(this, slot);
+          os << Code::ICState2String(nexus.StateFromFeedback());
+          break;
+        }
+        case FeedbackVectorSlotKind::UNUSED:
+        case FeedbackVectorSlotKind::KINDS_NUMBER:
+          UNREACHABLE();
+          break;
       }
 
       os << "\n  [" << GetIndex(slot) << "]: " << Brief(Get(slot));
@@ -936,7 +949,7 @@ void ExecutableAccessorInfo::ExecutableAccessorInfoPrint(
     std::ostream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "ExecutableAccessorInfo");
   os << "\n - name: " << Brief(name());
-  os << "\n - flag: " << Brief(flag());
+  os << "\n - flag: " << flag();
   os << "\n - getter: " << Brief(getter());
   os << "\n - setter: " << Brief(setter());
   os << "\n - data: " << Brief(data());
@@ -1088,17 +1101,17 @@ void Script::ScriptPrint(std::ostream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "Script");
   os << "\n - source: " << Brief(source());
   os << "\n - name: " << Brief(name());
-  os << "\n - line_offset: " << Brief(line_offset());
-  os << "\n - column_offset: " << Brief(column_offset());
-  os << "\n - type: " << Brief(type());
-  os << "\n - id: " << Brief(id());
+  os << "\n - line_offset: " << line_offset();
+  os << "\n - column_offset: " << column_offset();
+  os << "\n - type: " << type();
+  os << "\n - id: " << id();
   os << "\n - context data: " << Brief(context_data());
   os << "\n - wrapper: " << Brief(wrapper());
   os << "\n - compilation type: " << compilation_type();
   os << "\n - line ends: " << Brief(line_ends());
   os << "\n - eval from shared: " << Brief(eval_from_shared());
   os << "\n - eval from instructions offset: "
-     << Brief(eval_from_instructions_offset());
+     << eval_from_instructions_offset();
   os << "\n - shared function infos: " << Brief(shared_function_infos());
   os << "\n";
 }
@@ -1115,9 +1128,9 @@ void DebugInfo::DebugInfoPrint(std::ostream& os) {  // NOLINT
 
 void BreakPointInfo::BreakPointInfoPrint(std::ostream& os) {  // NOLINT
   HeapObject::PrintHeader(os, "BreakPointInfo");
-  os << "\n - code_position: " << code_position()->value();
-  os << "\n - source_position: " << source_position()->value();
-  os << "\n - statement_position: " << statement_position()->value();
+  os << "\n - code_position: " << code_position();
+  os << "\n - source_position: " << source_position();
+  os << "\n - statement_position: " << statement_position();
   os << "\n - break_point_objects: " << Brief(break_point_objects());
   os << "\n";
 }

@@ -6,9 +6,9 @@
 
 #include "src/base/atomicops.h"
 #include "src/base/bits.h"
+#include "src/base/sys-info.h"
 #include "src/code-stubs.h"
 #include "src/compilation-cache.h"
-#include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/execution.h"
 #include "src/frames-inl.h"
@@ -23,9 +23,9 @@
 #include "src/heap/objects-visiting-inl.h"
 #include "src/heap/slots-buffer.h"
 #include "src/heap/spaces-inl.h"
-#include "src/heap-profiler.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/v8.h"
 
 namespace v8 {
@@ -1013,8 +1013,8 @@ void CodeFlusher::ProcessOptimizedCodeMaps() {
       STATIC_ASSERT(SharedFunctionInfo::kEntryLength == 4);
       Context* context =
           Context::cast(code_map->get(i + SharedFunctionInfo::kContextOffset));
-      Code* code =
-          Code::cast(code_map->get(i + SharedFunctionInfo::kCachedCodeOffset));
+      HeapObject* code = HeapObject::cast(
+          code_map->get(i + SharedFunctionInfo::kCachedCodeOffset));
       FixedArray* literals = FixedArray::cast(
           code_map->get(i + SharedFunctionInfo::kLiteralsOffset));
       Smi* ast_id =
@@ -2216,6 +2216,8 @@ void MarkCompactCollector::AfterMarking() {
 
 
 void MarkCompactCollector::ClearNonLiveReferences() {
+  GCTracer::Scope gc_scope(heap()->tracer(),
+                           GCTracer::Scope::MC_NONLIVEREFERENCES);
   // Iterate over the map space, setting map transitions that go from
   // a marked map to an unmarked map to null transitions.  This action
   // is carried out only on maps of JSObjects and related subtypes.
@@ -2509,6 +2511,7 @@ void MarkCompactCollector::AbortWeakCollections() {
 
 
 void MarkCompactCollector::ProcessAndClearWeakCells() {
+  GCTracer::Scope gc_scope(heap()->tracer(), GCTracer::Scope::MC_WEAKCELL);
   Object* weak_cell_obj = heap()->encountered_weak_cells();
   while (weak_cell_obj != Smi::FromInt(0)) {
     WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
@@ -3367,13 +3370,24 @@ bool MarkCompactCollector::EvacuateLiveObjectsFromPage(
 }
 
 
+int MarkCompactCollector::NumberOfParallelCompactionTasks() {
+  if (!FLAG_parallel_compaction) return 1;
+  // We cap the number of parallel compaction tasks by
+  // - (#cores - 1)
+  // - a value depending on the list of evacuation candidates
+  // - a hard limit
+  const int kPagesPerCompactionTask = 4;
+  const int kMaxCompactionTasks = 8;
+  return Min(kMaxCompactionTasks,
+             Min(1 + evacuation_candidates_.length() / kPagesPerCompactionTask,
+                 Max(1, base::SysInfo::NumberOfProcessors() - 1)));
+}
+
+
 void MarkCompactCollector::EvacuatePagesInParallel() {
   if (evacuation_candidates_.length() == 0) return;
 
-  int num_tasks = 1;
-  if (FLAG_parallel_compaction) {
-    num_tasks = NumberOfParallelCompactionTasks();
-  }
+  const int num_tasks = NumberOfParallelCompactionTasks();
 
   // Set up compaction spaces.
   CompactionSpaceCollection** compaction_spaces_for_tasks =
@@ -3770,6 +3784,14 @@ void MarkCompactCollector::EvacuateNewSpaceAndCandidates() {
         SkipList* list = p->skip_list();
         if (list != NULL) list->Clear();
       }
+
+      if (p->IsEvacuationCandidate() &&
+          p->IsFlagSet(Page::RESCAN_ON_EVACUATION)) {
+        // Case where we've aborted compacting a page. Clear the flag here to
+        // avoid release the page later on.
+        p->ClearEvacuationCandidate();
+      }
+
       if (p->IsFlagSet(Page::RESCAN_ON_EVACUATION)) {
         if (FLAG_gc_verbose) {
           PrintF("Sweeping 0x%" V8PRIxPTR " during evacuation.\n",
@@ -3799,12 +3821,6 @@ void MarkCompactCollector::EvacuateNewSpaceAndCandidates() {
             UNREACHABLE();
             break;
         }
-      }
-      if (p->IsEvacuationCandidate() &&
-          p->IsFlagSet(Page::RESCAN_ON_EVACUATION)) {
-        // Case where we've aborted compacting a page. Clear the flag here to
-        // avoid release the page later on.
-        p->ClearEvacuationCandidate();
       }
     }
   }

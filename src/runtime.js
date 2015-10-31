@@ -11,17 +11,12 @@
 
 // The following declarations are shared with other native JS files.
 // They are all declared at this one spot to avoid redeclaration errors.
-var $defaultString;
 var $NaN;
 var $nonNumberToNumber;
-var $nonStringToString;
 var $sameValue;
 var $sameValueZero;
-var $toInteger;
-var $toLength;
 var $toNumber;
 var $toPositiveInteger;
-var $toString;
 
 var harmony_tolength = false;
 
@@ -47,8 +42,7 @@ function APPLY_PREPARE(args) {
 
   // First check that the receiver is callable.
   if (!IS_CALLABLE(this)) {
-    throw %make_type_error(kApplyNonFunction, %to_string_fun(this),
-                           typeof this);
+    throw %make_type_error(kApplyNonFunction, TO_STRING(this), typeof this);
   }
 
   // First check whether length is a positive Smi and args is an
@@ -84,8 +78,7 @@ function REFLECT_APPLY_PREPARE(args) {
 
   // First check that the receiver is callable.
   if (!IS_CALLABLE(this)) {
-    throw %make_type_error(kApplyNonFunction, %to_string_fun(this),
-                           typeof this);
+    throw %make_type_error(kApplyNonFunction, TO_STRING(this), typeof this);
   }
 
   // First check whether length is a positive Smi and args is an
@@ -102,7 +95,7 @@ function REFLECT_APPLY_PREPARE(args) {
     throw %make_type_error(kWrongArgs, "Reflect.apply");
   }
 
-  length = %to_length_fun(args.length);
+  length = TO_LENGTH(args.length);
 
   // We can handle any number of apply arguments if the stack is
   // big enough, but sanity check the value to avoid overflow when
@@ -134,17 +127,17 @@ function REFLECT_CONSTRUCT_PREPARE(
 
   if (!ctorOk) {
     if (!IS_CALLABLE(this)) {
-      throw %make_type_error(kCalledNonCallable, %to_string_fun(this));
+      throw %make_type_error(kCalledNonCallable, TO_STRING(this));
     } else {
-      throw %make_type_error(kNotConstructor, %to_string_fun(this));
+      throw %make_type_error(kNotConstructor, TO_STRING(this));
     }
   }
 
   if (!newTargetOk) {
     if (!IS_CALLABLE(newTarget)) {
-      throw %make_type_error(kCalledNonCallable, %to_string_fun(newTarget));
+      throw %make_type_error(kCalledNonCallable, TO_STRING(newTarget));
     } else {
-      throw %make_type_error(kNotConstructor, %to_string_fun(newTarget));
+      throw %make_type_error(kNotConstructor, TO_STRING(newTarget));
     }
   }
 
@@ -152,7 +145,7 @@ function REFLECT_CONSTRUCT_PREPARE(
     throw %make_type_error(kWrongArgs, "Reflect.construct");
   }
 
-  length = %to_length_fun(args.length);
+  length = TO_LENGTH(args.length);
 
   // We can handle any number of apply arguments if the stack is
   // big enough, but sanity check the value to avoid overflow when
@@ -218,29 +211,6 @@ function ToString(x) {
   if (IS_UNDEFINED(x)) return 'undefined';
   // Types that can't be converted to string are caught in DefaultString.
   return (IS_NULL(x)) ? 'null' : ToString(DefaultString(x));
-}
-
-function NonStringToString(x) {
-  if (IS_NUMBER(x)) return %_NumberToString(x);
-  if (IS_BOOLEAN(x)) return x ? 'true' : 'false';
-  if (IS_UNDEFINED(x)) return 'undefined';
-  // Types that can't be converted to string are caught in DefaultString.
-  return (IS_NULL(x)) ? 'null' : ToString(DefaultString(x));
-}
-
-
-// ECMA-262, section 9.4, page 34.
-function ToInteger(x) {
-  if (%_IsSmi(x)) return x;
-  return %NumberToInteger(ToNumber(x));
-}
-
-
-// ES6, draft 08-24-14, section 7.1.15
-function ToLength(arg) {
-  arg = ToInteger(arg);
-  if (arg < 0) return 0;
-  return arg < kMaxSafeInteger ? arg : kMaxSafeInteger;
 }
 
 
@@ -357,17 +327,12 @@ function ToPositiveInteger(x, rangeErrorIndex) {
 // ----------------------------------------------------------------------------
 // Exports
 
-$defaultString = DefaultString;
 $NaN = %GetRootNaN();
 $nonNumberToNumber = NonNumberToNumber;
-$nonStringToString = NonStringToString;
 $sameValue = SameValue;
 $sameValueZero = SameValueZero;
-$toInteger = ToInteger;
-$toLength = ToLength;
 $toNumber = ToNumber;
 $toPositiveInteger = ToPositiveInteger;
-$toString = ToString;
 
 %InstallToContext([
   "apply_prepare_builtin", APPLY_PREPARE,
@@ -379,16 +344,11 @@ $toString = ToString;
 %InstallToContext([
   "concat_iterable_to_array", ConcatIterableToArray,
   "non_number_to_number", NonNumberToNumber,
-  "non_string_to_string", NonStringToString,
-  "to_integer_fun", ToInteger,
-  "to_length_fun", ToLength,
   "to_number_fun", ToNumber,
-  "to_string_fun", ToString,
 ]);
 
 utils.Export(function(to) {
   to.ToBoolean = ToBoolean;
-  to.ToLength = ToLength;
   to.ToNumber = ToNumber;
   to.ToString = ToString;
 });

@@ -4,12 +4,12 @@
 
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
 #include "src/mips64/lithium-codegen-mips64.h"
 #include "src/mips64/lithium-gap-resolver-mips64.h"
+#include "src/profiler/cpu-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -2981,7 +2981,7 @@ void LCodeGen::DoLoadNamedField(LLoadNamedField* instr) {
     // Read int value directly from upper half of the smi.
     STATIC_ASSERT(kSmiTag == 0);
     STATIC_ASSERT(kSmiTagSize + kSmiShiftSize == 32);
-    offset += kPointerSize / 2;
+    offset = SmiWordOffset(offset);
     representation = Representation::Integer32();
   }
   __ Load(result, FieldMemOperand(object, offset), representation);
@@ -3255,7 +3255,7 @@ void LCodeGen::DoLoadKeyedFixedArray(LLoadKeyed* instr) {
     // Read int value directly from upper half of the smi.
     STATIC_ASSERT(kSmiTag == 0);
     STATIC_ASSERT(kSmiTagSize + kSmiShiftSize == 32);
-    offset += kPointerSize / 2;
+    offset = SmiWordOffset(offset);
   }
 
   __ Load(result, MemOperand(store_base, offset), representation);
@@ -4202,7 +4202,7 @@ void LCodeGen::DoStoreNamedField(LStoreNamedField* instr) {
       __ AssertSmi(scratch2);
     }
     // Store int value directly to upper half of the smi.
-    offset += kPointerSize / 2;
+    offset = SmiWordOffset(offset);
     representation = Representation::Integer32();
   }
   MemOperand operand = FieldMemOperand(destination, offset);
@@ -4468,7 +4468,7 @@ void LCodeGen::DoStoreKeyedFixedArray(LStoreKeyed* instr) {
     // Store int value directly to upper half of the smi.
     STATIC_ASSERT(kSmiTag == 0);
     STATIC_ASSERT(kSmiTagSize + kSmiShiftSize == 32);
-    offset += kPointerSize / 2;
+    offset = SmiWordOffset(offset);
     representation = Representation::Integer32();
   }
 
@@ -5599,7 +5599,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // a0 = regexp literal clone.
   // a2 and a4-a6 are used as temporaries.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ li(a7, instr->hydrogen()->literals());
   __ ld(a1, FieldMemOperand(a7, literal_offset));
   __ LoadRoot(at, Heap::kUndefinedValueRootIndex);

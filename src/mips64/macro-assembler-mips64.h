@@ -116,6 +116,13 @@ bool AreAliased(Register reg1,
 // -----------------------------------------------------------------------------
 // Static helper functions.
 
+#if defined(V8_TARGET_LITTLE_ENDIAN)
+#define SmiWordOffset(offset) (offset + kPointerSize / 2)
+#else
+#define SmiWordOffset(offset) offset
+#endif
+
+
 inline MemOperand ContextOperand(Register context, int index) {
   return MemOperand(context, Context::SlotOffset(index));
 }
@@ -133,9 +140,9 @@ inline MemOperand FieldMemOperand(Register object, int offset) {
 
 
 inline MemOperand UntagSmiMemOperand(Register rm, int offset) {
-  // Assumes that Smis are shifted by 32 bits and little endianness.
+  // Assumes that Smis are shifted by 32 bits.
   STATIC_ASSERT(kSmiShift == 32);
-  return MemOperand(rm, offset + (kSmiShift / kBitsPerByte));
+  return MemOperand(rm, SmiWordOffset(offset));
 }
 
 
@@ -681,6 +688,9 @@ class MacroAssembler: public Assembler {
   void Usw(Register rd, const MemOperand& rs);
   void Uld(Register rd, const MemOperand& rs, Register scratch = at);
   void Usd(Register rd, const MemOperand& rs, Register scratch = at);
+
+  void LoadWordPair(Register rd, const MemOperand& rs, Register scratch = at);
+  void StoreWordPair(Register rd, const MemOperand& rs, Register scratch = at);
 
   // Load int32 in the rd register.
   void li(Register rd, Operand j, LiFlags mode = OPTIMIZE_SIZE);
@@ -1670,6 +1680,9 @@ const Operand& rt = Operand(zero_reg), BranchDelaySlot bd = PROTECT
   // Generates function and stub prologue code.
   void StubPrologue();
   void Prologue(bool code_pre_aging);
+
+  // Load the type feedback vector from a JavaScript frame.
+  void EmitLoadTypeFeedbackVector(Register vector);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type);

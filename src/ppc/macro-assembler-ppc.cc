@@ -11,7 +11,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/ppc/macro-assembler-ppc.h"
 #include "src/runtime/runtime.h"
@@ -751,6 +750,14 @@ void MacroAssembler::Prologue(bool code_pre_aging, int prologue_offset) {
     LoadConstantPoolPointerRegister(ip, -prologue_offset);
     set_constant_pool_available(true);
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  LoadP(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
+  LoadP(vector, FieldMemOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  LoadP(vector,
+        FieldMemOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 
@@ -3746,6 +3753,25 @@ void MacroAssembler::MovDoubleToInt64(
   lwz(dst, MemOperand(sp, Register::kMantissaOffset));
 #endif
   addi(sp, sp, Operand(kDoubleSize));
+}
+
+
+void MacroAssembler::MovIntToFloat(DoubleRegister dst, Register src) {
+  subi(sp, sp, Operand(kFloatSize));
+  stw(src, MemOperand(sp, 0));
+  nop(GROUP_ENDING_NOP);  // LHS/RAW optimization
+  lfs(dst, MemOperand(sp, 0));
+  addi(sp, sp, Operand(kFloatSize));
+}
+
+
+void MacroAssembler::MovFloatToInt(Register dst, DoubleRegister src) {
+  subi(sp, sp, Operand(kFloatSize));
+  frsp(src, src);
+  stfs(src, MemOperand(sp, 0));
+  nop(GROUP_ENDING_NOP);  // LHS/RAW optimization
+  lwz(dst, MemOperand(sp, 0));
+  addi(sp, sp, Operand(kFloatSize));
 }
 
 

@@ -11,6 +11,8 @@ import("//build/config/sanitizers/sanitizers.gni")
 # Chromium build.
 import("//build/module_args/v8.gni")
 
+import("snapshot_toolchain.gni")
+
 # TODO(jochen): These will need to be user-settable to support standalone V8
 # builds.
 v8_deprecation_warnings = false
@@ -33,24 +35,6 @@ if (is_msan) {
   v8_target_arch = "arm64"
 } else {
   v8_target_arch = target_cpu
-}
-
-# The snapshot needs to be compiled for the host, but compiled with
-# a toolchain that matches the bit-width of the target.
-#
-# TODO(GYP): For now we only support 32-bit little-endian target builds from an
-# x64 Linux host. Eventually we need to support all of the host/target
-# configurations v8 runs on.
-if (host_cpu == "x64" && host_os == "linux") {
-  if (target_cpu == "arm" || target_cpu == "mipsel" || target_cpu == "x86") {
-    snapshot_toolchain = "//build/toolchain/linux:clang_x86"
-  } else if (target_cpu == "x64") {
-    snapshot_toolchain = "//build/toolchain/linux:clang_x64"
-  } else {
-    assert(false, "Need environment for this arch")
-  }
-} else {
-  snapshot_toolchain = default_toolchain
 }
 
 ###############################################################################
@@ -640,8 +624,6 @@ source_set("v8_base") {
     "src/allocation.h",
     "src/allocation-site-scopes.cc",
     "src/allocation-site-scopes.h",
-    "src/allocation-tracker.cc",
-    "src/allocation-tracker.h",
     "src/api.cc",
     "src/api.h",
     "src/api-natives.cc",
@@ -687,8 +669,6 @@ source_set("v8_base") {
     "src/char-predicates-inl.h",
     "src/char-predicates.h",
     "src/checks.h",
-    "src/circular-queue-inl.h",
-    "src/circular-queue.h",
     "src/code-factory.cc",
     "src/code-factory.h",
     "src/code-stubs.cc",
@@ -880,9 +860,6 @@ source_set("v8_base") {
     "src/conversions.h",
     "src/counters.cc",
     "src/counters.h",
-    "src/cpu-profiler-inl.h",
-    "src/cpu-profiler.cc",
-    "src/cpu-profiler.h",
     "src/date.cc",
     "src/date.h",
     "src/dateparser-inl.h",
@@ -955,11 +932,6 @@ source_set("v8_base") {
     "src/handles.cc",
     "src/handles.h",
     "src/hashmap.h",
-    "src/heap-profiler.cc",
-    "src/heap-profiler.h",
-    "src/heap-snapshot-generator-inl.h",
-    "src/heap-snapshot-generator.cc",
-    "src/heap-snapshot-generator.h",
     "src/heap/array-buffer-tracker.cc",
     "src/heap/array-buffer-tracker.h",
     "src/heap/gc-idle-time-handler.cc",
@@ -983,6 +955,8 @@ source_set("v8_base") {
     "src/heap/objects-visiting-inl.h",
     "src/heap/objects-visiting.cc",
     "src/heap/objects-visiting.h",
+    "src/heap/scavenge-job.h",
+    "src/heap/scavenge-job.cc",
     "src/heap/scavenger-inl.h",
     "src/heap/scavenger.cc",
     "src/heap/scavenger.h",
@@ -1131,9 +1105,25 @@ source_set("v8_base") {
     "src/preparser.h",
     "src/prettyprinter.cc",
     "src/prettyprinter.h",
-    "src/profile-generator-inl.h",
-    "src/profile-generator.cc",
-    "src/profile-generator.h",
+    "src/profiler/allocation-tracker.cc",
+    "src/profiler/allocation-tracker.h",
+    "src/profiler/circular-queue-inl.h",
+    "src/profiler/circular-queue.h",
+    "src/profiler/cpu-profiler-inl.h",
+    "src/profiler/cpu-profiler.cc",
+    "src/profiler/cpu-profiler.h",
+    "src/profiler/heap-profiler.cc",
+    "src/profiler/heap-profiler.h",
+    "src/profiler/heap-snapshot-generator-inl.h",
+    "src/profiler/heap-snapshot-generator.cc",
+    "src/profiler/heap-snapshot-generator.h",
+    "src/profiler/profile-generator-inl.h",
+    "src/profiler/profile-generator.cc",
+    "src/profiler/profile-generator.h",
+    "src/profiler/sampler.cc",
+    "src/profiler/sampler.h",
+    "src/profiler/unbound-queue-inl.h",
+    "src/profiler/unbound-queue.h",
     "src/property-details.h",
     "src/property.cc",
     "src/property.h",
@@ -1170,6 +1160,7 @@ source_set("v8_base") {
     "src/runtime/runtime-generator.cc",
     "src/runtime/runtime-i18n.cc",
     "src/runtime/runtime-internal.cc",
+    "src/runtime/runtime-interpreter.cc",
     "src/runtime/runtime-json.cc",
     "src/runtime/runtime-literals.cc",
     "src/runtime/runtime-liveedit.cc",
@@ -1192,8 +1183,6 @@ source_set("v8_base") {
     "src/runtime/runtime.h",
     "src/safepoint-table.cc",
     "src/safepoint-table.h",
-    "src/sampler.cc",
-    "src/sampler.h",
     "src/scanner-character-streams.cc",
     "src/scanner-character-streams.h",
     "src/scanner.cc",
@@ -1245,8 +1234,6 @@ source_set("v8_base") {
     "src/typing-reset.h",
     "src/typing.cc",
     "src/typing.h",
-    "src/unbound-queue-inl.h",
-    "src/unbound-queue.h",
     "src/unicode-inl.h",
     "src/unicode.cc",
     "src/unicode.h",
@@ -1792,6 +1779,7 @@ if (is_component_build) {
 }
 
 if ((current_toolchain == host_toolchain && v8_toolset_for_d8 == "host") ||
+    (current_toolchain == snapshot_toolchain && v8_toolset_for_d8 == "host") ||
     (current_toolchain != host_toolchain && v8_toolset_for_d8 == "target")) {
   executable("d8") {
     sources = [

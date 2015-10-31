@@ -7,10 +7,10 @@
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/x64/lithium-codegen-x64.h"
 
 namespace v8 {
@@ -5458,7 +5458,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // rbx = regexp literal.
   // rax = regexp literal clone.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ Move(rcx, instr->hydrogen()->literals());
   __ movp(rbx, FieldOperand(rcx, literal_offset));
   __ CompareRoot(rbx, Heap::kUndefinedValueRootIndex);

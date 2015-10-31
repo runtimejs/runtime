@@ -7,13 +7,13 @@
 #include <sstream>
 
 #include "src/bootstrapper.h"
-#include "src/cpu-profiler.h"
 #include "src/factory.h"
 #include "src/gdb-jit.h"
 #include "src/ic/handler-compiler.h"
 #include "src/ic/ic.h"
 #include "src/macro-assembler.h"
 #include "src/parser.h"
+#include "src/profiler/cpu-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -324,6 +324,12 @@ std::ostream& operator<<(std::ostream& os, const StringAddFlags& flags) {
       return os << "CheckRight";
     case STRING_ADD_CHECK_BOTH:
       return os << "CheckBoth";
+    case STRING_ADD_CONVERT_LEFT:
+      return os << "ConvertLeft";
+    case STRING_ADD_CONVERT_RIGHT:
+      return os << "ConvertRight";
+    case STRING_ADD_CONVERT:
+      break;
   }
   UNREACHABLE();
   return os;
@@ -345,6 +351,7 @@ InlineCacheState CompareICStub::GetICState() const {
   switch (state) {
     case CompareICState::UNINITIALIZED:
       return ::v8::internal::UNINITIALIZED;
+    case CompareICState::BOOLEAN:
     case CompareICState::SMI:
     case CompareICState::NUMBER:
     case CompareICState::INTERNALIZED_STRING:
@@ -383,7 +390,6 @@ bool CompareICStub::FindCodeInSpecialCache(Code** code_out) {
   Code::Flags flags = Code::ComputeFlags(
       GetCodeKind(),
       UNINITIALIZED);
-  DCHECK(op() == Token::EQ || op() == Token::EQ_STRICT);
   Handle<Object> probe(
       known_map_->FindInCodeCache(
         strict() ?
@@ -410,6 +416,9 @@ void CompareICStub::Generate(MacroAssembler* masm) {
   switch (state()) {
     case CompareICState::UNINITIALIZED:
       GenerateMiss(masm);
+      break;
+    case CompareICState::BOOLEAN:
+      GenerateBooleans(masm);
       break;
     case CompareICState::SMI:
       GenerateSmis(masm);

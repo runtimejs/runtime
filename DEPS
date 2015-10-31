@@ -8,17 +8,19 @@ vars = {
 
 deps = {
   "v8/build/gyp":
-    Var("git_url") + "/external/gyp.git" + "@" + "cf3170e30578d600b8ec8cd68553cc5e606d42eb",
+    Var("git_url") + "/external/gyp.git" + "@" + "01528c7244837168a1c80f06ff60fa5a9793c824",
   "v8/third_party/icu":
-    Var("git_url") + "/chromium/deps/icu.git" + "@" + "6b3ce817f8e828c3b7a577d2395f0882eb56ef18",
+    Var("git_url") + "/chromium/deps/icu.git" + "@" + "423fc7e1107fb08ccf007c4aeb76dcab8b2747c1",
   "v8/buildtools":
-    Var("git_url") + "/chromium/buildtools.git" + "@" + "f7310ee61725e68b1c8921e381830362cf4f0999",
+    Var("git_url") + "/chromium/buildtools.git" + "@" + "e7111440c07a883b82ffbbe6d26c744dfc6c9673",
+  "v8/tools/swarming_client":
+    Var('git_url') + '/external/swarming.client.git' + '@' + "6e5d2b21f0ac98396cd736097a985346feed1328",
   "v8/testing/gtest":
     Var("git_url") + "/external/googletest.git" + "@" + "9855a87157778d39b95eccfb201a9dc90f6d61c6",
   "v8/testing/gmock":
     Var("git_url") + "/external/googlemock.git" + "@" + "0421b6f358139f02e102c9c332ce19a33faf75be",
   "v8/tools/clang":
-    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "76e743dc622478312b66661ad48997b318628cbb",
+    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "0150e39a3112dbc7e4c7a3ab25276b8d7781f3b6",
 }
 
 deps_os = {

@@ -910,6 +910,30 @@ void InstructionSelector::VisitTruncateInt64ToInt32(Node* node) {
 #endif
 
 
+void InstructionSelector::VisitBitcastFloat32ToInt32(Node* node) {
+  VisitRR(this, kPPC_BitcastFloat32ToInt32, node);
+}
+
+
+#if V8_TARGET_ARCH_PPC64
+void InstructionSelector::VisitBitcastFloat64ToInt64(Node* node) {
+  VisitRR(this, kPPC_BitcastDoubleToInt64, node);
+}
+#endif
+
+
+void InstructionSelector::VisitBitcastInt32ToFloat32(Node* node) {
+  VisitRR(this, kPPC_BitcastInt32ToFloat32, node);
+}
+
+
+#if V8_TARGET_ARCH_PPC64
+void InstructionSelector::VisitBitcastInt64ToFloat64(Node* node) {
+  VisitRR(this, kPPC_BitcastInt64ToDouble, node);
+}
+#endif
+
+
 void InstructionSelector::VisitFloat32Add(Node* node) {
   VisitRRR(this, kPPC_AddDouble, node);
 }

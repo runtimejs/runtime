@@ -303,7 +303,7 @@ static void LoadIC_PushArgs(MacroAssembler* masm) {
 }
 
 
-void LoadIC::GenerateMiss(MacroAssembler* masm, int stress) {
+void LoadIC::GenerateMiss(MacroAssembler* masm) {
   // The return address is on the stack.
   Isolate* isolate = masm->isolate();
 
@@ -551,7 +551,7 @@ static void KeyedStoreGenerateMegamorphicHelper(
   // We have to see if the double version of the hole is present. If so
   // go to the runtime.
   __ Daddu(address, elements,
-           Operand(FixedDoubleArray::kHeaderSize + sizeof(kHoleNanLower32) -
+           Operand(FixedDoubleArray::kHeaderSize + Register::kExponentOffset -
                    kHeapObjectTag));
   __ SmiScale(at, key, kPointerSizeLog2);
   __ daddu(address, address, at);

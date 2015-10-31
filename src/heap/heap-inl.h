@@ -14,7 +14,6 @@
 #include "src/heap/spaces-inl.h"
 #include "src/heap/store-buffer.h"
 #include "src/heap/store-buffer-inl.h"
-#include "src/heap-profiler.h"
 #include "src/isolate.h"
 #include "src/list-inl.h"
 #include "src/log.h"
@@ -123,12 +122,11 @@ AllocationResult Heap::AllocateOneByteInternalizedString(
   // Compute map and object size.
   Map* map = one_byte_internalized_string_map();
   int size = SeqOneByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, TENURED);
 
   // Allocate string.
   HeapObject* result = nullptr;
   {
-    AllocationResult allocation = AllocateRaw(size, space, OLD_SPACE);
+    AllocationResult allocation = AllocateRaw(size, OLD_SPACE);
     if (!allocation.To(&result)) return allocation;
   }
 
@@ -155,12 +153,11 @@ AllocationResult Heap::AllocateTwoByteInternalizedString(Vector<const uc16> str,
   // Compute map and object size.
   Map* map = internalized_string_map();
   int size = SeqTwoByteString::SizeFor(str.length());
-  AllocationSpace space = SelectSpace(size, TENURED);
 
   // Allocate string.
   HeapObject* result = nullptr;
   {
-    AllocationResult allocation = AllocateRaw(size, space, OLD_SPACE);
+    AllocationResult allocation = AllocateRaw(size, OLD_SPACE);
     if (!allocation.To(&result)) return allocation;
   }
 
@@ -192,7 +189,6 @@ AllocationResult Heap::CopyFixedDoubleArray(FixedDoubleArray* src) {
 
 
 AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
-                                   AllocationSpace retry_space,
                                    AllocationAlignment alignment) {
   DCHECK(AllowHandleAllocation::IsAllowed());
   DCHECK(AllowHeapAllocation::IsAllowed());
@@ -206,13 +202,14 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
   isolate_->counters()->objs_since_last_young()->Increment();
 #endif
 
+  bool large_object = size_in_bytes > Page::kMaxRegularHeapObjectSize;
   HeapObject* object = nullptr;
   AllocationResult allocation;
   if (NEW_SPACE == space) {
-    allocation = new_space_.AllocateRaw(size_in_bytes, alignment);
-    if (always_allocate() && allocation.IsRetry() && retry_space != NEW_SPACE) {
-      space = retry_space;
+    if (large_object) {
+      space = LO_SPACE;
     } else {
+      allocation = new_space_.AllocateRaw(size_in_bytes, alignment);
       if (allocation.To(&object)) {
         OnAllocationEvent(object, size_in_bytes);
       }
@@ -220,20 +217,27 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes, AllocationSpace space,
     }
   }
 
+  // Here we only allocate in the old generation.
   if (OLD_SPACE == space) {
-    allocation = old_space_->AllocateRaw(size_in_bytes, alignment);
+    if (large_object) {
+      allocation = lo_space_->AllocateRaw(size_in_bytes, NOT_EXECUTABLE);
+    } else {
+      allocation = old_space_->AllocateRaw(size_in_bytes, alignment);
+    }
   } else if (CODE_SPACE == space) {
     if (size_in_bytes <= code_space()->AreaSize()) {
       allocation = code_space_->AllocateRawUnaligned(size_in_bytes);
     } else {
-      // Large code objects are allocated in large object space.
       allocation = lo_space_->AllocateRaw(size_in_bytes, EXECUTABLE);
     }
   } else if (LO_SPACE == space) {
+    DCHECK(large_object);
     allocation = lo_space_->AllocateRaw(size_in_bytes, NOT_EXECUTABLE);
-  } else {
-    DCHECK(MAP_SPACE == space);
+  } else if (MAP_SPACE == space) {
     allocation = map_space_->AllocateRawUnaligned(size_in_bytes);
+  } else {
+    // NEW_SPACE is not allowed here.
+    UNREACHABLE();
   }
   if (allocation.To(&object)) {
     OnAllocationEvent(object, size_in_bytes);
@@ -532,57 +536,6 @@ Isolate* Heap::isolate() {
 }
 
 
-// Calls the FUNCTION_CALL function and retries it up to three times
-// to guarantee that any allocations performed during the call will
-// succeed if there's enough memory.
-
-// Warning: Do not use the identifiers __object__, __maybe_object__ or
-// __scope__ in a call to this macro.
-
-#define RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE) \
-  if (__allocation__.To(&__object__)) {                   \
-    DCHECK(__object__ != (ISOLATE)->heap()->exception()); \
-    RETURN_VALUE;                                         \
-  }
-
-#define CALL_AND_RETRY(ISOLATE, FUNCTION_CALL, RETURN_VALUE, RETURN_EMPTY)    \
-  do {                                                                        \
-    AllocationResult __allocation__ = FUNCTION_CALL;                          \
-    Object* __object__ = NULL;                                                \
-    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                         \
-    /* Two GCs before panicking.  In newspace will almost always succeed. */  \
-    for (int __i__ = 0; __i__ < 2; __i__++) {                                 \
-      (ISOLATE)->heap()->CollectGarbage(__allocation__.RetrySpace(),          \
-                                        "allocation failure");                \
-      __allocation__ = FUNCTION_CALL;                                         \
-      RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                       \
-    }                                                                         \
-    (ISOLATE)->counters()->gc_last_resort_from_handles()->Increment();        \
-    (ISOLATE)->heap()->CollectAllAvailableGarbage("last resort gc");          \
-    {                                                                         \
-      AlwaysAllocateScope __scope__(ISOLATE);                                 \
-      __allocation__ = FUNCTION_CALL;                                         \
-    }                                                                         \
-    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, RETURN_VALUE)                         \
-    /* TODO(1181417): Fix this. */                                            \
-    v8::internal::Heap::FatalProcessOutOfMemory("CALL_AND_RETRY_LAST", true); \
-    RETURN_EMPTY;                                                             \
-  } while (false)
-
-#define CALL_AND_RETRY_OR_DIE(ISOLATE, FUNCTION_CALL, RETURN_VALUE, \
-                              RETURN_EMPTY)                         \
-  CALL_AND_RETRY(ISOLATE, FUNCTION_CALL, RETURN_VALUE, RETURN_EMPTY)
-
-#define CALL_HEAP_FUNCTION(ISOLATE, FUNCTION_CALL, TYPE)                      \
-  CALL_AND_RETRY_OR_DIE(ISOLATE, FUNCTION_CALL,                               \
-                        return Handle<TYPE>(TYPE::cast(__object__), ISOLATE), \
-                        return Handle<TYPE>())
-
-
-#define CALL_HEAP_FUNCTION_VOID(ISOLATE, FUNCTION_CALL) \
-  CALL_AND_RETRY_OR_DIE(ISOLATE, FUNCTION_CALL, return, return)
-
-
 void Heap::ExternalStringTable::AddString(String* string) {
   DCHECK(string->IsExternalString());
   if (heap_->InNewSpace(string)) {
@@ -684,12 +637,15 @@ uint32_t Heap::HashSeed() {
 }
 
 
-Smi* Heap::NextScriptId() {
-  int next_id = last_script_id()->value() + 1;
-  if (!Smi::IsValid(next_id) || next_id < 0) next_id = 1;
-  Smi* next_id_smi = Smi::FromInt(next_id);
-  set_last_script_id(next_id_smi);
-  return next_id_smi;
+int Heap::NextScriptId() {
+  int last_id = last_script_id()->value();
+  if (last_id == Smi::kMaxValue) {
+    last_id = 1;
+  } else {
+    last_id++;
+  }
+  set_last_script_id(Smi::FromInt(last_id));
+  return last_id;
 }
 
 

@@ -9,15 +9,14 @@
 #include "src/arguments.h"
 #include "src/base/once.h"
 #include "src/bootstrapper.h"
-#include "src/cpu-profiler.h"
 #include "src/elements.h"
 #include "src/frames-inl.h"
 #include "src/gdb-jit.h"
-#include "src/heap-profiler.h"
 #include "src/ic/handler-compiler.h"
 #include "src/ic/ic.h"
 #include "src/isolate-inl.h"
 #include "src/messages.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/prototype.h"
 #include "src/vm-state-inl.h"
 
@@ -1001,11 +1000,11 @@ bool IterateElements(Isolate* isolate, Handle<JSObject> receiver,
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
         isolate, val, Runtime::GetObjectProperty(isolate, receiver, key),
         false);
+    ASSIGN_RETURN_ON_EXCEPTION_VALUE(isolate, val,
+                                     Object::ToLength(isolate, val), false);
     // TODO(caitp): Support larger element indexes (up to 2^53-1).
     if (!val->ToUint32(&length)) {
-      ASSIGN_RETURN_ON_EXCEPTION_VALUE(
-          isolate, val, Execution::ToLength(isolate, val), false);
-      val->ToUint32(&length);
+      length = 0;
     }
   }
 
@@ -1739,7 +1738,7 @@ BUILTIN(HandleApiCallAsConstructor) {
 
 
 static void Generate_LoadIC_Miss(MacroAssembler* masm) {
-  LoadIC::GenerateMiss(masm, LoadIC::kStressBuiltin);
+  LoadIC::GenerateMiss(masm);
 }
 
 
@@ -1985,6 +1984,9 @@ void Builtins::SetUp(Isolate* isolate, bool create_heap_objects) {
 #ifdef DEBUG
   // We can generate a lot of debug code on Arm64.
   const size_t buffer_size = 32*KB;
+#elif V8_TARGET_ARCH_PPC64
+  // 8 KB is insufficient on PPC64 when FLAG_debug_code is on.
+  const size_t buffer_size = 10 * KB;
 #else
   const size_t buffer_size = 8*KB;
 #endif

@@ -76,6 +76,7 @@
 //       - BytecodeArray
 //       - FixedArray
 //         - DescriptorArray
+//         - LiteralsArray
 //         - HashTable
 //           - Dictionary
 //           - StringTable
@@ -815,14 +816,18 @@ enum CompareResult {
 enum class ComparisonResult {
   kLessThan,     // x < y
   kEqual,        // x = y
-  kGreaterThan,  // x > x
+  kGreaterThan,  // x > y
   kUndefined     // at least one of x or y was undefined or NaN
 };
 
 
-#define DECL_BOOLEAN_ACCESSORS(name)   \
-  inline bool name() const;            \
-  inline void set_##name(bool value);  \
+#define DECL_BOOLEAN_ACCESSORS(name) \
+  inline bool name() const;          \
+  inline void set_##name(bool value);
+
+#define DECL_INT_ACCESSORS(name) \
+  inline int name() const;       \
+  inline void set_##name(int value);
 
 
 #define DECL_ACCESSORS(name, type)                                      \
@@ -848,6 +853,7 @@ class FunctionLiteral;
 class GlobalObject;
 class JSBuiltinsObject;
 class LayoutDescriptor;
+class LiteralsArray;
 class LookupIterator;
 class ObjectHashTable;
 class ObjectVisitor;
@@ -936,6 +942,7 @@ template <class C> inline bool Is(Object* obj);
   V(Map)                           \
   V(DescriptorArray)               \
   V(TransitionArray)               \
+  V(LiteralsArray)                 \
   V(TypeFeedbackVector)            \
   V(DeoptimizationInputData)       \
   V(DeoptimizationOutputData)      \
@@ -1033,9 +1040,10 @@ class Object {
   // ES6, section 7.2.3 IsCallable.
   INLINE(bool IsCallable() const);
 
+  // ES6, section 7.2.4 IsConstructor.
+  INLINE(bool IsConstructor() const);
+
   INLINE(bool IsSpecObject()) const;
-  // TODO(rossberg): IsSpecFunction should be removed in favor of IsCallable.
-  INLINE(bool IsSpecFunction()) const;
   INLINE(bool IsTemplateInfo()) const;
   INLINE(bool IsNameDictionary() const);
   INLINE(bool IsGlobalDictionary() const);
@@ -1112,8 +1120,8 @@ class Object {
       Isolate* isolate, Handle<Object> object, Handle<Context> context);
 
   // ES6 section 7.1.14 ToPropertyKey
-  MUST_USE_RESULT static inline MaybeHandle<Name> ToName(Isolate* isolate,
-                                                         Handle<Object> input);
+  MUST_USE_RESULT static MaybeHandle<Name> ToName(Isolate* isolate,
+                                                  Handle<Object> input);
 
   // ES6 section 7.1.1 ToPrimitive
   MUST_USE_RESULT static inline MaybeHandle<Object> ToPrimitive(
@@ -1122,8 +1130,24 @@ class Object {
   // ES6 section 7.1.3 ToNumber
   MUST_USE_RESULT static MaybeHandle<Object> ToNumber(Handle<Object> input);
 
+  // ES6 section 7.1.4 ToInteger
+  MUST_USE_RESULT static MaybeHandle<Object> ToInteger(Isolate* isolate,
+                                                       Handle<Object> input);
+
+  // ES6 section 7.1.5 ToInt32
+  MUST_USE_RESULT static MaybeHandle<Object> ToInt32(Isolate* isolate,
+                                                     Handle<Object> input);
+
+  // ES6 section 7.1.6 ToUint32
+  MUST_USE_RESULT static MaybeHandle<Object> ToUint32(Isolate* isolate,
+                                                      Handle<Object> input);
+
   // ES6 section 7.1.12 ToString
   MUST_USE_RESULT static MaybeHandle<String> ToString(Isolate* isolate,
+                                                      Handle<Object> input);
+
+  // ES6 section 7.1.15 ToLength
+  MUST_USE_RESULT static MaybeHandle<Object> ToLength(Isolate* isolate,
                                                       Handle<Object> input);
 
   // ES6 section 7.3.9 GetMethod
@@ -4054,7 +4078,6 @@ class ScopeInfo : public FixedArray {
   FOR_EACH_SCOPE_INFO_NUMERIC_FIELD(FIELD_ACCESSORS)
 #undef FIELD_ACCESSORS
 
- private:
   enum {
 #define DECL_INDEX(name) k##name,
     FOR_EACH_SCOPE_INFO_NUMERIC_FIELD(DECL_INDEX)
@@ -4062,6 +4085,7 @@ class ScopeInfo : public FixedArray {
     kVariablePartIndex
   };
 
+ private:
   // The layout of the variable part of a ScopeInfo is as follows:
   // 1. ParameterEntries:
   //    This part stores the names of the parameters for function scopes. One
@@ -4547,6 +4571,40 @@ class DeoptimizationOutputData: public FixedArray {
 };
 
 
+// A literals array contains the literals for a JSFunction. It also holds
+// the type feedback vector.
+class LiteralsArray : public FixedArray {
+ public:
+  static const int kVectorIndex = 0;
+  static const int kFirstLiteralIndex = 1;
+  static const int kOffsetToFirstLiteral =
+      FixedArray::kHeaderSize + kPointerSize;
+
+  static int OffsetOfLiteralAt(int index) {
+    return SizeFor(index + kFirstLiteralIndex);
+  }
+
+  inline TypeFeedbackVector* feedback_vector() const;
+  inline void set_feedback_vector(TypeFeedbackVector* vector);
+  inline Object* literal(int literal_index) const;
+  inline void set_literal(int literal_index, Object* literal);
+  inline int literals_count() const;
+
+  static Handle<LiteralsArray> New(Isolate* isolate,
+                                   Handle<TypeFeedbackVector> vector,
+                                   int number_of_literals,
+                                   PretenureFlag pretenure);
+
+  DECLARE_CAST(LiteralsArray)
+
+ private:
+  inline Object* get(int index) const;
+  inline void set(int index, Object* value);
+  inline void set(int index, Smi* value);
+  inline void set(int index, Object* value, WriteBarrierMode mode);
+};
+
+
 // HandlerTable is a fixed array containing entries for exception handlers in
 // the code object it is associated with. The tables comes in two flavors:
 // 1) Based on ranges: Used for unoptimized code. Contains one entry per
@@ -4623,7 +4681,7 @@ class Code: public HeapObject {
   V(HANDLER)                \
   V(BUILTIN)                \
   V(REGEXP)                 \
-  V(PLACEHOLDER)
+  V(WASM_FUNCTION)
 
 #define IC_KIND_LIST(V) \
   V(LOAD_IC)            \
@@ -5364,11 +5422,10 @@ class Map: public HeapObject {
   inline void set_non_instance_prototype(bool value);
   inline bool has_non_instance_prototype();
 
-  // Tells whether function has special prototype property. If not, prototype
-  // property will not be created when accessed (will return undefined),
-  // and construction from this function will not be allowed.
-  inline void set_function_with_prototype(bool value);
-  inline bool function_with_prototype();
+  // Tells whether the instance has a [[Construct]] internal method.
+  // This property is implemented according to ES6, section 7.2.4.
+  inline void set_is_constructor(bool value);
+  inline bool is_constructor() const;
 
   // Tells whether the instance with this map should be ignored by the
   // Object.getPrototypeOf() function and the __proto__ accessor.
@@ -5396,7 +5453,7 @@ class Map: public HeapObject {
   inline void set_is_observed();
   inline bool is_observed();
 
-  // Tells whether the instance has a [[Call]] internal field.
+  // Tells whether the instance has a [[Call]] internal method.
   // This property is implemented according to ES6, section 7.2.3.
   inline void set_is_callable();
   inline bool is_callable() const;
@@ -5471,9 +5528,8 @@ class Map: public HeapObject {
   // TODO(ishell): moveit!
   static Handle<Map> GeneralizeAllFieldRepresentations(Handle<Map> map);
   MUST_USE_RESULT static Handle<HeapType> GeneralizeFieldType(
-      Handle<HeapType> type1,
-      Handle<HeapType> type2,
-      Isolate* isolate);
+      Representation rep1, Handle<HeapType> type1, Representation rep2,
+      Handle<HeapType> type2, Isolate* isolate);
   static void GeneralizeFieldType(Handle<Map> map, int modify_index,
                                   Representation new_representation,
                                   Handle<HeapType> new_field_type);
@@ -5726,6 +5782,7 @@ class Map: public HeapObject {
   inline bool IsPrimitiveMap();
   inline bool IsJSObjectMap();
   inline bool IsJSArrayMap();
+  inline bool IsJSFunctionMap();
   inline bool IsStringMap();
   inline bool IsJSProxyMap();
   inline bool IsJSGlobalProxyMap();
@@ -5830,7 +5887,7 @@ class Map: public HeapObject {
   static const int kIsUndetectable = 4;
   static const int kIsObserved = 5;
   static const int kIsAccessCheckNeeded = 6;
-  class FunctionWithPrototype: public BitField<bool, 7,  1> {};
+  static const int kIsConstructor = 7;
 
   // Bit positions for bit field 2
   static const int kIsExtensible = 0;
@@ -5990,6 +6047,10 @@ class PrototypeInfo : public Struct {
   inline void set_registry_slot(int slot);
   // [validity_cell]: Cell containing the validity bit for prototype chains
   // going through this object, or Smi(0) if uninitialized.
+  // When a prototype object changes its map, then both its own validity cell
+  // and those of all "downstream" prototypes are invalidated; handlers for a
+  // given receiver embed the currently valid cell for that receiver's prototype
+  // during their compilation and check it on execution.
   DECL_ACCESSORS(validity_cell, Object)
   // [constructor_name]: User-friendly name of the original constructor.
   DECL_ACCESSORS(constructor_name, Object)
@@ -6066,14 +6127,14 @@ class Script: public Struct {
   DECL_ACCESSORS(name, Object)
 
   // [id]: the script id.
-  DECL_ACCESSORS(id, Smi)
+  DECL_INT_ACCESSORS(id)
 
   // [line_offset]: script line offset in resource from where it was extracted.
-  DECL_ACCESSORS(line_offset, Smi)
+  DECL_INT_ACCESSORS(line_offset)
 
   // [column_offset]: script column offset in resource from where it was
   // extracted.
-  DECL_ACCESSORS(column_offset, Smi)
+  DECL_INT_ACCESSORS(column_offset)
 
   // [context_data]: context data for the context this script was compiled in.
   DECL_ACCESSORS(context_data, Object)
@@ -6082,7 +6143,7 @@ class Script: public Struct {
   DECL_ACCESSORS(wrapper, HeapObject)
 
   // [type]: the script type.
-  DECL_ACCESSORS(type, Smi)
+  DECL_INT_ACCESSORS(type)
 
   // [line_ends]: FixedArray of line ends positions.
   DECL_ACCESSORS(line_ends, Object)
@@ -6093,14 +6154,14 @@ class Script: public Struct {
 
   // [eval_from_instructions_offset]: the instruction offset in the code for the
   // function from which eval was called where eval was called.
-  DECL_ACCESSORS(eval_from_instructions_offset, Smi)
+  DECL_INT_ACCESSORS(eval_from_instructions_offset)
 
   // [shared_function_infos]: weak fixed array containing all shared
   // function infos created from this script.
   DECL_ACCESSORS(shared_function_infos, Object)
 
   // [flags]: Holds an exciting bitfield.
-  DECL_ACCESSORS(flags, Smi)
+  DECL_INT_ACCESSORS(flags)
 
   // [source_url]: sourceURL from magic comment
   DECL_ACCESSORS(source_url, Object)
@@ -6268,7 +6329,7 @@ enum BuiltinFunctionId {
 // that both {code} and {literals} can be NULL to pass search result status.
 struct CodeAndLiterals {
   Code* code;            // Cached optimized code.
-  FixedArray* literals;  // Cached literals array.
+  LiteralsArray* literals;  // Cached literals array.
 };
 
 
@@ -6288,15 +6349,18 @@ class SharedFunctionInfo: public HeapObject {
   DECL_ACCESSORS(optimized_code_map, Object)
 
   // Returns entry from optimized code map for specified context and OSR entry.
-  // Note that {code == nullptr} indicates no matching entry has been found,
-  // whereas {literals == nullptr} indicates the code is context-independent.
+  // Note that {code == nullptr, literals == nullptr} indicates no matching
+  // entry has been found, whereas {code, literals == nullptr} indicates that
+  // code is context-independent.
   CodeAndLiterals SearchOptimizedCodeMap(Context* native_context,
                                          BailoutId osr_ast_id);
 
   // Clear optimized code map.
   void ClearOptimizedCodeMap();
 
-  // Removed a specific optimized code object from the optimized code map.
+  // Removes a specific optimized code object from the optimized code map.
+  // In case of non-OSR the code reference is cleared from the cache entry but
+  // the entry itself is left in the map in order to proceed sharing literals.
   void EvictFromOptimizedCodeMap(Code* optimized_code, const char* reason);
 
   // Trims the optimized code map after entries have been removed.
@@ -6307,10 +6371,12 @@ class SharedFunctionInfo: public HeapObject {
                                               Handle<Code> code);
 
   // Add a new entry to the optimized code map for context-dependent code.
+  // |code| is either a code object or an undefined value. In the latter case
+  // the entry just maps |native_context, osr_ast_id| pair to |literals| array.
   static void AddToOptimizedCodeMap(Handle<SharedFunctionInfo> shared,
                                     Handle<Context> native_context,
-                                    Handle<Code> code,
-                                    Handle<FixedArray> literals,
+                                    Handle<HeapObject> code,
+                                    Handle<LiteralsArray> literals,
                                     BailoutId osr_ast_id);
 
   // Set up the link between shared function info and the script. The shared
@@ -6328,6 +6394,8 @@ class SharedFunctionInfo: public HeapObject {
   static const int kOsrAstIdOffset = 3;
   static const int kEntryLength = 4;
   static const int kInitialLength = kEntriesStart + kEntryLength;
+
+  static const int kNotFound = -1;
 
   // [scope_info]: Scope info.
   DECL_ACCESSORS(scope_info, ScopeInfo)
@@ -6897,6 +6965,12 @@ class SharedFunctionInfo: public HeapObject {
 #endif
 
  private:
+  // Returns entry from optimized code map for specified context and OSR entry.
+  // The result is either kNotFound, kSharedCodeIndex for context-independent
+  // entry or a start index of the context-dependent entry.
+  int SearchOptimizedCodeMapEntry(Context* native_context,
+                                  BailoutId osr_ast_id);
+
   DISALLOW_IMPLICIT_CONSTRUCTORS(SharedFunctionInfo);
 };
 
@@ -7098,8 +7172,8 @@ class JSFunction: public JSObject {
   // arguments. Bound functions never contain literals.
   DECL_ACCESSORS(literals_or_bindings, FixedArray)
 
-  inline FixedArray* literals();
-  inline void set_literals(FixedArray* literals);
+  inline LiteralsArray* literals();
+  inline void set_literals(LiteralsArray* literals);
 
   inline FixedArray* function_bindings();
   inline void set_function_bindings(FixedArray* bindings);
@@ -7124,15 +7198,9 @@ class JSFunction: public JSObject {
   static void SetInstancePrototype(Handle<JSFunction> function,
                                    Handle<Object> value);
 
-  // Creates a new closure for the fucntion with the same bindings,
-  // bound values, and prototype. An equivalent of spec operations
-  // ``CloneMethod`` and ``CloneBoundFunction``.
-  static Handle<JSFunction> CloneClosure(Handle<JSFunction> function);
-
   // After prototype is removed, it will not be created when accessed, and
   // [[Construct]] from this function will not be allowed.
   bool RemovePrototype();
-  inline bool should_have_prototype();
 
   // Accessor for this function's initial map's [[class]]
   // property. This is primarily used by ECMA native functions.  This
@@ -7910,8 +7978,8 @@ class AllocationSite: public Struct {
   // walked in a particular order. So [[1, 2], 1, 2] will have one
   // nested_site, but [[1, 2], 3, [4]] will have a list of two.
   DECL_ACCESSORS(nested_site, Object)
-  DECL_ACCESSORS(pretenure_data, Smi)
-  DECL_ACCESSORS(pretenure_create_count, Smi)
+  DECL_INT_ACCESSORS(pretenure_data)
+  DECL_INT_ACCESSORS(pretenure_create_count)
   DECL_ACCESSORS(dependent_code, DependentCode)
   DECL_ACCESSORS(weak_next, Object)
 
@@ -8300,7 +8368,7 @@ class Symbol: public Name {
   // [name]: The print name of a symbol, or undefined if none.
   DECL_ACCESSORS(name, Object)
 
-  DECL_ACCESSORS(flags, Smi)
+  DECL_INT_ACCESSORS(flags)
 
   // [is_private]: Whether this is a private symbol.  Private symbols can only
   // be used to designate own properties of objects.
@@ -9958,7 +10026,7 @@ class JSRegExpResult: public JSArray {
 class AccessorInfo: public Struct {
  public:
   DECL_ACCESSORS(name, Object)
-  DECL_ACCESSORS(flag, Smi)
+  DECL_INT_ACCESSORS(flag)
   DECL_ACCESSORS(expected_receiver_type, Object)
 
   inline bool all_can_read();
@@ -10206,7 +10274,7 @@ class FunctionTemplateInfo: public TemplateInfo {
   DECL_ACCESSORS(signature, Object)
   DECL_ACCESSORS(instance_call_handler, Object)
   DECL_ACCESSORS(access_check_info, Object)
-  DECL_ACCESSORS(flag, Smi)
+  DECL_INT_ACCESSORS(flag)
 
   inline int length() const;
   inline void set_length(int value);
@@ -10367,12 +10435,12 @@ class DebugInfo: public Struct {
 class BreakPointInfo: public Struct {
  public:
   // The position in the code for the break point.
-  DECL_ACCESSORS(code_position, Smi)
+  DECL_INT_ACCESSORS(code_position)
   // The position in the source for the break position.
-  DECL_ACCESSORS(source_position, Smi)
+  DECL_INT_ACCESSORS(source_position)
   // The position in the source for the last statement before this break
   // position.
-  DECL_ACCESSORS(statement_position, Smi)
+  DECL_INT_ACCESSORS(statement_position)
   // List of related JavaScript break points.
   DECL_ACCESSORS(break_point_objects, Object)
 
@@ -10516,20 +10584,11 @@ class StructBodyDescriptor : public
 };
 
 
-// BooleanBit is a helper class for setting and getting a bit in an
-// integer or Smi.
+// BooleanBit is a helper class for setting and getting a bit in an integer.
 class BooleanBit : public AllStatic {
  public:
-  static inline bool get(Smi* smi, int bit_position) {
-    return get(smi->value(), bit_position);
-  }
-
   static inline bool get(int value, int bit_position) {
     return (value & (1 << bit_position)) != 0;
-  }
-
-  static inline Smi* set(Smi* smi, int bit_position, bool v) {
-    return Smi::FromInt(set(smi->value(), bit_position, v));
   }
 
   static inline int set(int value, int bit_position, bool v) {

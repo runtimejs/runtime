@@ -8,13 +8,13 @@
 #include <cmath>
 #include <map>
 
+// Clients of this interface shouldn't depend on lots of heap internals.
+// Do not include anything from src/heap here!
 #include "src/allocation.h"
 #include "src/assert-scope.h"
 #include "src/atomic-utils.h"
 #include "src/globals.h"
-#include "src/heap/gc-idle-time-handler.h"
-#include "src/heap/incremental-marking.h"
-#include "src/heap/mark-compact.h"
+// TODO(mstarzinger): Two more includes to kill!
 #include "src/heap/spaces.h"
 #include "src/heap/store-buffer.h"
 #include "src/list.h"
@@ -422,12 +422,17 @@ namespace internal {
 
 // Forward declarations.
 class ArrayBufferTracker;
+class GCIdleTimeAction;
+class GCIdleTimeHandler;
+class GCIdleTimeHeapState;
+class GCTracer;
 class HeapObjectsFilter;
 class HeapStats;
 class Isolate;
 class MemoryReducer;
 class ObjectStats;
 class Scavenger;
+class ScavengeJob;
 class WeakObjectRetainer;
 
 
@@ -955,7 +960,7 @@ class Heap {
 
   inline uint32_t HashSeed();
 
-  inline Smi* NextScriptId();
+  inline int NextScriptId();
 
   inline void SetArgumentsAdaptorDeoptPCOffset(int pc_offset);
   inline void SetConstructStubDeoptPCOffset(int pc_offset);
@@ -1093,7 +1098,7 @@ class Heap {
   inline Isolate* isolate();
 
   MarkCompactCollector* mark_compact_collector() {
-    return &mark_compact_collector_;
+    return mark_compact_collector_;
   }
 
   // ===========================================================================
@@ -1209,6 +1214,10 @@ class Heap {
   // Last hope GC, should try to squeeze as much as possible.
   void CollectAllAvailableGarbage(const char* gc_reason = NULL);
 
+  // Reports and external memory pressure event, either performs a major GC or
+  // completes incremental marking in order to free external resources.
+  void ReportExternalMemoryPressure(const char* gc_reason = NULL);
+
   // Invoked when GC was requested via the stack guard.
   void HandleGCRequest();
 
@@ -1261,20 +1270,11 @@ class Heap {
                                    GCCallbackFlags::kNoGCCallbackFlags,
                                const char* reason = nullptr);
 
-  // Performs incremental marking steps of step_size_in_bytes as long as
-  // deadline_ins_ms is not reached. step_size_in_bytes can be 0 to compute
-  // an estimate increment. Returns the remaining time that cannot be used
-  // for incremental marking anymore because a single step would exceed the
-  // deadline.
-  double AdvanceIncrementalMarking(
-      intptr_t step_size_in_bytes, double deadline_in_ms,
-      IncrementalMarking::StepActions step_actions);
-
   void FinalizeIncrementalMarkingIfComplete(const char* comment);
 
   bool TryFinalizeIdleIncrementalMarking(double idle_time_in_ms);
 
-  IncrementalMarking* incremental_marking() { return &incremental_marking_; }
+  IncrementalMarking* incremental_marking() { return incremental_marking_; }
 
   // ===========================================================================
   // External string table API. ================================================
@@ -1640,10 +1640,8 @@ class Heap {
   static void ScavengeStoreBufferCallback(Heap* heap, MemoryChunk* page,
                                           StoreBufferEvent event);
 
-  // Selects the proper allocation space depending on the given object
-  // size and pretenuring decision.
-  static AllocationSpace SelectSpace(int object_size, PretenureFlag pretenure) {
-    if (object_size > Page::kMaxRegularHeapObjectSize) return LO_SPACE;
+  // Selects the proper allocation space based on the pretenuring decision.
+  static AllocationSpace SelectSpace(PretenureFlag pretenure) {
     return (pretenure == TENURED) ? OLD_SPACE : NEW_SPACE;
   }
 
@@ -1782,15 +1780,15 @@ class Heap {
       double idle_time_in_ms, size_t size_of_objects,
       size_t mark_compact_speed_in_bytes_per_ms);
 
-  GCIdleTimeHandler::HeapState ComputeHeapState();
+  GCIdleTimeHeapState ComputeHeapState();
 
   bool PerformIdleTimeAction(GCIdleTimeAction action,
-                             GCIdleTimeHandler::HeapState heap_state,
+                             GCIdleTimeHeapState heap_state,
                              double deadline_in_ms);
 
   void IdleNotificationEpilogue(GCIdleTimeAction action,
-                                GCIdleTimeHandler::HeapState heap_state,
-                                double start_ms, double deadline_in_ms);
+                                GCIdleTimeHeapState heap_state, double start_ms,
+                                double deadline_in_ms);
   void CheckAndNotifyBackgroundIdleNotification(double idle_time_in_ms,
                                                 double now_ms);
 
@@ -1883,10 +1881,18 @@ class Heap {
                                        double mutator_speed);
 
   // ===========================================================================
+  // Inline allocation. ========================================================
+  // ===========================================================================
+
+  void LowerInlineAllocationLimit(intptr_t step);
+  void ResetInlineAllocationLimit();
+
+  // ===========================================================================
   // Idle notification. ========================================================
   // ===========================================================================
 
   bool RecentIdleNotificationHappened();
+  void ScheduleIdleScavengeIfNeeded(int bytes_allocated);
 
   // ===========================================================================
   // Allocation methods. =======================================================
@@ -1955,7 +1961,7 @@ class Heap {
   // performed by the runtime and should not be bypassed (to extend this to
   // inlined allocations, use the Heap::DisableInlineAllocation() support).
   MUST_USE_RESULT inline AllocationResult AllocateRaw(
-      int size_in_bytes, AllocationSpace space, AllocationSpace retry_space,
+      int size_in_bytes, AllocationSpace space,
       AllocationAlignment aligment = kWordAligned);
 
   // Allocates a heap object based on the map.
@@ -2254,17 +2260,19 @@ class Heap {
 
   Scavenger* scavenge_collector_;
 
-  MarkCompactCollector mark_compact_collector_;
+  MarkCompactCollector* mark_compact_collector_;
 
   StoreBuffer store_buffer_;
 
-  IncrementalMarking incremental_marking_;
+  IncrementalMarking* incremental_marking_;
 
-  GCIdleTimeHandler gc_idle_time_handler_;
+  GCIdleTimeHandler* gc_idle_time_handler_;
 
   MemoryReducer* memory_reducer_;
 
   ObjectStats* object_stats_;
+
+  ScavengeJob* scavenge_job_;
 
   // These two counters are monotomically increasing and never reset.
   size_t full_codegen_bytes_generated_;
@@ -2339,6 +2347,7 @@ class Heap {
   friend class IncrementalMarking;
   friend class MarkCompactCollector;
   friend class MarkCompactMarkingVisitor;
+  friend class NewSpace;
   friend class ObjectStatsVisitor;
   friend class Page;
   friend class Scavenger;

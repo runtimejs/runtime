@@ -15,6 +15,44 @@ namespace v8 {
 namespace internal {
 
 
+// Calls the FUNCTION_CALL function and retries it up to three times
+// to guarantee that any allocations performed during the call will
+// succeed if there's enough memory.
+//
+// Warning: Do not use the identifiers __object__, __maybe_object__,
+// __allocation__ or __scope__ in a call to this macro.
+
+#define RETURN_OBJECT_UNLESS_RETRY(ISOLATE, TYPE)         \
+  if (__allocation__.To(&__object__)) {                   \
+    DCHECK(__object__ != (ISOLATE)->heap()->exception()); \
+    return Handle<TYPE>(TYPE::cast(__object__), ISOLATE); \
+  }
+
+#define CALL_HEAP_FUNCTION(ISOLATE, FUNCTION_CALL, TYPE)                      \
+  do {                                                                        \
+    AllocationResult __allocation__ = FUNCTION_CALL;                          \
+    Object* __object__ = NULL;                                                \
+    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, TYPE)                                 \
+    /* Two GCs before panicking.  In newspace will almost always succeed. */  \
+    for (int __i__ = 0; __i__ < 2; __i__++) {                                 \
+      (ISOLATE)->heap()->CollectGarbage(__allocation__.RetrySpace(),          \
+                                        "allocation failure");                \
+      __allocation__ = FUNCTION_CALL;                                         \
+      RETURN_OBJECT_UNLESS_RETRY(ISOLATE, TYPE)                               \
+    }                                                                         \
+    (ISOLATE)->counters()->gc_last_resort_from_handles()->Increment();        \
+    (ISOLATE)->heap()->CollectAllAvailableGarbage("last resort gc");          \
+    {                                                                         \
+      AlwaysAllocateScope __scope__(ISOLATE);                                 \
+      __allocation__ = FUNCTION_CALL;                                         \
+    }                                                                         \
+    RETURN_OBJECT_UNLESS_RETRY(ISOLATE, TYPE)                                 \
+    /* TODO(1181417): Fix this. */                                            \
+    v8::internal::Heap::FatalProcessOutOfMemory("CALL_AND_RETRY_LAST", true); \
+    return Handle<TYPE>();                                                    \
+  } while (false)
+
+
 template<typename T>
 Handle<T> Factory::New(Handle<Map> map, AllocationSpace space) {
   CALL_HEAP_FUNCTION(
@@ -540,30 +578,10 @@ MaybeHandle<String> Factory::NewConsString(Handle<String> left,
             NewRawTwoByteString(length).ToHandleChecked(), left, right);
   }
 
-  return (is_one_byte || is_one_byte_data_in_two_byte_string)
-             ? NewOneByteConsString(length, left, right)
-             : NewTwoByteConsString(length, left, right);
-}
-
-
-MaybeHandle<String> Factory::NewOneByteConsString(int length,
-                                                  Handle<String> left,
-                                                  Handle<String> right) {
-  return NewRawConsString(cons_one_byte_string_map(), length, left, right);
-}
-
-
-MaybeHandle<String> Factory::NewTwoByteConsString(int length,
-                                                  Handle<String> left,
-                                                  Handle<String> right) {
-  return NewRawConsString(cons_string_map(), length, left, right);
-}
-
-
-MaybeHandle<String> Factory::NewRawConsString(Handle<Map> map, int length,
-                                              Handle<String> left,
-                                              Handle<String> right) {
-  Handle<ConsString> result = New<ConsString>(map, NEW_SPACE);
+  Handle<ConsString> result =
+      (is_one_byte || is_one_byte_data_in_two_byte_string)
+          ? New<ConsString>(cons_one_byte_string_map(), NEW_SPACE)
+          : New<ConsString>(cons_string_map(), NEW_SPACE);
 
   DisallowHeapAllocation no_gc;
   WriteBarrierMode mode = result->GetWriteBarrierMode(no_gc);
@@ -851,16 +869,16 @@ Handle<Script> Factory::NewScript(Handle<String> source) {
   script->set_source(*source);
   script->set_name(heap->undefined_value());
   script->set_id(isolate()->heap()->NextScriptId());
-  script->set_line_offset(Smi::FromInt(0));
-  script->set_column_offset(Smi::FromInt(0));
+  script->set_line_offset(0);
+  script->set_column_offset(0);
   script->set_context_data(heap->undefined_value());
-  script->set_type(Smi::FromInt(Script::TYPE_NORMAL));
+  script->set_type(Script::TYPE_NORMAL);
   script->set_wrapper(heap->undefined_value());
   script->set_line_ends(heap->undefined_value());
   script->set_eval_from_shared(heap->undefined_value());
-  script->set_eval_from_instructions_offset(Smi::FromInt(0));
+  script->set_eval_from_instructions_offset(0);
   script->set_shared_function_infos(Smi::FromInt(0));
-  script->set_flags(Smi::FromInt(0));
+  script->set_flags(0);
 
   heap->set_script_list(*WeakFixedArray::Add(script_list(), script));
   return script;
@@ -1314,17 +1332,26 @@ Handle<JSFunction> Factory::NewFunctionFromSharedFunctionInfo(
       context->native_context(), BailoutId::None());
   if (cached.code != nullptr) {
     // Caching of optimized code enabled and optimized code found.
-    if (cached.literals != nullptr) result->set_literals(cached.literals);
     DCHECK(!cached.code->marked_for_deoptimization());
     DCHECK(result->shared()->is_compiled());
     result->ReplaceCode(cached.code);
   }
 
-  if (cached.literals == nullptr && !info->bound()) {
+  if (cached.literals != nullptr) {
+    result->set_literals(cached.literals);
+
+  } else if (!info->bound()) {
     int number_of_literals = info->num_literals();
-    // TODO(mstarzinger): Consider sharing the newly created literals array.
-    Handle<FixedArray> literals = NewFixedArray(number_of_literals, pretenure);
+    Handle<LiteralsArray> literals =
+        LiteralsArray::New(isolate(), handle(info->feedback_vector()),
+                           number_of_literals, pretenure);
     result->set_literals(*literals);
+    // Cache context-specific literals.
+    if (FLAG_cache_optimized_code) {
+      Handle<Context> native_context(context->native_context());
+      SharedFunctionInfo::AddToOptimizedCodeMap(
+          info, native_context, undefined_value(), literals, BailoutId::None());
+    }
   }
 
   return result;
@@ -1923,6 +1950,7 @@ Handle<JSProxy> Factory::NewJSFunctionProxy(Handle<Object> handler,
   Handle<Map> map = NewMap(JS_FUNCTION_PROXY_TYPE, JSFunctionProxy::kSize);
   Map::SetPrototype(map, prototype);
   map->set_is_callable();
+  map->set_is_constructor(construct_trap->IsCallable());
 
   // Allocate the proxy object.
   Handle<JSFunctionProxy> result = New<JSFunctionProxy>(map, NEW_SPACE);
@@ -1984,7 +2012,7 @@ void Factory::ReinitializeJSProxy(Handle<JSProxy> proxy, InstanceType type,
 
   // Functions require some minimal initialization.
   if (type == JS_FUNCTION_TYPE) {
-    map->set_function_with_prototype(true);
+    map->set_is_constructor(true);
     map->set_is_callable();
     Handle<JSFunction> js_function = Handle<JSFunction>::cast(proxy);
     InitializeFunction(js_function, shared.ToHandleChecked(), context);
@@ -2050,9 +2078,9 @@ void Factory::BecomeJSFunction(Handle<JSProxy> proxy) {
 
 
 template Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(
-    const ZoneFeedbackVectorSpec* spec);
-template Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(
     const FeedbackVectorSpec* spec);
+template Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(
+    const StaticFeedbackVectorSpec* spec);
 
 template <typename Spec>
 Handle<TypeFeedbackVector> Factory::NewTypeFeedbackVector(const Spec* spec) {
@@ -2120,7 +2148,7 @@ Handle<SharedFunctionInfo> Factory::NewSharedFunctionInfo(
   share->set_script(*undefined_value(), SKIP_WRITE_BARRIER);
   share->set_debug_info(*undefined_value(), SKIP_WRITE_BARRIER);
   share->set_inferred_name(*empty_string(), SKIP_WRITE_BARRIER);
-  FeedbackVectorSpec empty_spec(0);
+  StaticFeedbackVectorSpec empty_spec;
   Handle<TypeFeedbackVector> feedback_vector =
       NewTypeFeedbackVector(&empty_spec);
   share->set_feedback_vector(*feedback_vector, SKIP_WRITE_BARRIER);

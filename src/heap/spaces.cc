@@ -428,8 +428,6 @@ NewSpacePage* NewSpacePage::Initialize(Heap* heap, Address start,
   MemoryChunk* chunk =
       MemoryChunk::Initialize(heap, start, Page::kPageSize, area_start,
                               area_end, NOT_EXECUTABLE, semi_space);
-  chunk->set_next_chunk(NULL);
-  chunk->set_prev_chunk(NULL);
   chunk->initialize_scan_on_scavenge(true);
   bool in_to_space = (semi_space->id() != kFromSpace);
   chunk->SetFlag(in_to_space ? MemoryChunk::IN_TO_SPACE
@@ -483,6 +481,8 @@ MemoryChunk* MemoryChunk::Initialize(Heap* heap, Address base, size_t size,
   Bitmap::Clear(chunk);
   chunk->initialize_scan_on_scavenge(false);
   chunk->SetFlag(WAS_SWEPT);
+  chunk->set_next_chunk(nullptr);
+  chunk->set_prev_chunk(nullptr);
 
   DCHECK(OFFSET_OF(MemoryChunk, flags_) == kFlagsOffset);
   DCHECK(OFFSET_OF(MemoryChunk, live_byte_count_) == kLiveBytesOffset);
@@ -1400,12 +1400,7 @@ void NewSpace::ResetAllocationInfo() {
   while (it.has_next()) {
     Bitmap::Clear(it.next());
   }
-  if (top_on_previous_step_) {
-    int bytes_allocated = static_cast<int>(old_top - top_on_previous_step_);
-    heap()->incremental_marking()->Step(bytes_allocated,
-                                        IncrementalMarking::GC_VIA_STACK_GUARD);
-    top_on_previous_step_ = allocation_info_.top();
-  }
+  InlineAllocationStep(old_top, allocation_info_.top());
 }
 
 
@@ -1415,7 +1410,7 @@ void NewSpace::UpdateInlineAllocationLimit(int size_in_bytes) {
     Address high = to_space_.page_high();
     Address new_top = allocation_info_.top() + size_in_bytes;
     allocation_info_.set_limit(Min(new_top, high));
-  } else if (inline_allocation_limit_step() == 0) {
+  } else if (inline_allocation_limit_step_ == 0) {
     // Normal limit is the end of the current page.
     allocation_info_.set_limit(to_space_.page_high());
   } else {
@@ -1484,13 +1479,7 @@ bool NewSpace::EnsureAllocation(int size_in_bytes,
       return false;
     }
 
-    if (top_on_previous_step_) {
-      // Do a step for the bytes allocated on the last page.
-      int bytes_allocated = static_cast<int>(old_top - top_on_previous_step_);
-      heap()->incremental_marking()->Step(
-          bytes_allocated, IncrementalMarking::GC_VIA_STACK_GUARD);
-      top_on_previous_step_ = allocation_info_.top();
-    }
+    InlineAllocationStep(old_top, allocation_info_.top());
 
     old_top = allocation_info_.top();
     high = to_space_.page_high();
@@ -1502,20 +1491,26 @@ bool NewSpace::EnsureAllocation(int size_in_bytes,
 
   if (allocation_info_.limit() < high) {
     // Either the limit has been lowered because linear allocation was disabled
-    // or because incremental marking wants to get a chance to do a step. Set
-    // the new limit accordingly.
-    if (top_on_previous_step_) {
-      Address new_top = old_top + aligned_size_in_bytes;
-      int bytes_allocated = static_cast<int>(new_top - top_on_previous_step_);
-      heap()->incremental_marking()->Step(
-          bytes_allocated, IncrementalMarking::GC_VIA_STACK_GUARD);
-      top_on_previous_step_ = new_top;
-    }
+    // or because incremental marking wants to get a chance to do a step,
+    // or because idle scavenge job wants to get a chance to post a task.
+    // Set the new limit accordingly.
+    Address new_top = old_top + aligned_size_in_bytes;
+    InlineAllocationStep(new_top, new_top);
     UpdateInlineAllocationLimit(aligned_size_in_bytes);
   }
   return true;
 }
 
+
+void NewSpace::InlineAllocationStep(Address top, Address new_top) {
+  if (top_on_previous_step_) {
+    int bytes_allocated = static_cast<int>(top - top_on_previous_step_);
+    heap()->ScheduleIdleScavengeIfNeeded(bytes_allocated);
+    heap()->incremental_marking()->Step(bytes_allocated,
+                                        IncrementalMarking::GC_VIA_STACK_GUARD);
+    top_on_previous_step_ = new_top;
+  }
+}
 
 #ifdef VERIFY_HEAP
 // We do not use the SemiSpaceIterator because verification doesn't assume
@@ -2386,16 +2381,14 @@ HeapObject* FreeList::Allocate(int size_in_bytes) {
   // skipped when scanning the heap.  This also puts it back in the free list
   // if it is big enough.
   owner_->Free(owner_->top(), old_linear_size);
+  owner_->SetTopAndLimit(nullptr, nullptr);
 
   owner_->heap()->incremental_marking()->OldSpaceStep(size_in_bytes -
                                                       old_linear_size);
 
   int new_node_size = 0;
   FreeSpace* new_node = FindNodeFor(size_in_bytes, &new_node_size);
-  if (new_node == NULL) {
-    owner_->SetTopAndLimit(NULL, NULL);
-    return NULL;
-  }
+  if (new_node == nullptr) return nullptr;
 
   int bytes_left = new_node_size - size_in_bytes;
   DCHECK(bytes_left >= 0);
@@ -2439,10 +2432,6 @@ HeapObject* FreeList::Allocate(int size_in_bytes) {
     // linear allocation area.
     owner_->SetTopAndLimit(new_node->address() + size_in_bytes,
                            new_node->address() + new_node_size);
-  } else {
-    // TODO(gc) Try not freeing linear allocation region when bytes_left
-    // are zero.
-    owner_->SetTopAndLimit(NULL, NULL);
   }
 
   return new_node;
@@ -2553,7 +2542,10 @@ intptr_t PagedSpace::SizeOfObjects() {
   DCHECK(!FLAG_concurrent_sweeping ||
          heap()->mark_compact_collector()->sweeping_in_progress() ||
          (unswept_free_bytes_ == 0));
-  return Size() - unswept_free_bytes_ - (limit() - top());
+  const intptr_t size = Size() - unswept_free_bytes_ - (limit() - top());
+  DCHECK_GE(size, 0);
+  USE(size);
+  return size;
 }
 
 
@@ -3030,6 +3022,11 @@ bool LargeObjectSpace::Contains(HeapObject* object) {
   SLOW_DCHECK(!owned || FindObject(address)->IsHeapObject());
 
   return owned;
+}
+
+
+bool LargeObjectSpace::Contains(Address address) {
+  return FindPage(address) != NULL;
 }
 
 

@@ -32,7 +32,7 @@ InterpreterAssembler::InterpreterAssembler(Isolate* isolate, Zone* zone,
           isolate, new (zone) Graph(zone),
           Linkage::GetInterpreterDispatchDescriptor(zone), kMachPtr,
           InstructionSelector::SupportedMachineOperatorFlags())),
-      end_node_(nullptr),
+      end_nodes_(zone),
       accumulator_(
           raw_assembler_->Parameter(Linkage::kInterpreterAccumulatorParameter)),
       code_generated_(false) {}
@@ -193,6 +193,11 @@ Node* InterpreterAssembler::HeapConstant(Handle<HeapObject> object) {
 }
 
 
+Node* InterpreterAssembler::BooleanConstant(bool value) {
+  return raw_assembler_->BooleanConstant(value);
+}
+
+
 Node* InterpreterAssembler::SmiShiftBitsConstant() {
   return Int32Constant(kSmiShiftSize + kSmiTagSize);
 }
@@ -316,6 +321,13 @@ Node* InterpreterAssembler::CallIC(CallInterfaceDescriptor descriptor,
 
 
 Node* InterpreterAssembler::CallRuntime(Runtime::FunctionId function_id,
+                                        Node* arg1) {
+  return raw_assembler_->CallRuntime1(function_id, arg1,
+                                      ContextTaggedPointer());
+}
+
+
+Node* InterpreterAssembler::CallRuntime(Runtime::FunctionId function_id,
                                         Node* arg1, Node* arg2) {
   return raw_assembler_->CallRuntime2(function_id, arg1, arg2,
                                       ContextTaggedPointer());
@@ -341,7 +353,7 @@ void InterpreterAssembler::Return() {
   Node* tail_call = raw_assembler_->TailCallN(
       call_descriptor(), exit_trampoline_code_object, args);
   // This should always be the end node.
-  SetEndInput(tail_call);
+  AddEndInput(tail_call);
 }
 
 
@@ -350,8 +362,31 @@ Node* InterpreterAssembler::Advance(int delta) {
 }
 
 
+Node* InterpreterAssembler::Advance(Node* delta) {
+  return raw_assembler_->IntPtrAdd(BytecodeOffset(), delta);
+}
+
+
+void InterpreterAssembler::Jump(Node* delta) { DispatchTo(Advance(delta)); }
+
+
+void InterpreterAssembler::JumpIfWordEqual(Node* lhs, Node* rhs, Node* delta) {
+  RawMachineAssembler::Label match, no_match;
+  Node* condition = raw_assembler_->WordEqual(lhs, rhs);
+  raw_assembler_->Branch(condition, &match, &no_match);
+  raw_assembler_->Bind(&match);
+  DispatchTo(Advance(delta));
+  raw_assembler_->Bind(&no_match);
+  Dispatch();
+}
+
+
 void InterpreterAssembler::Dispatch() {
-  Node* new_bytecode_offset = Advance(interpreter::Bytecodes::Size(bytecode_));
+  DispatchTo(Advance(interpreter::Bytecodes::Size(bytecode_)));
+}
+
+
+void InterpreterAssembler::DispatchTo(Node* new_bytecode_offset) {
   Node* target_bytecode = raw_assembler_->Load(
       kMachUint8, BytecodeArrayTaggedPointer(), new_bytecode_offset);
 
@@ -378,20 +413,21 @@ void InterpreterAssembler::Dispatch() {
   Node* tail_call =
       raw_assembler_->TailCallN(call_descriptor(), target_code_object, args);
   // This should always be the end node.
-  SetEndInput(tail_call);
+  AddEndInput(tail_call);
 }
 
 
-void InterpreterAssembler::SetEndInput(Node* input) {
-  DCHECK(!end_node_);
-  end_node_ = input;
+void InterpreterAssembler::AddEndInput(Node* input) {
+  DCHECK_NOT_NULL(input);
+  end_nodes_.push_back(input);
 }
 
 
 void InterpreterAssembler::End() {
-  DCHECK(end_node_);
-  // TODO(rmcilroy): Support more than 1 end input.
-  Node* end = graph()->NewNode(raw_assembler_->common()->End(1), end_node_);
+  DCHECK(!end_nodes_.empty());
+  int end_count = static_cast<int>(end_nodes_.size());
+  Node* end = graph()->NewNode(raw_assembler_->common()->End(end_count),
+                               end_count, &end_nodes_[0]);
   graph()->SetEnd(end);
 }
 

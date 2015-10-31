@@ -9,7 +9,6 @@
 #include "src/base/platform/platform.h"
 #include "src/bootstrapper.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/deoptimizer.h"
 #include "src/execution.h"
 #include "src/global-handles.h"
@@ -17,6 +16,7 @@
 #include "src/ic/stub-cache.h"
 #include "src/objects.h"
 #include "src/parser.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/runtime/runtime.h"
 #include "src/snapshot/natives.h"
 #include "src/snapshot/snapshot.h"
@@ -2481,7 +2481,7 @@ void CodeSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
           SerializeGeneric(code_object, how_to_code, where_to_point);
         }
         return;
-      case Code::PLACEHOLDER:
+      case Code::WASM_FUNCTION:
         UNREACHABLE();
     }
     UNREACHABLE();

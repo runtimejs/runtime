@@ -10,7 +10,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/runtime/runtime.h"
 
@@ -1040,6 +1039,14 @@ void MacroAssembler::Prologue(bool code_pre_aging) {
     LoadConstantPoolPointerRegister();
     set_constant_pool_available(true);
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  ldr(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
+  ldr(vector, FieldMemOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  ldr(vector,
+      FieldMemOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 

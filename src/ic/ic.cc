@@ -1159,7 +1159,7 @@ Handle<Code> LoadIC::CompileHandler(LookupIterator* lookup,
   // Use specialized code for getting prototype of functions.
   if (receiver->IsJSFunction() &&
       Name::Equals(isolate()->factory()->prototype_string(), lookup->name()) &&
-      Handle<JSFunction>::cast(receiver)->should_have_prototype() &&
+      receiver->IsConstructor() &&
       !Handle<JSFunction>::cast(receiver)
            ->map()
            ->has_non_instance_prototype()) {
@@ -2372,24 +2372,14 @@ RUNTIME_FUNCTION(Runtime_LoadIC_Miss) {
   // A monomorphic or polymorphic KeyedLoadIC with a string key can call the
   // LoadIC miss handler if the handler misses. Since the vector Nexus is
   // set up outside the IC, handle that here.
-  if (vector->GetKind(vector_slot) == Code::LOAD_IC) {
+  if (vector->GetKind(vector_slot) == FeedbackVectorSlotKind::LOAD_IC) {
     LoadICNexus nexus(vector, vector_slot);
     LoadIC ic(IC::NO_EXTRA_FRAME, isolate, &nexus);
     ic.UpdateState(receiver, key);
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result, ic.Load(receiver, key));
-
-    // Sanity check: The loaded value must be a JS-exposed kind of object,
-    // not something internal (like a Map, or FixedArray). Check this here
-    // to chase after a rare but recurring crash bug.
-    // TODO(chromium:527994): Remove this when we have a few crash reports.
-    if (!result->IsSmi()) {
-      InstanceType type =
-          Handle<HeapObject>::cast(result)->map()->instance_type();
-      CHECK(type <= LAST_PRIMITIVE_TYPE || type >= FIRST_JS_RECEIVER_TYPE);
-    }
-
   } else {
-    DCHECK(vector->GetKind(vector_slot) == Code::KEYED_LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_LOAD_IC,
+              vector->GetKind(vector_slot));
     KeyedLoadICNexus nexus(vector, vector_slot);
     KeyedLoadIC ic(IC::NO_EXTRA_FRAME, isolate, &nexus);
     ic.UpdateState(receiver, key);
@@ -2453,14 +2443,15 @@ RUNTIME_FUNCTION(Runtime_StoreIC_Miss) {
     Handle<Smi> slot = args.at<Smi>(3);
     Handle<TypeFeedbackVector> vector = args.at<TypeFeedbackVector>(4);
     FeedbackVectorICSlot vector_slot = vector->ToICSlot(slot->value());
-    if (vector->GetKind(vector_slot) == Code::STORE_IC) {
+    if (vector->GetKind(vector_slot) == FeedbackVectorSlotKind::STORE_IC) {
       StoreICNexus nexus(vector, vector_slot);
       StoreIC ic(IC::NO_EXTRA_FRAME, isolate, &nexus);
       ic.UpdateState(receiver, key);
       ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result,
                                          ic.Store(receiver, key, value));
     } else {
-      DCHECK(vector->GetKind(vector_slot) == Code::KEYED_STORE_IC);
+      DCHECK_EQ(FeedbackVectorSlotKind::KEYED_STORE_IC,
+                vector->GetKind(vector_slot));
       KeyedStoreICNexus nexus(vector, vector_slot);
       KeyedStoreIC ic(IC::NO_EXTRA_FRAME, isolate, &nexus);
       ic.UpdateState(receiver, key);
@@ -2491,14 +2482,15 @@ RUNTIME_FUNCTION(Runtime_StoreIC_MissFromStubFailure) {
     Handle<Smi> slot = args.at<Smi>(3);
     Handle<TypeFeedbackVector> vector = args.at<TypeFeedbackVector>(4);
     FeedbackVectorICSlot vector_slot = vector->ToICSlot(slot->value());
-    if (vector->GetKind(vector_slot) == Code::STORE_IC) {
+    if (vector->GetKind(vector_slot) == FeedbackVectorSlotKind::STORE_IC) {
       StoreICNexus nexus(vector, vector_slot);
       StoreIC ic(IC::EXTRA_CALL_FRAME, isolate, &nexus);
       ic.UpdateState(receiver, key);
       ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result,
                                          ic.Store(receiver, key, value));
     } else {
-      DCHECK(vector->GetKind(vector_slot) == Code::KEYED_STORE_IC);
+      DCHECK_EQ(FeedbackVectorSlotKind::KEYED_STORE_IC,
+                vector->GetKind(vector_slot));
       KeyedStoreICNexus nexus(vector, vector_slot);
       KeyedStoreIC ic(IC::EXTRA_CALL_FRAME, isolate, &nexus);
       ic.UpdateState(receiver, key);
@@ -3121,24 +3113,14 @@ RUNTIME_FUNCTION(Runtime_LoadIC_MissFromStubFailure) {
   // A monomorphic or polymorphic KeyedLoadIC with a string key can call the
   // LoadIC miss handler if the handler misses. Since the vector Nexus is
   // set up outside the IC, handle that here.
-  if (vector->GetKind(vector_slot) == Code::LOAD_IC) {
+  if (vector->GetKind(vector_slot) == FeedbackVectorSlotKind::LOAD_IC) {
     LoadICNexus nexus(vector, vector_slot);
     LoadIC ic(IC::EXTRA_CALL_FRAME, isolate, &nexus);
     ic.UpdateState(receiver, key);
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result, ic.Load(receiver, key));
-
-    // Sanity check: The loaded value must be a JS-exposed kind of object,
-    // not something internal (like a Map, or FixedArray). Check this here
-    // to chase after a rare but recurring crash bug.
-    // TODO(chromium:527994): Remove this when we have a few crash reports.
-    if (!result->IsSmi()) {
-      InstanceType type =
-          Handle<HeapObject>::cast(result)->map()->instance_type();
-      CHECK(type <= LAST_PRIMITIVE_TYPE || type >= FIRST_JS_RECEIVER_TYPE);
-    }
-
   } else {
-    DCHECK(vector->GetKind(vector_slot) == Code::KEYED_LOAD_IC);
+    DCHECK_EQ(FeedbackVectorSlotKind::KEYED_LOAD_IC,
+              vector->GetKind(vector_slot));
     KeyedLoadICNexus nexus(vector, vector_slot);
     KeyedLoadIC ic(IC::EXTRA_CALL_FRAME, isolate, &nexus);
     ic.UpdateState(receiver, key);

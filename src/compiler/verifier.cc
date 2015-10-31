@@ -51,11 +51,6 @@ class Verifier::Visitor {
   Typing typing;
 
  private:
-  // TODO(rossberg): Get rid of these once we got rid of NodeProperties.
-  Type* type_of(Node* node) { return NodeProperties::GetType(node); }
-  Node* ValueInput(Node* node, int i = 0) {
-    return NodeProperties::GetValueInput(node, i);
-  }
   void CheckNotTyped(Node* node) {
     if (NodeProperties::IsTyped(node)) {
       std::ostringstream str;
@@ -65,35 +60,35 @@ class Verifier::Visitor {
     }
   }
   void CheckUpperIs(Node* node, Type* type) {
-    if (typing == TYPED && !type_of(node)->Is(type)) {
+    if (typing == TYPED && !NodeProperties::GetType(node)->Is(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
           << " type ";
-      type_of(node)->PrintTo(str);
+      NodeProperties::GetType(node)->PrintTo(str);
       str << " is not ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
     }
   }
   void CheckUpperMaybe(Node* node, Type* type) {
-    if (typing == TYPED && !type_of(node)->Maybe(type)) {
+    if (typing == TYPED && !NodeProperties::GetType(node)->Maybe(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
           << " type ";
-      type_of(node)->PrintTo(str);
+      NodeProperties::GetType(node)->PrintTo(str);
       str << " must intersect ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
     }
   }
   void CheckValueInputIs(Node* node, int i, Type* type) {
-    Node* input = ValueInput(node, i);
-    if (typing == TYPED && !type_of(input)->Is(type)) {
+    Node* input = NodeProperties::GetValueInput(node, i);
+    if (typing == TYPED && !NodeProperties::GetType(input)->Is(type)) {
       std::ostringstream str;
       str << "TypeError: node #" << node->id() << ":" << *node->op()
           << "(input @" << i << " = " << input->opcode() << ":"
           << input->op()->mnemonic() << ") type ";
-      type_of(input)->PrintTo(str);
+      NodeProperties::GetType(input)->PrintTo(str);
       str << " is not ";
       type->PrintTo(str);
       FATAL(str.str().c_str());
@@ -425,7 +420,8 @@ void Verifier::Visitor::Check(Node* node) {
       // TODO(rossberg): what are the constraints on these?
       // Type must be subsumed by input type.
       if (typing == TYPED) {
-        CHECK(type_of(ValueInput(node))->Is(type_of(node)));
+        Node* val = NodeProperties::GetValueInput(node, 0);
+        CHECK(NodeProperties::GetType(val)->Is(NodeProperties::GetType(node)));
       }
       break;
     }
@@ -565,7 +561,7 @@ void Verifier::Visitor::Check(Node* node) {
       // TODO(rossberg): This should really be Is(Internal), but the typer
       // currently can't do backwards propagation.
       CheckUpperMaybe(context, Type::Internal());
-      if (typing == TYPED) CHECK(type_of(node)->IsContext());
+      if (typing == TYPED) CHECK(NodeProperties::GetType(node)->IsContext());
       break;
     }
 
@@ -870,6 +866,10 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kTruncateInt64ToInt32:
     case IrOpcode::kTruncateFloat64ToFloat32:
     case IrOpcode::kTruncateFloat64ToInt32:
+    case IrOpcode::kBitcastFloat32ToInt32:
+    case IrOpcode::kBitcastFloat64ToInt64:
+    case IrOpcode::kBitcastInt32ToFloat32:
+    case IrOpcode::kBitcastInt64ToFloat64:
     case IrOpcode::kChangeInt32ToInt64:
     case IrOpcode::kChangeUint32ToUint64:
     case IrOpcode::kChangeInt32ToFloat64:
@@ -1150,6 +1150,68 @@ void ScheduleVerifier::Run(Schedule* schedule) {
     }
   }
 }
+
+
+#ifdef DEBUG
+
+// static
+void Verifier::VerifyNode(Node* node) {
+  CHECK_EQ(OperatorProperties::GetTotalInputCount(node->op()),
+           node->InputCount());
+  // If this node has no effect or no control outputs,
+  // we check that no its uses are effect or control inputs.
+  bool check_no_control = node->op()->ControlOutputCount() == 0;
+  bool check_no_effect = node->op()->EffectOutputCount() == 0;
+  bool check_no_frame_state = node->opcode() != IrOpcode::kFrameState;
+  if (check_no_effect || check_no_control) {
+    for (Edge edge : node->use_edges()) {
+      Node* const user = edge.from();
+      CHECK(!user->IsDead());
+      if (NodeProperties::IsControlEdge(edge)) {
+        CHECK(!check_no_control);
+      } else if (NodeProperties::IsEffectEdge(edge)) {
+        CHECK(!check_no_effect);
+      } else if (NodeProperties::IsFrameStateEdge(edge)) {
+        CHECK(!check_no_frame_state);
+      }
+    }
+  }
+  // Frame state inputs should be frame states (or sentinels).
+  for (int i = 0; i < OperatorProperties::GetFrameStateInputCount(node->op());
+       i++) {
+    Node* input = NodeProperties::GetFrameStateInput(node, i);
+    CHECK(input->opcode() == IrOpcode::kFrameState ||
+          input->opcode() == IrOpcode::kStart ||
+          input->opcode() == IrOpcode::kDead);
+  }
+  // Effect inputs should be effect-producing nodes (or sentinels).
+  for (int i = 0; i < node->op()->EffectInputCount(); i++) {
+    Node* input = NodeProperties::GetEffectInput(node, i);
+    CHECK(input->op()->EffectOutputCount() > 0 ||
+          input->opcode() == IrOpcode::kDead);
+  }
+  // Control inputs should be control-producing nodes (or sentinels).
+  for (int i = 0; i < node->op()->ControlInputCount(); i++) {
+    Node* input = NodeProperties::GetControlInput(node, i);
+    CHECK(input->op()->ControlOutputCount() > 0 ||
+          input->opcode() == IrOpcode::kDead);
+  }
+}
+
+
+void Verifier::VerifyEdgeInputReplacement(const Edge& edge,
+                                          const Node* replacement) {
+  // Check that the user does not misuse the replacement.
+  DCHECK(!NodeProperties::IsControlEdge(edge) ||
+         replacement->op()->ControlOutputCount() > 0);
+  DCHECK(!NodeProperties::IsEffectEdge(edge) ||
+         replacement->op()->EffectOutputCount() > 0);
+  DCHECK(!NodeProperties::IsFrameStateEdge(edge) ||
+         replacement->opcode() == IrOpcode::kFrameState);
+}
+
+#endif  // DEBUG
+
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8

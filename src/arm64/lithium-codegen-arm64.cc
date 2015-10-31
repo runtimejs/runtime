@@ -8,10 +8,10 @@
 #include "src/base/bits.h"
 #include "src/code-factory.h"
 #include "src/code-stubs.h"
-#include "src/cpu-profiler.h"
 #include "src/hydrogen-osr.h"
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
+#include "src/profiler/cpu-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -2811,6 +2811,8 @@ void LCodeGen::DoDoubleToIntOrSmi(LDoubleToIntOrSmi* instr) {
 
 void LCodeGen::DoDrop(LDrop* instr) {
   __ Drop(instr->count());
+
+  RecordPushedArgumentsDelta(instr->hydrogen_value()->argument_delta());
 }
 
 
@@ -4195,7 +4197,7 @@ void LCodeGen::DoMulConstIS(LMulConstIS* instr) {
   Register result =
       is_smi ? ToRegister(instr->result()) : ToRegister32(instr->result());
   Register left =
-      is_smi ? ToRegister(instr->left()) : ToRegister32(instr->left()) ;
+      is_smi ? ToRegister(instr->left()) : ToRegister32(instr->left());
   int32_t right = ToInteger32(instr->right());
   DCHECK((right > -kMaxInt) && (right < kMaxInt));
 
@@ -5648,7 +5650,7 @@ void LCodeGen::DoRegExpLiteral(LRegExpLiteral* instr) {
   // x0 = regexp literal clone.
   // x10-x12 are used as temporaries.
   int literal_offset =
-      FixedArray::OffsetOfElementAt(instr->hydrogen()->literal_index());
+      LiteralsArray::OffsetOfLiteralAt(instr->hydrogen()->literal_index());
   __ LoadObject(x7, instr->hydrogen()->literals());
   __ Ldr(x1, FieldMemOperand(x7, literal_offset));
   __ JumpIfNotRoot(x1, Heap::kUndefinedValueRootIndex, &materialized);

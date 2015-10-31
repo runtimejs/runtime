@@ -281,31 +281,25 @@ void FullCodeGenerator::Generate() {
     // Arguments object must be allocated after the context object, in
     // case the "arguments" or ".arguments" variables are in the context.
     Comment cmnt(masm_, "[ Allocate arguments object");
-    if (function_in_register) {
-      __ Push(rdi);
-    } else {
-      __ Push(Operand(rbp, JavaScriptFrameConstants::kFunctionOffset));
+    DCHECK(rdi.is(ArgumentsAccessNewDescriptor::function()));
+    if (!function_in_register) {
+      __ movp(rdi, Operand(rbp, JavaScriptFrameConstants::kFunctionOffset));
     }
     // The receiver is just before the parameters on the caller's stack.
     int num_parameters = info->scope()->num_parameters();
     int offset = num_parameters * kPointerSize;
-    __ leap(rdx,
-           Operand(rbp, StandardFrameConstants::kCallerSPOffset + offset));
-    __ Push(rdx);
-    __ Push(Smi::FromInt(num_parameters));
-    // Arguments to ArgumentsAccessStub:
-    //   function, receiver address, parameter count.
-    // The stub will rewrite receiver and parameter count if the previous
-    // stack frame was an arguments adapter frame.
+    __ Move(ArgumentsAccessNewDescriptor::parameter_count(),
+            Smi::FromInt(num_parameters));
+    __ leap(ArgumentsAccessNewDescriptor::parameter_pointer(),
+            Operand(rbp, StandardFrameConstants::kCallerSPOffset + offset));
 
-    ArgumentsAccessStub::Type type;
-    if (is_strict(language_mode()) || !has_simple_parameters()) {
-      type = ArgumentsAccessStub::NEW_STRICT;
-    } else if (literal()->has_duplicate_parameters()) {
-      type = ArgumentsAccessStub::NEW_SLOPPY_SLOW;
-    } else {
-      type = ArgumentsAccessStub::NEW_SLOPPY_FAST;
-    }
+    // Arguments to ArgumentsAccessStub:
+    //   function, parameter pointer, parameter count.
+    // The stub will rewrite parameter pointer and parameter count if the
+    // previous stack frame was an arguments adapter frame.
+    bool is_unmapped = is_strict(language_mode()) || !has_simple_parameters();
+    ArgumentsAccessStub::Type type = ArgumentsAccessStub::ComputeType(
+        is_unmapped, literal()->has_duplicate_parameters());
     ArgumentsAccessStub stub(isolate(), type);
     __ CallStub(&stub);
 
@@ -1090,8 +1084,8 @@ void FullCodeGenerator::VisitForInStatement(ForInStatement* stmt) {
   __ bind(&fixed_array);
 
   // No need for a write barrier, we are storing a Smi in the feedback vector.
-  __ Move(rbx, FeedbackVector());
-  int vector_index = FeedbackVector()->GetIndex(slot);
+  __ EmitLoadTypeFeedbackVector(rbx);
+  int vector_index = SmiFromSlot(slot)->value();
   __ Move(FieldOperand(rbx, FixedArray::OffsetOfElementAt(vector_index)),
           TypeFeedbackVector::MegamorphicSentinel(isolate()));
   __ Move(rbx, Smi::FromInt(1));  // Smi indicates slow check
@@ -1459,8 +1453,7 @@ void FullCodeGenerator::VisitRegExpLiteral(RegExpLiteral* expr) {
   // rax = regexp literal clone.
   __ movp(rdi, Operand(rbp, JavaScriptFrameConstants::kFunctionOffset));
   __ movp(rcx, FieldOperand(rdi, JSFunction::kLiteralsOffset));
-  int literal_offset =
-      FixedArray::kHeaderSize + expr->literal_index() * kPointerSize;
+  int literal_offset = LiteralsArray::OffsetOfLiteralAt(expr->literal_index());
   __ movp(rbx, FieldOperand(rcx, literal_offset));
   __ CompareRoot(rbx, Heap::kUndefinedValueRootIndex);
   __ j(not_equal, &materialized, Label::kNear);
@@ -2242,47 +2235,10 @@ void FullCodeGenerator::EmitNamedPropertyLoad(Property* prop) {
   Literal* key = prop->key()->AsLiteral();
   DCHECK(!prop->IsSuperAccess());
 
-  // See comment below.
-  if (FeedbackVector()->GetIndex(prop->PropertyFeedbackSlot()) == 6) {
-    __ Push(LoadDescriptor::ReceiverRegister());
-  }
-
   __ Move(LoadDescriptor::NameRegister(), key->value());
   __ Move(LoadDescriptor::SlotRegister(),
           SmiFromSlot(prop->PropertyFeedbackSlot()));
   CallLoadIC(NOT_INSIDE_TYPEOF, language_mode());
-
-  // Sanity check: The loaded value must be a JS-exposed kind of object,
-  // not something internal (like a Map, or FixedArray). Check this here
-  // to chase after a rare but recurring crash bug. It seems to always
-  // occur for functions beginning with "this.foo.bar()", so be selective
-  // and only insert the check for the first LoadIC (identified by slot).
-  // TODO(chromium:527994): Remove this when we have a few crash reports.
-  // Don't forget to remove the Push() above as well!
-  if (FeedbackVector()->GetIndex(prop->PropertyFeedbackSlot()) == 6) {
-    __ Pop(LoadDescriptor::ReceiverRegister());
-
-    Label ok, sound_alarm;
-    __ JumpIfSmi(rax, &ok, Label::kNear);
-    __ movp(rbx, FieldOperand(rax, HeapObject::kMapOffset));
-    __ CompareRoot(rbx, Heap::kMetaMapRootIndex);
-    __ j(equal, &sound_alarm);
-    __ CompareRoot(rbx, Heap::kFixedArrayMapRootIndex);
-    __ j(not_equal, &ok, Label::kNear);
-
-    __ bind(&sound_alarm);
-    __ Push(Smi::FromInt(0xaabbccdd));
-    __ Push(LoadDescriptor::ReceiverRegister());
-    __ movp(rbx, FieldOperand(LoadDescriptor::ReceiverRegister(),
-                              HeapObject::kMapOffset));
-    __ Push(rbx);
-    __ movp(rbx, FieldOperand(LoadDescriptor::ReceiverRegister(),
-                              JSObject::kPropertiesOffset));
-    __ Push(rbx);
-    __ int3();
-
-    __ bind(&ok);
-  }
 }
 
 
@@ -3109,7 +3065,7 @@ void FullCodeGenerator::VisitCallNew(CallNew* expr) {
   __ movp(rdi, Operand(rsp, arg_count * kPointerSize));
 
   // Record call targets in unoptimized code, but not in the snapshot.
-  __ Move(rbx, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(rbx);
   __ Move(rdx, SmiFromSlot(expr->CallNewFeedbackSlot()));
 
   CallConstructStub stub(isolate(), RECORD_CONSTRUCTOR_TARGET);
@@ -3149,7 +3105,7 @@ void FullCodeGenerator::EmitSuperConstructorCall(Call* expr) {
   __ movp(rdi, Operand(rsp, arg_count * kPointerSize));
 
   // Record call targets in unoptimized code.
-  __ Move(rbx, FeedbackVector());
+  __ EmitLoadTypeFeedbackVector(rbx);
   __ Move(rdx, SmiFromSlot(expr->CallFeedbackSlot()));
 
   CallConstructStub stub(isolate(), SUPER_CALL_RECORD_TARGET);
@@ -3704,6 +3660,23 @@ void FullCodeGenerator::EmitSetValueOf(CallRuntime* expr) {
 }
 
 
+void FullCodeGenerator::EmitToInteger(CallRuntime* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  DCHECK_EQ(1, args->length());
+
+  // Load the argument into rax and convert it.
+  VisitForAccumulatorValue(args->at(0));
+
+  // Convert the object to an integer.
+  Label done_convert;
+  __ JumpIfSmi(rax, &done_convert, Label::kNear);
+  __ Push(rax);
+  __ CallRuntime(Runtime::kToInteger, 1);
+  __ bind(&done_convert);
+  context()->Plug(rax);
+}
+
+
 void FullCodeGenerator::EmitNumberToString(CallRuntime* expr) {
   ZoneList<Expression*>* args = expr->arguments();
   DCHECK_EQ(args->length(), 1);
@@ -3744,8 +3717,8 @@ void FullCodeGenerator::EmitToName(CallRuntime* expr) {
   __ CmpObjectType(rax, LAST_NAME_TYPE, rcx);
   __ j(below_equal, &done_convert, Label::kNear);
   __ bind(&convert);
-  ToStringStub stub(isolate());
-  __ CallStub(&stub);
+  __ Push(rax);
+  __ CallRuntime(Runtime::kToName, 1);
   __ bind(&done_convert);
   context()->Plug(rax);
 }
@@ -3950,9 +3923,6 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
   VisitForStackValue(args->at(0));
   VisitForStackValue(args->at(1));
 
-  // Load original constructor into rcx.
-  __ movp(rcx, Operand(rsp, 1 * kPointerSize));
-
   // Check if the calling frame is an arguments adaptor frame.
   Label adaptor_frame, args_set_up, runtime;
   __ movp(rdx, Operand(rbp, StandardFrameConstants::kCallerFPOffset));
@@ -3981,11 +3951,9 @@ void FullCodeGenerator::EmitDefaultConstructorCallSuper(CallRuntime* expr) {
   }
 
   __ bind(&args_set_up);
-  __ movp(rdi, Operand(rsp, rax, times_pointer_size, 0));
-  __ LoadRoot(rbx, Heap::kUndefinedValueRootIndex);
-
-  CallConstructStub stub(isolate(), SUPER_CONSTRUCTOR_CALL);
-  __ call(stub.GetCode(), RelocInfo::CONSTRUCT_CALL);
+  __ movp(rdx, Operand(rsp, rax, times_pointer_size, 1 * kPointerSize));
+  __ movp(rdi, Operand(rsp, rax, times_pointer_size, 0 * kPointerSize));
+  __ Call(isolate()->builtins()->Construct(), RelocInfo::CONSTRUCT_CALL);
 
   // Restore context register.
   __ movp(rsi, Operand(rbp, StandardFrameConstants::kContextOffset));

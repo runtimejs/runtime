@@ -11,7 +11,6 @@
 #include "src/codegen.h"
 #include "src/compilation-cache.h"
 #include "src/compiler/pipeline.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/debug/liveedit.h"
 #include "src/deoptimizer.h"
@@ -25,6 +24,7 @@
 #include "src/messages.h"
 #include "src/parser.h"
 #include "src/prettyprinter.h"
+#include "src/profiler/cpu-profiler.h"
 #include "src/rewriter.h"
 #include "src/runtime-profiler.h"
 #include "src/scanner-character-streams.h"
@@ -130,7 +130,7 @@ CompilationInfo::CompilationInfo(ParseInfo* parse_info)
   // with deoptimization support.
   if (isolate_->serializer_enabled()) EnableDeoptimizationSupport();
 
-  if (FLAG_context_specialization) MarkAsContextSpecializing();
+  if (FLAG_function_context_specialization) MarkAsFunctionContextSpecializing();
   if (FLAG_turbo_inlining) MarkAsInliningEnabled();
   if (FLAG_turbo_source_positions) MarkAsSourcePositionsEnabled();
   if (FLAG_turbo_splitting) MarkAsSplittingEnabled();
@@ -154,7 +154,9 @@ CompilationInfo::CompilationInfo(CodeStub* stub, Isolate* isolate, Zone* zone)
 
 CompilationInfo::CompilationInfo(const char* debug_name, Isolate* isolate,
                                  Zone* zone)
-    : CompilationInfo(nullptr, nullptr, debug_name, STUB, isolate, zone) {}
+    : CompilationInfo(nullptr, nullptr, debug_name, STUB, isolate, zone) {
+  set_output_code_kind(Code::STUB);
+}
 
 CompilationInfo::CompilationInfo(ParseInfo* parse_info, CodeStub* code_stub,
                                  const char* debug_name, Mode mode,
@@ -188,6 +190,9 @@ CompilationInfo::CompilationInfo(ParseInfo* parse_info, CodeStub* code_stub,
     if (descriptor.function_mode() == NOT_JS_FUNCTION_STUB_MODE) {
       parameter_count_--;
     }
+    set_output_code_kind(code_stub->GetCodeKind());
+  } else {
+    set_output_code_kind(Code::FUNCTION);
   }
 }
 
@@ -208,6 +213,7 @@ void CompilationInfo::SetStub(CodeStub* code_stub) {
   SetMode(STUB);
   code_stub_ = code_stub;
   debug_name_ = CodeStub::MajorName(code_stub->MajorKey());
+  set_output_code_kind(code_stub->GetCodeKind());
 }
 
 
@@ -268,7 +274,7 @@ int CompilationInfo::TraceInlinedFunction(Handle<SharedFunctionInfo> shared,
       shared->start_position());
   if (!shared->script()->IsUndefined()) {
     Handle<Script> script(Script::cast(shared->script()));
-    info.script_id = script->id()->value();
+    info.script_id = script->id();
 
     if (FLAG_hydrogen_track_positions && !script->source()->IsUndefined()) {
       CodeTracer::Scope tracing_scope(isolate()->GetCodeTracer());
@@ -434,7 +440,7 @@ OptimizedCompileJob::Status OptimizedCompileJob::CreateGraph() {
 
     if (info()->shared_info()->asm_function()) {
       if (info()->osr_frame()) info()->MarkAsFrameSpecializing();
-      info()->MarkAsContextSpecializing();
+      info()->MarkAsFunctionContextSpecializing();
     } else if (FLAG_turbo_type_feedback) {
       info()->MarkAsTypeFeedbackEnabled();
       info()->EnsureFeedbackVector();
@@ -771,8 +777,8 @@ static void InsertCodeIntoOptimizedCodeMap(CompilationInfo* info) {
   if (code->kind() != Code::OPTIMIZED_FUNCTION) return;  // Nothing to do.
 
   // Context specialization folds-in the context, so no sharing can occur.
-  if (info->is_context_specializing()) return;
-  // Frame specialization implies context specialization.
+  if (info->is_function_context_specializing()) return;
+  // Frame specialization implies function context specialization.
   DCHECK(!info->is_frame_specializing());
 
   // Do not cache bound functions.
@@ -782,7 +788,7 @@ static void InsertCodeIntoOptimizedCodeMap(CompilationInfo* info) {
   // Cache optimized context-specific code.
   if (FLAG_cache_optimized_code) {
     Handle<SharedFunctionInfo> shared(function->shared());
-    Handle<FixedArray> literals(function->literals());
+    Handle<LiteralsArray> literals(function->literals());
     Handle<Context> native_context(function->context()->native_context());
     SharedFunctionInfo::AddToOptimizedCodeMap(shared, native_context, code,
                                               literals, info->osr_ast_id());
@@ -793,7 +799,7 @@ static void InsertCodeIntoOptimizedCodeMap(CompilationInfo* info) {
 
   // Cache optimized context-independent code.
   if (FLAG_turbo_cache_shared_code && code->is_turbofanned()) {
-    DCHECK(!info->is_context_specializing());
+    DCHECK(!info->is_function_context_specializing());
     DCHECK(info->osr_ast_id().IsNone());
     Handle<SharedFunctionInfo> shared(function->shared());
     SharedFunctionInfo::AddSharedCodeToOptimizedCodeMap(shared, code);
@@ -969,7 +975,7 @@ MaybeHandle<Code> Compiler::GetStubCode(Handle<JSFunction> function,
   ParseInfo parse_info(&zone, function);
   CompilationInfo info(&parse_info);
   info.SetFunctionType(stub->GetCallInterfaceDescriptor().GetFunctionType());
-  info.MarkAsContextSpecializing();
+  info.MarkAsFunctionContextSpecializing();
   info.MarkAsDeoptimizationEnabled();
   info.SetStub(stub);
 
@@ -1271,8 +1277,8 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
     script = isolate->factory()->NewScript(source);
     if (!script_name.is_null()) {
       script->set_name(*script_name);
-      script->set_line_offset(Smi::FromInt(line_offset));
-      script->set_column_offset(Smi::FromInt(column_offset));
+      script->set_line_offset(line_offset);
+      script->set_column_offset(column_offset);
     }
     script->set_origin_options(options);
     Zone zone;
@@ -1389,13 +1395,13 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
     // Create a script object describing the script to be compiled.
     Handle<Script> script = isolate->factory()->NewScript(source);
     if (natives == NATIVES_CODE) {
-      script->set_type(Smi::FromInt(Script::TYPE_NATIVE));
+      script->set_type(Script::TYPE_NATIVE);
       script->set_hide_source(true);
     }
     if (!script_name.is_null()) {
       script->set_name(*script_name);
-      script->set_line_offset(Smi::FromInt(line_offset));
-      script->set_column_offset(Smi::FromInt(column_offset));
+      script->set_line_offset(line_offset);
+      script->set_column_offset(column_offset);
     }
     script->set_origin_options(resource_options);
     if (!source_map_url.is_null()) {

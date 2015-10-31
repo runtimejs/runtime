@@ -192,21 +192,20 @@ DEFINE_BOOL(legacy_const, true, "legacy semantics for const in sloppy mode")
   V(harmony_modules, "harmony modules")                               \
   V(harmony_regexps, "harmony regular expression extensions")         \
   V(harmony_proxies, "harmony proxies")                               \
-  V(harmony_sloppy_function, "harmony sloppy function block scoping") \
   V(harmony_unicode_regexps, "harmony unicode regexps")               \
   V(harmony_tolength, "harmony ToLength")                             \
   V(harmony_reflect, "harmony Reflect API")                           \
+  V(harmony_sloppy_function, "harmony sloppy function block scoping") \
   V(harmony_destructuring, "harmony destructuring")                   \
   V(harmony_default_parameters, "harmony default parameters")         \
   V(harmony_sharedarraybuffer, "harmony sharedarraybuffer")           \
   V(harmony_simd, "harmony simd")
 
 // Features that are complete (but still behind --harmony/es-staging flag).
-#define HARMONY_STAGED(V)                                       \
-  V(harmony_tostring, "harmony toString")                       \
-  V(harmony_concat_spreadable, "harmony isConcatSpreadable")    \
-  V(harmony_rest_parameters, "harmony rest parameters")         \
-  V(harmony_sloppy, "harmony features in sloppy mode")          \
+#define HARMONY_STAGED(V)                                             \
+  V(harmony_tostring, "harmony toString")                             \
+  V(harmony_concat_spreadable, "harmony isConcatSpreadable")          \
+  V(harmony_sloppy, "harmony features in sloppy mode")                \
   V(harmony_sloppy_let, "harmony let in sloppy mode")
 
 // Features that are shipping (turned on by default, but internal flag remains).
@@ -215,7 +214,8 @@ DEFINE_BOOL(legacy_const, true, "legacy semantics for const in sloppy mode")
   V(harmony_array_includes, "harmony Array.prototype.includes") \
   V(harmony_new_target, "harmony new.target")                   \
   V(harmony_object_observe, "harmony Object.observe")           \
-  V(harmony_spreadcalls, "harmony spread-calls")                \
+  V(harmony_rest_parameters, "harmony rest parameters")         \
+  V(harmony_spread_calls, "harmony spread-calls")               \
   V(harmony_spread_arrays, "harmony spread in array literals")
 
 // Once a shipping feature has proved stable in the wild, it will be dropped
@@ -431,8 +431,8 @@ DEFINE_BOOL(turbo_allocate, false, "enable inline allocations in TurboFan")
 DEFINE_BOOL(turbo_source_positions, false,
             "track source code positions when building TurboFan IR")
 DEFINE_IMPLICATION(trace_turbo, turbo_source_positions)
-DEFINE_BOOL(context_specialization, false,
-            "enable context specialization in TurboFan")
+DEFINE_BOOL(function_context_specialization, false,
+            "enable function context specialization in TurboFan")
 DEFINE_BOOL(turbo_inlining, false, "enable inlining in TurboFan")
 DEFINE_BOOL(trace_turbo_inlining, false, "trace TurboFan inlining")
 DEFINE_BOOL(loop_assignment_analysis, true, "perform loop assignment analysis")

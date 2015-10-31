@@ -113,7 +113,7 @@ class ParserBase : public Traits {
         allow_harmony_sloppy_let_(false),
         allow_harmony_rest_parameters_(false),
         allow_harmony_default_parameters_(false),
-        allow_harmony_spreadcalls_(false),
+        allow_harmony_spread_calls_(false),
         allow_harmony_destructuring_(false),
         allow_harmony_spread_arrays_(false),
         allow_harmony_new_target_(false),
@@ -132,7 +132,7 @@ class ParserBase : public Traits {
   ALLOW_ACCESSORS(harmony_sloppy_let);
   ALLOW_ACCESSORS(harmony_rest_parameters);
   ALLOW_ACCESSORS(harmony_default_parameters);
-  ALLOW_ACCESSORS(harmony_spreadcalls);
+  ALLOW_ACCESSORS(harmony_spread_calls);
   ALLOW_ACCESSORS(harmony_destructuring);
   ALLOW_ACCESSORS(harmony_spread_arrays);
   ALLOW_ACCESSORS(harmony_new_target);
@@ -833,7 +833,7 @@ class ParserBase : public Traits {
   bool allow_harmony_sloppy_let_;
   bool allow_harmony_rest_parameters_;
   bool allow_harmony_default_parameters_;
-  bool allow_harmony_spreadcalls_;
+  bool allow_harmony_spread_calls_;
   bool allow_harmony_destructuring_;
   bool allow_harmony_spread_arrays_;
   bool allow_harmony_new_target_;
@@ -2228,7 +2228,7 @@ ParserBase<Traits>::ParsePrimaryExpression(ExpressionClassifier* classifier,
       if (FLAG_strong_this && is_strong(language_mode())) {
         // Constructors' usages of 'this' in strong mode are parsed separately.
         // TODO(rossberg): this does not work with arrow functions yet.
-        if (i::IsConstructor(function_state_->kind())) {
+        if (IsClassConstructor(function_state_->kind())) {
           ReportMessage(MessageTemplate::kStrongConstructorThis);
           *ok = false;
           break;
@@ -2835,7 +2835,8 @@ typename Traits::Type::ExpressionList ParserBase<Traits>::ParseArguments(
   bool was_unspread = false;
   int unspread_sequences_count = 0;
   while (!done) {
-    bool is_spread = allow_harmony_spreadcalls() && (peek() == Token::ELLIPSIS);
+    bool is_spread =
+        allow_harmony_spread_calls() && (peek() == Token::ELLIPSIS);
     int start_pos = peek_position();
     if (is_spread) Consume(Token::ELLIPSIS);
 
@@ -3612,7 +3613,7 @@ ParserBase<Traits>::ParseSuperExpression(bool is_new,
   Scope* scope = scope_->ReceiverScope();
   FunctionKind kind = scope->function_kind();
   if (IsConciseMethod(kind) || IsAccessorFunction(kind) ||
-      i::IsConstructor(kind)) {
+      IsClassConstructor(kind)) {
     if (peek() == Token::PERIOD || peek() == Token::LBRACK) {
       scope->RecordSuperPropertyUsage();
       return this->SuperPropertyReference(scope_, factory(), pos);

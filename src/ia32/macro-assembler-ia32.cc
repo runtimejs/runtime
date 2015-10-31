@@ -8,7 +8,6 @@
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
 #include "src/codegen.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/ia32/frames-ia32.h"
 #include "src/ia32/macro-assembler-ia32.h"
@@ -866,6 +865,13 @@ void MacroAssembler::Prologue(bool code_pre_aging) {
     push(esi);  // Callee's context.
     push(edi);  // Callee's JS function.
   }
+}
+
+
+void MacroAssembler::EmitLoadTypeFeedbackVector(Register vector) {
+  mov(vector, Operand(ebp, JavaScriptFrameConstants::kFunctionOffset));
+  mov(vector, FieldOperand(vector, JSFunction::kSharedFunctionInfoOffset));
+  mov(vector, FieldOperand(vector, SharedFunctionInfo::kFeedbackVectorOffset));
 }
 
 

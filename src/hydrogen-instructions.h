@@ -5912,9 +5912,7 @@ class HObjectAccess final {
     return Representation::FromKind(RepresentationField::decode(value_));
   }
 
-  inline Handle<String> name() const {
-    return name_;
-  }
+  inline Handle<Name> name() const { return name_; }
 
   inline bool immutable() const {
     return ImmutableField::decode(value_);
@@ -5948,6 +5946,11 @@ class HObjectAccess final {
                          Representation::Integer32());
   }
 
+  static HObjectAccess ForOddballToNumber(
+      Representation representation = Representation::Tagged()) {
+    return HObjectAccess(kInobject, Oddball::kToNumberOffset, representation);
+  }
+
   static HObjectAccess ForOddballTypeOf() {
     return HObjectAccess(kInobject, Oddball::kTypeOfOffset,
                          Representation::HeapObject());
@@ -5977,7 +5980,7 @@ class HObjectAccess final {
 
   static HObjectAccess ForAllocationSiteList() {
     return HObjectAccess(kExternalMemory, 0, Representation::Tagged(),
-                         Handle<String>::null(), false, false);
+                         Handle<Name>::null(), false, false);
   }
 
   static HObjectAccess ForFixedArrayLength() {
@@ -6140,12 +6143,12 @@ class HObjectAccess final {
 
   static HObjectAccess ForCounter() {
     return HObjectAccess(kExternalMemory, 0, Representation::Integer32(),
-                         Handle<String>::null(), false, false);
+                         Handle<Name>::null(), false, false);
   }
 
   static HObjectAccess ForExternalUInteger8() {
     return HObjectAccess(kExternalMemory, 0, Representation::UInteger8(),
-                         Handle<String>::null(), false, false);
+                         Handle<Name>::null(), false, false);
   }
 
   // Create an access to an offset in a fixed array header.
@@ -6181,7 +6184,7 @@ class HObjectAccess final {
   // Create an access to a resolved field (in-object or backing store).
   static HObjectAccess ForField(Handle<Map> map, int index,
                                 Representation representation,
-                                Handle<String> name);
+                                Handle<Name> name);
 
   static HObjectAccess ForJSTypedArrayLength() {
     return HObjectAccess::ForObservableJSObjectOffset(
@@ -6296,16 +6299,15 @@ class HObjectAccess final {
 
   HObjectAccess(Portion portion, int offset,
                 Representation representation = Representation::Tagged(),
-                Handle<String> name = Handle<String>::null(),
-                bool immutable = false,
-                bool existing_inobject_property = true)
-    : value_(PortionField::encode(portion) |
-             RepresentationField::encode(representation.kind()) |
-             ImmutableField::encode(immutable ? 1 : 0) |
-             ExistingInobjectPropertyField::encode(
-                 existing_inobject_property ? 1 : 0) |
-             OffsetField::encode(offset)),
-      name_(name) {
+                Handle<Name> name = Handle<Name>::null(),
+                bool immutable = false, bool existing_inobject_property = true)
+      : value_(PortionField::encode(portion) |
+               RepresentationField::encode(representation.kind()) |
+               ImmutableField::encode(immutable ? 1 : 0) |
+               ExistingInobjectPropertyField::encode(
+                   existing_inobject_property ? 1 : 0) |
+               OffsetField::encode(offset)),
+        name_(name) {
     // assert that the fields decode correctly
     DCHECK(this->offset() == offset);
     DCHECK(this->portion() == portion);
@@ -6322,7 +6324,7 @@ class HObjectAccess final {
   class OffsetField : public BitField<int, 9, 23> {};
 
   uint32_t value_;  // encodes portion, representation, immutable, and offset
-  Handle<String> name_;
+  Handle<Name> name_;
 
   friend class HLoadNamedField;
   friend class HStoreNamedField;
@@ -7351,8 +7353,7 @@ class HStringAdd final : public HBinaryOperation {
  public:
   static HInstruction* New(
       Isolate* isolate, Zone* zone, HValue* context, HValue* left,
-      HValue* right, Strength strength = Strength::WEAK,
-      PretenureFlag pretenure_flag = NOT_TENURED,
+      HValue* right, PretenureFlag pretenure_flag = NOT_TENURED,
       StringAddFlags flags = STRING_ADD_CHECK_BOTH,
       Handle<AllocationSite> allocation_site = Handle<AllocationSite>::null());
 
@@ -7374,16 +7375,21 @@ class HStringAdd final : public HBinaryOperation {
   }
 
  private:
-  HStringAdd(HValue* context, HValue* left, HValue* right, Strength strength,
+  HStringAdd(HValue* context, HValue* left, HValue* right,
              PretenureFlag pretenure_flag, StringAddFlags flags,
              Handle<AllocationSite> allocation_site)
-      : HBinaryOperation(context, left, right, strength, HType::String()),
+      : HBinaryOperation(context, left, right, Strength::WEAK, HType::String()),
         flags_(flags),
         pretenure_flag_(pretenure_flag) {
     set_representation(Representation::Tagged());
-    SetFlag(kUseGVN);
+    if ((flags & STRING_ADD_CONVERT) == STRING_ADD_CONVERT) {
+      SetAllSideEffects();
+      ClearFlag(kUseGVN);
+    } else {
+      SetChangesFlag(kNewSpacePromotion);
+      SetFlag(kUseGVN);
+    }
     SetDependsOnFlag(kMaps);
-    SetChangesFlag(kNewSpacePromotion);
     if (FLAG_trace_pretenuring) {
       PrintF("HStringAdd with AllocationSite %p %s\n",
              allocation_site.is_null()
@@ -7393,8 +7399,9 @@ class HStringAdd final : public HBinaryOperation {
     }
   }
 
-  // No side-effects except possible allocation:
-  bool IsDeletable() const override { return true; }
+  bool IsDeletable() const final {
+    return (flags_ & STRING_ADD_CONVERT) != STRING_ADD_CONVERT;
+  }
 
   const StringAddFlags flags_;
   const PretenureFlag pretenure_flag_;

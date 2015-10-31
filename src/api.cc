@@ -27,26 +27,26 @@
 #include "src/contexts.h"
 #include "src/conversions-inl.h"
 #include "src/counters.h"
-#include "src/cpu-profiler.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
 #include "src/execution.h"
 #include "src/global-handles.h"
-#include "src/heap-profiler.h"
-#include "src/heap-snapshot-generator-inl.h"
 #include "src/icu_util.h"
 #include "src/isolate-inl.h"
 #include "src/json-parser.h"
 #include "src/messages.h"
 #include "src/parser.h"
 #include "src/pending-compilation-error-handler.h"
-#include "src/profile-generator-inl.h"
+#include "src/profiler/cpu-profiler.h"
+#include "src/profiler/heap-profiler.h"
+#include "src/profiler/heap-snapshot-generator-inl.h"
+#include "src/profiler/profile-generator-inl.h"
+#include "src/profiler/sampler.h"
 #include "src/property.h"
 #include "src/property-details.h"
 #include "src/prototype.h"
 #include "src/runtime/runtime.h"
 #include "src/runtime-profiler.h"
-#include "src/sampler.h"
 #include "src/scanner-character-streams.h"
 #include "src/simulator.h"
 #include "src/snapshot/natives.h"
@@ -195,10 +195,10 @@ static ScriptOrigin GetScriptOriginForScript(i::Isolate* isolate,
   ScriptOriginOptions options(script->origin_options());
   v8::ScriptOrigin origin(
       Utils::ToLocal(scriptName),
-      v8::Integer::New(v8_isolate, script->line_offset()->value()),
-      v8::Integer::New(v8_isolate, script->column_offset()->value()),
+      v8::Integer::New(v8_isolate, script->line_offset()),
+      v8::Integer::New(v8_isolate, script->column_offset()),
       v8::Boolean::New(v8_isolate, options.IsSharedCrossOrigin()),
-      v8::Integer::New(v8_isolate, script->id()->value()),
+      v8::Integer::New(v8_isolate, script->id()),
       v8::Boolean::New(v8_isolate, options.IsEmbedderDebugScript()),
       Utils::ToLocal(source_map_url),
       v8::Boolean::New(v8_isolate, options.IsOpaque()));
@@ -955,6 +955,25 @@ void Template::SetAccessorProperty(
 }
 
 
+#ifdef V8_JS_ACCESSORS
+void Template::SetAccessorProperty(v8::Local<v8::Name> name,
+                                   v8::Local<Function> getter,
+                                   v8::Local<Function> setter,
+                                   v8::PropertyAttribute attribute) {
+  auto templ = Utils::OpenHandle(this);
+  auto isolate = templ->GetIsolate();
+  ENTER_V8(isolate);
+  DCHECK(!name.IsEmpty());
+  DCHECK(!getter.IsEmpty() || !setter.IsEmpty());
+  i::HandleScope scope(isolate);
+  i::ApiNatives::AddAccessorProperty(
+      isolate, templ, Utils::OpenHandle(*name),
+      Utils::OpenHandle(*getter, true), Utils::OpenHandle(*setter, true),
+      static_cast<PropertyAttributes>(attribute));
+}
+#endif  // V8_JS_ACCESSORS
+
+
 // --- F u n c t i o n   T e m p l a t e ---
 static void InitializeFunctionTemplate(
     i::Handle<i::FunctionTemplateInfo> info) {
@@ -1370,13 +1389,13 @@ static void ObjectTemplateSetNamedPropertyHandler(ObjectTemplate* templ,
   EnsureNotInstantiated(cons, "ObjectTemplateSetNamedPropertyHandler");
   auto obj = i::Handle<i::InterceptorInfo>::cast(
       isolate->factory()->NewStruct(i::INTERCEPTOR_INFO_TYPE));
+  obj->set_flags(0);
 
   if (getter != 0) SET_FIELD_WRAPPED(obj, set_getter, getter);
   if (setter != 0) SET_FIELD_WRAPPED(obj, set_setter, setter);
   if (query != 0) SET_FIELD_WRAPPED(obj, set_query, query);
   if (remover != 0) SET_FIELD_WRAPPED(obj, set_deleter, remover);
   if (enumerator != 0) SET_FIELD_WRAPPED(obj, set_enumerator, enumerator);
-  obj->set_flags(0);
   obj->set_can_intercept_symbols(
       !(static_cast<int>(flags) &
         static_cast<int>(PropertyHandlerFlags::kOnlyInterceptStrings)));
@@ -1457,6 +1476,7 @@ void ObjectTemplate::SetHandler(
   EnsureNotInstantiated(cons, "v8::ObjectTemplate::SetHandler");
   auto obj = i::Handle<i::InterceptorInfo>::cast(
       isolate->factory()->NewStruct(i::INTERCEPTOR_INFO_TYPE));
+  obj->set_flags(0);
 
   if (config.getter != 0) SET_FIELD_WRAPPED(obj, set_getter, config.getter);
   if (config.setter != 0) SET_FIELD_WRAPPED(obj, set_setter, config.setter);
@@ -1465,7 +1485,6 @@ void ObjectTemplate::SetHandler(
   if (config.enumerator != 0) {
     SET_FIELD_WRAPPED(obj, set_enumerator, config.enumerator);
   }
-  obj->set_flags(0);
   obj->set_all_can_read(static_cast<int>(config.flags) &
                         static_cast<int>(PropertyHandlerFlags::kAllCanRead));
 
@@ -1611,7 +1630,7 @@ int UnboundScript::GetId() {
   i::Handle<i::SharedFunctionInfo> function_info(
       i::SharedFunctionInfo::cast(*obj));
   i::Handle<i::Script> script(i::Script::cast(function_info->script()));
-  return script->id()->value();
+  return script->id();
 }
 
 
@@ -1984,12 +2003,12 @@ MaybeLocal<Script> ScriptCompiler::Compile(Local<Context> context,
     script->set_name(*Utils::OpenHandle(*(origin.ResourceName())));
   }
   if (!origin.ResourceLineOffset().IsEmpty()) {
-    script->set_line_offset(i::Smi::FromInt(
-        static_cast<int>(origin.ResourceLineOffset()->Value())));
+    script->set_line_offset(
+        static_cast<int>(origin.ResourceLineOffset()->Value()));
   }
   if (!origin.ResourceColumnOffset().IsEmpty()) {
-    script->set_column_offset(i::Smi::FromInt(
-        static_cast<int>(origin.ResourceColumnOffset()->Value())));
+    script->set_column_offset(
+        static_cast<int>(origin.ResourceColumnOffset()->Value()));
   }
   script->set_origin_options(origin.Options());
   if (!origin.SourceMapUrl().IsEmpty()) {
@@ -2937,7 +2956,7 @@ MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
   PREPARE_FOR_EXECUTION(context, "ToInteger", Integer);
   Local<Integer> result;
   has_pending_exception =
-      !ToLocal<Integer>(i::Execution::ToInteger(isolate, obj), &result);
+      !ToLocal<Integer>(i::Object::ToInteger(isolate, obj), &result);
   RETURN_ON_FAILED_EXECUTION(Integer);
   RETURN_ESCAPED(result);
 }
@@ -2954,7 +2973,7 @@ MaybeLocal<Int32> Value::ToInt32(Local<Context> context) const {
   Local<Int32> result;
   PREPARE_FOR_EXECUTION(context, "ToInt32", Int32);
   has_pending_exception =
-      !ToLocal<Int32>(i::Execution::ToInt32(isolate, obj), &result);
+      !ToLocal<Int32>(i::Object::ToInt32(isolate, obj), &result);
   RETURN_ON_FAILED_EXECUTION(Int32);
   RETURN_ESCAPED(result);
 }
@@ -2969,9 +2988,9 @@ MaybeLocal<Uint32> Value::ToUint32(Local<Context> context) const {
   auto obj = Utils::OpenHandle(this);
   if (obj->IsSmi()) return ToApiHandle<Uint32>(obj);
   Local<Uint32> result;
-  PREPARE_FOR_EXECUTION(context, "ToUInt32", Uint32);
+  PREPARE_FOR_EXECUTION(context, "ToUint32", Uint32);
   has_pending_exception =
-      !ToLocal<Uint32>(i::Execution::ToUint32(isolate, obj), &result);
+      !ToLocal<Uint32>(i::Object::ToUint32(isolate, obj), &result);
   RETURN_ON_FAILED_EXECUTION(Uint32);
   RETURN_ESCAPED(result);
 }
@@ -3265,8 +3284,7 @@ Maybe<int64_t> Value::IntegerValue(Local<Context> context) const {
     num = obj;
   } else {
     PREPARE_FOR_EXECUTION_PRIMITIVE(context, "IntegerValue", int64_t);
-    has_pending_exception =
-        !i::Execution::ToInteger(isolate, obj).ToHandle(&num);
+    has_pending_exception = !i::Object::ToInteger(isolate, obj).ToHandle(&num);
     RETURN_ON_FAILED_EXECUTION_PRIMITIVE(int64_t);
   }
   return Just(num->IsSmi() ? static_cast<int64_t>(i::Smi::cast(*num)->value())
@@ -3292,7 +3310,7 @@ Maybe<int32_t> Value::Int32Value(Local<Context> context) const {
   if (obj->IsNumber()) return Just(NumberToInt32(*obj));
   PREPARE_FOR_EXECUTION_PRIMITIVE(context, "Int32Value", int32_t);
   i::Handle<i::Object> num;
-  has_pending_exception = !i::Execution::ToInt32(isolate, obj).ToHandle(&num);
+  has_pending_exception = !i::Object::ToInt32(isolate, obj).ToHandle(&num);
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(int32_t);
   return Just(num->IsSmi() ? i::Smi::cast(*num)->value()
                            : static_cast<int32_t>(num->Number()));
@@ -3311,7 +3329,7 @@ Maybe<uint32_t> Value::Uint32Value(Local<Context> context) const {
   if (obj->IsNumber()) return Just(NumberToUint32(*obj));
   PREPARE_FOR_EXECUTION_PRIMITIVE(context, "Uint32Value", uint32_t);
   i::Handle<i::Object> num;
-  has_pending_exception = !i::Execution::ToUint32(isolate, obj).ToHandle(&num);
+  has_pending_exception = !i::Object::ToUint32(isolate, obj).ToHandle(&num);
   RETURN_ON_FAILED_EXECUTION_PRIMITIVE(uint32_t);
   return Just(num->IsSmi() ? static_cast<uint32_t>(i::Smi::cast(*num)->value())
                            : static_cast<uint32_t>(num->Number()));
@@ -4244,18 +4262,9 @@ MaybeLocal<Value> Object::CallAsFunction(Local<Context> context,
   auto recv_obj = Utils::OpenHandle(*recv);
   STATIC_ASSERT(sizeof(v8::Local<v8::Value>) == sizeof(i::Object**));
   i::Handle<i::Object>* args = reinterpret_cast<i::Handle<i::Object>*>(argv);
-  i::Handle<i::JSFunction> fun;
-  if (self->IsJSFunction()) {
-    fun = i::Handle<i::JSFunction>::cast(self);
-  } else {
-    has_pending_exception =
-        !i::Execution::GetFunctionDelegate(isolate, self).ToHandle(&fun);
-    RETURN_ON_FAILED_EXECUTION(Value);
-    recv_obj = self;
-  }
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(
-      i::Execution::Call(isolate, fun, recv_obj, argc, args), &result);
+      i::Execution::Call(isolate, self, recv_obj, argc, args), &result);
   RETURN_ON_FAILED_EXECUTION(Value);
   RETURN_ESCAPED(result);
 }
@@ -4278,21 +4287,9 @@ MaybeLocal<Value> Object::CallAsConstructor(Local<Context> context, int argc,
   auto self = Utils::OpenHandle(this);
   STATIC_ASSERT(sizeof(v8::Local<v8::Value>) == sizeof(i::Object**));
   i::Handle<i::Object>* args = reinterpret_cast<i::Handle<i::Object>*>(argv);
-  if (self->IsJSFunction()) {
-    auto fun = i::Handle<i::JSFunction>::cast(self);
-    Local<Value> result;
-    has_pending_exception =
-        !ToLocal<Value>(i::Execution::New(fun, argc, args), &result);
-    RETURN_ON_FAILED_EXECUTION(Value);
-    RETURN_ESCAPED(result);
-  }
-  i::Handle<i::JSFunction> fun;
-  has_pending_exception =
-      !i::Execution::GetConstructorDelegate(isolate, self).ToHandle(&fun);
-  RETURN_ON_FAILED_EXECUTION(Value);
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(
-      i::Execution::Call(isolate, fun, self, argc, args), &result);
+      i::Execution::New(isolate, self, self, argc, args), &result);
   RETURN_ON_FAILED_EXECUTION(Value);
   RETURN_ESCAPED(result);
 }
@@ -4458,7 +4455,7 @@ int Function::ScriptId() const {
     return v8::UnboundScript::kNoScriptId;
   }
   i::Handle<i::Script> script(i::Script::cast(func->shared()->script()));
-  return script->id()->value();
+  return script->id();
 }
 
 
@@ -6840,32 +6837,11 @@ Local<Integer> v8::Integer::NewFromUnsigned(Isolate* isolate, uint32_t value) {
 }
 
 
-void Isolate::CollectAllGarbage(const char* gc_reason) {
+void Isolate::ReportExternalAllocationLimitReached() {
   i::Heap* heap = reinterpret_cast<i::Isolate*>(this)->heap();
-  DCHECK_EQ(heap->gc_state(), i::Heap::NOT_IN_GC);
-  if (heap->incremental_marking()->IsStopped()) {
-    if (heap->incremental_marking()->CanBeActivated()) {
-      heap->StartIncrementalMarking(
-          i::Heap::kNoGCFlags,
-          kGCCallbackFlagSynchronousPhantomCallbackProcessing, gc_reason);
-    } else {
-      heap->CollectAllGarbage(
-          i::Heap::kNoGCFlags, gc_reason,
-          kGCCallbackFlagSynchronousPhantomCallbackProcessing);
-    }
-  } else {
-    // Incremental marking is turned on an has already been started.
-
-    // TODO(mlippautz): Compute the time slice for incremental marking based on
-    // memory pressure.
-    double deadline = heap->MonotonicallyIncreasingTimeInMs() +
-                      i::FLAG_external_allocation_limit_incremental_time;
-    heap->AdvanceIncrementalMarking(
-        0, deadline, i::IncrementalMarking::StepActions(
-                         i::IncrementalMarking::GC_VIA_STACK_GUARD,
-                         i::IncrementalMarking::FORCE_MARKING,
-                         i::IncrementalMarking::FORCE_COMPLETION));
-  }
+  if (heap->gc_state() != i::Heap::NOT_IN_GC) return;
+  heap->ReportExternalMemoryPressure(
+      "external memory allocation limit reached.");
 }
 
 
