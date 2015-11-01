@@ -216,15 +216,6 @@ public:
     }
 
     /**
-     * Set data to kernel resources function. This is required
-     * to start first process
-     */
-    void SetResourceFunction() {
-        Clear();
-        AppendType(Type::RESOURCES_FN);
-    }
-
-    /**
      * Serialize value to transport it
      */
     SerializeError MoveValue(Thread* exporter, v8::Local<v8::Value> value);
@@ -319,7 +310,6 @@ private:
         FUNCTION,
         NATIVE_OBJECT,
         ERROR_OBJ,
-        RESOURCES_FN,
     };
 
     void Clear() { stream_.Clear(); }

@@ -101,7 +101,7 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
   var lengths = [];
   for (var i = 0, l = buffers.length; i < l; ++i) {
     var u8 = buffers[i];
-    var addr = runtime.bufferAddress(u8);
+    var addr = __SYSCALL.bufferAddress(u8);
     if (addr[3] === 0) {
       pageSplitBuffers.push(u8);
       lengths.push(addr[0]);

@@ -14,8 +14,6 @@
 
 'use strict';
 
-/* global isolate, runtime */
-console.log = isolate.log;
 var resources = require('./resources');
 require('./polyfill');
 
@@ -33,13 +31,11 @@ function Runtime() {
   this.ps2 = ps2;
   this.allocator = resources.allocator;
   this.net = net;
-  this.bufferAddress = runtime.bufferAddress; // fixme
-  this.debug = runtime.debug; // fixme
   this.stdio = stdio;
   this.machine = {
-    reboot: resources.natives.reboot,
+    reboot: __SYSCALL.reboot,
     shutdown: function() {
-      resources.acpi.enterSleepState(5);
+      __SYSCALL.acpiEnterSleepState(5);
     }
   };
 }

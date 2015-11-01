@@ -65,7 +65,7 @@ class DescriptorTable {
 
   setBuffer(descriptorId, buf, len, flags) {
     var base = SIZE * descriptorId;
-    var addr = runtime.bufferAddress(buf);
+    var addr = __SYSCALL.bufferAddress(buf);
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 0, addr[1]); // high
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 4, addr[2]); // low
     u8view.setUint32LE(this.mem, base + OFFSET_LEN, len >>> 0);

@@ -105,12 +105,6 @@ public:
     TemplateCache(v8::Isolate* iv8);
 
     /**
-     * Creates v8 callable object which represents exported external
-     * function
-     */
-    v8::Local<v8::Value> NewWrappedFunction(ExternalFunction* data);
-
-    /**
      * Creates v8 object which represents native object instance
      */
     v8::Local<v8::Object> NewWrappedObject(NativeObjectWrapper* nativeobj);
@@ -171,7 +165,6 @@ private:
     v8::Eternal<v8::ObjectTemplate> global_object_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_template_;
     v8::Eternal<v8::FunctionTemplate> wrapper_handle_template_;
-    v8::Eternal<v8::FunctionTemplate> wrapper_callable_template_;
     v8::Eternal<v8::UnboundScript> init_script_;
     std::array<v8::Eternal<v8::Object>, (uint32_t)NativeTypeId::LAST> object_cache_;
 };

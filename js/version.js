@@ -14,10 +14,14 @@
 
 'use strict';
 
-/* global kernel */
-var kernelVersion = kernel.version().runtime; // Format [major, minor, rev]
-var requiredVersionMin = [0, 1]; // 0.1.x
-var requiredVersionMax = [0, 1]; // 0.1.x
+/* global __SYSCALL */
+if (!global.__SYSCALL) {
+  throw 'error: this program requires runtime.js environment';
+}
+
+var kernelVersion = __SYSCALL.version().runtime; // Format [major, minor, rev]
+var requiredVersionMin = [0, 2]; // 0.1.x
+var requiredVersionMax = [0, 2]; // 0.1.x
 
 if (kernelVersion[0] < requiredVersionMin[0] ||
     kernelVersion[1] < requiredVersionMin[1] ||
@@ -31,7 +35,7 @@ if (kernelVersion[0] < requiredVersionMin[0] ||
   console.log('');
   console.log('Update with "npm install runtime-tools@latest"');
   console.log('='.repeat(60));
-  throw new Error('invalid runtime version');
+  throw 'error';
 }
 
-console.log(`v${kernelVersion.join('.')} kernel (v8 ${kernel.version().v8})`);
+console.log(`v${kernelVersion.join('.')} kernel (v8 ${__SYSCALL.version().v8})`);

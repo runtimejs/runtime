@@ -13,7 +13,6 @@
 // limitations under the License.
 
 'use strict';
-var resources = require('./resources');
 
 /**
  * Full Memory Barrier
@@ -23,4 +22,4 @@ var resources = require('./resources');
  * STORE operations specified after the barrier with respect to the other
  * components of the system
  */
-exports.memoryBarrier = resources.natives.memoryBarrier;
+exports.memoryBarrier = __SYSCALL.memoryBarrier;

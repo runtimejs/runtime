@@ -8,6 +8,7 @@ plugins:
 globals:
   debug: true
   performance: true
+  __SYSCALL: true
 
 rules:
   indent: [2, 2]

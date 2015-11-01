@@ -15,32 +15,31 @@
 'use strict';
 var test = require('tape');
 
-/* global isolate */
 /* global TextEncoder */
 /* global TextDecoder */
 
-test('isolate.eval valid code', function(t) {
+test('__SYSCALL.eval valid code', function(t) {
   global.a = 10;
-  isolate.eval('a++');
+  __SYSCALL.eval('a++');
   t.equal(global.a, 11);
   t.end();
 });
 
-test('isolate.eval invalid code', function(t) {
+test('__SYSCALL.eval invalid code', function(t) {
   t.plan(1);
 
   try {
-    isolate.eval('not a js');
+    __SYSCALL.eval('not a js');
   } catch (e) {
     t.ok(e instanceof SyntaxError, 'throws on syntax error');
   }
 });
 
-test('isolate.eval throws', function(t) {
+test('__SYSCALL.eval throws', function(t) {
   t.plan(2);
 
   try {
-    isolate.eval('throw new Error("some error")');
+    __SYSCALL.eval('throw new Error("some error")');
   } catch (e) {
     t.ok(e instanceof Error, 'caught error thrown from the script');
     t.ok(e.message.indexOf('some error') >= 0, 'error object is valid');

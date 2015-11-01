@@ -14,7 +14,6 @@
 
 'use strict';
 
-/* global isolate */
 var packagejson = require('./package.json');
 require('module-singleton')(packagejson);
 require('./version');
@@ -23,7 +22,7 @@ console.log(`v${packagejson.version} core library`);
 console.log('loading...');
 
 var isDebug = packagejson.runtimejs.debug;
-global.debug = isDebug ? isolate.log : function() {};
+global.debug = isDebug ? console.log : function() {};
 
 // Load runtime.js core
 var runtime = require('./core');

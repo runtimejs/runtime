@@ -13,5 +13,4 @@
 // limitations under the License.
 
 'use strict';
-/* global isolate */
-module.exports = isolate.data();
+module.exports = __SYSCALL.getSystemResources();

@@ -44,7 +44,6 @@ Thread::Thread(ThreadManager* thread_mgr, ResourceHandle<EngineThread> ethread)
         exports_(this),
         ref_count_(0),
         terminate_(false),
-        parent_promise_id_(0),
         runtime_(0),
         ev_count_(0),
         filename_() {
@@ -115,32 +114,7 @@ void Thread::TearDown() {
     RT_ASSERT(iv8_->GetData(0) == this);
     RT_ASSERT(tpl_cache_);
 
-    {	v8::Isolate::Scope ivscope(iv8_);
-        v8::HandleScope local_handle_scope(iv8_);
-
-        auto promise_id = parent_promise_id();
-        auto thread = parent_thread();
-
-        if (!thread.empty()) {
-            TransportData data;
-            if (!exit_value_.IsEmpty()) {
-                TransportData::SerializeError err { data.MoveValue(this,
-                    v8::Local<v8::Value>::New(iv8_, exit_value_)) };
-            } else {
-                data.SetUndefined();
-            }
-
-            RT_ASSERT(!data.empty());
-            {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                    ThreadMessage::Type::FUNCTION_RETURN_RESOLVE,
-                    handle(),
-                    std::move(data), nullptr, promise_id));
-                thread.getUnsafe()->PushMessage(std::move(msg));
-            }
-        } else {
-            RT_ASSERT(!"main isolate exited");
-        }
-    }
+    RT_ASSERT(!"main isolate exited");
 
     RT_ASSERT(thread_mgr_);
     RT_ASSERT(this == thread_mgr_->current_thread());
@@ -229,41 +203,6 @@ bool Thread::Run() {
         ThreadMessage::Type type = message->type();
 
         switch (type) {
-        case ThreadMessage::Type::SET_ARGUMENTS_NOPARENT: {
-            RT_ASSERT(args_.IsEmpty());
-            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-            RT_ASSERT(!unpacked.IsEmpty());
-
-            args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
-
-            auto s_data = v8::String::NewFromUtf8(iv8_, "data", v8::NewStringType::kNormal).ToLocalChecked();
-            GetIsolateGlobal()->Set(context, s_data, unpacked);
-        }
-            break;
-        case ThreadMessage::Type::SET_ARGUMENTS: {
-            RT_ASSERT(args_.IsEmpty());
-            v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-            RT_ASSERT(!unpacked.IsEmpty());
-
-            args_ = std::move(v8::UniquePersistent<v8::Value>(iv8_, unpacked));
-
-            // Install args [isolate.data, isolate.env, isolate.system]
-            auto s_data = v8::String::NewFromUtf8(iv8_, "data", v8::NewStringType::kNormal).ToLocalChecked();
-            auto s_env = v8::String::NewFromUtf8(iv8_, "env", v8::NewStringType::kNormal).ToLocalChecked();
-            auto s_system = v8::String::NewFromUtf8(iv8_, "system", v8::NewStringType::kNormal).ToLocalChecked();
-            auto isolate_obj = GetIsolateGlobal();
-            RT_ASSERT(!unpacked.IsEmpty());
-            RT_ASSERT(unpacked->IsArray());
-            auto args_array = unpacked.As<v8::Array>();
-            RT_ASSERT(3 == args_array->Length());
-            isolate_obj->Set(context, s_data, args_array->Get(context, 0).ToLocalChecked());
-            isolate_obj->Set(context, s_env, args_array->Get(context, 1).ToLocalChecked());
-            isolate_obj->Set(context, s_system, args_array->Get(context, 2).ToLocalChecked());
-
-            parent_thread_ = message->sender();
-            parent_promise_id_ = message->recv_index();
-        }
-            break;
         case ThreadMessage::Type::EVALUATE: {
             v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
             RT_ASSERT(!unpacked.IsEmpty());

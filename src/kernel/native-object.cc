@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014-2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -102,71 +102,6 @@ NATIVE_FUNCTION(NativesObject, GetCommandLine) {
     args.GetReturnValue().Set(string);
 }
 
-
-uint16_t swap16(uint16_t x) {
-    return x << 8 | x >> 8;
-}
-
-uint16_t ComputeChecksum(uint32_t start_with, const uint8_t* buffer, size_t length) {
-    uint32_t i;
-    uint32_t sum = start_with;
-
-    for (i = 0; i < (length & ~1U); i += 2) {
-        sum += (uint16_t)swap16(*((uint16_t *)(buffer + i)));
-    }
-
-    if (i < length) {
-        sum += buffer[i] << 8;
-    }
-
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum += (sum >> 16);
-    return ~sum & 0xffff;
-}
-
-NATIVE_FUNCTION(NativesObject, CallHandler) {
-    PROLOGUE_NOTHIS;
-    RuntimeStateScope<RuntimeState::RPC_CALL> rpc_call_state(th->thread_manager());
-
-    if (args.IsConstructCall()) {
-        THROW_ERROR("function is not a constructor");
-    }
-
-    v8::Local<v8::Value> thisvalue { args.This() };
-    RT_ASSERT(!thisvalue.IsEmpty());
-    if (!thisvalue->IsObject()) return;
-
-    v8::Local<v8::Object> obj = thisvalue.As<v8::Object>();
-    if (obj->InternalFieldCount() != 1) return;
-    void* ptr = obj->GetAlignedPointerFromInternalField(0);
-    if (nullptr == ptr) return;
-
-    ExternalFunction* efn { static_cast<ExternalFunction*>(ptr) };
-    RT_ASSERT(efn);
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveArgs(th, args) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    v8::Local<v8::Promise::Resolver> promise_resolver;
-    {   RuntimeStateScope<RuntimeState::PROMISE_NATIVE_API> promise_scope(th->thread_manager());
-        promise_resolver = v8::Promise::Resolver::New(context).ToLocalChecked();
-    }
-
-    uint32_t promise_index = th->AddPromise(
-        v8::UniquePersistent<v8::Promise::Resolver>(iv8, promise_resolver));
-
-    {	std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            ThreadMessage::Type::FUNCTION_CALL,
-            th->handle(),
-            std::move(data), efn, promise_index));
-        efn->recv().getUnsafe()->PushMessage(std::move(msg));
-    }
-
-    args.GetReturnValue().Set(promise_resolver);
-}
-
 NATIVE_FUNCTION(NativesObject, TextEncoderEncode) {
     PROLOGUE_NOTHIS;
     USEARG(0);
@@ -258,81 +193,6 @@ NATIVE_FUNCTION(NativesObject, TextDecoder) {
     args.This()->Set(context, s_encoding, s_utf8);
 }
 
-NATIVE_FUNCTION(NativesObject, SyncRPC) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-    VALIDATEARG(0, PROMISE, "sync: argument 0 is not a promise");
-
-    Nullable<uint32_t> pr = th->FindPromise(arg0.As<v8::Promise::Resolver>());
-    if (pr.empty()) {
-        THROW_ERROR("sync: promise is not attached to RPC call");
-    }
-
-    uint32_t promise_id = pr.get();
-    std::unique_ptr<ThreadMessage> message { nullptr };
-    do {
-        message = th->handle().getUnsafe()
-            ->TakePromiseResultMessage(promise_id);
-
-        if (nullptr != message) {
-            break;
-        }
-
-        Cpu::WaitPause();
-        RT_ASSERT(th->thread_manager());
-        th->thread_manager()->Preempt();
-    } while (true);
-
-    RT_ASSERT(message);
-    RT_ASSERT(promise_id == message->recv_index());
-    v8::Local<v8::Value> unpacked { message->data().Unpack(th) };
-    RT_ASSERT(!unpacked.IsEmpty());
-
-    th->TakePromise(message->recv_index());
-
-    if (ThreadMessage::Type::FUNCTION_RETURN_RESOLVE == message->type()) {
-        args.GetReturnValue().Set(unpacked); // Return value directly
-    } else {
-        iv8->ThrowException(unpacked); // Throw an error
-    }
-}
-
-NATIVE_FUNCTION(NativesObject, CallResult) {
-    PROLOGUE_NOTHIS;
-    RT_ASSERT(4 == args.Length());
-    USEARG(0);
-    USEARG(1);
-    USEARG(2);
-    USEARG(3);
-    RT_ASSERT(arg0->IsBoolean());
-    RT_ASSERT(arg1->IsExternal());
-    RT_ASSERT(arg2->IsUint32());
-
-    v8::Local<v8::External> ext { v8::Local<v8::External>::Cast(arg1) };
-    void* val { ext->Value() };
-    RT_ASSERT(val);
-    ResourceHandle<EngineThread> thread(static_cast<EngineThread*>(val));
-
-    TransportData data;
-    {	TransportData::SerializeError err { data.MoveValue(th, arg3) };
-        if (TransportData::ThrowError(iv8, err)) return;
-    }
-
-    {	v8::Maybe<bool> type = arg0->BooleanValue(context);
-        if (type.IsNothing()) {
-            return;
-        }
-
-        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            type.FromJust() ?
-                ThreadMessage::Type::FUNCTION_RETURN_RESOLVE :
-                ThreadMessage::Type::FUNCTION_RETURN_REJECT,
-            th->handle(),
-            std::move(data), nullptr, arg2->Uint32Value(context).FromJust()));
-        thread.getUnsafe()->PushMessage(std::move(msg));
-    }
-}
-
 NATIVE_FUNCTION(NativesObject, ClearTimer) {
     PROLOGUE_NOTHIS;
     USEARG(0);
@@ -386,7 +246,7 @@ NATIVE_FUNCTION(NativesObject, SetInterval) {
         SetTimer(iv8, th, arg0, arg1->Uint32Value(context).FromJust(), true)));
 }
 
-NATIVE_FUNCTION(NativesObject, KernelLog) {
+NATIVE_FUNCTION(NativesObject, Log) {
     PROLOGUE_NOTHIS;
     int argc = args.Length();
     for (int i = 0; i < argc; ++i) {
@@ -408,10 +268,10 @@ NATIVE_FUNCTION(NativesObject, KernelLog) {
     args.GetReturnValue().SetUndefined();
 }
 
-NATIVE_FUNCTION(NativesObject, InitrdText) {
+NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
     PROLOGUE_NOTHIS;
     USEARG(0);
-    VALIDATEARG(0, STRING, "initrdText: argument 0 is not a string");
+    VALIDATEARG(0, STRING, "argument 0 is not a string");
 
     v8::Local<v8::String> filename = arg0->ToString(context).ToLocalChecked();
     v8::String::Utf8Value filename_utf8(filename);
@@ -433,7 +293,7 @@ NATIVE_FUNCTION(NativesObject, InitrdText) {
     args.GetReturnValue().Set(text.ToLocalChecked());
 }
 
-NATIVE_FUNCTION(NativesObject, InitrdList) {
+NATIVE_FUNCTION(NativesObject, InitrdListFiles) {
     PROLOGUE_NOTHIS;
     size_t files_count { GLOBAL_initrd()->files_count() };
     v8::Local<v8::Array> arr { v8::Array::New(iv8, files_count) };
@@ -459,34 +319,6 @@ NATIVE_FUNCTION(NativesObject, InitrdList) {
     }
 
     args.GetReturnValue().Set(arr);
-}
-
-NATIVE_FUNCTION(NativesObject, KernelLoaderCallback) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-
-    v8::String::Utf8Value filename_utf8(arg0->ToString(context).ToLocalChecked());
-    const char* filename_buf = *filename_utf8;
-    RT_ASSERT(filename_buf);
-
-    InitrdFile file = GLOBAL_initrd()->Get(filename_buf);
-    if (file.IsEmpty()) {
-        THROW_ERROR("Unable to load requested file");
-        return;
-    }
-
-    {   TransportData data;
-        data.SetEvalData(file.Data(), file.Size(), filename_buf);
-
-        std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-            ThreadMessage::Type::EVALUATE,
-            th->handle(),
-            std::move(data)));
-        th->handle().getUnsafe()->PushMessage(std::move(msg));
-    }
-
-    th->Ref();
-    args.GetReturnValue().SetUndefined();
 }
 
 NATIVE_FUNCTION(NativesObject, SystemInfo) {
@@ -562,16 +394,12 @@ NATIVE_FUNCTION(NativesObject, BufferAddress) {
     args.GetReturnValue().Set(arr);
 }
 
-NATIVE_FUNCTION(NativesObject, Resources) {
+NATIVE_FUNCTION(NativesObject, GetSystemResources) {
     PROLOGUE_NOTHIS;
 
     LOCAL_V8STRING(s_memory_range, "memoryRange");
     LOCAL_V8STRING(s_io_range, "ioRange");
     LOCAL_V8STRING(s_irq_range, "irqRange");
-    LOCAL_V8STRING(s_acpi, "acpi");
-    LOCAL_V8STRING(s_allocator, "allocator");
-    LOCAL_V8STRING(s_loader, "loader");
-    LOCAL_V8STRING(s_natives, "natives");
 
     v8::Local<v8::Object> obj = v8::Object::New(iv8);
 
@@ -587,37 +415,7 @@ NATIVE_FUNCTION(NativesObject, Resources) {
         ->BindToTemplateCache(th->template_cache())
         ->GetInstance());
 
-    obj->Set(context, s_acpi, (new AcpiManagerObject(GLOBAL_engines()->acpi_manager()))
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-
-    obj->Set(context, s_allocator, (new AllocatorObject())
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-
-    obj->Set(context, s_loader, v8::Function::New(context, KernelLoaderCallback).ToLocalChecked());
-
-    obj->Set(context, s_natives, (new NativesObject())
-        ->BindToTemplateCache(th->template_cache())
-        ->GetInstance());
-
     args.GetReturnValue().Set(obj);
-}
-
-NATIVE_FUNCTION(NativesObject, Args) {
-    PROLOGUE_NOTHIS;
-    v8::Local<v8::Value> threadargs = th->args();
-    RT_ASSERT(!threadargs.IsEmpty());
-    args.GetReturnValue().Set(threadargs);
-}
-
-NATIVE_FUNCTION(NativesObject, Exit) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-
-    iv8->TerminateExecution();
-    th->SetTerminateFlag();
-    th->SetExitValue(arg0);
 }
 
 NATIVE_FUNCTION(NativesObject, Eval) {
@@ -668,47 +466,6 @@ NATIVE_FUNCTION(NativesObject, Version) {
     args.GetReturnValue().Set(obj);
 }
 
-NATIVE_FUNCTION(NativesObject, InstallInternals) {
-    PROLOGUE_NOTHIS;
-    USEARG(0);
-
-    RT_ASSERT(arg0->IsObject());
-    v8::Local<v8::Object> obj = arg0.As<v8::Object>();
-    v8::Local<v8::String> call_wrapper_name = v8::String::NewFromUtf8(iv8,
-        "callWrapper", v8::NewStringType::kNormal).ToLocalChecked();
-
-    RT_ASSERT(obj->HasOwnProperty(context, call_wrapper_name).FromJust());
-    {	v8::Local<v8::Value> fnv { obj->Get(context, call_wrapper_name).ToLocalChecked() };
-        RT_ASSERT(fnv->IsFunction());
-        v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-        th->SetCallWrapper(fn);
-    }
-}
-
-NATIVE_FUNCTION(NativesObject, IsolatesInfo) {
-    PROLOGUE_NOTHIS;
-    RT_ASSERT(th->thread_manager());
-
-    LOCAL_V8STRING(s_name, "name");
-    LOCAL_V8STRING(s_eventsCount, "eventsCount");
-    LOCAL_V8STRING(s_runtime, "runtime");
-
-    auto list = th->thread_manager()->List();
-    auto arr = v8::Array::New(iv8, list.size());
-
-    size_t index = 0;
-    for (auto& info : list) {
-        auto obj = v8::Object::New(iv8);
-        // TODO: ensure those uint64 fit into doubles
-        obj->Set(context, s_name, V8Utils::FromString(iv8, info.filename));
-        obj->Set(context, s_eventsCount, v8::Number::New(iv8, static_cast<double>(info.ev_count)));
-        obj->Set(context, s_runtime, v8::Number::New(iv8, static_cast<double>(info.runtime)));
-        arr->Set(context, index++, obj);
-    }
-
-    args.GetReturnValue().Set(arr);
-}
-
 NATIVE_FUNCTION(NativesObject, Reboot) {
     PROLOGUE_NOTHIS;
     GLOBAL_platform()->Reboot();
@@ -749,7 +506,7 @@ NATIVE_FUNCTION(NativesObject, StopVideoLog) {
 }
 
 NATIVE_FUNCTION(NativesObject, SetTime) {
-  PROLOGUE;
+  PROLOGUE_NOTHIS;
   USEARG(0);
   VALIDATEARG(0, NUMBER, "argument 0 is not a number value");
   uint64_t val = (arg0.As<v8::Number>())->Value();
@@ -870,7 +627,7 @@ class WalkResourcesIrqContext {
 public:
     WalkResourcesIrqContext(AcpiPciIrqRoutingTable* routes,
                             uint8_t device, uint8_t pin, uint8_t source_index)
-        :	_routes(routes),
+        : _routes(routes),
             _device(device),
             _pin(pin),
             _source_index(source_index) {
@@ -1085,22 +842,23 @@ NATIVE_FUNCTION(AcpiHandleObject, GetRootBridgeBusNumber) {
     args.GetReturnValue().Set(v8::Uint32::New(iv8, s));
 }
 
-NATIVE_FUNCTION(AcpiManagerObject, EnterSleepState) {
+NATIVE_FUNCTION(NativesObject, AcpiEnterSleepState) {
     PROLOGUE_NOTHIS;
     USEARG(0);
     VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
     GLOBAL_platform()->EnterSleepState(arg0.As<v8::Uint32>()->Value());
 }
 
-NATIVE_FUNCTION(AcpiManagerObject, SystemReset) {
-    PROLOGUE;
+NATIVE_FUNCTION(NativesObject, AcpiSystemReset) {
+    PROLOGUE_NOTHIS;
     AcpiReset();
 }
 
-NATIVE_FUNCTION(AcpiManagerObject, GetPciDevices) {
-    PROLOGUE;
-
-    AcpiObjectsList list = that->mgr_->GetPciDevices();
+NATIVE_FUNCTION(NativesObject, AcpiGetPciDevices) {
+    PROLOGUE_NOTHIS;
+    AcpiManager* acpi = GLOBAL_engines()->acpi_manager();
+    RT_ASSERT(acpi);
+    AcpiObjectsList list = acpi->GetPciDevices();
     v8::Local<v8::Array> arr = v8::Array::New(iv8, list.size());
 
     for (size_t i = 0; i < list.size(); ++i) {
@@ -1289,8 +1047,8 @@ NATIVE_FUNCTION(ResourceMemoryBlockObject, Length) {
     args.GetReturnValue().Set(v8::Uint32::New(iv8, length));
 }
 
-NATIVE_FUNCTION(AllocatorObject, AllocDMA) {
-    PROLOGUE;
+NATIVE_FUNCTION(NativesObject, AllocDMA) {
+    PROLOGUE_NOTHIS;
 
     LOCAL_V8STRING(s_address, "address");
     LOCAL_V8STRING(s_size, "size");

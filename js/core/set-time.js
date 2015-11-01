@@ -50,7 +50,7 @@ runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
 
     var date = new Date('Jan 01 1900 GMT');
 
-    resources.natives.setTime((date.getTime() + milli) * 1000);
+    __SYSCALL.setTime((date.getTime() + milli) * 1000);
   }
   setTimeout(function() {
     socket.send(ip, 123, data);

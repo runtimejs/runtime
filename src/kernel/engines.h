@@ -92,14 +92,6 @@ public:
         }
 
         {	TransportData data;
-            data.SetResourceFunction();
-
-            std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::SET_ARGUMENTS_NOPARENT,
-                ResourceHandle<EngineThread>(), std::move(data)));
-            st.getUnsafe()->PushMessage(std::move(msg));
-        }
-
-        {	TransportData data;
             data.SetEvalData(startup_file.Data(), startup_file.Size(), filename);
 
             std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,

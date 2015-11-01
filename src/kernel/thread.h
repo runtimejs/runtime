@@ -318,9 +318,6 @@ public:
         call_wrapper_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, fn));
     }
 
-    uint32_t parent_promise_id() const { return parent_promise_id_; }
-    ResourceHandle<EngineThread> parent_thread() const { return parent_thread_; }
-
     v8::Local<v8::Value> args() const {
         v8::EscapableHandleScope scope(iv8_);
         if (args_.IsEmpty()) {
@@ -368,9 +365,6 @@ private:
 
     size_t ref_count_;
     bool terminate_;
-
-    uint32_t parent_promise_id_;
-    ResourceHandle<EngineThread> parent_thread_;
 
     uint64_t runtime_;
     uint64_t ev_count_;

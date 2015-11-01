@@ -305,6 +305,7 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
 
     switch (t) {
     case Type::UNDEFINED:
+    case Type::FUNCTION:
         return scope.Escape<v8::Primitive>(v8::Undefined(iv8));
     case Type::NUL:
         return scope.Escape<v8::Primitive>(v8::Null(iv8));
@@ -390,14 +391,6 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
         }
         return scope.Escape(obj);
     }
-    case Type::FUNCTION: {
-        ExternalFunction* efn = reader.ReadValue<ExternalFunction*>();
-        RT_ASSERT(efn);
-        RT_ASSERT(thread->template_cache());
-        // TODO: cache value
-        v8::Local<v8::Value> fnobj { thread->template_cache()->NewWrappedFunction(efn) };
-        return scope.Escape(fnobj);
-    }
     case Type::NATIVE_OBJECT: {
         JsObjectWrapperBase* baseptr = reader.ReadValue<JsObjectWrapperBase*>();
         RT_ASSERT(baseptr);
@@ -408,9 +401,6 @@ v8::Local<v8::Value> TransportData::UnpackValue(Thread* thread, ByteStreamReader
     case Type::ERROR_OBJ: {
         v8::Local<v8::Value> v { UnpackValue(thread, reader) };
         return scope.Escape(v8::Exception::Error(v->ToString(context).ToLocalChecked()));
-    }
-    case Type::RESOURCES_FN: {
-        return scope.Escape(v8::Function::New(context, NativesObject::Resources).ToLocalChecked());
     }
     default:
         RT_ASSERT(!"unknown data type");

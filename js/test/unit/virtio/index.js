@@ -15,8 +15,7 @@
 'use strict';
 var test = require('tape');
 var resources = require('../../../core/resources');
-var allocator = resources.allocator;
-var mem = allocator.allocDMA();
+var mem = __SYSCALL.allocDMA();
 var VRing = require('../../../driver/virtio/vring');
 var DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
 

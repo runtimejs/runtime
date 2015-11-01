@@ -25,11 +25,11 @@ public:
     }
 
     static uint32_t getMinor() {
-        return 1;
+        return 2;
     }
 
     static uint32_t getRev() {
-        return 14;
+        return 0;
     }
 
 private:

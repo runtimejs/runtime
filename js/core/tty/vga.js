@@ -13,11 +13,10 @@
 // limitations under the License.
 
 'use strict';
-var resources = require('../resources');
 var driverUtils = require('../driver-utils');
 
 // Take ownership of the display
-resources.natives.stopVideoLog();
+__SYSCALL.stopVideoLog();
 
 var w = 80;
 var h = 25;

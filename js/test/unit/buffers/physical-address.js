@@ -25,7 +25,7 @@ test('buffer crosses page boundary', function(t) {
     u8[i] = i;
   }
 
-  var addr = runtime.bufferAddress(u8);
+  var addr = __SYSCALL.bufferAddress(u8);
   var b1 = u8.subarray(0, addr[0]);
   var b2 = u8.subarray(addr[0]);
   t.equal(b1.length, 12);
@@ -42,7 +42,7 @@ test('buffer does not cross page boundary', function(t) {
     u8[i] = i;
   }
 
-  var addr = runtime.bufferAddress(u8);
+  var addr = __SYSCALL.bufferAddress(u8);
   var b1 = u8.subarray(0, addr[0]);
   t.equal(b1.length, u8.length);
   t.equal(addr[3], 0);

@@ -14,14 +14,13 @@
 
 'use strict';
 
-/* global kernel */
 /* eslint-disable quotes */
 var terminal = require('./terminal');
 var assert = require('assert');
 var typeutils = require('typeutils');
 
 var color = terminal.color;
-var version = kernel.version();
+var version = __SYSCALL.version();
 
 terminal.print(
    "\n                   _   _                   _     \n"

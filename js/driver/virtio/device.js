@@ -15,8 +15,8 @@
 'use strict';
 var VRing = require('./vring');
 
-function VirtioDevice(deviceType, ioSpace, allocator) {
-  this.mem = allocator.allocDMA();
+function VirtioDevice(deviceType, ioSpace) {
+  this.mem = __SYSCALL.allocDMA();
   this.io = (function(ioSpaceResource) {
     var ioPorts = {
       // Common
