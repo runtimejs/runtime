@@ -23,16 +23,16 @@ namespace rt {
 template<typename T>
 class ScopedLock {
 public:
-    inline ScopedLock(T& v) : v_(&v) {
-        v_->lock();
-    }
+  inline ScopedLock(T& v) : v_(&v) {
+    v_->lock();
+  }
 
-    inline ~ScopedLock() {
-        v_->unlock();
-    }
+  inline ~ScopedLock() {
+    v_->unlock();
+  }
 private:
-    T* v_;
-    DELETE_COPY_AND_ASSIGN(ScopedLock);
+  T* v_;
+  DELETE_COPY_AND_ASSIGN(ScopedLock);
 };
 
 /**
@@ -42,15 +42,15 @@ private:
  */
 class NoInterrupsScope {
 public:
-    inline NoInterrupsScope() {
-        Cpu::DisableInterrupts();
-    }
+  inline NoInterrupsScope() {
+    Cpu::DisableInterrupts();
+  }
 
-    inline ~NoInterrupsScope() {
-        Cpu::EnableInterrupts();
-    }
+  inline ~NoInterrupsScope() {
+    Cpu::EnableInterrupts();
+  }
 private:
-    DELETE_COPY_AND_ASSIGN(NoInterrupsScope);
+  DELETE_COPY_AND_ASSIGN(NoInterrupsScope);
 };
 
 } // namespace rt

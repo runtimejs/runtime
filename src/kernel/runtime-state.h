@@ -19,51 +19,51 @@
 namespace rt {
 
 enum class RuntimeState {
-    INIT,
-    EVENT_LOOP,
-    HALT,
-    JAVASCRIPT,
-    NATIVE_CALL,
-    TRANSPORT_SERIALIZER,
-    TRANSPORT_DESERIALIZER,
-    RPC_CALL,
-    HANDLE_CALL,
-    ALLOCATOR,
-    CALL_ON_BACKGROUND,
-    PROMISE_NATIVE_API,
-    PIPE_CREATE,
-    PIPE_PUSH,
-    PIPE_PULL,
+  INIT,
+  EVENT_LOOP,
+  HALT,
+  JAVASCRIPT,
+  NATIVE_CALL,
+  TRANSPORT_SERIALIZER,
+  TRANSPORT_DESERIALIZER,
+  RPC_CALL,
+  HANDLE_CALL,
+  ALLOCATOR,
+  CALL_ON_BACKGROUND,
+  PROMISE_NATIVE_API,
+  PIPE_CREATE,
+  PIPE_PUSH,
+  PIPE_PULL,
 
-    LAST // keep this as the last element
+  LAST // keep this as the last element
 };
 
 const char* RuntimeStateToString(RuntimeState state);
 
 class RuntimeStateStack {
 public:
-    RuntimeStateStack()
-        :	size_(0) {}
+  RuntimeStateStack()
+    :	size_(0) {}
 
-    void Push(RuntimeState state) {
-        RT_ASSERT(size_ < kMaxDepth);
-        stack_[size_++] = state;
-    }
+  void Push(RuntimeState state) {
+    RT_ASSERT(size_ < kMaxDepth);
+    stack_[size_++] = state;
+  }
 
-    void Pop() {
-        RT_ASSERT(size_ > 0);
-        --size_;
-    }
+  void Pop() {
+    RT_ASSERT(size_ > 0);
+    --size_;
+  }
 
-    RuntimeState current() const {
-        RT_ASSERT(size_ > 0);
-        return stack_[size_ - 1];
-    }
+  RuntimeState current() const {
+    RT_ASSERT(size_ > 0);
+    return stack_[size_ - 1];
+  }
 private:
-    static const uint8_t kMaxDepth = 16;
-    RuntimeState stack_[kMaxDepth];
-    uint8_t size_;
-    DELETE_COPY_AND_ASSIGN(RuntimeStateStack);
+  static const uint8_t kMaxDepth = 16;
+  RuntimeState stack_[kMaxDepth];
+  uint8_t size_;
+  DELETE_COPY_AND_ASSIGN(RuntimeStateStack);
 };
 
 } // namespace rt

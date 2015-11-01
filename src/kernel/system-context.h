@@ -23,15 +23,15 @@ class SystemContext {};
 
 class SystemContextIRQ : public SystemContext {
 protected:
-    SystemContextIRQ() {}
+  SystemContextIRQ() {}
 };
 
 class SystemContextDefaultIRQ : public SystemContextIRQ {
 public:
-    SystemContextDefaultIRQ() {
-        // default IRQs allowed only on CPU0
-        RT_ASSERT(0 == Cpu::id());
-    }
+  SystemContextDefaultIRQ() {
+    // default IRQs allowed only on CPU0
+    RT_ASSERT(0 == Cpu::id());
+  }
 };
 
 class SystemContextTimerIRQ : public SystemContextIRQ {};

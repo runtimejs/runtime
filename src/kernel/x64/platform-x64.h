@@ -21,31 +21,33 @@ namespace rt {
 
 class PlatformArch {
 public:
-    PlatformArch() {
-    }
+  PlatformArch() {
+  }
 
-    void InitCurrentCPU();
-    void StartCPUs();
-    void AckIRQ();
+  void InitCurrentCPU();
+  void StartCPUs();
+  void AckIRQ();
 
-    /**
-     * Reboot machine using keyboard controller
-     */
-    void Reboot();
+  /**
+   * Reboot machine using keyboard controller
+   */
+  void Reboot();
 
-    uint32_t cpu_count() const { return acpi_.cpus_count(); }
+  uint32_t cpu_count() const {
+    return acpi_.cpus_count();
+  }
 
-    uint32_t bus_frequency() const {
-        RT_ASSERT(acpi_.local_apic());
-        return acpi_.local_apic()->bus_frequency();
-    }
+  uint32_t bus_frequency() const {
+    RT_ASSERT(acpi_.local_apic());
+    return acpi_.local_apic()->bus_frequency();
+  }
 
-    uint64_t BootTimeMicroseconds() const {
-        return acpi_.BootTimeMicroseconds();
-    }
+  uint64_t BootTimeMicroseconds() const {
+    return acpi_.BootTimeMicroseconds();
+  }
 private:
-    AcpiX64 acpi_;
-    DELETE_COPY_AND_ASSIGN(PlatformArch);
+  AcpiX64 acpi_;
+  DELETE_COPY_AND_ASSIGN(PlatformArch);
 };
 
 } // namespace rt

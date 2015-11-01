@@ -20,9 +20,9 @@ namespace rt {
 
 class Trace {
 public:
-    Trace() {}
+  Trace() {}
 private:
-    DELETE_COPY_AND_ASSIGN(Trace);
+  DELETE_COPY_AND_ASSIGN(Trace);
 };
 
 } // namespace rt

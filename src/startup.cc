@@ -22,5 +22,5 @@ void main(void* mbt);
  * image offset 0x1000
  */
 extern "C" void startup_cpp(void* mbt) {
-    main(mbt);
+  main(mbt);
 }

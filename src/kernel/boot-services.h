@@ -23,26 +23,30 @@ namespace rt {
 
 class BootServices {
 public:
-    BootServices() {}
+  BootServices() {}
 
-    __attribute__((__noreturn__)) void FatalError(const char* fmt, ...) {
-        // Print error message
-        _logger.Printf(LogDataType::ERR, "Kernel error: ");
-        va_list va;
-        va_start(va, fmt);
-        _logger.VPrintf(LogDataType::ERR, fmt, va);
-        va_end(va);
-        _logger.Printf(LogDataType::ERR, "\n");
+  __attribute__((__noreturn__)) void FatalError(const char* fmt, ...) {
+    // Print error message
+    _logger.Printf(LogDataType::ERR, "Kernel error: ");
+    va_list va;
+    va_start(va, fmt);
+    _logger.VPrintf(LogDataType::ERR, fmt, va);
+    va_end(va);
+    _logger.Printf(LogDataType::ERR, "\n");
 
-        // Hang system
-        Cpu::HangSystem();
-    }
-    Logger* logger() { return &_logger; }
-    FileIo* fileio() { return &_file_io; }
+    // Hang system
+    Cpu::HangSystem();
+  }
+  Logger* logger() {
+    return &_logger;
+  }
+  FileIo* fileio() {
+    return &_file_io;
+  }
 private:
-    Logger _logger;
-    FileIo _file_io;
-    DELETE_COPY_AND_ASSIGN(BootServices);
+  Logger _logger;
+  FileIo _file_io;
+  DELETE_COPY_AND_ASSIGN(BootServices);
 };
 
 } // namespace rt

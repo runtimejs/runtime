@@ -20,7 +20,7 @@ namespace rt {
 
 class CRC32 {
 public:
-    static uint32_t Compute(const uint8_t* s, uint32_t length);
+  static uint32_t Compute(const uint8_t* s, uint32_t length);
 };
 
 } // namespace rt

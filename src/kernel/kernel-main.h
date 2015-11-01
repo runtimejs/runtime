@@ -21,13 +21,13 @@ namespace rt {
 
 class KernelMain {
 public:
-    KernelMain(void* mbt);
-    void InitSystemBSP(void* mbt);
-    void InitSystemAP();
-    void Initialize(void* mbt);
-    MultibootParseResult ParseMultiboot(void* mbt);
-    void ParseMemoryMap();
-    void MakeV8Snapshot();
+  KernelMain(void* mbt);
+  void InitSystemBSP(void* mbt);
+  void InitSystemAP();
+  void Initialize(void* mbt);
+  MultibootParseResult ParseMultiboot(void* mbt);
+  void ParseMemoryMap();
+  void MakeV8Snapshot();
 };
 
 } // namespace rt

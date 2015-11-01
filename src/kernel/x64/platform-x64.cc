@@ -20,34 +20,34 @@
 namespace rt {
 
 void PlatformArch::StartCPUs() {
-    acpi_.StartCPUs();
+  acpi_.StartCPUs();
 }
 
 void PlatformArch::InitCurrentCPU() {
-    if (0 == Cpu::id()) {
-        acpi_.InitIoApics();
-    }
+  if (0 == Cpu::id()) {
+    acpi_.InitIoApics();
+  }
 
-    RT_ASSERT(acpi_.local_apic());
-    acpi_.local_apic()->InitCpu(this);
+  RT_ASSERT(acpi_.local_apic());
+  acpi_.local_apic()->InitCpu(this);
 }
 
 void PlatformArch::AckIRQ() {
-    RT_ASSERT(acpi_.local_apic());
-    acpi_.local_apic()->EOI();
+  RT_ASSERT(acpi_.local_apic());
+  acpi_.local_apic()->EOI();
 }
 
 void PlatformArch::Reboot() {
-    const uint8_t magic = 0x02;
-    const uint16_t port = 0x64;
+  const uint8_t magic = 0x02;
+  const uint16_t port = 0x64;
 
-    uint8_t value = magic;
-    while (value & magic) {
-        value = IoPortsX64::InB(port);
-    }
+  uint8_t value = magic;
+  while (value & magic) {
+    value = IoPortsX64::InB(port);
+  }
 
-    IoPortsX64::OutB(port, 0xfe);
-    Cpu::HangSystem();
+  IoPortsX64::OutB(port, 0xfe);
+  Cpu::HangSystem();
 }
 
 } // namespace rt

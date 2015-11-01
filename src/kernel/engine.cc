@@ -19,53 +19,55 @@
 namespace rt {
 
 Thread* EngineThread::thread() const {
-    RT_ASSERT(thread_);
-    return thread_;
+  RT_ASSERT(thread_);
+  return thread_;
 }
 
 v8::Local<v8::Object> EngineThread::NewInstance(Thread* thread) {
-    RT_ASSERT(thread);
-    v8::Isolate* iv8 = thread->IsolateV8();
-    RT_ASSERT(iv8);
-    v8::EscapableHandleScope scope(iv8);
-    return scope.Escape(v8::Object::New(iv8));
+  RT_ASSERT(thread);
+  v8::Isolate* iv8 = thread->IsolateV8();
+  RT_ASSERT(iv8);
+  v8::EscapableHandleScope scope(iv8);
+  return scope.Escape(v8::Object::New(iv8));
 }
 
 void Engine::TimerTick(SystemContextIRQ& irq_context) const {
-    if (thread_mgr_) {
-        thread_mgr_->TimerInterruptNotify(irq_context);
-    }
+  if (thread_mgr_) {
+    thread_mgr_->TimerInterruptNotify(irq_context);
+  }
 }
 
 void Engine::Enter() {
-    RT_ASSERT(!init_);
-    RT_ASSERT(!thread_mgr_);
+  RT_ASSERT(!init_);
+  RT_ASSERT(!thread_mgr_);
 
-    switch (type_) {
-    case EngineType::DISABLED: {
-        Cpu::HangSystem();
+  switch (type_) {
+  case EngineType::DISABLED: {
+    Cpu::HangSystem();
+  }
+  break;
+  case EngineType::SERVICE: {
+    for (;;) {
+      Cpu::WaitPause();
     }
-        break;
-    case EngineType::SERVICE: {
-        for (;;) Cpu::WaitPause();
-        Cpu::HangSystem();
-    }
-        break;
-    case EngineType::EXECUTION: {
-        thread_mgr_ = new ThreadManager(this);
-        RT_ASSERT(thread_mgr_);
-    }
-        break;
-    default:
-        RT_ASSERT(!"Invalid engine type.");
-        break;
-    }
+    Cpu::HangSystem();
+  }
+  break;
+  case EngineType::EXECUTION: {
+    thread_mgr_ = new ThreadManager(this);
+    RT_ASSERT(thread_mgr_);
+  }
+  break;
+  default:
+    RT_ASSERT(!"Invalid engine type.");
+    break;
+  }
 
-    init_ = true;
+  init_ = true;
 
-    if (thread_mgr_) {
-        thread_mgr_->Run();
-    }
+  if (thread_mgr_) {
+    thread_mgr_->Run();
+  }
 }
 
 } // namespace rt

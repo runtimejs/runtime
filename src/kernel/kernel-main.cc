@@ -61,129 +61,129 @@ int mksnapshot_main(int argc, char** argv);
 namespace rt {
 
 void KernelMain::Initialize(void* mbt) {
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_boot_services, BootServices, );      // NOLINT
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_multiboot, Multiboot, mbt);			// NOLINT
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_mem_manager, MemManager, );          // NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_boot_services, BootServices, );      // NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_multiboot, Multiboot, mbt);			// NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_mem_manager, MemManager, );          // NOLINT
 
-    Cpu::DisableInterrupts();
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_irqs, Irqs, );  					    // NOLINT
+  Cpu::DisableInterrupts();
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_irqs, Irqs, );  					    // NOLINT
 
-    // Initialize memory manager for this CPU
-    // After this line we can use malloc / free to allocate memory
-    GLOBAL_mem_manager()->InitSubsystems();
+  // Initialize memory manager for this CPU
+  // After this line we can use malloc / free to allocate memory
+  GLOBAL_mem_manager()->InitSubsystems();
 
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_keystorage, KeyStorage, );           // NOLINT
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_initrd, Initrd, );                   // NOLINT
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_trace, Trace, );                     // NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_keystorage, KeyStorage, );           // NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_initrd, Initrd, );                   // NOLINT
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_trace, Trace, );                     // NOLINT
 
-    // This will run V8 static constructors
-    uint64_t ctor_count = (end_ctors - start_ctors);
-    for (uint64_t x = 0; x < ctor_count; x++) {
-        function_pointer constructor = start_ctors[x];
-        constructor();
-    }
+  // This will run V8 static constructors
+  uint64_t ctor_count = (end_ctors - start_ctors);
+  for (uint64_t x = 0; x < ctor_count; x++) {
+    function_pointer constructor = start_ctors[x];
+    constructor();
+  }
 }
 
 MultibootParseResult KernelMain::ParseMultiboot(void* mbt) {
-    MultibootStruct* s = reinterpret_cast<MultibootStruct*>(mbt);
-    RT_ASSERT(s);
-    uint32_t mod_count = s->module_count;
-    uint32_t mod_addr = s->module_addr;
+  MultibootStruct* s = reinterpret_cast<MultibootStruct*>(mbt);
+  RT_ASSERT(s);
+  uint32_t mod_count = s->module_count;
+  uint32_t mod_addr = s->module_addr;
 
-    if (0 == mod_count || 0 == mod_addr) {
-        printf("Initrd boot module required. Check your bootloader configuration.\n");
-        abort();
-    }
+  if (0 == mod_count || 0 == mod_addr) {
+    printf("Initrd boot module required. Check your bootloader configuration.\n");
+    abort();
+  }
 
-    const char* cmd = nullptr;
-    uint32_t cmdaddr = s->cmdline;
-    if (0 != cmdaddr) {
-        cmd = reinterpret_cast<const char*>(cmdaddr);
-    } else {
-        cmd = "";
-    }
+  const char* cmd = nullptr;
+  uint32_t cmdaddr = s->cmdline;
+  if (0 != cmdaddr) {
+    cmd = reinterpret_cast<const char*>(cmdaddr);
+  } else {
+    cmd = "";
+  }
 
-    RT_ASSERT(cmd);
+  RT_ASSERT(cmd);
 
-    MultibootModuleEntry* m = reinterpret_cast<MultibootModuleEntry*>(mod_addr);
-    RT_ASSERT(m);
-    uint32_t rd_start = m->start;
-    uint32_t rd_end = m->end;
+  MultibootModuleEntry* m = reinterpret_cast<MultibootModuleEntry*>(mod_addr);
+  RT_ASSERT(m);
+  uint32_t rd_start = m->start;
+  uint32_t rd_end = m->end;
 
-    // This might be useful if initrd is unable to load files
-    // Comment this line if it fails to boot
-    rd_start = mod_addr;
+  // This might be useful if initrd is unable to load files
+  // Comment this line if it fails to boot
+  rd_start = mod_addr;
 
-    size_t len = rd_end - rd_start;
+  size_t len = rd_end - rd_start;
 
-    if (0 == len || len  > 128 * Constants::MiB) {
-        printf("Invalid initrd boot module.\n");
-        abort();
-    }
+  if (0 == len || len  > 128 * Constants::MiB) {
+    printf("Invalid initrd boot module.\n");
+    abort();
+  }
 
-    GLOBAL_initrd()->Init(reinterpret_cast<void*>(rd_start), len);
-    return MultibootParseResult(cmd);
+  GLOBAL_initrd()->Init(reinterpret_cast<void*>(rd_start), len);
+  return MultibootParseResult(cmd);
 }
 
 
 void KernelMain::MakeV8Snapshot() {
-    char** argv = new char*[2];
-    argv[0] = new char[16];
-    argv[1] = new char[16];
-    strcpy(argv[0], "mksnapshot");
-    strcpy(argv[1], "--startup_src=snapshot");
-    mksnapshot_main(2, argv);
+  char** argv = new char* [2];
+  argv[0] = new char[16];
+  argv[1] = new char[16];
+  strcpy(argv[0], "mksnapshot");
+  strcpy(argv[1], "--startup_src=snapshot");
+  mksnapshot_main(2, argv);
 }
 
 void KernelMain::InitSystemBSP(void* mbt) {
-    // some musl libc init
-    libc.threads_minus_1 = 0;
+  // some musl libc init
+  libc.threads_minus_1 = 0;
 
-    Initialize(mbt);
-    MultibootParseResult parsed = ParseMultiboot(mbt);
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_platform, Platform, );		        // NOLINT
+  Initialize(mbt);
+  MultibootParseResult parsed = ParseMultiboot(mbt);
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_platform, Platform, );		        // NOLINT
 
-    uint32_t cpus_found = GLOBAL_platform()->cpu_count();
-    GLOBAL_platform()->InitCurrentCPU();
-    GLOBAL_platform()->SetCommandLine(std::string(parsed.cmdline()));
+  uint32_t cpus_found = GLOBAL_platform()->cpu_count();
+  GLOBAL_platform()->InitCurrentCPU();
+  GLOBAL_platform()->SetCommandLine(std::string(parsed.cmdline()));
 
-    printf("Found %d cpus.\n", cpus_found);
+  printf("Found %d cpus.\n", cpus_found);
 
-    const char* cmdline = parsed.cmdline();
-    if (nullptr != strstr(cmdline, " snapshot")) {
-        printf("Generating snapshot...\n");
-        GLOBAL_boot_services()->logger()->SetMode(LoggerMode::SNAPSHOT);
-        MakeV8Snapshot();
-        GLOBAL_boot_services()->logger()->SetMode(LoggerMode::VIDEO);
-        printf("Snapshot done.\n\nNow you can shutdown the system.\n");
-        GLOBAL_platform()->EnterSleepState(5); // S5 poweroff
-        Cpu::HangSystem();
-    }
+  const char* cmdline = parsed.cmdline();
+  if (nullptr != strstr(cmdline, " snapshot")) {
+    printf("Generating snapshot...\n");
+    GLOBAL_boot_services()->logger()->SetMode(LoggerMode::SNAPSHOT);
+    MakeV8Snapshot();
+    GLOBAL_boot_services()->logger()->SetMode(LoggerMode::VIDEO);
+    printf("Snapshot done.\n\nNow you can shutdown the system.\n");
+    GLOBAL_platform()->EnterSleepState(5); // S5 poweroff
+    Cpu::HangSystem();
+  }
 
-    GLOBAL_boot_services()->logger()->EnableConsole();
-    CONSTRUCT_GLOBAL_OBJECT(GLOBAL_engines, Engines, 1 /*cpus_found*/ );
-    Cpu::EnableInterrupts();
-    GLOBAL_engines()->Startup();
+  GLOBAL_boot_services()->logger()->EnableConsole();
+  CONSTRUCT_GLOBAL_OBJECT(GLOBAL_engines, Engines, 1 /*cpus_found*/ );
+  Cpu::EnableInterrupts();
+  GLOBAL_engines()->Startup();
 
-    // Uncomment to enable SMP
-    // GLOBAL_platform()->StartCPUs();
+  // Uncomment to enable SMP
+  // GLOBAL_platform()->StartCPUs();
 }
 
 void KernelMain::InitSystemAP() {
-    GLOBAL_mem_manager()->InitSubsystems();
-    GLOBAL_platform()->InitCurrentCPU();
+  GLOBAL_mem_manager()->InitSubsystems();
+  GLOBAL_platform()->InitCurrentCPU();
 }
 
 KernelMain::KernelMain(void* mbt) {
-    uint32_t cpuid = Cpu::id();
+  uint32_t cpuid = Cpu::id();
 
-    if (cpuid != 0) {
-        InitSystemAP();
-    } else {
-        InitSystemBSP(mbt);
-    }
+  if (cpuid != 0) {
+    InitSystemAP();
+  } else {
+    InitSystemBSP(mbt);
+  }
 
-    GLOBAL_engines()->CpuEnter();
+  GLOBAL_engines()->CpuEnter();
 }
 
 } // namespace rt

@@ -17,31 +17,30 @@
 #include <runtimejs.h>
 
 namespace eastl {
-    template <typename T, typename Allocator> class vector;
-    template <typename T, typename Allocator> class basic_string;
+template <typename T, typename Allocator> class vector;
+template <typename T, typename Allocator> class basic_string;
 }
 
 namespace rt {
-    class Platform;
-    class BootServices;
-    class Multiboot;
-    class MemManager;
-    class Thread;
-    class KeyStorage;
-    class ThreadManager;
-    class Initrd;
-    class Engines;
-    class Trace;
-    class Irqs;
+class Platform;
+class BootServices;
+class Multiboot;
+class MemManager;
+class Thread;
+class KeyStorage;
+class ThreadManager;
+class Initrd;
+class Engines;
+class Trace;
+class Irqs;
 
-    class TraceScope
-    {
-    public:
-        TraceScope(const char* func, const char* file, int line);
-        ~TraceScope();
-    private:
-        DELETE_COPY_AND_ASSIGN(TraceScope);
-    };
+class TraceScope {
+public:
+  TraceScope(const char* func, const char* file, int line);
+  ~TraceScope();
+private:
+  DELETE_COPY_AND_ASSIGN(TraceScope);
+};
 }
 
 #define EXTERNAL_ACCESSOR(TypeName, AccessorName)   \

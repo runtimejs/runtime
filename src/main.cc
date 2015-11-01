@@ -16,6 +16,6 @@
 #include <kernel/cpu.h>
 
 void main(void* mbt) {
-    rt::KernelMain kernel_core(mbt);
-    rt::Cpu::HangSystem();
+  rt::KernelMain kernel_core(mbt);
+  rt::Cpu::HangSystem();
 }

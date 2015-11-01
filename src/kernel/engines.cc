@@ -19,19 +19,19 @@
 namespace rt {
 
 bool EntropySource(unsigned char* buffer, size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
-    }
-    return true;
+  for (size_t i = 0; i < length; ++i) {
+    buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
+  }
+  return true;
 }
 
 AcpiManager* Engines::acpi_manager() {
-    if (nullptr == _acpi_manager) {
-        _acpi_manager = new AcpiManager();
-    }
+  if (nullptr == _acpi_manager) {
+    _acpi_manager = new AcpiManager();
+  }
 
-    RT_ASSERT(_acpi_manager);
-    return _acpi_manager;
+  RT_ASSERT(_acpi_manager);
+  return _acpi_manager;
 }
 
 } // namespace rt

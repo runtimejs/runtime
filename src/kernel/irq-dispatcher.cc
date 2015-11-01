@@ -18,14 +18,15 @@
 namespace rt {
 
 void IrqDispatcher::Raise(SystemContextIRQ irq_context, uint8_t number) {
-    RT_ASSERT(0 == Cpu::id()); // IRQ raise restricted to CPU0
-    RT_ASSERT(number < kIrqCount);
+  RT_ASSERT(0 == Cpu::id()); // IRQ raise restricted to CPU0
+  RT_ASSERT(number < kIrqCount);
 
-    {   ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
-        for (const IRQBinding& binding : bindings_[number]) {
-            binding.Raise(irq_context);
-        }
+  {
+    ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
+    for (const IRQBinding& binding : bindings_[number]) {
+      binding.Raise(irq_context);
     }
+  }
 }
 
 } // namespace rt

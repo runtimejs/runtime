@@ -20,48 +20,48 @@
 #include <kernel/engines.h>
 
 namespace threadlib {
-  void sched() {
-    RT_ASSERT(!"not implemented");
-  }
+void sched() {
+  RT_ASSERT(!"not implemented");
+}
 
-  void wait_pause() {
-      rt::Cpu::WaitPause();
-  }
+void wait_pause() {
+  rt::Cpu::WaitPause();
+}
 
-  void libassert(int value) {
-      RT_ASSERT(value);
-  }
+void libassert(int value) {
+  RT_ASSERT(value);
+}
 
-  uint32_t get_thread_id() {
-      return rt::Cpu::id() + 1;
-  }
+uint32_t get_thread_id() {
+  return rt::Cpu::id() + 1;
+}
 
-  uint64_t get_time_microseconds() {
-      return GLOBAL_platform()->BootTimeMicroseconds();
-  }
+uint64_t get_time_microseconds() {
+  return GLOBAL_platform()->BootTimeMicroseconds();
+}
 }
 
 namespace rt {
 
-_Unwind_Reason_Code TraceFn(_Unwind_Context *ctx, void *d) {
-    int *depth = (int*)d;
-    printf("\t#%d: at %08x\n", *depth, _Unwind_GetIP(ctx));
-    (*depth)++;
-    return _URC_NO_REASON;
+_Unwind_Reason_Code TraceFn(_Unwind_Context* ctx, void* d) {
+  int* depth = (int*)d;
+  printf("\t#%d: at %08x\n", *depth, _Unwind_GetIP(ctx));
+  (*depth)++;
+  return _URC_NO_REASON;
 }
 
 void Platform::PrintBacktrace() {
-    int depth = 0;
-    _Unwind_Backtrace(&TraceFn, &depth);
+  int depth = 0;
+  _Unwind_Backtrace(&TraceFn, &depth);
 }
 
 void Platform::EnterSleepState(uint32_t state) const {
-    RT_ASSERT(state <= ACPI_S_STATES_MAX);
-    uint8_t sleep_state = state & 0xff;
-    AcpiEnterSleepStatePrep(sleep_state);
-    Cpu::DisableInterrupts();
-    AcpiEnterSleepState(sleep_state);
-    Cpu::HangSystem();
+  RT_ASSERT(state <= ACPI_S_STATES_MAX);
+  uint8_t sleep_state = state & 0xff;
+  AcpiEnterSleepStatePrep(sleep_state);
+  Cpu::DisableInterrupts();
+  AcpiEnterSleepState(sleep_state);
+  Cpu::HangSystem();
 }
 
 } // namespace rt

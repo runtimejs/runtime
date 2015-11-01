@@ -27,7 +27,7 @@
 
 namespace rt {
 
-void ThreadEntryPoint(Thread *t);
+void ThreadEntryPoint(Thread* t);
 extern void Preempt(ThreadManager* thread_mgr);
 extern "C" void enterFirstThread(void* new_state);
 
@@ -35,222 +35,234 @@ class Engine;
 
 class ThreadData {
 public:
-    explicit ThreadData(Thread* thread)
-        :	thread_(thread),
-            priority_(1) {
-        RT_ASSERT(thread);
-    }
+  explicit ThreadData(Thread* thread)
+    :	thread_(thread),
+      priority_(1) {
+    RT_ASSERT(thread);
+  }
 
-    void AddPriority(size_t count) {
-        priority_ += count;
-    }
+  void AddPriority(size_t count) {
+    priority_ += count;
+  }
 
-    void ResetPriority() {
-        priority_ = 1;
-    }
+  void ResetPriority() {
+    priority_ = 1;
+  }
 
-    void SetPriority(size_t value) {
-        priority_ = value;
-    }
+  void SetPriority(size_t value) {
+    priority_ = value;
+  }
 
-    Thread* thread() const { return thread_; }
-    size_t priority() const { return priority_; }
+  Thread* thread() const {
+    return thread_;
+  }
+  size_t priority() const {
+    return priority_;
+  }
 
 private:
-    Thread* thread_;
-    size_t priority_;
+  Thread* thread_;
+  size_t priority_;
 };
 
 class ThreadTimeout {
 public:
-    ThreadTimeout(Thread* thread, uint32_t index)
-        :   thread_(thread),
-            index_(index) {
-        RT_ASSERT(thread);
-    }
+  ThreadTimeout(Thread* thread, uint32_t index)
+    :   thread_(thread),
+        index_(index) {
+    RT_ASSERT(thread);
+  }
 
-    Thread* thread() const { return thread_; }
-    uint32_t index() const { return index_; }
+  Thread* thread() const {
+    return thread_;
+  }
+  uint32_t index() const {
+    return index_;
+  }
 private:
-    Thread* thread_;
-    uint32_t index_;
+  Thread* thread_;
+  uint32_t index_;
 };
 
 class ThreadManager {
-    friend class Thread;
+  friend class Thread;
 public:
-    ThreadManager(Engine* engine);
+  ThreadManager(Engine* engine);
 
-    Thread* CreateThread(ResourceHandle<EngineThread> ethread) {
-        RT_ASSERT(!ethread.empty());
-        Thread* t = new Thread(this, ethread);
-        ThreadInit(t);
-        threads_.push_back(ThreadData(t));
-        return t;
+  Thread* CreateThread(ResourceHandle<EngineThread> ethread) {
+    RT_ASSERT(!ethread.empty());
+    Thread* t = new Thread(this, ethread);
+    ThreadInit(t);
+    threads_.push_back(ThreadData(t));
+    return t;
+  }
+
+  bool has_threads() {
+    return threads_.size() > 0;
+  }
+
+  inline Thread* current_thread() {
+    return current_thread_;
+  }
+
+  void Run() {
+    ProcessNewThreads();
+    RT_ASSERT(has_threads()); // at least idle thread
+
+    if (0 == threads_.size()) {
+      return;
     }
 
-    bool has_threads() {
-        return threads_.size() > 0;
+    RT_ASSERT(threads_.size() > 0);
+
+    Cpu::DisableInterrupts();
+
+    current_thread_index_ = 0;
+    current_thread_ = threads_[current_thread_index_].thread();
+    enterFirstThread(current_thread_->_fxstate);
+  }
+
+
+  // When thread needs to start without saved state
+  void ThreadInit(Thread* t);
+
+  Thread* SwitchToNextThread() {
+    uint32_t max = 0;
+    uint32_t min = std::numeric_limits<uint32_t>::max();
+    size_t max_index = 0;
+    size_t min_index = 0;
+
+    for (auto it = threads_.begin(); it != threads_.end();) {
+      auto thread = (*it).thread();
+      if (ThreadType::TERMINATED == thread->type() && current_thread_ == thread) {
+        std::swap(*it, threads_.back());
+        threads_.pop_back();
+        // TODO: delete thread object here too, fix crashes
+        // TODO: delete thread stack
+      }  else {
+        ++it;
+      }
     }
 
-    inline Thread* current_thread() {
-        return current_thread_;
+    // Make sure we have at least idle thread running
+    RT_ASSERT(threads_.size() > 0);
+
+    for (size_t i = 0; i < threads_.size(); ++i) {
+      auto thread = threads_[i].thread();
+
+      if (ThreadType::TERMINATED == thread->type()) {
+        continue;
+      }
+
+      uint32_t p = thread->priority();
+
+      // Copy priority from Atomic32 to thread data
+      threads_[i].SetPriority(p);
+
+      if (p > max) {
+        max = p;
+        max_index = i;
+      }
+
+      if (p < min) {
+        min = p;
+        min_index = i;
+      }
+
     }
 
-    void Run() {
-        ProcessNewThreads();
-        RT_ASSERT(has_threads()); // at least idle thread
-
-        if (0 == threads_.size()) {
-            return;
-        }
-
-        RT_ASSERT(threads_.size() > 0);
-
-        Cpu::DisableInterrupts();
-
+    if (max != min) {
+      current_thread_index_ = max_index;
+    } else {
+      ++current_thread_index_;
+      if (current_thread_index_ >= threads_.size()) {
         current_thread_index_ = 0;
-        current_thread_ = threads_[current_thread_index_].thread();
-        enterFirstThread(current_thread_->_fxstate);
+      }
     }
 
+    RT_ASSERT(current_thread_index_ < threads_.size());
 
-    // When thread needs to start without saved state
-    void ThreadInit(Thread* t);
+    current_thread_ = threads_[current_thread_index_].thread();
+    current_thread_->ResetPriority();
+    return current_thread_;
+  }
 
-    Thread* SwitchToNextThread() {
-        uint32_t max = 0;
-        uint32_t min = std::numeric_limits<uint32_t>::max();
-        size_t max_index = 0;
-        size_t min_index = 0;
+  bool IsPreemptEnabled() {
+    return is_preempt_enabled_;
+  }
 
-        for (auto it = threads_.begin(); it != threads_.end();) {
-            auto thread = (*it).thread();
-            if (ThreadType::TERMINATED == thread->type() && current_thread_ == thread) {
-                std::swap(*it, threads_.back());
-                threads_.pop_back();
-                // TODO: delete thread object here too, fix crashes
-                // TODO: delete thread stack
-            }  else {
-                ++it;
-            }
-        }
+  void PreemptEnable() {
+    is_preempt_enabled_ = true;
+  }
 
-        // Make sure we have at least idle thread running
-        RT_ASSERT(threads_.size() > 0);
+  void PreemptDisable() {
+    is_preempt_enabled_ = false;
+  }
 
-        for (size_t i = 0; i < threads_.size(); ++i) {
-            auto thread = threads_[i].thread();
+  uint64_t ticks_count() const {
+    return ticks_counter_;
+  }
 
-            if (ThreadType::TERMINATED == thread->type()) {
-                continue;
-            }
+  std::vector<ThreadInfo> List() {
+    // TODO (SMP port): lock threads_ here and everywhere else
+    // Safe to use from the same CPU
 
-            uint32_t p = thread->priority();
-
-            // Copy priority from Atomic32 to thread data
-            threads_[i].SetPriority(p);
-
-            if (p > max) {
-                max = p;
-                max_index = i;
-            }
-
-            if (p < min) {
-                min = p;
-                min_index = i;
-            }
-
-        }
-
-        if (max != min) {
-            current_thread_index_ = max_index;
-        } else {
-            ++current_thread_index_;
-            if (current_thread_index_ >= threads_.size()) {
-                current_thread_index_ = 0;
-            }
-        }
-
-        RT_ASSERT(current_thread_index_ < threads_.size());
-
-        current_thread_ = threads_[current_thread_index_].thread();
-        current_thread_->ResetPriority();
-        return current_thread_;
+    std::vector<ThreadInfo> vec;
+    for (size_t i = 0; i < threads_.size(); ++i) {
+      auto thread = threads_[i].thread();
+      RT_ASSERT(thread);
+      vec.push_back(thread->GetInfo());
     }
 
-    bool IsPreemptEnabled() {
-        return is_preempt_enabled_;
-    }
+    return vec;
+  }
 
-    void PreemptEnable() {
-        is_preempt_enabled_ = true;
-    }
+  /**
+   * Increment events processed counter
+   */
+  void SubmitEvWork(uint64_t ev_count) {
+    ev_done_total_ += ev_count;
+  }
 
-    void PreemptDisable() {
-        is_preempt_enabled_ = false;
-    }
+  uint64_t events_count() const {
+    return ev_done_total_;
+  }
+  uint64_t events_count_checkpoint() const {
+    return ev_done_checkpoint_;
+  }
 
-    uint64_t ticks_count() const {
-        return ticks_counter_;
-    }
+  void SetEvCheckpoint() {
+    ev_done_checkpoint_ = ev_done_total_;
+  }
 
-    std::vector<ThreadInfo> List() {
-        // TODO (SMP port): lock threads_ here and everywhere else
-        // Safe to use from the same CPU
-
-        std::vector<ThreadInfo> vec;
-        for (size_t i = 0; i < threads_.size(); ++i) {
-            auto thread = threads_[i].thread();
-            RT_ASSERT(thread);
-            vec.push_back(thread->GetInfo());
-        }
-
-        return vec;
-    }
-
-    /**
-     * Increment events processed counter
-     */
-    void SubmitEvWork(uint64_t ev_count) {
-        ev_done_total_ += ev_count;
-    }
-
-    uint64_t events_count() const { return ev_done_total_; }
-    uint64_t events_count_checkpoint() const { return ev_done_checkpoint_; }
-
-    void SetEvCheckpoint() {
-        ev_done_checkpoint_ = ev_done_total_;
-    }
-
-    bool CanHalt() const {
-        return ev_done_checkpoint_ == ev_done_total_;
-    }
+  bool CanHalt() const {
+    return ev_done_checkpoint_ == ev_done_total_;
+  }
 
 #ifdef RUNTIME_TRACK_STATE
-    RuntimeStateStack& state_stack() {
-        return state_stack_;
-    }
+  RuntimeStateStack& state_stack() {
+    return state_stack_;
+  }
 #endif
 
-    void ProcessNewThreads();
-    void ProcessTimeouts();
-    void TimerInterruptNotify(SystemContextIRQ& irq_context);
-    void SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms);
-    void Preempt();
+  void ProcessNewThreads();
+  void ProcessTimeouts();
+  void TimerInterruptNotify(SystemContextIRQ& irq_context);
+  void SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms);
+  void Preempt();
 private:
-    Thread* current_thread_;
-    Engine* engine_;
-    uint64_t next_thread_id_;
-    volatile uint64_t current_thread_index_;
-    std::vector<ThreadData> threads_;
-    std::atomic<bool> is_preempt_enabled_;
-    std::atomic<uint64_t> ticks_counter_;
-    Timeouts<ThreadTimeout> timeouts_;
-    uint64_t ev_done_total_;
-    uint64_t ev_done_checkpoint_;
-    RuntimeStateStack state_stack_;
-    DELETE_COPY_AND_ASSIGN(ThreadManager);
+  Thread* current_thread_;
+  Engine* engine_;
+  uint64_t next_thread_id_;
+  volatile uint64_t current_thread_index_;
+  std::vector<ThreadData> threads_;
+  std::atomic<bool> is_preempt_enabled_;
+  std::atomic<uint64_t> ticks_counter_;
+  Timeouts<ThreadTimeout> timeouts_;
+  uint64_t ev_done_total_;
+  uint64_t ev_done_checkpoint_;
+  RuntimeStateStack state_stack_;
+  DELETE_COPY_AND_ASSIGN(ThreadManager);
 };
 
 #ifdef RUNTIME_TRACK_STATE
@@ -258,20 +270,20 @@ private:
 template<RuntimeState state>
 class RuntimeStateScope {
 public:
-    RuntimeStateScope(ThreadManager* thread_mgr)
-        :	thread_mgr_(thread_mgr) {
-        RT_ASSERT(thread_mgr_);
-        NoInterrupsScope no_interrupts;
-        thread_mgr_->state_stack().Push(state);
-    }
+  RuntimeStateScope(ThreadManager* thread_mgr)
+    :	thread_mgr_(thread_mgr) {
+    RT_ASSERT(thread_mgr_);
+    NoInterrupsScope no_interrupts;
+    thread_mgr_->state_stack().Push(state);
+  }
 
-    ~RuntimeStateScope() {
-        RT_ASSERT(thread_mgr_);
-        NoInterrupsScope no_interrupts;
-        thread_mgr_->state_stack().Pop();
-    }
+  ~RuntimeStateScope() {
+    RT_ASSERT(thread_mgr_);
+    NoInterrupsScope no_interrupts;
+    thread_mgr_->state_stack().Pop();
+  }
 private:
-    ThreadManager* thread_mgr_;
+  ThreadManager* thread_mgr_;
 };
 
 #else
@@ -279,7 +291,7 @@ private:
 template<RuntimeState state>
 class RuntimeStateScope {
 public:
-    RuntimeStateScope(ThreadManager* thread_mgr) {}
+  RuntimeStateScope(ThreadManager* thread_mgr) {}
 };
 
 #endif

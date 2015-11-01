@@ -27,64 +27,66 @@ class Thread;
 
 template<typename R>
 class ResourceHandle {
-    friend class ResourceManager;
+  friend class ResourceManager;
 public:
-    ResourceHandle()
-        :	resource_(nullptr),
-            empty_(true) { }
+  ResourceHandle()
+    :	resource_(nullptr),
+      empty_(true) { }
 
-    explicit ResourceHandle(R* resource)
-        :	resource_(resource),
-            empty_(false) {
-        RT_ASSERT(resource_);
-    }
+  explicit ResourceHandle(R* resource)
+    :	resource_(resource),
+      empty_(false) {
+    RT_ASSERT(resource_);
+  }
 
-    bool operator==(const ResourceHandle<R>& that) const {
-        return empty_ == that.empty_ && resource_ == that.resource_;
-    }
+  bool operator==(const ResourceHandle<R>& that) const {
+    return empty_ == that.empty_ && resource_ == that.resource_;
+  }
 
-    bool operator!=(const ResourceHandle<R>& that) const {
-        return !(this == that);
-    }
+  bool operator!=(const ResourceHandle<R>& that) const {
+    return !(this == that);
+  }
 
-    /**
-     * Unsafe returns raw pointer instead of LockingPtr
-     * This used in IRQ handler to get thread handle
-     * PushMessage already uses lock, so its ok
-     *
-     * TODO: fix this, to avoid this call completely
-     */
-    R* getUnsafe() const {
-        RT_ASSERT(resource_ && "Using empty handle.");
-        return resource_;
-    }
+  /**
+   * Unsafe returns raw pointer instead of LockingPtr
+   * This used in IRQ handler to get thread handle
+   * PushMessage already uses lock, so its ok
+   *
+   * TODO: fix this, to avoid this call completely
+   */
+  R* getUnsafe() const {
+    RT_ASSERT(resource_ && "Using empty handle.");
+    return resource_;
+  }
 
-    v8::Local<v8::Value> NewExternal(v8::Isolate* iv8) {
-        RT_ASSERT(resource_ && "Using empty handle.");
-        RT_ASSERT(iv8);
-        v8::EscapableHandleScope scope(iv8);
-        return scope.Escape(v8::External::New(iv8, resource_));
-    }
+  v8::Local<v8::Value> NewExternal(v8::Isolate* iv8) {
+    RT_ASSERT(resource_ && "Using empty handle.");
+    RT_ASSERT(iv8);
+    v8::EscapableHandleScope scope(iv8);
+    return scope.Escape(v8::External::New(iv8, resource_));
+  }
 
-    void Reset() {
-        empty_ = true;
-        resource_ = nullptr;
-    }
+  void Reset() {
+    empty_ = true;
+    resource_ = nullptr;
+  }
 
-    bool empty() const { return empty_; }
+  bool empty() const {
+    return empty_;
+  }
 private:
-    R* resource_;
-    bool empty_;
+  R* resource_;
+  bool empty_;
 };
 
 class Resource {
-    template<typename R> friend class ResourceHandle;
+  template<typename R> friend class ResourceHandle;
 public:
-    Resource() { }
-    virtual v8::Local<v8::Object> NewInstance(Thread* thread) = 0;
+  Resource() { }
+  virtual v8::Local<v8::Object> NewInstance(Thread* thread) = 0;
 private:
-    threadlib::spinlock_t locker_;
-    DELETE_COPY_AND_ASSIGN(Resource);
+  threadlib::spinlock_t locker_;
+  DELETE_COPY_AND_ASSIGN(Resource);
 };
 
 } // namespace rt

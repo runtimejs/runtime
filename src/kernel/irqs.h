@@ -27,12 +27,12 @@ namespace rt {
 
 class Irqs {
 public:
-    Irqs() {
-        irqs_arch_.SetUp();
-    }
+  Irqs() {
+    irqs_arch_.SetUp();
+  }
 private:
-    IrqsArch irqs_arch_;
-    DELETE_COPY_AND_ASSIGN(Irqs);
+  IrqsArch irqs_arch_;
+  DELETE_COPY_AND_ASSIGN(Irqs);
 };
 
 
