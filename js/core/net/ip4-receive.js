@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,27 +13,15 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var intfs = [];
 
-exports.add = function(intf) {
-  intfs.push(intf);
-};
+var udp = require('./udp');
+var tcp = require('./tcp');
+var icmp = require('./icmp');
 
-exports.count = function() {
-  return intfs.length;
-};
-
-exports.getByName = function(intfName) {
-  for (var i = 0, l = intfs.length; i < l; ++i) {
-    if (intfName === intfs[i].name) {
-      return intfs[i];
-    }
+module.exports = function(intf, srcIP, destIP, protocolId, u8, nextOffset) {
+  switch (protocolId) {
+  case 0x01: return icmp.receive(intf, srcIP, destIP, u8, nextOffset);
+  case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
+  case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
   }
-
-  return null;
-};
-
-exports.forEach = function(fn) {
-  intfs.forEach(fn);
 };

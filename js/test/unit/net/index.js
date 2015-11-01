@@ -13,6 +13,8 @@
 // limitations under the License.
 
 'use strict';
+require('./interface');
+require('./ip4');
 require('./tcp');
 require('./tcp-receive');
 require('./port-allocator');

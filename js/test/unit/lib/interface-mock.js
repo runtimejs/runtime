@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2015 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,27 +13,19 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var intfs = [];
 
-exports.add = function(intf) {
-  intfs.push(intf);
-};
+var Interface = require('../../../core/net/interface');
+var MACAddress = require('../../../core/net/mac-address');
+var IP4Address = require('../../../core/net/ip4-address');
 
-exports.count = function() {
-  return intfs.length;
-};
-
-exports.getByName = function(intfName) {
-  for (var i = 0, l = intfs.length; i < l; ++i) {
-    if (intfName === intfs[i].name) {
-      return intfs[i];
-    }
-  }
-
-  return null;
-};
-
-exports.forEach = function(fn) {
-  intfs.forEach(fn);
+module.exports = function(opts) {
+  opts = opts || {};
+  var ip = opts.ip || new IP4Address(127, 0, 0, 1);
+  var mask = opts.mask || new IP4Address(255, 0, 0, 0);
+  var mac = opts.mac || new MACAddress(1, 2, 3, 4, 5, 6);
+  var intf = new Interface(mac);
+  intf.disableArp();
+  intf.configure(ip, mask);
+  intf.ontransmit = function() {};
+  return intf;
 };

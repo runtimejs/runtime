@@ -46,6 +46,26 @@ exports.getHeaderLength = function(u8, headerOffset) {
   return (u8[headerOffset] & 0xf) << 2;
 };
 
+exports.getFragmentationData = function(u8, headerOffset) {
+  return u8view.getUint16BE(u8, headerOffset + 6);
+};
+
+exports.getIdentification = function(u8, headerOffset) {
+  return u8view.getUint16BE(u8, headerOffset + 4);
+};
+
+exports.fragmentationDataIsMoreFragments = function(value) {
+  return !!((value >>> 13) & 0x1);
+};
+
+exports.fragmentationDataIsDontFragment = function(value) {
+  return !!((value >>> 14) & 0x1);
+};
+
+exports.fragmentationDataOffset = function(value) {
+  return (value & 0x1fff) * 8;
+};
+
 exports.minHeaderLength = minHeaderLength;
 
 exports.write = function(u8, headerOffset, protocolId, srcIP, destIP, packetLength) {
