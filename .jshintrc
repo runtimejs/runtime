@@ -1,9 +1,0 @@
-{
-  "esnext": true,
-  "curly": true,
-  "unused": true,
-  "devel": true,
-  "globals": {
-      "runtime": true
-  }
-}
