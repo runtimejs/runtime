@@ -35,7 +35,7 @@ test('clearTimeout', function(t) {
 
 test('clearInterval', function(t) {
   var timer = setInterval(function() {
-    t.fail('should not call callback')
+    t.fail('should not call callback');
     throw new Error('should not call callback');
   }, 0);
   clearInterval(timer);

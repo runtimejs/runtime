@@ -19,7 +19,7 @@
   },
   "homepage": "http://runtimejs.org",
   "devDependencies": {
-    "eslint": "^1.0.0-rc-1",
+    "eslint": "^1.8.0",
     "eslint-plugin-runtime-internal": "*",
     "runtime-tools": "*",
     "runtimeify": "*",

@@ -27,7 +27,8 @@ test('create interface', function(t) {
   t.end();
 });
 
-test.skip('interface handle echo request', function(t) {
+/*
+  test.skip('interface handle echo request', function(t) {
   t.plan(1);
   var intf = new Interface(MACAddress.ZERO);
   intf.disableArp();
@@ -65,3 +66,4 @@ test.skip('interface handle echo request', function(t) {
 
   intf.receive(request);
 });
+*/

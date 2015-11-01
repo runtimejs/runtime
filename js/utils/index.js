@@ -32,4 +32,4 @@ exports.getRandomUint8 = function() {
  */
 exports.timeNow = function() {
   return Math.floor(performance.now());
-}
+};

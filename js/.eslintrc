@@ -23,6 +23,7 @@ rules:
   no-undef: 2
   no-labels: 2
   no-multi-spaces: 2
+  semi: [2, "always"]
   radix: 2
   yoda: 0
   new-cap: [2, { "capIsNew": false }]
