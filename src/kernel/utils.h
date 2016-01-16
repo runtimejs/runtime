@@ -68,6 +68,11 @@ public:
     return p[3] | p[2] << 8 | p[1] << 16 | p[0] << 24;
   }
 
+  inline static uint16_t ReadUint16BE(const void* ptr) {
+    auto p = static_cast<const uint8_t*>(ptr);
+    return p[1] | p[0] << 8;
+  }
+
   template<typename T>
   static void ToString(T value, char* sp, int radix) {
     if (radix < 2 || radix > 36) {

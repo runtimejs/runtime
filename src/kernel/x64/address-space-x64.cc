@@ -41,15 +41,10 @@ void AddressSpaceX64::Configure() {
   size_t pages = identity_region / pagesize;
   RT_ASSERT(pages > 0);
 
-  printf("TO ident pages : %d, loc 1 = %x, loc 2 = %x\n", pages, pages * pagesize ,
-         reinterpret_cast<uint64_t>(pml4_table_));
-
   for (size_t i = 0; i < pages; ++i) {
     MapPage(reinterpret_cast<void*>(pagesize * i),
             reinterpret_cast<void*>(pagesize * i), false, true); // identity
   }
-
-  printf("CR3 value = %p\n", cr3_.Encode());
 }
 
 void AddressSpaceX64::Install() {

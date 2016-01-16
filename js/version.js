@@ -19,23 +19,11 @@ if (!global.__SYSCALL) {
   throw 'error: this program requires runtime.js environment';
 }
 
-var kernelVersion = __SYSCALL.version().runtime; // Format [major, minor, rev]
-var requiredVersionMin = [0, 2]; // 0.1.x
-var requiredVersionMax = [0, 2]; // 0.1.x
+var requiredKernelVersion = require('./runtimecorelib.json').kernelVersion;
+var currentKernelVersion = __SYSCALL.version().kernel;
 
-if (kernelVersion[0] < requiredVersionMin[0] ||
-    kernelVersion[1] < requiredVersionMin[1] ||
-    kernelVersion[0] > requiredVersionMax[0] ||
-    kernelVersion[1] > requiredVersionMax[1]) {
-  console.log('='.repeat(60));
-  console.log('Loaded runtimejs core module requires runtime version');
-  console.log(`      >= ${requiredVersionMin.join('.')}.x`);
-  console.log(`      <= ${requiredVersionMax.join('.')}.x`);
-  console.log(` current ${kernelVersion.join('.')}`);
-  console.log('');
-  console.log('Update with "npm install runtime-tools@latest"');
-  console.log('='.repeat(60));
-  throw 'error';
+if (currentKernelVersion !== requiredKernelVersion) {
+  throw `error: required kernel version number ${requiredKernelVersion}, current ${currentKernelVersion}`;
 }
 
-console.log(`v${kernelVersion.join('.')} kernel (v8 ${__SYSCALL.version().v8})`);
+console.log(`Kernel build #${currentKernelVersion} (v8 ${__SYSCALL.version().v8})`);

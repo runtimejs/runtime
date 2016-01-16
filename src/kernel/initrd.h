@@ -23,7 +23,8 @@ namespace rt {
 
 enum class PackageFileType {
   EMPTY = 0x00,
-  DEFAULT = 0xAA
+  DEFAULT = 0xAA,
+  LINK = 0xBB,
 };
 
 class PackageFileData {
@@ -48,38 +49,24 @@ private:
 class PackageFile {
 public:
   PackageFile()
-    :	name_(nullptr),
-      buf_(nullptr),
-      len_(0),
-      crc_(0) { }
+    :	is_link_(false), name_(nullptr), buf_(nullptr), len_(0), content_(0) {}
 
-  PackageFile(const char* name, const uint8_t* buf,
-              size_t len, uint32_t crc)
-    :	name_(name),
-      buf_(buf),
-      len_(len),
-      crc_(crc) { }
+  PackageFile(bool is_link, const char* name, const uint8_t* buf,
+              size_t len, uint32_t content)
+    :	is_link_(is_link), name_(name), buf_(buf), len_(len), content_(content) {}
 
-  const char* name() const {
-    return name_;
-  }
-  const uint8_t* buf() const {
-    return buf_;
-  }
-  uint32_t len() const {
-    return len_;
-  }
-  uint32_t crc() const {
-    return crc_;
-  }
-  bool empty() const {
-    return nullptr == buf_;
-  }
+  bool is_link() const { return is_link_; }
+  const char* name() const { return name_; }
+  const uint8_t* buf() const { return buf_; }
+  uint32_t len() const { return len_; }
+  uint32_t content() const { return content_; }
+  bool empty() const { return nullptr == buf_ && !is_link_; }
 private:
+  bool is_link_;
   const char* name_;
   const uint8_t* buf_;
   uint32_t len_;
-  uint32_t crc_;
+  uint32_t content_;
 };
 
 class PackageReader {
@@ -87,9 +74,15 @@ public:
   PackageReader(const void* start, size_t len);
   PackageFile Next();
   PackageFile Finish();
+  const char* ReadString();
+  uint32_t ReadUint32();
+  const char* runtime_index_name() { return runtime_index_name_; }
+  const char* app_index_name() { return app_index_name_; }
 private:
   const uint8_t* next_;
   uint32_t files_left_;
+  const char* runtime_index_name_;
+  const char* app_index_name_;
 };
 
 /**
@@ -101,7 +94,7 @@ public:
     :	_name("<invalid_file>"),
       _size(0),
       _data(reinterpret_cast<const uint8_t*>("")),
-      _is_empty(true) { }
+      _is_empty(true) {}
 
   InitrdFile(const char* name, size_t size, const uint8_t* data)
     :	_name(name),
@@ -136,7 +129,9 @@ private:
  */
 class Initrd {
 public:
-  Initrd() {
+  Initrd()
+    : runtime_index_name_(""),
+      app_index_name_("") {
     files_.reserve(20);
   }
 
@@ -158,11 +153,14 @@ public:
   /**
    * Initrd files count
    */
-  size_t files_count() const {
-    return files_.size();
-  }
+  size_t files_count() const { return files_.size(); }
+
+  const char* runtime_index_name() { return runtime_index_name_; }
+  const char* app_index_name() { return app_index_name_; }
 private:
   std::vector<InitrdFile> files_;
+  const char* runtime_index_name_;
+  const char* app_index_name_;
 };
 
 } // namespace rt

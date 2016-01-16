@@ -29,12 +29,14 @@
     "debug": false
   },
   "dependencies": {
+    "assert": "^1.3.0",
     "assert-error": "^1.0.2",
     "bit-twiddle": "^1.0.2",
     "event-controller": "^1.0.1",
     "isint": "^1.0.0",
     "module-singleton": "^2.0.0",
     "typeutils": "^1.0.1",
-    "u8-view": "^1.0.0"
+    "u8-view": "^1.0.0",
+    "util": "^0.10.3"
   }
 }

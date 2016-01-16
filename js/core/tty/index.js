@@ -20,7 +20,6 @@ var assert = require('assert');
 var typeutils = require('typeutils');
 
 var color = terminal.color;
-var version = __SYSCALL.version();
 
 terminal.print(
    "\n                   _   _                   _     \n"
@@ -32,9 +31,6 @@ terminal.print(
 
 terminal.print('\n', 1, color.DARKGRAY, color.BLACK);
 terminal.print('# Welcome to ', 1, color.DARKGRAY, color.BLACK);
-terminal.print('runtime.js ', 1, color.LIGHTGRAY, color.BLACK);
-terminal.print('v' + version.runtime.join('.') + ' on', 1, color.DARKGRAY, color.BLACK);
-terminal.print(' V8 ', 1, color.LIGHTGRAY, color.BLACK);
-terminal.print(version.v8 + '\n\n', 1, color.DARKGRAY, color.BLACK);
+terminal.print('runtime.js\n\n', 1, color.LIGHTGRAY, color.BLACK);
 
 module.exports = terminal;

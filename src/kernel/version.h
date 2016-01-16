@@ -20,18 +20,12 @@ namespace rt {
 
 class Version {
 public:
-  static uint32_t getMajor() {
-    return 0;
-  }
-
-  static uint32_t getMinor() {
+  /**
+   * Get kernel version represented by a single number.
+   */
+  static uint32_t getVersionNumber() {
     return 2;
   }
-
-  static uint32_t getRev() {
-    return 0;
-  }
-
 private:
   ~Version() = delete;
   DELETE_COPY_AND_ASSIGN(Version);

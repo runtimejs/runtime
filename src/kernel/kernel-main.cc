@@ -62,6 +62,8 @@ namespace rt {
 
 void KernelMain::Initialize(void* mbt) {
   CONSTRUCT_GLOBAL_OBJECT(GLOBAL_boot_services, BootServices, );      // NOLINT
+  printf("runtime.js kernel build #%d.\n", Version::getVersionNumber());
+
   CONSTRUCT_GLOBAL_OBJECT(GLOBAL_multiboot, Multiboot, mbt);			// NOLINT
   CONSTRUCT_GLOBAL_OBJECT(GLOBAL_mem_manager, MemManager, );          // NOLINT
 

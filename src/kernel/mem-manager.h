@@ -144,7 +144,7 @@ public:
       abort();
     }
 
-    printf("Detected available %d MiB of memory.\n", available_phys_memory_ / 1024 / 1024);
+    printf("System memory: %d MiB.\n", available_phys_memory_ / 1024 / 1024);
   }
 
   ~PhysicalAllocator() {}
@@ -272,7 +272,7 @@ private:
 
       available_phys_memory_ += chunk_size();
     }
-    printf("RANGE %d MB - %d MB \n", first_page * 2, (last_page-1) * 2);
+//    printf("Memory range %d MiB - %d MiB \n", first_page * 2, (last_page-1) * 2);
   }
 };
 

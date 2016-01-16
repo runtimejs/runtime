@@ -35,8 +35,6 @@ MultibootMemoryMapEnumerator::MultibootMemoryMapEnumerator(const Multiboot* mult
   memcpy(&mmap_addr, reinterpret_cast<void*>(base_addr +
          offsetof(MultibootStruct, mmap_addr)), sizeof(uint32_t));
 
-  printf("Memory map addr %d, len %d\n", mmap_addr, mmap_len);
-
   if (0 == mmap_addr || 0 == mmap_len) {
     GLOBAL_boot_services()->FatalError("Invalid memory map provided.");
   }

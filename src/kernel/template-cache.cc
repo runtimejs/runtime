@@ -96,6 +96,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     // Initrd FS access
     SET_SYSCALL("initrdReadFile", NativesObject::InitrdReadFile);
     SET_SYSCALL("initrdListFiles", NativesObject::InitrdListFiles);
+    SET_SYSCALL("initrdGetKernelIndex", NativesObject::InitrdGetKernelIndex);
 
     // Profiler, debug and system info
     SET_SYSCALL("startProfiling", NativesObject::StartProfiling);

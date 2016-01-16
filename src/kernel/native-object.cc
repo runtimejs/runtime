@@ -287,6 +287,7 @@ NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
     return;
   }
 
+  printf("[INITRD] Load %s len %d\n", file.Name(), file.Size());
   v8::MaybeLocal<v8::String> text { v8::String::NewFromUtf8(iv8,
                                     reinterpret_cast<const char*>(file.Data()),
                                     v8::NewStringType::kNormal, file.Size())
@@ -295,29 +296,22 @@ NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
   args.GetReturnValue().Set(text.ToLocalChecked());
 }
 
+NATIVE_FUNCTION(NativesObject, InitrdGetKernelIndex) {
+  PROLOGUE_NOTHIS;
+  args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
+    GLOBAL_initrd()->runtime_index_name(), v8::NewStringType::kNormal).ToLocalChecked());
+}
+
 NATIVE_FUNCTION(NativesObject, InitrdListFiles) {
   PROLOGUE_NOTHIS;
   size_t files_count { GLOBAL_initrd()->files_count() };
   v8::Local<v8::Array> arr { v8::Array::New(iv8, files_count) };
 
-  LOCAL_V8STRING(s_name, "name");
-  LOCAL_V8STRING(s_size, "size");
-
-  v8::Local<v8::Object> tmp { v8::Object::New(iv8) };
-  tmp->Set(context, s_name, v8::String::Empty(iv8));
-  tmp->Set(context, s_size, v8::Uint32::NewFromUnsigned(iv8, 0));
-
   for (size_t i = 0; i < files_count; ++i) {
     InitrdFile file = GLOBAL_initrd()->GetByIndex(i);
     RT_ASSERT(!file.IsEmpty());
-
-    RT_ASSERT(file.Size() < 0xffffffff && "Initrd file is too big");
-    v8::Local<v8::Object> file_object { tmp->Clone() };
-    file_object->Set(context, s_name,
-                     v8::String::NewFromUtf8(iv8, file.Name(), v8::NewStringType::kNormal).ToLocalChecked());
-    file_object->Set(context, s_size,
-                     v8::Uint32::NewFromUnsigned(iv8, file.Size() & 0xffffffff));
-    arr->Set(context, i, file_object);
+    arr->Set(context, i, v8::String::NewFromUtf8(iv8,
+      file.Name(), v8::NewStringType::kNormal).ToLocalChecked());
   }
 
   args.GetReturnValue().Set(arr);
@@ -455,16 +449,11 @@ NATIVE_FUNCTION(NativesObject, Eval) {
 NATIVE_FUNCTION(NativesObject, Version) {
   PROLOGUE_NOTHIS;
 
-  auto arr = v8::Array::New(iv8, 3);
-  arr->Set(context, 0, v8::Uint32::NewFromUnsigned(iv8, Version::getMajor()));
-  arr->Set(context, 1, v8::Uint32::NewFromUnsigned(iv8, Version::getMinor()));
-  arr->Set(context, 2, v8::Uint32::NewFromUnsigned(iv8, Version::getRev()));
-
   auto obj = v8::Object::New(iv8);
-  LOCAL_V8STRING(s_runtime, "runtime");
+  LOCAL_V8STRING(s_kernel, "kernel");
   LOCAL_V8STRING(s_v8, "v8");
   LOCAL_V8STRING(s_v8ver, v8::V8::GetVersion());
-  obj->Set(context, s_runtime, arr);
+  obj->Set(context, s_kernel, v8::Uint32::NewFromUnsigned(iv8, Version::getVersionNumber()));
   obj->Set(context, s_v8, s_v8ver);
 
   args.GetReturnValue().Set(obj);

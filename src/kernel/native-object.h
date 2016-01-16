@@ -51,6 +51,7 @@ public:
   // runtime.js syscalls: Initrd FS access
   DECLARE_NATIVE(InitrdReadFile);      // Read file from initrd filesystem
   DECLARE_NATIVE(InitrdListFiles);     // List all files on initrd filesystem
+  DECLARE_NATIVE(InitrdGetKernelIndex);// Get kernel entry point file
 
   // runtime.js syscalls: Profiler, debug and system info
   DECLARE_NATIVE(StartProfiling);      // Start profiler

@@ -18,7 +18,7 @@ var packagejson = require('./package.json');
 require('module-singleton')(packagejson);
 require('./version');
 
-console.log(`v${packagejson.version} core library`);
+console.log(`runtime.js v${packagejson.version}`);
 console.log('loading...');
 
 var isDebug = packagejson.runtimejs.debug;
