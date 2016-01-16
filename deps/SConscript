@@ -1004,6 +1004,17 @@ libs_config = {
             'printf/printf.cc',
         ],
     },
+    "miniz": {
+        "include": [
+            'musl/src/internal',
+            'musl/include',
+            'musl/arch/x86_64',
+            'musl/arch/x86_64/bits',
+        ],
+        "source": [
+            'miniz/tinfl.c',
+        ],
+    },
 }
 
 
