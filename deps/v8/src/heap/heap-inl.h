@@ -11,6 +11,7 @@
 #include "src/counters.h"
 #include "src/heap/heap.h"
 #include "src/heap/incremental-marking-inl.h"
+#include "src/heap/mark-compact.h"
 #include "src/heap/spaces-inl.h"
 #include "src/heap/store-buffer.h"
 #include "src/heap/store-buffer-inl.h"
@@ -19,6 +20,7 @@
 #include "src/log.h"
 #include "src/msan.h"
 #include "src/objects-inl.h"
+#include "src/type-feedback-vector-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -68,6 +70,7 @@ PRIVATE_SYMBOL_LIST(SYMBOL_ACCESSOR)
 #define SYMBOL_ACCESSOR(name, description) \
   Symbol* Heap::name() { return Symbol::cast(roots_[k##name##RootIndex]); }
 PUBLIC_SYMBOL_LIST(SYMBOL_ACCESSOR)
+WELL_KNOWN_SYMBOL_LIST(SYMBOL_ACCESSOR)
 #undef SYMBOL_ACCESSOR
 
 #define ROOT_ACCESSOR(type, name, camel_name)                                 \
@@ -254,20 +257,21 @@ void Heap::OnAllocationEvent(HeapObject* object, int size_in_bytes) {
     profiler->AllocationEvent(object->address(), size_in_bytes);
   }
 
-  ++allocations_count_;
-
   if (FLAG_verify_predictable) {
+    ++allocations_count_;
+    // Advance synthetic time by making a time request.
+    MonotonicallyIncreasingTimeInMs();
+
     UpdateAllocationsHash(object);
     UpdateAllocationsHash(size_in_bytes);
 
-    if ((FLAG_dump_allocations_digest_at_alloc > 0) &&
-        (--dump_allocations_hash_countdown_ == 0)) {
-      dump_allocations_hash_countdown_ = FLAG_dump_allocations_digest_at_alloc;
+    if (allocations_count_ % FLAG_dump_allocations_digest_at_alloc == 0) {
       PrintAlloctionsHash();
     }
   }
 
   if (FLAG_trace_allocation_stack_interval > 0) {
+    if (!FLAG_verify_predictable) ++allocations_count_;
     if (allocations_count_ % FLAG_trace_allocation_stack_interval == 0) {
       isolate()->PrintStack(stdout, Isolate::kPrintStackConcise);
     }
@@ -289,14 +293,14 @@ void Heap::OnMoveEvent(HeapObject* target, HeapObject* source,
 
   if (FLAG_verify_predictable) {
     ++allocations_count_;
+    // Advance synthetic time by making a time request.
+    MonotonicallyIncreasingTimeInMs();
 
     UpdateAllocationsHash(source);
     UpdateAllocationsHash(target);
     UpdateAllocationsHash(size_in_bytes);
 
-    if ((FLAG_dump_allocations_digest_at_alloc > 0) &&
-        (--dump_allocations_hash_countdown_ == 0)) {
-      dump_allocations_hash_countdown_ = FLAG_dump_allocations_digest_at_alloc;
+    if (allocations_count_ % FLAG_dump_allocations_digest_at_alloc == 0) {
       PrintAlloctionsHash();
     }
   }
@@ -503,21 +507,39 @@ AllocationMemento* Heap::FindAllocationMemento(HeapObject* object) {
 }
 
 
-void Heap::UpdateAllocationSiteFeedback(HeapObject* object,
-                                        ScratchpadSlotMode mode) {
-  Heap* heap = object->GetHeap();
-  DCHECK(heap->InFromSpace(object));
-
+void Heap::UpdateAllocationSite(HeapObject* object,
+                                HashMap* pretenuring_feedback) {
+  DCHECK(InFromSpace(object));
   if (!FLAG_allocation_site_pretenuring ||
       !AllocationSite::CanTrack(object->map()->instance_type()))
     return;
+  AllocationMemento* memento = FindAllocationMemento(object);
+  if (memento == nullptr) return;
 
-  AllocationMemento* memento = heap->FindAllocationMemento(object);
-  if (memento == NULL) return;
+  AllocationSite* key = memento->GetAllocationSite();
+  DCHECK(!key->IsZombie());
 
-  if (memento->GetAllocationSite()->IncrementMementoFoundCount()) {
-    heap->AddAllocationSiteToScratchpad(memento->GetAllocationSite(), mode);
+  if (pretenuring_feedback == global_pretenuring_feedback_) {
+    // For inserting in the global pretenuring storage we need to first
+    // increment the memento found count on the allocation site.
+    if (key->IncrementMementoFoundCount()) {
+      global_pretenuring_feedback_->LookupOrInsert(
+          key, static_cast<uint32_t>(bit_cast<uintptr_t>(key)));
+    }
+  } else {
+    // Any other pretenuring storage than the global one is used as a cache,
+    // where the count is later on merge in the allocation site.
+    HashMap::Entry* e = pretenuring_feedback->LookupOrInsert(
+        key, static_cast<uint32_t>(bit_cast<uintptr_t>(key)));
+    DCHECK(e != nullptr);
+    (*bit_cast<intptr_t*>(&e->value))++;
   }
+}
+
+
+void Heap::RemoveAllocationSitePretenuringFeedback(AllocationSite* site) {
+  global_pretenuring_feedback_->Remove(
+      site, static_cast<uint32_t>(bit_cast<uintptr_t>(site)));
 }
 
 
@@ -700,7 +722,7 @@ void VerifySmisVisitor::VisitPointers(Object** start, Object** end) {
     CHECK((*current)->IsSmi());
   }
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_HEAP_HEAP_INL_H_

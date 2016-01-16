@@ -13,7 +13,6 @@
 #include "src/frames.h"
 #include "src/interpreter/bytecodes.h"
 #include "src/runtime/runtime.h"
-#include "src/zone-containers.h"
 
 namespace v8 {
 namespace internal {
@@ -47,7 +46,7 @@ class InterpreterAssembler {
   Node* BytecodeOperandIdx(int operand_index);
   // Returns the Imm8 immediate for bytecode operand |operand_index| in the
   // current bytecode.
-  Node* BytecodeOperandImm8(int operand_index);
+  Node* BytecodeOperandImm(int operand_index);
   // Returns the register index for bytecode operand |operand_index| in the
   // current bytecode.
   Node* BytecodeOperandReg(int operand_index);
@@ -56,9 +55,20 @@ class InterpreterAssembler {
   Node* GetAccumulator();
   void SetAccumulator(Node* value);
 
+  // Context.
+  Node* GetContext();
+  void SetContext(Node* value);
+
   // Loads from and stores to the interpreter register file.
+  Node* LoadRegister(int offset);
+  Node* LoadRegister(interpreter::Register reg);
   Node* LoadRegister(Node* reg_index);
+  Node* StoreRegister(Node* value, int offset);
+  Node* StoreRegister(Node* value, interpreter::Register reg);
   Node* StoreRegister(Node* value, Node* reg_index);
+
+  // Returns the next consecutive register.
+  Node* NextRegister(Node* reg_index);
 
   // Returns the location in memory of the register |reg_index| in the
   // interpreter register file.
@@ -83,31 +93,52 @@ class InterpreterAssembler {
   // Load constant at |index| in the constant pool.
   Node* LoadConstantPoolEntry(Node* index);
 
+  // Load an element from a fixed array on the heap.
+  Node* LoadFixedArrayElement(Node* fixed_array, int index);
+
   // Load a field from an object on the heap.
   Node* LoadObjectField(Node* object, int offset);
 
-  // Load |slot_index| from a context.
+  // Load |slot_index| from |context|.
   Node* LoadContextSlot(Node* context, int slot_index);
-
-  // Load |slot_index| from the current context.
-  Node* LoadContextSlot(int slot_index);
+  Node* LoadContextSlot(Node* context, Node* slot_index);
+  // Stores |value| into |slot_index| of |context|.
+  Node* StoreContextSlot(Node* context, Node* slot_index, Node* value);
 
   // Load the TypeFeedbackVector for the current function.
   Node* LoadTypeFeedbackVector();
 
-  // Call JSFunction or Callable |function| with |arg_count| (not including
-  // receiver) and the first argument located at |first_arg|.
+  // Project the output value at index |index|
+  Node* Projection(int index, Node* node);
+
+  // Call constructor |constructor| with |arg_count| arguments (not
+  // including receiver) and the first argument located at
+  // |first_arg|. The |new_target| is the same as the
+  // |constructor| for the new keyword, but differs for the super
+  // keyword.
+  Node* CallConstruct(Node* new_target, Node* constructor, Node* first_arg,
+                      Node* arg_count);
+
+  // Call JSFunction or Callable |function| with |arg_count|
+  // arguments (not including receiver) and the first argument
+  // located at |first_arg|.
   Node* CallJS(Node* function, Node* first_arg, Node* arg_count);
 
   // Call an IC code stub.
+  Node* CallIC(CallInterfaceDescriptor descriptor, Node* target, Node* arg1,
+               Node* arg2, Node* arg3);
   Node* CallIC(CallInterfaceDescriptor descriptor, Node* target, Node* arg1,
                Node* arg2, Node* arg3, Node* arg4);
   Node* CallIC(CallInterfaceDescriptor descriptor, Node* target, Node* arg1,
                Node* arg2, Node* arg3, Node* arg4, Node* arg5);
 
   // Call runtime function.
+  Node* CallRuntime(Node* function_id, Node* first_arg, Node* arg_count,
+                    int return_size = 1);
   Node* CallRuntime(Runtime::FunctionId function_id, Node* arg1);
   Node* CallRuntime(Runtime::FunctionId function_id, Node* arg1, Node* arg2);
+  Node* CallRuntime(Runtime::FunctionId function_id, Node* arg1, Node* arg2,
+                    Node* arg3, Node* arg4);
 
   // Jump relative to the current bytecode by |jump_offset|.
   void Jump(Node* jump_offset);
@@ -122,9 +153,11 @@ class InterpreterAssembler {
   // Dispatch to the bytecode.
   void Dispatch();
 
+  // Abort with the given bailout reason.
+  void Abort(BailoutReason bailout_reason);
+
  protected:
-  // Close the graph.
-  void End();
+  static bool TargetSupportsUnalignedAccess();
 
   // Protected helpers (for testing) which delegate to RawMachineAssembler.
   CallDescriptor* call_descriptor() const;
@@ -139,8 +172,11 @@ class InterpreterAssembler {
   Node* BytecodeOffset();
   // Returns a raw pointer to first entry in the interpreter dispatch table.
   Node* DispatchTableRawPointer();
-  // Returns a tagged pointer to the current context.
-  Node* ContextTaggedPointer();
+
+  // Saves and restores interpreter bytecode offset to the interpreter stack
+  // frame when performing a call.
+  void CallPrologue();
+  void CallEpilogue();
 
   // Returns the offset of register |index| relative to RegisterFilePointer().
   Node* RegisterFrameOffset(Node* index);
@@ -148,10 +184,11 @@ class InterpreterAssembler {
   Node* SmiShiftBitsConstant();
   Node* BytecodeOperand(int operand_index);
   Node* BytecodeOperandSignExtended(int operand_index);
+  Node* BytecodeOperandShort(int operand_index);
+  Node* BytecodeOperandShortSignExtended(int operand_index);
 
+  Node* CallN(CallDescriptor* descriptor, Node* code_target, Node** args);
   Node* CallIC(CallInterfaceDescriptor descriptor, Node* target, Node** args);
-  Node* CallJSBuiltin(int context_index, Node* receiver, Node** js_args,
-                      int js_arg_count);
 
   // Returns BytecodeOffset() advanced by delta bytecodes. Note: this does not
   // update BytecodeOffset() itself.
@@ -161,24 +198,26 @@ class InterpreterAssembler {
   // Starts next instruction dispatch at |new_bytecode_offset|.
   void DispatchTo(Node* new_bytecode_offset);
 
-  // Adds an end node of the graph.
-  void AddEndInput(Node* input);
+  // Abort operations for debug code.
+  void AbortIfWordNotEqual(Node* lhs, Node* rhs, BailoutReason bailout_reason);
 
   // Private helpers which delegate to RawMachineAssembler.
   Isolate* isolate();
-  Schedule* schedule();
   Zone* zone();
 
   interpreter::Bytecode bytecode_;
   base::SmartPointer<RawMachineAssembler> raw_assembler_;
-  ZoneVector<Node*> end_nodes_;
+
   Node* accumulator_;
+  Node* bytecode_offset_;
+  Node* context_;
+
   bool code_generated_;
 
   DISALLOW_COPY_AND_ASSIGN(InterpreterAssembler);
 };
 
-}  // namespace interpreter
+}  // namespace compiler
 }  // namespace internal
 }  // namespace v8
 

@@ -84,36 +84,6 @@ bool Operand::is_reg() const {
 }
 
 
-int Register::NumAllocatableRegisters() {
-    return kMaxNumAllocatableRegisters;
-}
-
-
-int DoubleRegister::NumRegisters() {
-    return FPURegister::kMaxNumRegisters;
-}
-
-
-int DoubleRegister::NumAllocatableRegisters() {
-    return FPURegister::kMaxNumAllocatableRegisters;
-}
-
-
-int DoubleRegister::NumAllocatableAliasedRegisters() {
-  return NumAllocatableRegisters();
-}
-
-
-int FPURegister::ToAllocationIndex(FPURegister reg) {
-  DCHECK(reg.code() % 2 == 0);
-  DCHECK(reg.code() / 2 < kMaxNumAllocatableRegisters);
-  DCHECK(reg.is_valid());
-  DCHECK(!reg.is(kDoubleRegZero));
-  DCHECK(!reg.is(kLithiumScratchDouble));
-  return (reg.code() / 2);
-}
-
-
 // -----------------------------------------------------------------------------
 // RelocInfo.
 
@@ -122,7 +92,7 @@ void RelocInfo::apply(intptr_t delta) {
     // Absolute code pointer inside code object moves with the code object.
     byte* p = reinterpret_cast<byte*>(pc_);
     int count = Assembler::RelocateInternalReference(rmode_, p, delta);
-    CpuFeatures::FlushICache(p, count * sizeof(uint32_t));
+    Assembler::FlushICache(isolate_, p, count * sizeof(uint32_t));
   }
 }
 
@@ -174,7 +144,8 @@ void RelocInfo::set_target_address(Address target,
                                    WriteBarrierMode write_barrier_mode,
                                    ICacheFlushMode icache_flush_mode) {
   DCHECK(IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_));
-  Assembler::set_target_address_at(pc_, host_, target, icache_flush_mode);
+  Assembler::set_target_address_at(isolate_, pc_, host_, target,
+                                   icache_flush_mode);
   if (write_barrier_mode == UPDATE_WRITE_BARRIER &&
       host() != NULL && IsCodeTarget(rmode_)) {
     Object* target_code = Code::GetCodeFromTargetAddress(target);
@@ -208,7 +179,7 @@ void Assembler::set_target_internal_reference_encoded_at(Address pc,
 
 
 void Assembler::deserialization_set_target_internal_reference_at(
-    Address pc, Address target, RelocInfo::Mode mode) {
+    Isolate* isolate, Address pc, Address target, RelocInfo::Mode mode) {
   if (mode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
     DCHECK(IsJ(instr_at(pc)));
     set_target_internal_reference_encoded_at(pc, target);
@@ -236,7 +207,7 @@ void RelocInfo::set_target_object(Object* target,
                                   WriteBarrierMode write_barrier_mode,
                                   ICacheFlushMode icache_flush_mode) {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
-  Assembler::set_target_address_at(pc_, host_,
+  Assembler::set_target_address_at(isolate_, pc_, host_,
                                    reinterpret_cast<Address>(target),
                                    icache_flush_mode);
   if (write_barrier_mode == UPDATE_WRITE_BARRIER &&
@@ -338,8 +309,7 @@ Code* RelocInfo::code_age_stub() {
 void RelocInfo::set_code_age_stub(Code* stub,
                                   ICacheFlushMode icache_flush_mode) {
   DCHECK(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);
-  Assembler::set_target_address_at(pc_ + Assembler::kInstrSize,
-                                   host_,
+  Assembler::set_target_address_at(isolate_, pc_ + Assembler::kInstrSize, host_,
                                    stub->instruction_start());
 }
 
@@ -356,7 +326,7 @@ void RelocInfo::set_debug_call_address(Address target) {
   DCHECK(IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence());
   // The pc_ offset of 0 assumes patched debug break slot or return
   // sequence.
-  Assembler::set_target_address_at(pc_, host_, target);
+  Assembler::set_target_address_at(isolate_, pc_, host_, target);
   if (host() != NULL) {
     Object* target_code = Code::GetCodeFromTargetAddress(target);
     host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(
@@ -374,7 +344,7 @@ void RelocInfo::WipeOut() {
   } else if (IsInternalReferenceEncoded(rmode_)) {
     Assembler::set_target_internal_reference_encoded_at(pc_, nullptr);
   } else {
-    Assembler::set_target_address_at(pc_, host_, NULL);
+    Assembler::set_target_address_at(isolate_, pc_, host_, NULL);
   }
 }
 
@@ -468,26 +438,63 @@ void Assembler::CheckTrampolinePoolQuick(int extra_instructions) {
 }
 
 
-void Assembler::emit(Instr x) {
+void Assembler::CheckForEmitInForbiddenSlot() {
   if (!is_buffer_growth_blocked()) {
     CheckBuffer();
+  }
+  if (IsPrevInstrCompactBranch()) {
+    // Nop instruction to preceed a CTI in forbidden slot:
+    Instr nop = SPECIAL | SLL;
+    *reinterpret_cast<Instr*>(pc_) = nop;
+    pc_ += kInstrSize;
+
+    ClearCompactBranchState();
+  }
+}
+
+
+void Assembler::EmitHelper(Instr x, CompactBranchType is_compact_branch) {
+  if (IsPrevInstrCompactBranch()) {
+    if (Instruction::IsForbiddenAfterBranchInstr(x)) {
+      // Nop instruction to preceed a CTI in forbidden slot:
+      Instr nop = SPECIAL | SLL;
+      *reinterpret_cast<Instr*>(pc_) = nop;
+      pc_ += kInstrSize;
+    }
+    ClearCompactBranchState();
   }
   *reinterpret_cast<Instr*>(pc_) = x;
   pc_ += kInstrSize;
+  if (is_compact_branch == CompactBranchType::COMPACT_BRANCH) {
+    EmittedCompactBranchInstruction();
+  }
   CheckTrampolinePoolQuick();
 }
 
 
-void Assembler::emit(uint64_t x) {
+template <typename T>
+void Assembler::EmitHelper(T x) {
+  *reinterpret_cast<T*>(pc_) = x;
+  pc_ += sizeof(x);
+  CheckTrampolinePoolQuick();
+}
+
+
+void Assembler::emit(Instr x, CompactBranchType is_compact_branch) {
   if (!is_buffer_growth_blocked()) {
     CheckBuffer();
   }
-  *reinterpret_cast<uint64_t*>(pc_) = x;
-  pc_ += kInstrSize * 2;
-  CheckTrampolinePoolQuick();
+  EmitHelper(x, is_compact_branch);
 }
 
 
-} }  // namespace v8::internal
+void Assembler::emit(uint64_t data) {
+  CheckForEmitInForbiddenSlot();
+  EmitHelper(data);
+}
+
+
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_MIPS_ASSEMBLER_MIPS_INL_H_

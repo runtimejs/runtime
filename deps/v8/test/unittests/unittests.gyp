@@ -22,10 +22,6 @@
       'include_dirs': [
         '../..',
       ],
-      'defines': [
-        # TODO(jochen): Remove again after this is globally turned on.
-        'V8_IMMINENT_DEPRECATION_WARNINGS',
-      ],
       'sources': [  ### gcmole(all) ###
         'atomic-utils-unittest.cc',
         'base/bits-unittest.cc',
@@ -42,8 +38,9 @@
         'base/platform/time-unittest.cc',
         'base/sys-info-unittest.cc',
         'base/utils/random-number-generator-unittest.cc',
+        'cancelable-tasks-unittest.cc',
         'char-predicates-unittest.cc',
-        'compiler/bytecode-graph-builder-unittest.cc',
+        'compiler/branch-elimination-unittest.cc',
         'compiler/change-lowering-unittest.cc',
         'compiler/coalesced-live-ranges-unittest.cc',
         'compiler/common-operator-reducer-unittest.cc',
@@ -53,6 +50,7 @@
         'compiler/control-flow-optimizer-unittest.cc',
         'compiler/dead-code-elimination-unittest.cc',
         'compiler/diamond-unittest.cc',
+        'compiler/escape-analysis-unittest.cc',
         'compiler/graph-reducer-unittest.cc',
         'compiler/graph-reducer-unittest.h',
         'compiler/graph-trimmer-unittest.cc',
@@ -69,7 +67,6 @@
         'compiler/js-intrinsic-lowering-unittest.cc',
         'compiler/js-operator-unittest.cc',
         'compiler/js-typed-lowering-unittest.cc',
-        'compiler/js-type-feedback-unittest.cc',
         'compiler/linkage-tail-call-unittest.cc',
         'compiler/liveness-analyzer-unittest.cc',
         'compiler/live-range-unittest.cc',
@@ -100,17 +97,25 @@
         'interpreter/bytecodes-unittest.cc',
         'interpreter/bytecode-array-builder-unittest.cc',
         'interpreter/bytecode-array-iterator-unittest.cc',
+        'interpreter/bytecode-register-allocator-unittest.cc',
+        'interpreter/constant-array-builder-unittest.cc',
         'libplatform/default-platform-unittest.cc',
         'libplatform/task-queue-unittest.cc',
         'libplatform/worker-thread-unittest.cc',
+        'heap/bitmap-unittest.cc',
         'heap/gc-idle-time-handler-unittest.cc',
         'heap/memory-reducer-unittest.cc',
         'heap/heap-unittest.cc',
         'heap/scavenge-job-unittest.cc',
+        'locked-queue-unittest.cc',
         'run-all-unittests.cc',
         'runtime/runtime-interpreter-unittest.cc',
         'test-utils.h',
         'test-utils.cc',
+        'wasm/ast-decoder-unittest.cc',
+        'wasm/encoder-unittest.cc',
+        'wasm/module-decoder-unittest.cc',
+        'wasm/wasm-macro-gen-unittest.cc',
       ],
       'conditions': [
         ['v8_target_arch=="arm"', {
@@ -170,12 +175,26 @@
             ],
           },
         }],
-        ['v8_wasm!=0', {
-          'dependencies': [
-            '../../third_party/wasm/test/unittests/wasm/wasm.gyp:wasm_unittests',
-          ],
-        }],
       ],
     },
+  ],
+  'conditions': [
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'unittests',
+          ],
+          'includes': [
+            '../../build/isolate.gypi',
+          ],
+          'sources': [
+            'unittests.isolate',
+          ],
+        },
+      ],
+    }],
   ],
 }

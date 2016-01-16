@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compilation-dependencies.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/js-typed-lowering.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/opcodes.h"
 #include "src/compiler/operator-properties.h"
+#include "src/compiler/simplified-operator.h"
 #include "src/compiler/typer.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
-using namespace v8::internal::compiler;
+namespace v8 {
+namespace internal {
+namespace compiler {
 
 #ifndef TEST_WITH_STRONG
 #define TEST_WITH_STRONG(Name)                                                 \
@@ -37,6 +40,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
         machine(main_zone()),
         simplified(main_zone()),
         common(main_zone()),
+        deps(main_isolate(), main_zone()),
         graph(main_zone()),
         typer(main_isolate(), &graph),
         context_node(NULL) {
@@ -52,9 +56,11 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
   MachineOperatorBuilder machine;
   SimplifiedOperatorBuilder simplified;
   CommonOperatorBuilder common;
+  CompilationDependencies deps;
   Graph graph;
   Typer typer;
   Node* context_node;
+  BinaryOperationHints const hints = BinaryOperationHints::Any();
 
   Node* Parameter(Type* t, int32_t index = 0) {
     Node* n = graph.NewNode(common.Parameter(index), graph.start());
@@ -85,10 +91,13 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
   }
 
   Node* reduce(Node* node) {
-    JSGraph jsgraph(main_isolate(), &graph, &common, &javascript, &machine);
+    JSGraph jsgraph(main_isolate(), &graph, &common, &javascript, &simplified,
+                    &machine);
     // TODO(titzer): mock the GraphReducer here for better unit testing.
     GraphReducer graph_reducer(main_zone(), &graph);
-    JSTypedLowering reducer(&graph_reducer, &jsgraph, main_zone());
+    JSTypedLowering reducer(&graph_reducer, &deps,
+                            JSTypedLowering::kDeoptimizationEnabled, &jsgraph,
+                            main_zone());
     Reduction reduction = reducer.Reduce(node);
     if (reduction.Changed()) return reduction.replacement();
     return node;
@@ -145,7 +154,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
   Node* Unop(const Operator* op, Node* input) {
     // JS unops also require context, effect, and control
     if (OperatorProperties::GetFrameStateInputCount(op) > 0) {
-      DCHECK(OperatorProperties::GetFrameStateInputCount(op) == 1);
+      CHECK_EQ(1, OperatorProperties::GetFrameStateInputCount(op));
       return graph.NewNode(op, input, context(), EmptyFrameState(context()),
                            start(), control());
     } else {
@@ -157,8 +166,8 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
     // TODO(titzer): use EffectPhi after fixing EffectCount
     if (OperatorProperties::GetFrameStateInputCount(javascript.ToNumber()) >
         0) {
-      DCHECK(OperatorProperties::GetFrameStateInputCount(
-                 javascript.ToNumber()) == 1);
+      CHECK_EQ(1, OperatorProperties::GetFrameStateInputCount(
+                      javascript.ToNumber()));
       return graph.NewNode(javascript.ToNumber(), node, context(),
                            EmptyFrameState(context()), node, control());
     } else {
@@ -219,10 +228,6 @@ static Type* kNumberTypes[] = {
     Type::OrderedNumber(), Type::PlainNumber(), Type::Number()};
 
 
-static Type* kJSTypes[] = {Type::Undefined(), Type::Null(),   Type::Boolean(),
-                           Type::Number(),    Type::String(), Type::Object()};
-
-
 static Type* I32Type(bool is_signed) {
   return is_signed ? Type::Signed32() : Type::Unsigned32();
 }
@@ -261,7 +266,8 @@ TEST_WITH_STRONG(AddNumber1) {
   for (size_t i = 0; i < arraysize(kNumberTypes); ++i) {
     Node* p0 = R.Parameter(kNumberTypes[i], 0);
     Node* p1 = R.Parameter(kNumberTypes[i], 1);
-    Node* add = R.Binop(R.javascript.Add(language_mode), p0, p1);
+    Node* add = R.Binop(
+        R.javascript.Add(language_mode, BinaryOperationHints::Any()), p0, p1);
     Node* r = R.reduce(add);
 
     R.CheckBinop(IrOpcode::kNumberAdd, r);
@@ -274,11 +280,16 @@ TEST_WITH_STRONG(AddNumber1) {
 TEST_WITH_STRONG(NumberBinops) {
   JSTypedLoweringTester R;
   const Operator* ops[] = {
-      R.javascript.Add(language_mode),      R.simplified.NumberAdd(),
-      R.javascript.Subtract(language_mode), R.simplified.NumberSubtract(),
-      R.javascript.Multiply(language_mode), R.simplified.NumberMultiply(),
-      R.javascript.Divide(language_mode),   R.simplified.NumberDivide(),
-      R.javascript.Modulus(language_mode),  R.simplified.NumberModulus(),
+      R.javascript.Add(language_mode, R.hints),
+      R.simplified.NumberAdd(),
+      R.javascript.Subtract(language_mode, R.hints),
+      R.simplified.NumberSubtract(),
+      R.javascript.Multiply(language_mode, R.hints),
+      R.simplified.NumberMultiply(),
+      R.javascript.Divide(language_mode, R.hints),
+      R.simplified.NumberDivide(),
+      R.javascript.Modulus(language_mode, R.hints),
+      R.simplified.NumberModulus(),
   };
 
   for (size_t i = 0; i < arraysize(kNumberTypes); ++i) {
@@ -321,11 +332,11 @@ class JSBitwiseShiftTypedLoweringTester : public JSTypedLoweringTester {
   explicit JSBitwiseShiftTypedLoweringTester(LanguageMode language_mode)
       : JSTypedLoweringTester(), language_mode_(language_mode) {
     int i = 0;
-    set(i++, javascript.ShiftLeft(language_mode_), true);
+    set(i++, javascript.ShiftLeft(language_mode_, hints), true);
     set(i++, simplified.NumberShiftLeft(), false);
-    set(i++, javascript.ShiftRight(language_mode_), true);
+    set(i++, javascript.ShiftRight(language_mode_, hints), true);
     set(i++, simplified.NumberShiftRight(), false);
-    set(i++, javascript.ShiftRightLogical(language_mode_), false);
+    set(i++, javascript.ShiftRightLogical(language_mode_, hints), false);
     set(i++, simplified.NumberShiftRightLogical(), false);
   }
   static const int kNumberOps = 6;
@@ -379,12 +390,12 @@ class JSBitwiseTypedLoweringTester : public JSTypedLoweringTester {
   explicit JSBitwiseTypedLoweringTester(LanguageMode language_mode)
       : JSTypedLoweringTester(), language_mode_(language_mode) {
     int i = 0;
-    set(i++, javascript.BitwiseOr(language_mode_), true);
-    set(i++, machine.Word32Or(), true);
-    set(i++, javascript.BitwiseXor(language_mode_), true);
-    set(i++, machine.Word32Xor(), true);
-    set(i++, javascript.BitwiseAnd(language_mode_), true);
-    set(i++, machine.Word32And(), true);
+    set(i++, javascript.BitwiseOr(language_mode_, hints), true);
+    set(i++, simplified.NumberBitwiseOr(), true);
+    set(i++, javascript.BitwiseXor(language_mode_, hints), true);
+    set(i++, simplified.NumberBitwiseXor(), true);
+    set(i++, javascript.BitwiseAnd(language_mode_, hints), true);
+    set(i++, simplified.NumberBitwiseAnd(), true);
   }
   static const int kNumberOps = 6;
   const Operator* ops[kNumberOps];
@@ -542,8 +553,7 @@ TEST(JSToString1) {
 
   {  // ToString(boolean)
     Node* r = R.ReduceUnop(op, Type::Boolean());
-    // TODO(titzer): could be a branch
-    CHECK_EQ(IrOpcode::kJSToString, r->opcode());
+    CHECK_EQ(IrOpcode::kSelect, r->opcode());
   }
 
   {  // ToString(number)
@@ -571,8 +581,9 @@ TEST(JSToString_replacement) {
 
   for (size_t i = 0; i < arraysize(types); i++) {
     Node* n = R.Parameter(types[i]);
-    Node* c = R.graph.NewNode(R.javascript.ToString(), n, R.context(),
-                              R.start(), R.start());
+    Node* c =
+        R.graph.NewNode(R.javascript.ToString(), n, R.context(),
+                        R.EmptyFrameState(R.context()), R.start(), R.start());
     Node* effect_use = R.UseForEffect(c);
     Node* add = R.graph.NewNode(R.simplified.ReferenceEqual(Type::Any()), n, c);
 
@@ -719,28 +730,28 @@ TEST_WITH_STRONG(RemoveToNumberEffects) {
 
     switch (i) {
       case 0:
-        DCHECK(OperatorProperties::GetFrameStateInputCount(
-                   R.javascript.ToNumber()) == 1);
+        CHECK_EQ(1, OperatorProperties::GetFrameStateInputCount(
+                        R.javascript.ToNumber()));
         effect_use = R.graph.NewNode(R.javascript.ToNumber(), p0, R.context(),
                                      frame_state, ton, R.start());
         break;
       case 1:
-        DCHECK(OperatorProperties::GetFrameStateInputCount(
-                   R.javascript.ToNumber()) == 1);
+        CHECK_EQ(1, OperatorProperties::GetFrameStateInputCount(
+                        R.javascript.ToNumber()));
         effect_use = R.graph.NewNode(R.javascript.ToNumber(), ton, R.context(),
                                      frame_state, ton, R.start());
         break;
       case 2:
         effect_use = R.graph.NewNode(R.common.EffectPhi(1), ton, R.start());
       case 3:
-        effect_use = R.graph.NewNode(R.javascript.Add(language_mode), ton, ton,
-                                     R.context(), frame_state, frame_state, ton,
-                                     R.start());
+        effect_use = R.graph.NewNode(R.javascript.Add(language_mode, R.hints),
+                                     ton, ton, R.context(), frame_state,
+                                     frame_state, ton, R.start());
         break;
       case 4:
-        effect_use = R.graph.NewNode(R.javascript.Add(language_mode), p0, p0,
-                                     R.context(), frame_state, frame_state, ton,
-                                     R.start());
+        effect_use = R.graph.NewNode(R.javascript.Add(language_mode, R.hints),
+                                     p0, p0, R.context(), frame_state,
+                                     frame_state, ton, R.start());
         break;
       case 5:
         effect_use = R.graph.NewNode(R.common.Return(), p0, ton, R.start());
@@ -903,13 +914,20 @@ TEST_WITH_STRONG(RemovePureNumberBinopEffects) {
   JSTypedLoweringTester R;
 
   const Operator* ops[] = {
-      R.javascript.Equal(),           R.simplified.NumberEqual(),
-      R.javascript.Add(language_mode),      R.simplified.NumberAdd(),
-      R.javascript.Subtract(language_mode), R.simplified.NumberSubtract(),
-      R.javascript.Multiply(language_mode), R.simplified.NumberMultiply(),
-      R.javascript.Divide(language_mode),   R.simplified.NumberDivide(),
-      R.javascript.Modulus(language_mode),  R.simplified.NumberModulus(),
-      R.javascript.LessThan(language_mode), R.simplified.NumberLessThan(),
+      R.javascript.Equal(),
+      R.simplified.NumberEqual(),
+      R.javascript.Add(language_mode, R.hints),
+      R.simplified.NumberAdd(),
+      R.javascript.Subtract(language_mode, R.hints),
+      R.simplified.NumberSubtract(),
+      R.javascript.Multiply(language_mode, R.hints),
+      R.simplified.NumberMultiply(),
+      R.javascript.Divide(language_mode, R.hints),
+      R.simplified.NumberDivide(),
+      R.javascript.Modulus(language_mode, R.hints),
+      R.simplified.NumberModulus(),
+      R.javascript.LessThan(language_mode),
+      R.simplified.NumberLessThan(),
       R.javascript.LessThanOrEqual(language_mode),
       R.simplified.NumberLessThanOrEqual(),
   };
@@ -932,11 +950,11 @@ TEST(OrderNumberBinopEffects1) {
   JSTypedLoweringTester R;
 
   const Operator* ops[] = {
-      R.javascript.Subtract(LanguageMode::SLOPPY),
+      R.javascript.Subtract(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberSubtract(),
-      R.javascript.Multiply(LanguageMode::SLOPPY),
+      R.javascript.Multiply(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberMultiply(),
-      R.javascript.Divide(LanguageMode::SLOPPY),
+      R.javascript.Divide(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberDivide(),
   };
 
@@ -960,13 +978,13 @@ TEST(OrderNumberBinopEffects2) {
   JSTypedLoweringTester R;
 
   const Operator* ops[] = {
-      R.javascript.Add(LanguageMode::SLOPPY),
+      R.javascript.Add(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberAdd(),
-      R.javascript.Subtract(LanguageMode::SLOPPY),
+      R.javascript.Subtract(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberSubtract(),
-      R.javascript.Multiply(LanguageMode::SLOPPY),
+      R.javascript.Multiply(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberMultiply(),
-      R.javascript.Divide(LanguageMode::SLOPPY),
+      R.javascript.Divide(LanguageMode::SLOPPY, R.hints),
       R.simplified.NumberDivide(),
   };
 
@@ -1261,3 +1279,7 @@ TEST_WITH_STRONG(Int32Comparisons) {
     }
   }
 }
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

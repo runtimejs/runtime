@@ -12,6 +12,7 @@ BOTS = {
   '--arm32': 'v8_arm32_perf_try',
   '--linux32': 'v8_linux32_perf_try',
   '--linux64': 'v8_linux64_perf_try',
+  '--linux64_atom': 'v8_linux64_atom_perf_try',
   '--linux64_haswell': 'v8_linux64_haswell_perf_try',
   '--nexus5': 'v8_nexus5_perf_try',
   '--nexus7': 'v8_nexus7_perf_try',
@@ -24,6 +25,25 @@ DEFAULT_BOTS = [
   'v8_linux32_perf_try',
   'v8_linux64_haswell_perf_try',
   'v8_nexus10_perf_try',
+]
+
+PUBLIC_BENCHMARKS = [
+  'arewefastyet',
+  'embenchen',
+  'emscripten',
+  'compile',
+  'jetstream',
+  'jsbench',
+  'jstests',
+  'kraken_orig',
+  'massive',
+  'memory',
+  'octane',
+  'octane-pr',
+  'octane-tf',
+  'octane-tf-pr',
+  'simdjs',
+  'sunspider',
 ]
 
 V8_BASE = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -45,6 +65,16 @@ def main():
   if not options.benchmarks:
     print 'Please specify the benchmarks to run as arguments.'
     return 1
+
+  for benchmark in options.benchmarks:
+    if benchmark not in PUBLIC_BENCHMARKS:
+      print ('%s not found in our benchmark list. The respective trybot might '
+            'fail, unless you run something this script isn\'t aware of. '
+            'Available public benchmarks: %s' % (benchmark, PUBLIC_BENCHMARKS))
+      print 'Proceed anyways? [Y/n] ',
+      answer = sys.stdin.readline().strip()
+      if answer != "" and answer != "Y" and answer != "y":
+        return 1
 
   assert '"' not in options.extra_flags and '\'' not in options.extra_flags, (
       'Invalid flag specification.')

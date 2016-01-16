@@ -42,6 +42,17 @@
     'debugger': {
       'filepath': 'src/debug/',
     },
+    'interpreter': {
+      'filepath': 'src/interpreter/',
+      'filepath': 'test/cctest/interpreter/',
+      'filepath': 'test/unittests/interpreter/',
+    },
+    'feature_shipping_status': {
+      'filepath': 'src/flag-definitions.h',
+    },
+    'gc_changes': {
+      'filepath': 'src/heap/',
+    },
   },
 
   'WATCHLISTS': {
@@ -53,6 +64,17 @@
     ],
     'debugger': [
       'yangguo@chromium.org',
+    ],
+    'interpreter': [
+      'rmcilroy@chromium.org',
+      'oth@chromium.org',
+    ],
+    'feature_shipping_status': [
+      'hablich@chromium.org',
+    ],
+    'gc_changes': [
+      'hpayer@chromium.org',
+      'ulan@chromium.org',
     ],
   },
 }

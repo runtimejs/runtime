@@ -5,6 +5,7 @@
 #ifndef V8_HEAP_SPACES_INL_H_
 #define V8_HEAP_SPACES_INL_H_
 
+#include "src/heap/incremental-marking.h"
 #include "src/heap/spaces.h"
 #include "src/isolate.h"
 #include "src/msan.h"
@@ -49,20 +50,21 @@ Page* PageIterator::next() {
 // SemiSpaceIterator
 
 HeapObject* SemiSpaceIterator::Next() {
-  if (current_ == limit_) return NULL;
-  if (NewSpacePage::IsAtEnd(current_)) {
-    NewSpacePage* page = NewSpacePage::FromLimit(current_);
-    page = page->next_page();
-    DCHECK(!page->is_anchor());
-    current_ = page->area_start();
-    if (current_ == limit_) return NULL;
+  while (current_ != limit_) {
+    if (NewSpacePage::IsAtEnd(current_)) {
+      NewSpacePage* page = NewSpacePage::FromLimit(current_);
+      page = page->next_page();
+      DCHECK(!page->is_anchor());
+      current_ = page->area_start();
+      if (current_ == limit_) return nullptr;
+    }
+    HeapObject* object = HeapObject::FromAddress(current_);
+    current_ += object->Size();
+    if (!object->IsFiller()) {
+      return object;
+    }
   }
-
-  HeapObject* object = HeapObject::FromAddress(current_);
-  int size = object->Size();
-
-  current_ += size;
-  return object;
+  return nullptr;
 }
 
 
@@ -133,7 +135,12 @@ HeapObject* HeapObjectIterator::FromCurrentPage() {
     }
 
     if (!obj->IsFiller()) {
-      DCHECK_OBJECT_SIZE(obj_size);
+      if (obj->IsCode()) {
+        DCHECK_EQ(space_, space_->heap()->code_space());
+        DCHECK_CODEOBJECT_SIZE(obj_size, space_);
+      } else {
+        DCHECK_OBJECT_SIZE(obj_size);
+      }
       return obj;
     }
   }
@@ -188,7 +195,7 @@ Page* Page::Initialize(Heap* heap, MemoryChunk* chunk, Executability executable,
                        PagedSpace* owner) {
   Page* page = reinterpret_cast<Page*>(chunk);
   page->mutex_ = new base::Mutex();
-  DCHECK(page->area_size() <= kMaxRegularHeapObjectSize);
+  DCHECK(page->area_size() <= kAllocatableMemory);
   DCHECK(chunk->owner() == owner);
   owner->IncreaseCapacity(page->area_size());
   owner->Free(page->area_start(), page->area_size());
@@ -311,6 +318,24 @@ HeapObject* PagedSpace::AllocateLinearly(int size_in_bytes) {
 
   allocation_info_.set_top(new_top);
   return HeapObject::FromAddress(current_top);
+}
+
+
+AllocationResult LocalAllocationBuffer::AllocateRawAligned(
+    int size_in_bytes, AllocationAlignment alignment) {
+  Address current_top = allocation_info_.top();
+  int filler_size = Heap::GetFillToAlign(current_top, alignment);
+
+  Address new_top = current_top + filler_size + size_in_bytes;
+  if (new_top > allocation_info_.limit()) return AllocationResult::Retry();
+
+  allocation_info_.set_top(new_top);
+  if (filler_size > 0) {
+    return heap_->PrecedeWithFiller(HeapObject::FromAddress(current_top),
+                                    filler_size);
+  }
+
+  return AllocationResult(HeapObject::FromAddress(current_top));
 }
 
 
@@ -446,7 +471,7 @@ AllocationResult NewSpace::AllocateRawAligned(int size_in_bytes,
 
 AllocationResult NewSpace::AllocateRawUnaligned(int size_in_bytes) {
   Address top = allocation_info_.top();
-  if (allocation_info_.limit() - top < size_in_bytes) {
+  if (allocation_info_.limit() < top + size_in_bytes) {
     // See if we can create room.
     if (!EnsureAllocation(size_in_bytes, kWordAligned)) {
       return AllocationResult::Retry();
@@ -477,6 +502,13 @@ AllocationResult NewSpace::AllocateRaw(int size_in_bytes,
 }
 
 
+MUST_USE_RESULT inline AllocationResult NewSpace::AllocateRawSynchronized(
+    int size_in_bytes, AllocationAlignment alignment) {
+  base::LockGuard<base::Mutex> guard(&mutex_);
+  return AllocateRaw(size_in_bytes, alignment);
+}
+
+
 LargePage* LargePage::Initialize(Heap* heap, MemoryChunk* chunk) {
   heap->incremental_marking()->SetOldSpacePageFlags(chunk);
   return static_cast<LargePage*>(chunk);
@@ -487,7 +519,35 @@ intptr_t LargeObjectSpace::Available() {
   return ObjectSizeFor(heap()->isolate()->memory_allocator()->Available());
 }
 
+
+LocalAllocationBuffer LocalAllocationBuffer::InvalidBuffer() {
+  return LocalAllocationBuffer(nullptr, AllocationInfo(nullptr, nullptr));
 }
-}  // namespace v8::internal
+
+
+LocalAllocationBuffer LocalAllocationBuffer::FromResult(Heap* heap,
+                                                        AllocationResult result,
+                                                        intptr_t size) {
+  if (result.IsRetry()) return InvalidBuffer();
+  HeapObject* obj = nullptr;
+  bool ok = result.To(&obj);
+  USE(ok);
+  DCHECK(ok);
+  Address top = HeapObject::cast(obj)->address();
+  return LocalAllocationBuffer(heap, AllocationInfo(top, top + size));
+}
+
+
+bool LocalAllocationBuffer::TryMerge(LocalAllocationBuffer* other) {
+  if (allocation_info_.top() == other->allocation_info_.limit()) {
+    allocation_info_.set_top(other->allocation_info_.top());
+    other->allocation_info_.Reset(nullptr, nullptr);
+    return true;
+  }
+  return false;
+}
+
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_HEAP_SPACES_INL_H_
