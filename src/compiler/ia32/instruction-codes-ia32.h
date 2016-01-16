@@ -31,6 +31,8 @@ namespace compiler {
   V(IA32Sar)                       \
   V(IA32Ror)                       \
   V(IA32Lzcnt)                     \
+  V(IA32Tzcnt)                     \
+  V(IA32Popcnt)                    \
   V(SSEFloat32Cmp)                 \
   V(SSEFloat32Add)                 \
   V(SSEFloat32Sub)                 \
@@ -41,6 +43,7 @@ namespace compiler {
   V(SSEFloat32Abs)                 \
   V(SSEFloat32Neg)                 \
   V(SSEFloat32Sqrt)                \
+  V(SSEFloat32Round)               \
   V(SSEFloat64Cmp)                 \
   V(SSEFloat64Add)                 \
   V(SSEFloat64Sub)                 \
@@ -93,8 +96,9 @@ namespace compiler {
   V(IA32BitcastIF)                 \
   V(IA32Lea)                       \
   V(IA32Push)                      \
+  V(IA32PushFloat32)               \
+  V(IA32PushFloat64)               \
   V(IA32Poke)                      \
-  V(IA32StoreWriteBarrier)         \
   V(IA32StackCheck)
 
 

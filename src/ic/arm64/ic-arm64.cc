@@ -22,7 +22,6 @@ namespace internal {
 static void GenerateGlobalInstanceTypeCheck(MacroAssembler* masm, Register type,
                                             Label* global_object) {
   __ Cmp(type, JS_GLOBAL_OBJECT_TYPE);
-  __ Ccmp(type, JS_BUILTINS_OBJECT_TYPE, ZFlag, ne);
   __ Ccmp(type, JS_GLOBAL_PROXY_TYPE, ZFlag, ne);
   __ B(eq, global_object);
 }
@@ -294,8 +293,7 @@ void LoadIC::GenerateMiss(MacroAssembler* masm) {
           LoadWithVectorDescriptor::NameRegister(),
           LoadWithVectorDescriptor::SlotRegister(),
           LoadWithVectorDescriptor::VectorRegister());
-  int arg_count = 4;
-  __ TailCallRuntime(Runtime::kLoadIC_Miss, arg_count, 1);
+  __ TailCallRuntime(Runtime::kLoadIC_Miss);
 }
 
 
@@ -306,8 +304,7 @@ void LoadIC::GenerateRuntimeGetProperty(MacroAssembler* masm,
 
   // Do tail-call to runtime routine.
   __ TailCallRuntime(is_strong(language_mode) ? Runtime::kGetPropertyStrong
-                                              : Runtime::kGetProperty,
-                     2, 1);
+                                              : Runtime::kGetProperty);
 }
 
 
@@ -325,8 +322,7 @@ void KeyedLoadIC::GenerateMiss(MacroAssembler* masm) {
           LoadWithVectorDescriptor::VectorRegister());
 
   // Perform tail call to the entry.
-  int arg_count = 4;
-  __ TailCallRuntime(Runtime::kKeyedLoadIC_Miss, arg_count, 1);
+  __ TailCallRuntime(Runtime::kKeyedLoadIC_Miss);
 }
 
 
@@ -337,8 +333,7 @@ void KeyedLoadIC::GenerateRuntimeGetProperty(MacroAssembler* masm,
 
   // Do tail-call to runtime routine.
   __ TailCallRuntime(is_strong(language_mode) ? Runtime::kKeyedGetPropertyStrong
-                                              : Runtime::kKeyedGetProperty,
-                     2, 1);
+                                              : Runtime::kKeyedGetProperty);
 }
 
 
@@ -410,7 +405,7 @@ static void GenerateKeyedLoadWithNameKey(MacroAssembler* masm, Register key,
   Handle<TypeFeedbackVector> dummy_vector =
       TypeFeedbackVector::DummyVector(masm->isolate());
   int slot_index = dummy_vector->GetIndex(
-      FeedbackVectorICSlot(TypeFeedbackVector::kDummyKeyedLoadICSlot));
+      FeedbackVectorSlot(TypeFeedbackVector::kDummyKeyedLoadICSlot));
   __ LoadRoot(vector, Heap::kDummyVectorRootIndex);
   __ Mov(slot, Operand(Smi::FromInt(slot_index)));
 
@@ -471,24 +466,17 @@ void KeyedLoadIC::GenerateMegamorphic(MacroAssembler* masm,
 
 
 static void StoreIC_PushArgs(MacroAssembler* masm) {
-  if (FLAG_vector_stores) {
-    __ Push(StoreDescriptor::ReceiverRegister(),
-            StoreDescriptor::NameRegister(), StoreDescriptor::ValueRegister(),
-            VectorStoreICDescriptor::SlotRegister(),
-            VectorStoreICDescriptor::VectorRegister());
-  } else {
-    __ Push(StoreDescriptor::ReceiverRegister(),
-            StoreDescriptor::NameRegister(), StoreDescriptor::ValueRegister());
-  }
+  __ Push(StoreDescriptor::ReceiverRegister(), StoreDescriptor::NameRegister(),
+          StoreDescriptor::ValueRegister(),
+          VectorStoreICDescriptor::SlotRegister(),
+          VectorStoreICDescriptor::VectorRegister());
 }
 
 
 void KeyedStoreIC::GenerateMiss(MacroAssembler* masm) {
   ASM_LOCATION("KeyedStoreIC::GenerateMiss");
   StoreIC_PushArgs(masm);
-
-  int args = FLAG_vector_stores ? 5 : 3;
-  __ TailCallRuntime(Runtime::kKeyedStoreIC_Miss, args, 1);
+  __ TailCallRuntime(Runtime::kKeyedStoreIC_Miss);
 }
 
 
@@ -691,19 +679,17 @@ void KeyedStoreIC::GenerateMegamorphic(MacroAssembler* masm,
   __ Ldrb(x10, FieldMemOperand(x10, Map::kInstanceTypeOffset));
   __ JumpIfNotUniqueNameInstanceType(x10, &slow);
 
-  if (FLAG_vector_stores) {
-    // The handlers in the stub cache expect a vector and slot. Since we won't
-    // change the IC from any downstream misses, a dummy vector can be used.
-    Register vector = VectorStoreICDescriptor::VectorRegister();
-    Register slot = VectorStoreICDescriptor::SlotRegister();
-    DCHECK(!AreAliased(vector, slot, x5, x6, x7, x8));
-    Handle<TypeFeedbackVector> dummy_vector =
-        TypeFeedbackVector::DummyVector(masm->isolate());
-    int slot_index = dummy_vector->GetIndex(
-        FeedbackVectorICSlot(TypeFeedbackVector::kDummyKeyedStoreICSlot));
-    __ LoadRoot(vector, Heap::kDummyVectorRootIndex);
-    __ Mov(slot, Operand(Smi::FromInt(slot_index)));
-  }
+  // The handlers in the stub cache expect a vector and slot. Since we won't
+  // change the IC from any downstream misses, a dummy vector can be used.
+  Register vector = VectorStoreICDescriptor::VectorRegister();
+  Register slot = VectorStoreICDescriptor::SlotRegister();
+  DCHECK(!AreAliased(vector, slot, x5, x6, x7, x8));
+  Handle<TypeFeedbackVector> dummy_vector =
+      TypeFeedbackVector::DummyVector(masm->isolate());
+  int slot_index = dummy_vector->GetIndex(
+      FeedbackVectorSlot(TypeFeedbackVector::kDummyKeyedStoreICSlot));
+  __ LoadRoot(vector, Heap::kDummyVectorRootIndex);
+  __ Mov(slot, Operand(Smi::FromInt(slot_index)));
 
   Code::Flags flags = Code::RemoveTypeAndHolderFromFlags(
       Code::ComputeHandlerFlags(Code::STORE_IC));
@@ -779,8 +765,7 @@ void StoreIC::GenerateMiss(MacroAssembler* masm) {
   StoreIC_PushArgs(masm);
 
   // Tail call to the entry.
-  int args = FLAG_vector_stores ? 5 : 3;
-  __ TailCallRuntime(Runtime::kStoreIC_Miss, args, 1);
+  __ TailCallRuntime(Runtime::kStoreIC_Miss);
 }
 
 
@@ -840,7 +825,8 @@ bool CompareIC::HasInlinedSmiCode(Address address) {
 // Activate a SMI fast-path by patching the instructions generated by
 // JumpPatchSite::EmitJumpIf(Not)Smi(), using the information encoded by
 // JumpPatchSite::EmitPatchInfo().
-void PatchInlinedSmiCode(Address address, InlinedSmiCheck check) {
+void PatchInlinedSmiCode(Isolate* isolate, Address address,
+                         InlinedSmiCheck check) {
   // The patch information is encoded in the instruction stream using
   // instructions which have no side effects, so we can safely execute them.
   // The patch information is encoded directly after the call to the helper
@@ -865,7 +851,7 @@ void PatchInlinedSmiCode(Address address, InlinedSmiCheck check) {
   // to
   //   tb(!n)z test_reg, #0, <target>
   Instruction* to_patch = info.SmiCheck();
-  PatchingAssembler patcher(to_patch, 1);
+  PatchingAssembler patcher(isolate, to_patch, 1);
   DCHECK(to_patch->IsTestBranch());
   DCHECK(to_patch->ImmTestBranchBit5() == 0);
   DCHECK(to_patch->ImmTestBranchBit40() == 0);

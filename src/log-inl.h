@@ -8,6 +8,7 @@
 #include "src/log.h"
 #include "src/isolate.h"
 #include "src/objects-inl.h"
+#include "src/tracing/trace-event.h"
 
 namespace v8 {
 namespace internal {
@@ -37,7 +38,21 @@ void Logger::CallEventLogger(Isolate* isolate, const char* name, StartEnd se,
       isolate->event_logger()(name, se);
     }
   }
+  if (expose_to_api) {
+    if (se == START) {
+      TRACE_EVENT_BEGIN0("v8", name);
+    } else {
+      TRACE_EVENT_END0("v8", name);
+    }
+  } else {
+    if (se == START) {
+      TRACE_EVENT_BEGIN0(TRACE_DISABLED_BY_DEFAULT("v8"), name);
+    } else {
+      TRACE_EVENT_END0(TRACE_DISABLED_BY_DEFAULT("v8"), name);
+    }
+  }
 }
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_LOG_INL_H_

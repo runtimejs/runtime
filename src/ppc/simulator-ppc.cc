@@ -164,7 +164,7 @@ bool PPCDebugger::GetValue(const char* desc, intptr_t* value) {
 
 
 bool PPCDebugger::GetFPDoubleValue(const char* desc, double* value) {
-  int regnum = FPRegisters::Number(desc);
+  int regnum = DoubleRegisters::Number(desc);
   if (regnum != kNoRegister) {
     *value = sim_->get_double_from_d_register(regnum);
     return true;
@@ -313,7 +313,8 @@ void PPCDebugger::Debug() {
           if (strcmp(arg1, "all") == 0) {
             for (int i = 0; i < kNumRegisters; i++) {
               value = GetRegisterValue(i);
-              PrintF("    %3s: %08" V8PRIxPTR, Registers::Name(i), value);
+              PrintF("    %3s: %08" V8PRIxPTR,
+                     Register::from_code(i).ToString(), value);
               if ((argc == 3 && strcmp(arg2, "fp") == 0) && i < 8 &&
                   (i % 2) == 0) {
                 dvalue = GetRegisterPairDoubleValue(i);
@@ -332,7 +333,7 @@ void PPCDebugger::Debug() {
             for (int i = 0; i < kNumRegisters; i++) {
               value = GetRegisterValue(i);
               PrintF("     %3s: %08" V8PRIxPTR " %11" V8PRIdPTR,
-                     Registers::Name(i), value, value);
+                     Register::from_code(i).ToString(), value, value);
               if ((argc == 3 && strcmp(arg2, "fp") == 0) && i < 8 &&
                   (i % 2) == 0) {
                 dvalue = GetRegisterPairDoubleValue(i);
@@ -351,7 +352,8 @@ void PPCDebugger::Debug() {
             for (int i = 0; i < DoubleRegister::kNumRegisters; i++) {
               dvalue = GetFPDoubleRegisterValue(i);
               uint64_t as_words = bit_cast<uint64_t>(dvalue);
-              PrintF("%3s: %f 0x%08x %08x\n", FPRegisters::Name(i), dvalue,
+              PrintF("%3s: %f 0x%08x %08x\n",
+                     DoubleRegister::from_code(i).ToString(), dvalue,
                      static_cast<uint32_t>(as_words >> 32),
                      static_cast<uint32_t>(as_words & 0xffffffff));
             }
@@ -443,7 +445,7 @@ void PPCDebugger::Debug() {
                  reinterpret_cast<intptr_t>(cur), *cur, *cur);
           HeapObject* obj = reinterpret_cast<HeapObject*>(*cur);
           intptr_t value = *cur;
-          Heap* current_heap = v8::internal::Isolate::Current()->heap();
+          Heap* current_heap = sim_->isolate_->heap();
           if (((value & 1) == 0) || current_heap->Contains(obj)) {
             PrintF(" (");
             if ((value & 1) == 0) {
@@ -842,12 +844,12 @@ Simulator::~Simulator() { free(stack_); }
 // offset from the svc instruction so the simulator knows what to call.
 class Redirection {
  public:
-  Redirection(void* external_function, ExternalReference::Type type)
+  Redirection(Isolate* isolate, void* external_function,
+              ExternalReference::Type type)
       : external_function_(external_function),
         swi_instruction_(rtCallRedirInstr | kCallRtRedirected),
         type_(type),
         next_(NULL) {
-    Isolate* isolate = Isolate::Current();
     next_ = isolate->simulator_redirection();
     Simulator::current(isolate)->FlushICache(
         isolate->simulator_i_cache(),
@@ -862,9 +864,8 @@ class Redirection {
   void* external_function() { return external_function_; }
   ExternalReference::Type type() { return type_; }
 
-  static Redirection* Get(void* external_function,
+  static Redirection* Get(Isolate* isolate, void* external_function,
                           ExternalReference::Type type) {
-    Isolate* isolate = Isolate::Current();
     Redirection* current = isolate->simulator_redirection();
     for (; current != NULL; current = current->next_) {
       if (current->external_function_ == external_function) {
@@ -872,7 +873,7 @@ class Redirection {
         return current;
       }
     }
-    return new Redirection(external_function, type);
+    return new Redirection(isolate, external_function, type);
   }
 
   static Redirection* FromSwiInstruction(Instruction* swi_instruction) {
@@ -917,9 +918,10 @@ void Simulator::TearDown(HashMap* i_cache, Redirection* first) {
 }
 
 
-void* Simulator::RedirectExternalReference(void* external_function,
+void* Simulator::RedirectExternalReference(Isolate* isolate,
+                                           void* external_function,
                                            ExternalReference::Type type) {
-  Redirection* redirection = Redirection::Get(external_function, type);
+  Redirection* redirection = Redirection::Get(isolate, external_function, type);
   return redirection->address_of_swi_instruction();
 }
 
@@ -1847,6 +1849,36 @@ bool Simulator::ExecuteExt2_10bit(Instruction* instr) {
         }
         break;
     }
+    case POPCNTW: {
+      int rs = instr->RSValue();
+      int ra = instr->RAValue();
+      uintptr_t rs_val = get_register(rs);
+      uintptr_t count = 0;
+      int n = 0;
+      uintptr_t bit = 0x80000000;
+      for (; n < 32; n++) {
+        if (bit & rs_val) count++;
+        bit >>= 1;
+      }
+      set_register(ra, count);
+      break;
+    }
+#if V8_TARGET_ARCH_PPC64
+    case POPCNTD: {
+      int rs = instr->RSValue();
+      int ra = instr->RAValue();
+      uintptr_t rs_val = get_register(rs);
+      uintptr_t count = 0;
+      int n = 0;
+      uintptr_t bit = 0x8000000000000000UL;
+      for (; n < 64; n++) {
+        if (bit & rs_val) count++;
+        bit >>= 1;
+      }
+      set_register(ra, count);
+      break;
+    }
+#endif
     case SYNC: {
       // todo - simulate sync
       break;
@@ -2663,6 +2695,32 @@ void Simulator::ExecuteExt2(Instruction* instr) {
 }
 
 
+void Simulator::ExecuteExt3(Instruction* instr) {
+  int opcode = instr->Bits(10, 1) << 1;
+  switch (opcode) {
+    case FCFID: {
+      // fcfids
+      int frt = instr->RTValue();
+      int frb = instr->RBValue();
+      int64_t frb_val = get_d_register(frb);
+      double frt_val = static_cast<float>(frb_val);
+      set_d_register_from_double(frt, frt_val);
+      return;
+    }
+    case FCFIDU: {
+      // fcfidus
+      int frt = instr->RTValue();
+      int frb = instr->RBValue();
+      uint64_t frb_val = get_d_register(frb);
+      double frt_val = static_cast<float>(frb_val);
+      set_d_register_from_double(frt, frt_val);
+      return;
+    }
+  }
+  UNIMPLEMENTED();  // Not used by V8.
+}
+
+
 void Simulator::ExecuteExt4(Instruction* instr) {
   switch (instr->Bits(5, 1) << 1) {
     case FDIV: {
@@ -2696,10 +2754,11 @@ void Simulator::ExecuteExt4(Instruction* instr) {
       return;
     }
     case FSQRT: {
+      lazily_initialize_fast_sqrt(isolate_);
       int frt = instr->RTValue();
       int frb = instr->RBValue();
       double frb_val = get_double_from_d_register(frb);
-      double frt_val = fast_sqrt(frb_val);
+      double frt_val = fast_sqrt(frb_val, isolate_);
       set_d_register_from_double(frt, frt_val);
       return;
     }
@@ -2836,64 +2895,107 @@ void Simulator::ExecuteExt4(Instruction* instr) {
     case FCFID: {
       int frt = instr->RTValue();
       int frb = instr->RBValue();
-      double t_val = get_double_from_d_register(frb);
-      int64_t* frb_val_p = reinterpret_cast<int64_t*>(&t_val);
-      double frt_val = static_cast<double>(*frb_val_p);
+      int64_t frb_val = get_d_register(frb);
+      double frt_val = static_cast<double>(frb_val);
       set_d_register_from_double(frt, frt_val);
       return;
     }
-    case FCTID: {
+    case FCFIDU: {
       int frt = instr->RTValue();
       int frb = instr->RBValue();
-      double frb_val = get_double_from_d_register(frb);
-      int64_t frt_val;
-      int64_t one = 1;  // work-around gcc
-      int64_t kMinLongLong = (one << 63);
-      int64_t kMaxLongLong = kMinLongLong - 1;
-
-      if (frb_val > kMaxLongLong) {
-        frt_val = kMaxLongLong;
-      } else if (frb_val < kMinLongLong) {
-        frt_val = kMinLongLong;
-      } else {
-        switch (fp_condition_reg_ & kFPRoundingModeMask) {
-          case kRoundToZero:
-            frt_val = (int64_t)frb_val;
-            break;
-          case kRoundToPlusInf:
-            frt_val = (int64_t)std::ceil(frb_val);
-            break;
-          case kRoundToMinusInf:
-            frt_val = (int64_t)std::floor(frb_val);
-            break;
-          default:
-            frt_val = (int64_t)frb_val;
-            UNIMPLEMENTED();  // Not used by V8.
-            break;
-        }
-      }
-      double* p = reinterpret_cast<double*>(&frt_val);
-      set_d_register_from_double(frt, *p);
+      uint64_t frb_val = get_d_register(frb);
+      double frt_val = static_cast<double>(frb_val);
+      set_d_register_from_double(frt, frt_val);
       return;
     }
+    case FCTID:
     case FCTIDZ: {
       int frt = instr->RTValue();
       int frb = instr->RBValue();
       double frb_val = get_double_from_d_register(frb);
+      int mode = (opcode == FCTIDZ) ? kRoundToZero
+                                    : (fp_condition_reg_ & kFPRoundingModeMask);
       int64_t frt_val;
       int64_t one = 1;  // work-around gcc
-      int64_t kMinLongLong = (one << 63);
-      int64_t kMaxLongLong = kMinLongLong - 1;
+      int64_t kMinVal = (one << 63);
+      int64_t kMaxVal = kMinVal - 1;
+      bool invalid_convert = false;
 
-      if (frb_val > kMaxLongLong) {
-        frt_val = kMaxLongLong;
-      } else if (frb_val < kMinLongLong) {
-        frt_val = kMinLongLong;
+      if (std::isnan(frb_val)) {
+        frt_val = kMinVal;
+        invalid_convert = true;
       } else {
-        frt_val = (int64_t)frb_val;
+        switch (mode) {
+          case kRoundToZero:
+            frb_val = std::trunc(frb_val);
+            break;
+          case kRoundToPlusInf:
+            frb_val = std::ceil(frb_val);
+            break;
+          case kRoundToMinusInf:
+            frb_val = std::floor(frb_val);
+            break;
+          default:
+            UNIMPLEMENTED();  // Not used by V8.
+            break;
+        }
+        if (frb_val < static_cast<double>(kMinVal)) {
+          frt_val = kMinVal;
+          invalid_convert = true;
+        } else if (frb_val >= static_cast<double>(kMaxVal)) {
+          frt_val = kMaxVal;
+          invalid_convert = true;
+        } else {
+          frt_val = (int64_t)frb_val;
+        }
       }
-      double* p = reinterpret_cast<double*>(&frt_val);
-      set_d_register_from_double(frt, *p);
+      set_d_register(frt, frt_val);
+      if (invalid_convert) SetFPSCR(VXCVI);
+      return;
+    }
+    case FCTIDU:
+    case FCTIDUZ: {
+      int frt = instr->RTValue();
+      int frb = instr->RBValue();
+      double frb_val = get_double_from_d_register(frb);
+      int mode = (opcode == FCTIDUZ)
+                     ? kRoundToZero
+                     : (fp_condition_reg_ & kFPRoundingModeMask);
+      uint64_t frt_val;
+      uint64_t kMinVal = 0;
+      uint64_t kMaxVal = kMinVal - 1;
+      bool invalid_convert = false;
+
+      if (std::isnan(frb_val)) {
+        frt_val = kMinVal;
+        invalid_convert = true;
+      } else {
+        switch (mode) {
+          case kRoundToZero:
+            frb_val = std::trunc(frb_val);
+            break;
+          case kRoundToPlusInf:
+            frb_val = std::ceil(frb_val);
+            break;
+          case kRoundToMinusInf:
+            frb_val = std::floor(frb_val);
+            break;
+          default:
+            UNIMPLEMENTED();  // Not used by V8.
+            break;
+        }
+        if (frb_val < static_cast<double>(kMinVal)) {
+          frt_val = kMinVal;
+          invalid_convert = true;
+        } else if (frb_val >= static_cast<double>(kMaxVal)) {
+          frt_val = kMaxVal;
+          invalid_convert = true;
+        } else {
+          frt_val = (uint64_t)frb_val;
+        }
+      }
+      set_d_register(frt, frt_val);
+      if (invalid_convert) SetFPSCR(VXCVI);
       return;
     }
     case FCTIW:
@@ -2901,44 +3003,47 @@ void Simulator::ExecuteExt4(Instruction* instr) {
       int frt = instr->RTValue();
       int frb = instr->RBValue();
       double frb_val = get_double_from_d_register(frb);
+      int mode = (opcode == FCTIWZ) ? kRoundToZero
+                                    : (fp_condition_reg_ & kFPRoundingModeMask);
       int64_t frt_val;
-      if (frb_val > kMaxInt) {
-        frt_val = kMaxInt;
-      } else if (frb_val < kMinInt) {
-        frt_val = kMinInt;
+      int64_t kMinVal = kMinInt;
+      int64_t kMaxVal = kMaxInt;
+
+      if (std::isnan(frb_val)) {
+        frt_val = kMinVal;
       } else {
-        if (opcode == FCTIWZ) {
-          frt_val = (int64_t)frb_val;
-        } else {
-          switch (fp_condition_reg_ & kFPRoundingModeMask) {
-            case kRoundToZero:
-              frt_val = (int64_t)frb_val;
-              break;
-            case kRoundToPlusInf:
-              frt_val = (int64_t)std::ceil(frb_val);
-              break;
-            case kRoundToMinusInf:
-              frt_val = (int64_t)std::floor(frb_val);
-              break;
-            case kRoundToNearest:
-              frt_val = (int64_t)lround(frb_val);
-
-              // Round to even if exactly halfway.  (lround rounds up)
-              if (std::fabs(static_cast<double>(frt_val) - frb_val) == 0.5 &&
-                  (frt_val % 2)) {
-                frt_val += ((frt_val > 0) ? -1 : 1);
-              }
-
-              break;
-            default:
-              DCHECK(false);
-              frt_val = (int64_t)frb_val;
-              break;
+        switch (mode) {
+          case kRoundToZero:
+            frb_val = std::trunc(frb_val);
+            break;
+          case kRoundToPlusInf:
+            frb_val = std::ceil(frb_val);
+            break;
+          case kRoundToMinusInf:
+            frb_val = std::floor(frb_val);
+            break;
+          case kRoundToNearest: {
+            double orig = frb_val;
+            frb_val = lround(frb_val);
+            // Round to even if exactly halfway.  (lround rounds up)
+            if (std::fabs(frb_val - orig) == 0.5 && ((int64_t)frb_val % 2)) {
+              frb_val += ((frb_val > 0) ? -1.0 : 1.0);
+            }
+            break;
           }
+          default:
+            UNIMPLEMENTED();  // Not used by V8.
+            break;
+        }
+        if (frb_val < kMinVal) {
+          frt_val = kMinVal;
+        } else if (frb_val > kMaxVal) {
+          frt_val = kMaxVal;
+        } else {
+          frt_val = (int64_t)frb_val;
         }
       }
-      double* p = reinterpret_cast<double*>(&frt_val);
-      set_d_register_from_double(frt, *p);
+      set_d_register(frt, frt_val);
       return;
     }
     case FNEG: {
@@ -2989,6 +3094,43 @@ void Simulator::ExecuteExt4(Instruction* instr) {
       int frt = instr->RTValue();
       int64_t lval = static_cast<int64_t>(fp_condition_reg_);
       set_d_register(frt, lval);
+      return;
+    }
+    case MCRFS: {
+      int bf = instr->Bits(25, 23);
+      int bfa = instr->Bits(20, 18);
+      int cr_shift = (7 - bf) * CRWIDTH;
+      int fp_shift = (7 - bfa) * CRWIDTH;
+      int field_val = (fp_condition_reg_ >> fp_shift) & 0xf;
+      condition_reg_ &= ~(0x0f << cr_shift);
+      condition_reg_ |= (field_val << cr_shift);
+      // Clear copied exception bits
+      switch (bfa) {
+        case 5:
+          ClearFPSCR(VXSOFT);
+          ClearFPSCR(VXSQRT);
+          ClearFPSCR(VXCVI);
+          break;
+        default:
+          UNIMPLEMENTED();
+          break;
+      }
+      return;
+    }
+    case MTFSB0: {
+      int bt = instr->Bits(25, 21);
+      ClearFPSCR(bt);
+      if (instr->Bit(0)) {  // RC bit set
+        UNIMPLEMENTED();
+      }
+      return;
+    }
+    case MTFSB1: {
+      int bt = instr->Bits(25, 21);
+      SetFPSCR(bt);
+      if (instr->Bit(0)) {  // RC bit set
+        UNIMPLEMENTED();
+      }
       return;
     }
     case FABS: {
@@ -3578,8 +3720,10 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       break;
     }
 
-    case EXT3:
-      UNIMPLEMENTED();
+    case EXT3: {
+      ExecuteExt3(instr);
+      break;
+    }
     case EXT4: {
       ExecuteExt4(instr);
       break;
@@ -3716,6 +3860,9 @@ void Simulator::CallInternal(byte* entry) {
   // entry is the instruction address
   set_pc(reinterpret_cast<intptr_t>(entry));
 #endif
+
+  // Put target address in ip (for JS prologue).
+  set_register(r12, get_pc());
 
   // Put down marker for end of simulation. The simulator will stop simulation
   // when the PC reaches this value. By saving the "end simulation" value into

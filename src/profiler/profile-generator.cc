@@ -4,13 +4,12 @@
 
 #include "src/profiler/profile-generator.h"
 
-#include "src/compiler.h"
+#include "src/ast/scopeinfo.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
 #include "src/global-handles.h"
 #include "src/profiler/profile-generator-inl.h"
 #include "src/profiler/sampler.h"
-#include "src/scopeinfo.h"
 #include "src/splay-tree-inl.h"
 #include "src/unicode.h"
 
@@ -50,7 +49,6 @@ const char* const CodeEntry::kNoDeoptReason = "";
 
 
 CodeEntry::~CodeEntry() {
-  delete no_frame_ranges_;
   delete line_info_;
 }
 
@@ -251,10 +249,11 @@ class DeleteNodesCallback {
 };
 
 
-ProfileTree::ProfileTree()
+ProfileTree::ProfileTree(Isolate* isolate)
     : root_entry_(Logger::FUNCTION_TAG, "(root)"),
       next_node_id_(1),
       root_(new ProfileNode(this, &root_entry_)),
+      isolate_(isolate),
       next_function_id_(1),
       function_ids_(ProfileNode::CodeEntriesMatch) {}
 
@@ -349,11 +348,11 @@ void ProfileTree::TraverseDepthFirst(Callback* callback) {
 }
 
 
-CpuProfile::CpuProfile(const char* title, bool record_samples)
+CpuProfile::CpuProfile(Isolate* isolate, const char* title, bool record_samples)
     : title_(title),
       record_samples_(record_samples),
-      start_time_(base::TimeTicks::HighResolutionNow()) {
-}
+      start_time_(base::TimeTicks::HighResolutionNow()),
+      top_down_(isolate) {}
 
 
 void CpuProfile::AddPath(base::TimeTicks timestamp,
@@ -442,8 +441,8 @@ void CodeMap::Print() {
 
 CpuProfilesCollection::CpuProfilesCollection(Heap* heap)
     : function_and_resource_names_(heap),
-      current_profiles_semaphore_(1) {
-}
+      isolate_(heap->isolate()),
+      current_profiles_semaphore_(1) {}
 
 
 static void DeleteCodeEntry(CodeEntry** entry_ptr) {
@@ -478,7 +477,7 @@ bool CpuProfilesCollection::StartProfiling(const char* title,
       return true;
     }
   }
-  current_profiles_.Add(new CpuProfile(title, record_samples));
+  current_profiles_.Add(new CpuProfile(isolate_, title, record_samples));
   current_profiles_semaphore_.Signal();
   return true;
 }
@@ -611,17 +610,8 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
       // ebp contains return address of the current function and skips caller's
       // frame. Check for this case and just skip such samples.
       if (pc_entry) {
-        List<OffsetRange>* ranges = pc_entry->no_frame_ranges();
         int pc_offset =
             static_cast<int>(sample.pc - pc_entry->instruction_start());
-        if (ranges) {
-          for (int i = 0; i < ranges->length(); i++) {
-            OffsetRange& range = ranges->at(i);
-            if (range.from <= pc_offset && pc_offset < range.to) {
-              return;
-            }
-          }
-        }
         src_line = pc_entry->GetSourceLine(pc_offset);
         if (src_line == v8::CpuProfileNode::kNoLineNumberInfo) {
           src_line = pc_entry->line_number();
@@ -629,11 +619,12 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
         src_line_not_found = false;
         *entry++ = pc_entry;
 
-        if (pc_entry->builtin_id() == Builtins::kFunctionCall ||
-            pc_entry->builtin_id() == Builtins::kFunctionApply) {
-          // When current function is FunctionCall or FunctionApply builtin the
-          // top frame is either frame of the calling JS function or internal
-          // frame. In the latter case we know the caller for sure but in the
+        if (pc_entry->builtin_id() == Builtins::kFunctionPrototypeApply ||
+            pc_entry->builtin_id() == Builtins::kFunctionPrototypeCall) {
+          // When current function is either the Function.prototype.apply or the
+          // Function.prototype.call builtin the top frame is either frame of
+          // the calling JS function or internal frame.
+          // In the latter case we know the caller for sure but in the
           // former case we don't so we simply replace the frame with
           // 'unresolved' entry.
           if (sample.top_frame_type == StackFrame::JAVA_SCRIPT) {

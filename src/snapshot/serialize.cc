@@ -15,7 +15,7 @@
 #include "src/ic/ic.h"
 #include "src/ic/stub-cache.h"
 #include "src/objects.h"
-#include "src/parser.h"
+#include "src/parsing/parser.h"
 #include "src/profiler/cpu-profiler.h"
 #include "src/runtime/runtime.h"
 #include "src/snapshot/natives.h"
@@ -60,8 +60,6 @@ ExternalReferenceTable::ExternalReferenceTable(Isolate* isolate) {
       "Heap::NewSpaceAllocationLimitAddress()");
   Add(ExternalReference::new_space_allocation_top_address(isolate).address(),
       "Heap::NewSpaceAllocationTopAddress()");
-  Add(ExternalReference::debug_step_in_fp_address(isolate).address(),
-      "Debug::step_in_fp_addr()");
   Add(ExternalReference::mod_two_doubles_operation(isolate).address(),
       "mod_two_doubles");
   // Keyed lookup cache.
@@ -129,17 +127,20 @@ ExternalReferenceTable::ExternalReferenceTable(Isolate* isolate) {
       "double_constants.minus_one_half");
   Add(ExternalReference::stress_deopt_count(isolate).address(),
       "Isolate::stress_deopt_count_address()");
-  Add(ExternalReference::vector_store_virtual_register(isolate).address(),
-      "Isolate::vector_store_virtual_register()");
+  Add(ExternalReference::virtual_handler_register(isolate).address(),
+      "Isolate::virtual_handler_register()");
+  Add(ExternalReference::virtual_slot_register(isolate).address(),
+      "Isolate::virtual_slot_register()");
+  Add(ExternalReference::runtime_function_table_address(isolate).address(),
+      "Runtime::runtime_function_table_address()");
 
   // Debug addresses
   Add(ExternalReference::debug_after_break_target_address(isolate).address(),
       "Debug::after_break_target_address()");
-  Add(ExternalReference::debug_restarter_frame_function_pointer_address(isolate)
-          .address(),
-      "Debug::restarter_frame_function_pointer_address()");
   Add(ExternalReference::debug_is_active_address(isolate).address(),
       "Debug::is_active_address()");
+  Add(ExternalReference::debug_step_in_enabled_address(isolate).address(),
+      "Debug::step_in_enabled_address()");
 
 #ifndef V8_INTERPRETED_REGEXP
   Add(ExternalReference::re_case_insensitive_compare_uc16(isolate).address(),
@@ -350,31 +351,6 @@ const char* ExternalReferenceEncoder::NameOfAddress(Isolate* isolate,
 }
 
 
-RootIndexMap::RootIndexMap(Isolate* isolate) {
-  map_ = isolate->root_index_map();
-  if (map_ != NULL) return;
-  map_ = new HashMap(HashMap::PointersMatch);
-  for (uint32_t i = 0; i < Heap::kStrongRootListLength; i++) {
-    Heap::RootListIndex root_index = static_cast<Heap::RootListIndex>(i);
-    Object* root = isolate->heap()->root(root_index);
-    // Omit root entries that can be written after initialization. They must
-    // not be referenced through the root list in the snapshot.
-    if (root->IsHeapObject() &&
-        isolate->heap()->RootCanBeTreatedAsConstant(root_index)) {
-      HeapObject* heap_object = HeapObject::cast(root);
-      HashMap::Entry* entry = LookupEntry(map_, heap_object, false);
-      if (entry != NULL) {
-        // Some are initialized to a previous value in the root list.
-        DCHECK_LT(GetValue(entry), i);
-      } else {
-        SetValue(LookupEntry(map_, heap_object, true), i);
-      }
-    }
-  }
-  isolate->set_root_index_map(map_);
-}
-
-
 class CodeAddressMap: public CodeEventLogger {
  public:
   explicit CodeAddressMap(Isolate* isolate)
@@ -382,18 +358,17 @@ class CodeAddressMap: public CodeEventLogger {
     isolate->logger()->addCodeEventListener(this);
   }
 
-  virtual ~CodeAddressMap() {
+  ~CodeAddressMap() override {
     isolate_->logger()->removeCodeEventListener(this);
   }
 
-  virtual void CodeMoveEvent(Address from, Address to) {
+  void CodeMoveEvent(Address from, Address to) override {
     address_to_name_map_.Move(from, to);
   }
 
-  virtual void CodeDisableOptEvent(Code* code, SharedFunctionInfo* shared) {
-  }
+  void CodeDisableOptEvent(Code* code, SharedFunctionInfo* shared) override {}
 
-  virtual void CodeDeleteEvent(Address from) {
+  void CodeDeleteEvent(Address from) override {
     address_to_name_map_.Remove(from);
   }
 
@@ -473,10 +448,8 @@ class CodeAddressMap: public CodeEventLogger {
     DISALLOW_COPY_AND_ASSIGN(NameMap);
   };
 
-  virtual void LogRecordedBuffer(Code* code,
-                                 SharedFunctionInfo*,
-                                 const char* name,
-                                 int length) {
+  void LogRecordedBuffer(Code* code, SharedFunctionInfo*, const char* name,
+                         int length) override {
     address_to_name_map_.Insert(code->address(), name, length);
   }
 
@@ -564,8 +537,7 @@ void Deserializer::Deserialize(Isolate* isolate) {
   }
 
   isolate_->heap()->set_native_contexts_list(
-      isolate_->heap()->code_stub_context());
-
+      isolate_->heap()->undefined_value());
   // The allocation site list is build during root iteration, but if no sites
   // were encountered then it needs to be initialized to undefined.
   if (isolate_->heap()->allocation_sites_list() == Smi::FromInt(0)) {
@@ -576,7 +548,6 @@ void Deserializer::Deserialize(Isolate* isolate) {
   // Update data pointers to the external strings containing natives sources.
   Natives::UpdateSourceCache(isolate_->heap());
   ExtraNatives::UpdateSourceCache(isolate_->heap());
-  CodeStubNatives::UpdateSourceCache(isolate_->heap());
 
   // Issue code events for newly deserialized code objects.
   LOG_CODE_EVENT(isolate_, LogCodeObjects());
@@ -585,8 +556,7 @@ void Deserializer::Deserialize(Isolate* isolate) {
 
 
 MaybeHandle<Object> Deserializer::DeserializePartial(
-    Isolate* isolate, Handle<JSGlobalProxy> global_proxy,
-    Handle<FixedArray>* outdated_contexts_out) {
+    Isolate* isolate, Handle<JSGlobalProxy> global_proxy) {
   Initialize(isolate);
   if (!ReserveSpace()) {
     V8::FatalProcessOutOfMemory("deserialize context");
@@ -603,18 +573,13 @@ MaybeHandle<Object> Deserializer::DeserializePartial(
   OldSpace* code_space = isolate_->heap()->code_space();
   Address start_address = code_space->top();
   Object* root;
-  Object* outdated_contexts;
   VisitPointer(&root);
   DeserializeDeferredObjects();
-  VisitPointer(&outdated_contexts);
 
   // There's no code deserialized here. If this assert fires then that's
   // changed and logging should be added to notify the profiler et al of the
   // new code, which also has to be flushed from instruction cache.
   CHECK_EQ(start_address, code_space->top());
-  CHECK(outdated_contexts->IsFixedArray());
-  *outdated_contexts_out =
-      Handle<FixedArray>(FixedArray::cast(outdated_contexts), isolate);
   return Handle<Object>(root, isolate);
 }
 
@@ -660,18 +625,27 @@ void Deserializer::VisitPointers(Object** start, Object** end) {
 
 void Deserializer::DeserializeDeferredObjects() {
   for (int code = source_.Get(); code != kSynchronize; code = source_.Get()) {
-    int space = code & kSpaceMask;
-    DCHECK(space <= kNumberOfSpaces);
-    DCHECK(code - space == kNewObject);
-    HeapObject* object = GetBackReferencedObject(space);
-    int size = source_.GetInt() << kPointerSizeLog2;
-    Address obj_address = object->address();
-    Object** start = reinterpret_cast<Object**>(obj_address + kPointerSize);
-    Object** end = reinterpret_cast<Object**>(obj_address + size);
-    bool filled = ReadData(start, end, space, obj_address);
-    CHECK(filled);
-    DCHECK(CanBeDeferred(object));
-    PostProcessNewObject(object, space);
+    switch (code) {
+      case kAlignmentPrefix:
+      case kAlignmentPrefix + 1:
+      case kAlignmentPrefix + 2:
+        SetAlignment(code);
+        break;
+      default: {
+        int space = code & kSpaceMask;
+        DCHECK(space <= kNumberOfSpaces);
+        DCHECK(code - space == kNewObject);
+        HeapObject* object = GetBackReferencedObject(space);
+        int size = source_.GetInt() << kPointerSizeLog2;
+        Address obj_address = object->address();
+        Object** start = reinterpret_cast<Object**>(obj_address + kPointerSize);
+        Object** end = reinterpret_cast<Object**>(obj_address + size);
+        bool filled = ReadData(start, end, space, obj_address);
+        CHECK(filled);
+        DCHECK(CanBeDeferred(object));
+        PostProcessNewObject(object, space);
+      }
+    }
   }
 }
 
@@ -698,7 +672,7 @@ class StringTableInsertionKey : public HashTableKey {
     return String::cast(key)->Hash();
   }
 
-  MUST_USE_RESULT virtual Handle<Object> AsHandle(Isolate* isolate) override {
+  MUST_USE_RESULT Handle<Object> AsHandle(Isolate* isolate) override {
     return handle(string_, isolate);
   }
 
@@ -999,7 +973,7 @@ bool Deserializer::ReadData(Object** current, Object** limit, int source_space,
       if (how == kFromCode) {                                                  \
         Address location_of_branch_data = reinterpret_cast<Address>(current);  \
         Assembler::deserialization_set_special_target_at(                      \
-            location_of_branch_data,                                           \
+            isolate, location_of_branch_data,                                  \
             Code::cast(HeapObject::FromAddress(current_object_address)),       \
             reinterpret_cast<Address>(new_object));                            \
         location_of_branch_data += Assembler::kSpecialTargetSize;              \
@@ -1138,9 +1112,9 @@ bool Deserializer::ReadData(Object** current, Object** limit, int source_space,
         Address pc = code->entry() + pc_offset;
         Address target = code->entry() + target_offset;
         Assembler::deserialization_set_target_internal_reference_at(
-            pc, target, data == kInternalReference
-                            ? RelocInfo::INTERNAL_REFERENCE
-                            : RelocInfo::INTERNAL_REFERENCE_ENCODED);
+            isolate, pc, target, data == kInternalReference
+                                     ? RelocInfo::INTERNAL_REFERENCE
+                                     : RelocInfo::INTERNAL_REFERENCE_ENCODED);
         break;
       }
 
@@ -1189,11 +1163,6 @@ bool Deserializer::ReadData(Object** current, Object** limit, int source_space,
             ExtraNatives::GetScriptSource(source_.Get()), current);
         break;
 
-      case kCodeStubNativesStringResource:
-        current = CopyInNativesSource(
-            CodeStubNatives::GetScriptSource(source_.Get()), current);
-        break;
-
       // Deserialize raw data of variable length.
       case kVariableRawData: {
         int size_in_bytes = source_.GetInt();
@@ -1212,12 +1181,9 @@ bool Deserializer::ReadData(Object** current, Object** limit, int source_space,
 
       case kAlignmentPrefix:
       case kAlignmentPrefix + 1:
-      case kAlignmentPrefix + 2: {
-        DCHECK_EQ(kWordAligned, next_alignment_);
-        next_alignment_ =
-            static_cast<AllocationAlignment>(data - (kAlignmentPrefix - 1));
+      case kAlignmentPrefix + 2:
+        SetAlignment(data);
         break;
-      }
 
       STATIC_ASSERT(kNumberOfRootArrayConstants == Heap::kOldSpaceRoots);
       STATIC_ASSERT(kNumberOfRootArrayConstants == 32);
@@ -1391,21 +1357,21 @@ class Serializer::ObjectSerializer : public ObjectVisitor {
         code_has_been_output_(false) {}
   void Serialize();
   void SerializeDeferred();
-  void VisitPointers(Object** start, Object** end);
-  void VisitEmbeddedPointer(RelocInfo* target);
-  void VisitExternalReference(Address* p);
-  void VisitExternalReference(RelocInfo* rinfo);
-  void VisitInternalReference(RelocInfo* rinfo);
-  void VisitCodeTarget(RelocInfo* target);
-  void VisitCodeEntry(Address entry_address);
-  void VisitCell(RelocInfo* rinfo);
-  void VisitRuntimeEntry(RelocInfo* reloc);
+  void VisitPointers(Object** start, Object** end) override;
+  void VisitEmbeddedPointer(RelocInfo* target) override;
+  void VisitExternalReference(Address* p) override;
+  void VisitExternalReference(RelocInfo* rinfo) override;
+  void VisitInternalReference(RelocInfo* rinfo) override;
+  void VisitCodeTarget(RelocInfo* target) override;
+  void VisitCodeEntry(Address entry_address) override;
+  void VisitCell(RelocInfo* rinfo) override;
+  void VisitRuntimeEntry(RelocInfo* reloc) override;
   // Used for seralizing the external strings that hold the natives source.
   void VisitExternalOneByteString(
-      v8::String::ExternalOneByteStringResource** resource);
+      v8::String::ExternalOneByteStringResource** resource) override;
   // We can't serialize a heap with external two byte strings.
   void VisitExternalTwoByteString(
-      v8::String::ExternalStringResource** resource) {
+      v8::String::ExternalStringResource** resource) override {
     UNREACHABLE();
   }
 
@@ -1498,41 +1464,11 @@ void PartialSerializer::Serialize(Object** o) {
       context->set(Context::NEXT_CONTEXT_LINK,
                    isolate_->heap()->undefined_value());
       DCHECK(!context->global_object()->IsUndefined());
-      DCHECK(!context->builtins()->IsUndefined());
     }
   }
   VisitPointer(o);
   SerializeDeferredObjects();
-  SerializeOutdatedContextsAsFixedArray();
   Pad();
-}
-
-
-void PartialSerializer::SerializeOutdatedContextsAsFixedArray() {
-  int length = outdated_contexts_.length();
-  if (length == 0) {
-    FixedArray* empty = isolate_->heap()->empty_fixed_array();
-    SerializeObject(empty, kPlain, kStartOfObject, 0);
-  } else {
-    // Serialize an imaginary fixed array containing outdated contexts.
-    int size = FixedArray::SizeFor(length);
-    Allocate(NEW_SPACE, size);
-    sink_->Put(kNewObject + NEW_SPACE, "emulated FixedArray");
-    sink_->PutInt(size >> kObjectAlignmentBits, "FixedArray size in words");
-    Map* map = isolate_->heap()->fixed_array_map();
-    SerializeObject(map, kPlain, kStartOfObject, 0);
-    Smi* length_smi = Smi::FromInt(length);
-    sink_->Put(kOnePointerRawData, "Smi");
-    for (int i = 0; i < kPointerSize; i++) {
-      sink_->Put(reinterpret_cast<byte*>(&length_smi)[i], "Byte");
-    }
-    for (int i = 0; i < length; i++) {
-      Context* context = outdated_contexts_[i];
-      BackReference back_reference = back_reference_map_.Lookup(context);
-      sink_->Put(kBackref + back_reference.space(), "BackRef");
-      PutBackReference(context, back_reference);
-    }
-  }
 }
 
 
@@ -1733,10 +1669,7 @@ StartupSerializer::StartupSerializer(Isolate* isolate, SnapshotByteSink* sink)
 
 void StartupSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
                                         WhereToPoint where_to_point, int skip) {
-  // Make sure that all functions are derived from the code-stub context
-  DCHECK(!obj->IsJSFunction() ||
-         JSFunction::cast(obj)->GetCreationContext() ==
-             isolate()->heap()->code_stub_context());
+  DCHECK(!obj->IsJSFunction());
 
   int root_index = root_index_map_.Lookup(obj);
   // We can only encode roots as such if it has already been serialized.
@@ -1863,7 +1796,7 @@ void PartialSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
   FlushSkip(skip);
 
   // Clear literal boilerplates.
-  if (obj->IsJSFunction() && !JSFunction::cast(obj)->shared()->bound()) {
+  if (obj->IsJSFunction()) {
     FixedArray* literals = JSFunction::cast(obj)->literals();
     for (int i = 0; i < literals->length(); i++) literals->set_undefined(i);
   }
@@ -1871,13 +1804,6 @@ void PartialSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
   // Object has not yet been serialized.  Serialize it here.
   ObjectSerializer serializer(this, obj, sink_, how_to_code, where_to_point);
   serializer.Serialize();
-
-  if (obj->IsContext() &&
-      Context::cast(obj)->global_object() == global_object_) {
-    // Context refers to the current global object. This reference will
-    // become outdated after deserialization.
-    outdated_contexts_.Add(Context::cast(obj));
-  }
 }
 
 
@@ -1993,7 +1919,7 @@ class UnlinkWeakCellScope {
     if (object->IsWeakCell()) {
       weak_cell_ = WeakCell::cast(object);
       next_ = weak_cell_->next();
-      weak_cell_->clear_next(object->GetHeap());
+      weak_cell_->clear_next(object->GetHeap()->the_hole_value());
     }
   }
 
@@ -2082,6 +2008,7 @@ void Serializer::ObjectSerializer::SerializeDeferred() {
   CHECK_EQ(0, bytes_processed_so_far_);
   bytes_processed_so_far_ = kPointerSize;
 
+  serializer_->PutAlignmentPrefix(object_);
   sink_->Put(kNewObject + reference.space(), "deferred object");
   serializer_->PutBackReference(object_, reference);
   sink_->PutInt(size >> kPointerSizeLog2, "deferred object size");
@@ -2267,12 +2194,6 @@ void Serializer::ObjectSerializer::VisitExternalOneByteString(
           kExtraNativesStringResource)) {
     return;
   }
-  if (SerializeExternalNativeSourceString(
-          CodeStubNatives::GetBuiltinsCount(), resource_pointer,
-          CodeStubNatives::GetSourceCache(serializer_->isolate()->heap()),
-          kCodeStubNativesStringResource)) {
-    return;
-  }
   // One of the strings in the natives cache should match the resource.  We
   // don't expect any other kinds of external strings here.
   UNREACHABLE();
@@ -2418,7 +2339,7 @@ ScriptData* CodeSerializer::Serialize(Isolate* isolate,
 
   // Serialize code object.
   SnapshotByteSink sink(info->code()->CodeSize() * 2);
-  CodeSerializer cs(isolate, &sink, *source, info->code());
+  CodeSerializer cs(isolate, &sink, *source);
   DisallowHeapAllocation no_gc;
   Object** location = Handle<Object>::cast(info).location();
   cs.VisitPointer(location);
@@ -2472,14 +2393,7 @@ void CodeSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
         return;
       case Code::FUNCTION:
         DCHECK(code_object->has_reloc_info_for_serialization());
-        // Only serialize the code for the toplevel function unless specified
-        // by flag. Replace code of inner functions by the lazy compile builtin.
-        // This is safe, as checked in Compiler::GetSharedFunctionInfo.
-        if (code_object != main_code_ && !FLAG_serialize_inner) {
-          SerializeBuiltin(Builtins::kCompileLazy, how_to_code, where_to_point);
-        } else {
-          SerializeGeneric(code_object, how_to_code, where_to_point);
-        }
+        SerializeGeneric(code_object, how_to_code, where_to_point);
         return;
       case Code::WASM_FUNCTION:
         UNREACHABLE();
@@ -2490,7 +2404,7 @@ void CodeSerializer::SerializeObject(HeapObject* obj, HowToCode how_to_code,
   // Past this point we should not see any (context-specific) maps anymore.
   CHECK(!obj->IsMap());
   // There should be no references to the global object embedded.
-  CHECK(!obj->IsJSGlobalProxy() && !obj->IsGlobalObject());
+  CHECK(!obj->IsJSGlobalProxy() && !obj->IsJSGlobalObject());
   // There should be no hash table embedded. They would require rehashing.
   CHECK(!obj->IsHashTable());
   // We expect no instantiated function objects or contexts.

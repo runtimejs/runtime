@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/diamond.h"
 #include "src/compiler/js-builtin-reducer.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
+#include "src/compiler/simplified-operator.h"
 #include "src/objects-inl.h"
 #include "src/types.h"
 
@@ -87,9 +87,7 @@ class JSCallReduction {
 
 
 JSBuiltinReducer::JSBuiltinReducer(Editor* editor, JSGraph* jsgraph)
-    : AdvancedReducer(editor),
-      jsgraph_(jsgraph),
-      simplified_(jsgraph->zone()) {}
+    : AdvancedReducer(editor), jsgraph_(jsgraph) {}
 
 
 // ECMA-262, section 15.8.2.11.
@@ -109,7 +107,7 @@ Reduction JSBuiltinReducer::ReduceMathMax(Node* node) {
     for (int i = 1; i < r.GetJSCallArity(); i++) {
       Node* const input = r.GetJSCallInput(i);
       value = graph()->NewNode(
-          common()->Select(kMachNone),
+          common()->Select(MachineRepresentation::kNone),
           graph()->NewNode(simplified()->NumberLessThan(), input, value), value,
           input);
     }
@@ -175,6 +173,9 @@ Reduction JSBuiltinReducer::Reduce(Node* node) {
 Graph* JSBuiltinReducer::graph() const { return jsgraph()->graph(); }
 
 
+Isolate* JSBuiltinReducer::isolate() const { return jsgraph()->isolate(); }
+
+
 CommonOperatorBuilder* JSBuiltinReducer::common() const {
   return jsgraph()->common();
 }
@@ -182,6 +183,11 @@ CommonOperatorBuilder* JSBuiltinReducer::common() const {
 
 MachineOperatorBuilder* JSBuiltinReducer::machine() const {
   return jsgraph()->machine();
+}
+
+
+SimplifiedOperatorBuilder* JSBuiltinReducer::simplified() const {
+  return jsgraph()->simplified();
 }
 
 }  // namespace compiler

@@ -44,11 +44,13 @@
   V(Phi)                 \
   V(EffectSet)           \
   V(EffectPhi)           \
-  V(ValueEffect)         \
-  V(Finish)              \
+  V(Guard)               \
+  V(BeginRegion)         \
+  V(FinishRegion)        \
   V(FrameState)          \
   V(StateValues)         \
   V(TypedStateValues)    \
+  V(ObjectState)         \
   V(Call)                \
   V(Parameter)           \
   V(OsrValue)            \
@@ -90,8 +92,6 @@
   JS_BITWISE_BINOP_LIST(V)      \
   JS_ARITH_BINOP_LIST(V)
 
-#define JS_LOGIC_UNOP_LIST(V) V(JSUnaryNot)
-
 #define JS_CONVERSION_UNOP_LIST(V) \
   V(JSToBoolean)                   \
   V(JSToNumber)                    \
@@ -103,31 +103,32 @@
   V(JSTypeOf)
 
 #define JS_SIMPLE_UNOP_LIST(V) \
-  JS_LOGIC_UNOP_LIST(V)        \
   JS_CONVERSION_UNOP_LIST(V)   \
   JS_OTHER_UNOP_LIST(V)
 
-#define JS_OBJECT_OP_LIST(V) \
-  V(JSCreate)                \
-  V(JSCreateArguments)       \
-  V(JSCreateClosure)         \
-  V(JSCreateLiteralArray)    \
-  V(JSCreateLiteralObject)   \
-  V(JSLoadProperty)          \
-  V(JSLoadNamed)             \
-  V(JSLoadGlobal)            \
-  V(JSStoreProperty)         \
-  V(JSStoreNamed)            \
-  V(JSStoreGlobal)           \
-  V(JSDeleteProperty)        \
-  V(JSHasProperty)           \
+#define JS_OBJECT_OP_LIST(V)  \
+  V(JSCreate)                 \
+  V(JSCreateArguments)        \
+  V(JSCreateArray)            \
+  V(JSCreateClosure)          \
+  V(JSCreateIterResultObject) \
+  V(JSCreateLiteralArray)     \
+  V(JSCreateLiteralObject)    \
+  V(JSCreateLiteralRegExp)    \
+  V(JSLoadProperty)           \
+  V(JSLoadNamed)              \
+  V(JSLoadGlobal)             \
+  V(JSStoreProperty)          \
+  V(JSStoreNamed)             \
+  V(JSStoreGlobal)            \
+  V(JSDeleteProperty)         \
+  V(JSHasProperty)            \
   V(JSInstanceOf)
 
 #define JS_CONTEXT_OP_LIST(V) \
   V(JSLoadContext)            \
   V(JSStoreContext)           \
-  V(JSLoadDynamicGlobal)      \
-  V(JSLoadDynamicContext)     \
+  V(JSLoadDynamic)            \
   V(JSCreateFunctionContext)  \
   V(JSCreateCatchContext)     \
   V(JSCreateWithContext)      \
@@ -139,10 +140,13 @@
   V(JSCallConstruct)        \
   V(JSCallFunction)         \
   V(JSCallRuntime)          \
+  V(JSConvertReceiver)      \
   V(JSForInDone)            \
   V(JSForInNext)            \
   V(JSForInPrepare)         \
   V(JSForInStep)            \
+  V(JSLoadMessage)          \
+  V(JSStoreMessage)         \
   V(JSYield)                \
   V(JSStackCheck)
 
@@ -172,11 +176,15 @@
   V(NumberMultiply)                \
   V(NumberDivide)                  \
   V(NumberModulus)                 \
+  V(NumberBitwiseOr)               \
+  V(NumberBitwiseXor)              \
+  V(NumberBitwiseAnd)              \
   V(NumberShiftLeft)               \
   V(NumberShiftRight)              \
   V(NumberShiftRightLogical)       \
   V(NumberToInt32)                 \
   V(NumberToUint32)                \
+  V(NumberIsHoleNaN)               \
   V(PlainPrimitiveToNumber)        \
   V(ChangeTaggedToInt32)           \
   V(ChangeTaggedToUint32)          \
@@ -193,6 +201,7 @@
   V(StoreField)                    \
   V(StoreBuffer)                   \
   V(StoreElement)                  \
+  V(ObjectIsNumber)                \
   V(ObjectIsSmi)
 
 // Opcodes for Machine-level operators.
@@ -226,6 +235,9 @@
   V(Word32Sar)                  \
   V(Word32Ror)                  \
   V(Word32Clz)                  \
+  V(Word32Ctz)                  \
+  V(Word32Popcnt)               \
+  V(Word64Popcnt)               \
   V(Word64And)                  \
   V(Word64Or)                   \
   V(Word64Xor)                  \
@@ -233,6 +245,8 @@
   V(Word64Shr)                  \
   V(Word64Sar)                  \
   V(Word64Ror)                  \
+  V(Word64Clz)                  \
+  V(Word64Ctz)                  \
   V(Int32Add)                   \
   V(Int32AddWithOverflow)       \
   V(Int32Sub)                   \
@@ -245,7 +259,9 @@
   V(Uint32Mod)                  \
   V(Uint32MulHigh)              \
   V(Int64Add)                   \
+  V(Int64AddWithOverflow)       \
   V(Int64Sub)                   \
+  V(Int64SubWithOverflow)       \
   V(Int64Mul)                   \
   V(Int64Div)                   \
   V(Int64Mod)                   \
@@ -254,6 +270,10 @@
   V(ChangeFloat32ToFloat64)     \
   V(ChangeFloat64ToInt32)       \
   V(ChangeFloat64ToUint32)      \
+  V(TryTruncateFloat32ToInt64)  \
+  V(TryTruncateFloat64ToInt64)  \
+  V(TryTruncateFloat32ToUint64) \
+  V(TryTruncateFloat64ToUint64) \
   V(ChangeInt32ToFloat64)       \
   V(ChangeInt32ToInt64)         \
   V(ChangeUint32ToFloat64)      \
@@ -261,6 +281,10 @@
   V(TruncateFloat64ToFloat32)   \
   V(TruncateFloat64ToInt32)     \
   V(TruncateInt64ToInt32)       \
+  V(RoundInt64ToFloat32)        \
+  V(RoundInt64ToFloat64)        \
+  V(RoundUint64ToFloat32)       \
+  V(RoundUint64ToFloat64)       \
   V(BitcastFloat32ToInt32)      \
   V(BitcastFloat64ToInt64)      \
   V(BitcastInt32ToFloat32)      \
@@ -273,6 +297,7 @@
   V(Float32Min)                 \
   V(Float32Abs)                 \
   V(Float32Sqrt)                \
+  V(Float32RoundDown)           \
   V(Float64Add)                 \
   V(Float64Sub)                 \
   V(Float64Mul)                 \
@@ -283,8 +308,13 @@
   V(Float64Abs)                 \
   V(Float64Sqrt)                \
   V(Float64RoundDown)           \
+  V(Float32RoundUp)             \
+  V(Float64RoundUp)             \
+  V(Float32RoundTruncate)       \
   V(Float64RoundTruncate)       \
   V(Float64RoundTiesAway)       \
+  V(Float32RoundTiesEven)       \
+  V(Float64RoundTiesEven)       \
   V(Float64ExtractLowWord32)    \
   V(Float64ExtractHighWord32)   \
   V(Float64InsertLowWord32)     \
@@ -356,6 +386,11 @@ class IrOpcode {
 
   static bool IsIfProjectionOpcode(Value value) {
     return kIfTrue <= value && value <= kIfDefault;
+  }
+
+  // Returns true if opcode can be inlined.
+  static bool IsInlineeOpcode(Value value) {
+    return value == kJSCallConstruct || value == kJSCallFunction;
   }
 
   // Returns true if opcode for comparison operator.

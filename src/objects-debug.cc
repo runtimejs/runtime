@@ -76,6 +76,9 @@ void HeapObject::HeapObjectVerify() {
     case BYTECODE_ARRAY_TYPE:
       BytecodeArray::cast(this)->BytecodeArrayVerify();
       break;
+    case TRANSITION_ARRAY_TYPE:
+      TransitionArray::cast(this)->TransitionArrayVerify();
+      break;
     case FREE_SPACE_TYPE:
       FreeSpace::cast(this)->FreeSpaceVerify();
       break;
@@ -96,6 +99,7 @@ void HeapObject::HeapObjectVerify() {
       break;
     case JS_OBJECT_TYPE:
     case JS_CONTEXT_EXTENSION_OBJECT_TYPE:
+    case JS_PROMISE_TYPE:
       JSObject::cast(this)->JSObjectVerify();
       break;
     case JS_GENERATOR_OBJECT_TYPE:
@@ -110,6 +114,9 @@ void HeapObject::HeapObjectVerify() {
     case JS_DATE_TYPE:
       JSDate::cast(this)->JSDateVerify();
       break;
+    case JS_BOUND_FUNCTION_TYPE:
+      JSBoundFunction::cast(this)->JSBoundFunctionVerify();
+      break;
     case JS_FUNCTION_TYPE:
       JSFunction::cast(this)->JSFunctionVerify();
       break;
@@ -118,9 +125,6 @@ void HeapObject::HeapObjectVerify() {
       break;
     case JS_GLOBAL_OBJECT_TYPE:
       JSGlobalObject::cast(this)->JSGlobalObjectVerify();
-      break;
-    case JS_BUILTINS_OBJECT_TYPE:
-      JSBuiltinsObject::cast(this)->JSBuiltinsObjectVerify();
       break;
     case CELL_TYPE:
       Cell::cast(this)->CellVerify();
@@ -162,9 +166,6 @@ void HeapObject::HeapObjectVerify() {
       break;
     case JS_PROXY_TYPE:
       JSProxy::cast(this)->JSProxyVerify();
-      break;
-    case JS_FUNCTION_PROXY_TYPE:
-      JSFunctionProxy::cast(this)->JSFunctionProxyVerify();
       break;
     case FOREIGN_TYPE:
       Foreign::cast(this)->ForeignVerify();
@@ -303,7 +304,11 @@ void JSObject::JSObjectVerify() {
         if (r.IsNone()) {
           CHECK(type_is_none);
         } else if (!type_is_any && !(type_is_none && r.IsHeapObject())) {
-          CHECK(!field_type->NowStable() || field_type->NowContains(value));
+          // If allocation folding is off then GC could happen during inner
+          // object literal creation and we will end up having and undefined
+          // value that does not match the field type.
+          CHECK(!field_type->NowStable() || field_type->NowContains(value) ||
+                (!FLAG_use_allocation_folding && value->IsUndefined()));
         }
       }
     }
@@ -328,6 +333,8 @@ void Map::MapVerify() {
   CHECK(instance_size() == kVariableSizeSentinel ||
          (kPointerSize <= instance_size() &&
           instance_size() < heap->Capacity()));
+  CHECK(GetBackPointer()->IsUndefined() ||
+        !Map::cast(GetBackPointer())->is_stable());
   VerifyHeapPointer(prototype());
   VerifyHeapPointer(instance_descriptors());
   SLOW_DCHECK(instance_descriptors()->IsSortedNoDuplicates());
@@ -353,8 +360,7 @@ void Map::VerifyOmittedMapChecks() {
   if (!is_stable() ||
       is_deprecated() ||
       is_dictionary_map()) {
-    CHECK_EQ(0, dependent_code()->number_of_entries(
-        DependentCode::kPrototypeCheckGroup));
+    CHECK(dependent_code()->IsEmpty(DependentCode::kPrototypeCheckGroup));
   }
 }
 
@@ -407,6 +413,17 @@ void FixedDoubleArray::FixedDoubleArrayVerify() {
             (value & V8_UINT64_C(0x0007FFFFFFFFFFFF)) == V8_UINT64_C(0));
     }
   }
+}
+
+
+void TransitionArray::TransitionArrayVerify() {
+  for (int i = 0; i < length(); i++) {
+    Object* e = get(i);
+    VerifyPointer(e);
+  }
+  CHECK_LE(LengthFor(number_of_transitions()), length());
+  CHECK(next_link()->IsUndefined() || next_link()->IsSmi() ||
+        next_link()->IsTransitionArray());
 }
 
 
@@ -530,6 +547,20 @@ void SlicedString::SlicedStringVerify() {
 }
 
 
+void JSBoundFunction::JSBoundFunctionVerify() {
+  CHECK(IsJSBoundFunction());
+  JSObjectVerify();
+  VerifyObjectField(kBoundThisOffset);
+  VerifyObjectField(kBoundTargetFunctionOffset);
+  VerifyObjectField(kBoundArgumentsOffset);
+  VerifyObjectField(kCreationContextOffset);
+  CHECK(bound_target_function()->IsCallable());
+  CHECK(creation_context()->IsNativeContext());
+  CHECK(IsCallable());
+  CHECK_EQ(IsConstructor(), bound_target_function()->IsConstructor());
+}
+
+
 void JSFunction::JSFunctionVerify() {
   CHECK(IsJSFunction());
   VerifyObjectField(kPrototypeOrInitialMapOffset);
@@ -570,23 +601,12 @@ void JSGlobalProxy::JSGlobalProxyVerify() {
 
 void JSGlobalObject::JSGlobalObjectVerify() {
   CHECK(IsJSGlobalObject());
-  JSObjectVerify();
-  for (int i = GlobalObject::kBuiltinsOffset;
-       i < JSGlobalObject::kSize;
-       i += kPointerSize) {
-    VerifyObjectField(i);
+  // Do not check the dummy global object for the builtins.
+  if (GlobalDictionary::cast(properties())->NumberOfElements() == 0 &&
+      elements()->length() == 0) {
+    return;
   }
-}
-
-
-void JSBuiltinsObject::JSBuiltinsObjectVerify() {
-  CHECK(IsJSBuiltinsObject());
   JSObjectVerify();
-  for (int i = GlobalObject::kBuiltinsOffset;
-       i < JSBuiltinsObject::kSize;
-       i += kPointerSize) {
-    VerifyObjectField(i);
-  }
 }
 
 
@@ -815,17 +835,14 @@ void JSRegExp::JSRegExpVerify() {
 
 void JSProxy::JSProxyVerify() {
   CHECK(IsJSProxy());
+  VerifyPointer(target());
   VerifyPointer(handler());
+  CHECK_EQ(target()->IsCallable(), map()->is_callable());
+  CHECK_EQ(target()->IsConstructor(), map()->is_constructor());
   CHECK(hash()->IsSmi() || hash()->IsUndefined());
-}
-
-
-void JSFunctionProxy::JSFunctionProxyVerify() {
-  CHECK(IsJSFunctionProxy());
-  JSProxyVerify();
-  VerifyPointer(call_trap());
-  VerifyPointer(construct_trap());
-  CHECK(map()->is_callable());
+  CHECK(map()->prototype()->IsNull());
+  // There should be no properties on a Proxy.
+  CHECK_EQ(0, map()->NumberOfOwnDescriptors());
 }
 
 
@@ -891,7 +908,6 @@ void PrototypeInfo::PrototypeInfoVerify() {
     CHECK(prototype_users()->IsSmi());
   }
   CHECK(validity_cell()->IsCell() || validity_cell()->IsSmi());
-  VerifyPointer(constructor_name());
 }
 
 
@@ -929,6 +945,7 @@ void AccessCheckInfo::AccessCheckInfoVerify() {
   CHECK(IsAccessCheckInfo());
   VerifyPointer(named_callback());
   VerifyPointer(indexed_callback());
+  VerifyPointer(callback());
   VerifyPointer(data());
 }
 
@@ -979,12 +996,6 @@ void ObjectTemplateInfo::ObjectTemplateInfoVerify() {
   TemplateInfoVerify();
   VerifyPointer(constructor());
   VerifyPointer(internal_field_count());
-}
-
-
-void TypeSwitchInfo::TypeSwitchInfoVerify() {
-  CHECK(IsTypeSwitchInfo());
-  VerifyPointer(types());
 }
 
 
@@ -1047,7 +1058,7 @@ void JSObject::IncrementSpillStatistics(SpillInformation* info) {
     info->number_of_objects_with_fast_properties_++;
     info->number_of_fast_used_fields_   += map()->NextFreePropertyIndex();
     info->number_of_fast_unused_fields_ += map()->unused_property_fields();
-  } else if (IsGlobalObject()) {
+  } else if (IsJSGlobalObject()) {
     GlobalDictionary* dict = global_dictionary();
     info->number_of_slow_used_properties_ += dict->NumberOfElements();
     info->number_of_slow_unused_properties_ +=

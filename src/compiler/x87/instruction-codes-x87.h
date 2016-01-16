@@ -33,6 +33,7 @@ namespace compiler {
   V(X87Sar)                        \
   V(X87Ror)                        \
   V(X87Lzcnt)                      \
+  V(X87Popcnt)                     \
   V(X87Float32Cmp)                 \
   V(X87Float32Add)                 \
   V(X87Float32Sub)                 \
@@ -42,6 +43,7 @@ namespace compiler {
   V(X87Float32Min)                 \
   V(X87Float32Abs)                 \
   V(X87Float32Sqrt)                \
+  V(X87Float32Round)               \
   V(X87LoadFloat64Constant)        \
   V(X87Float64Add)                 \
   V(X87Float64Sub)                 \
@@ -80,7 +82,6 @@ namespace compiler {
   V(X87PushFloat64)                \
   V(X87PushFloat32)                \
   V(X87Poke)                       \
-  V(X87StoreWriteBarrier)          \
   V(X87StackCheck)
 
 

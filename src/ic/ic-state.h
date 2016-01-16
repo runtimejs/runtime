@@ -23,30 +23,29 @@ class ICUtility : public AllStatic {
 
 class CallICState final BASE_EMBEDDED {
  public:
-  explicit CallICState(ExtraICState extra_ic_state);
+  explicit CallICState(ExtraICState extra_ic_state)
+      : bit_field_(extra_ic_state) {}
+  CallICState(int argc, ConvertReceiverMode convert_mode)
+      : bit_field_(ArgcBits::encode(argc) |
+                   ConvertModeBits::encode(convert_mode)) {}
 
-  enum CallType { METHOD, FUNCTION };
-
-  CallICState(int argc, CallType call_type)
-      : argc_(argc), call_type_(call_type) {}
-
-  ExtraICState GetExtraICState() const;
+  ExtraICState GetExtraICState() const { return bit_field_; }
 
   static void GenerateAheadOfTime(Isolate*,
                                   void (*Generate)(Isolate*,
                                                    const CallICState&));
 
-  int arg_count() const { return argc_; }
-  CallType call_type() const { return call_type_; }
-
-  bool CallAsMethod() const { return call_type_ == METHOD; }
+  int argc() const { return ArgcBits::decode(bit_field_); }
+  ConvertReceiverMode convert_mode() const {
+    return ConvertModeBits::decode(bit_field_);
+  }
 
  private:
-  class ArgcBits : public BitField<int, 0, Code::kArgumentsBits> {};
-  class CallTypeBits : public BitField<CallType, Code::kArgumentsBits, 1> {};
+  typedef BitField<int, 0, Code::kArgumentsBits> ArgcBits;
+  typedef BitField<ConvertReceiverMode, Code::kArgumentsBits, 2>
+      ConvertModeBits;
 
-  const int argc_;
-  const CallType call_type_;
+  int const bit_field_;
 };
 
 
@@ -121,9 +120,9 @@ class BinaryOpICState final BASE_EMBEDDED {
   Token::Value op() const { return op_; }
   Maybe<int> fixed_right_arg() const { return fixed_right_arg_; }
 
-  Type* GetLeftType(Zone* zone) const { return KindToType(left_kind_, zone); }
-  Type* GetRightType(Zone* zone) const { return KindToType(right_kind_, zone); }
-  Type* GetResultType(Zone* zone) const;
+  Type* GetLeftType() const { return KindToType(left_kind_); }
+  Type* GetRightType() const { return KindToType(right_kind_); }
+  Type* GetResultType() const;
 
   void Update(Handle<Object> left, Handle<Object> right, Handle<Object> result);
 
@@ -137,7 +136,7 @@ class BinaryOpICState final BASE_EMBEDDED {
   Kind UpdateKind(Handle<Object> object, Kind kind) const;
 
   static const char* KindToString(Kind kind);
-  static Type* KindToType(Kind kind, Zone* zone);
+  static Type* KindToType(Kind kind);
   static bool KindMaybeSmi(Kind kind) {
     return (kind >= SMI && kind <= NUMBER) || kind == GENERIC;
   }
@@ -175,7 +174,7 @@ class CompareICState {
   //   SMI < NUMBER
   //   INTERNALIZED_STRING < STRING
   //   INTERNALIZED_STRING < UNIQUE_NAME
-  //   KNOWN_OBJECT < OBJECT
+  //   KNOWN_RECEIVER < RECEIVER
   enum State {
     UNINITIALIZED,
     BOOLEAN,
@@ -183,9 +182,9 @@ class CompareICState {
     NUMBER,
     STRING,
     INTERNALIZED_STRING,
-    UNIQUE_NAME,   // Symbol or InternalizedString
-    OBJECT,        // JSObject
-    KNOWN_OBJECT,  // JSObject with specific map (faster check)
+    UNIQUE_NAME,     // Symbol or InternalizedString
+    RECEIVER,        // JSReceiver
+    KNOWN_RECEIVER,  // JSReceiver with specific map (faster check)
     GENERIC
   };
 
@@ -268,7 +267,8 @@ class StoreICState final BASE_EMBEDDED {
  private:
   const ExtraICState state_;
 };
-}
-}
+
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_IC_STATE_H_

@@ -5,6 +5,7 @@
 #include "src/runtime-profiler.h"
 
 #include "src/assembler.h"
+#include "src/ast/scopeinfo.h"
 #include "src/base/platform/platform.h"
 #include "src/bootstrapper.h"
 #include "src/code-stubs.h"
@@ -13,7 +14,6 @@
 #include "src/frames-inl.h"
 #include "src/full-codegen/full-codegen.h"
 #include "src/global-handles.h"
-#include "src/scopeinfo.h"
 
 namespace v8 {
 namespace internal {
@@ -72,8 +72,10 @@ static void GetICCounts(SharedFunctionInfo* shared,
 
   // Harvest vector-ics as well
   TypeFeedbackVector* vector = shared->feedback_vector();
-  *ic_with_type_info_count += vector->ic_with_type_info_count();
-  *ic_generic_count += vector->ic_generic_count();
+  int with = 0, gen = 0;
+  vector->ComputeCounts(&with, &gen);
+  *ic_with_type_info_count += with;
+  *ic_generic_count += gen;
 
   if (*ic_total_count > 0) {
     *type_info_percentage = 100 * *ic_with_type_info_count / *ic_total_count;
@@ -108,7 +110,7 @@ void RuntimeProfiler::Optimize(JSFunction* function, const char* reason) {
 void RuntimeProfiler::AttemptOnStackReplacement(JSFunction* function,
                                                 int loop_nesting_levels) {
   SharedFunctionInfo* shared = function->shared();
-  if (!FLAG_use_osr || function->IsBuiltin()) {
+  if (!FLAG_use_osr || function->shared()->IsBuiltin()) {
     return;
   }
 

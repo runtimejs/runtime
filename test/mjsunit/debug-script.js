@@ -28,6 +28,11 @@
 // Flags: --expose-debug-as debug --expose-gc --send-idle-notification
 // Flags: --allow-natives-syntax --expose-natives-as natives
 // Flags: --noharmony-shipping
+// Flags: --nostress-opt
+
+// --nostress-opt is specified because in stress mode the compilation cache
+// may hold on to old copies of scripts (see bug 1641).
+
 // Note: this test checks that that the number of scripts reported as native
 // by Debug.scripts() is the same as a number of core native scripts.
 // Native scripts that are added by --harmony-shipping are classified
@@ -80,8 +85,8 @@ assertEquals('native math.js', math_script.name);
 assertEquals(Debug.ScriptType.Native, math_script.type);
 
 // Test a builtins delay loaded script.
-var date_delay_script = Debug.findScript('native date.js');
-assertEquals('native date.js', date_delay_script.name);
+var date_delay_script = Debug.findScript('native json.js');
+assertEquals('native json.js', date_delay_script.name);
 assertEquals(Debug.ScriptType.Native, date_delay_script.type);
 
 // Test a debugger script.
