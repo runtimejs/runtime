@@ -287,7 +287,7 @@ NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
     return;
   }
 
-  printf("[INITRD] Load %s len %d\n", file.Name(), file.Size());
+//  printf("[INITRD] Load %s len %d\n", file.Name(), file.Size());
   v8::MaybeLocal<v8::String> text { v8::String::NewFromUtf8(iv8,
                                     reinterpret_cast<const char*>(file.Data()),
                                     v8::NewStringType::kNormal, file.Size())
