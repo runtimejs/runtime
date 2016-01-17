@@ -4,4 +4,12 @@
 /node_modules/runtime-tools
 /node_modules/runtimeify
 /node_modules/tape
+/node_modules/eslint-config-runtime
 /test
+tape/
+module-singleton/test-modules/
+test.js
+README.md
+LICENSE.isaac
+LICENSE
+/node_modules/util/test/
