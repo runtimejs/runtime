@@ -82,7 +82,8 @@ class BasicJsonStringifier BASE_EMBEDDED {
   INLINE(Result SerializeJSArray(Handle<JSArray> object));
   INLINE(Result SerializeJSObject(Handle<JSObject> object));
 
-  Result SerializeJSArraySlow(Handle<JSArray> object, uint32_t length);
+  Result SerializeJSArraySlow(Handle<JSArray> object, uint32_t start,
+                              uint32_t length);
 
   void SerializeString(Handle<String> object);
 
@@ -222,6 +223,7 @@ MaybeHandle<Object> BasicJsonStringifier::StringifyString(
     SerializeStringUnchecked_(object->GetFlatContent().ToOneByteVector(),
                               &no_extend);
     no_extend.Append('\"');
+    return no_extend.Finalize();
   } else {
     result = isolate->factory()
                  ->NewRawTwoByteString(worst_case_length)
@@ -232,8 +234,8 @@ MaybeHandle<Object> BasicJsonStringifier::StringifyString(
     SerializeStringUnchecked_(object->GetFlatContent().ToUC16Vector(),
                               &no_extend);
     no_extend.Append('\"');
+    return no_extend.Finalize();
   }
-  return result;
 }
 
 
@@ -335,14 +337,13 @@ BasicJsonStringifier::Result BasicJsonStringifier::Serialize_(
     case JS_VALUE_TYPE:
       if (deferred_string_key) SerializeDeferredKey(comma, key);
       return SerializeJSValue(Handle<JSValue>::cast(object));
-    case JS_FUNCTION_TYPE:
-      return UNCHANGED;
     default:
       if (object->IsString()) {
         if (deferred_string_key) SerializeDeferredKey(comma, key);
         SerializeString(Handle<String>::cast(object));
         return SUCCESS;
       } else if (object->IsJSObject()) {
+        if (object->IsCallable()) return UNCHANGED;
         // Go to slow path for global proxy and objects requiring access checks.
         if (object->IsAccessCheckNeeded() || object->IsJSGlobalProxy()) break;
         if (deferred_string_key) SerializeDeferredKey(comma, key);
@@ -395,9 +396,10 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSValue(
     DCHECK(value->IsBoolean());
     builder_.AppendCString(value->IsTrue() ? "true" : "false");
   } else {
-    // Fail gracefully for special value wrappers.
-    isolate_->ThrowIllegalOperation();
-    return EXCEPTION;
+    // ES6 24.3.2.1 step 10.c, serialize as an ordinary JSObject.
+    CHECK(!object->IsAccessCheckNeeded());
+    CHECK(!object->IsJSGlobalProxy());
+    return SerializeJSObject(object);
   }
   return SUCCESS;
 }
@@ -436,8 +438,8 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArray(
   builder_.AppendCharacter('[');
   switch (object->GetElementsKind()) {
     case FAST_SMI_ELEMENTS: {
-      Handle<FixedArray> elements(
-          FixedArray::cast(object->elements()), isolate_);
+      Handle<FixedArray> elements(FixedArray::cast(object->elements()),
+                                  isolate_);
       for (uint32_t i = 0; i < length; i++) {
         if (i > 0) builder_.AppendCharacter(',');
         SerializeSmi(Smi::cast(elements->get(i)));
@@ -456,14 +458,20 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArray(
       break;
     }
     case FAST_ELEMENTS: {
-      Handle<FixedArray> elements(
-          FixedArray::cast(object->elements()), isolate_);
+      Handle<Object> old_length(object->length(), isolate_);
       for (uint32_t i = 0; i < length; i++) {
+        if (object->length() != *old_length ||
+            object->GetElementsKind() != FAST_ELEMENTS) {
+          Result result = SerializeJSArraySlow(object, i, length);
+          if (result != SUCCESS) return result;
+          break;
+        }
         if (i > 0) builder_.AppendCharacter(',');
-        Result result =
-            SerializeElement(isolate_,
-                             Handle<Object>(elements->get(i), isolate_),
-                             i);
+        Result result = SerializeElement(
+            isolate_,
+            Handle<Object>(FixedArray::cast(object->elements())->get(i),
+                           isolate_),
+            i);
         if (result == SUCCESS) continue;
         if (result == UNCHANGED) {
           builder_.AppendCString("null");
@@ -473,11 +481,10 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArray(
       }
       break;
     }
-    // TODO(yangguo):  The FAST_HOLEY_* cases could be handled in a faster way.
-    // They resemble the non-holey cases except that a prototype chain lookup
-    // is necessary for holes.
+    // The FAST_HOLEY_* cases could be handled in a faster way. They resemble
+    // the non-holey cases except that a lookup is necessary for holes.
     default: {
-      Result result = SerializeJSArraySlow(object, length);
+      Result result = SerializeJSArraySlow(object, 0, length);
       if (result != SUCCESS) return result;
       break;
     }
@@ -489,8 +496,8 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArray(
 
 
 BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArraySlow(
-    Handle<JSArray> object, uint32_t length) {
-  for (uint32_t i = 0; i < length; i++) {
+    Handle<JSArray> object, uint32_t start, uint32_t length) {
+  for (uint32_t i = start; i < length; i++) {
     if (i > 0) builder_.AppendCharacter(',');
     Handle<Object> element;
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
@@ -518,7 +525,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
   HandleScope handle_scope(isolate_);
   Result stack_push = StackPush(object);
   if (stack_push != SUCCESS) return stack_push;
-  DCHECK(!object->IsJSGlobalProxy() && !object->IsGlobalObject());
+  DCHECK(!object->IsJSGlobalProxy() && !object->IsJSGlobalObject());
 
   builder_.AppendCharacter('{');
   bool comma = false;
@@ -560,7 +567,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
     Handle<FixedArray> contents;
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
         isolate_, contents,
-        JSReceiver::GetKeys(object, JSReceiver::OWN_ONLY),
+        JSReceiver::GetKeys(object, JSReceiver::OWN_ONLY, ENUMERABLE_STRINGS),
         EXCEPTION);
 
     for (int i = 0; i < contents->length(); i++) {
@@ -675,6 +682,7 @@ void BasicJsonStringifier::SerializeString(Handle<String> object) {
   }
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_JSON_STRINGIFIER_H_

@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,90 +19,90 @@
 namespace rt {
 
 AcpiManager::AcpiManager() {
-    if (!Init()) {
-        return;
-    }
+  if (!Init()) {
+    return;
+  }
 
-    if (!SetInterruptRoutingMode()) {
-        return;
-    }
+  if (!SetInterruptRoutingMode()) {
+    return;
+  }
 }
 
 bool AcpiManager::SetInterruptRoutingMode() {
-    // 0 = PIC
-    // 1 = APIC
-    // 2 = SAPIC (not supported on x86?)
-    uint64_t mode = 1;
+  // 0 = PIC
+  // 1 = APIC
+  // 2 = SAPIC (not supported on x86?)
+  uint64_t mode = 1;
 
-    ACPI_OBJECT arg1;
-    arg1.Type = ACPI_TYPE_INTEGER;
-    arg1.Integer.Value = mode;
+  ACPI_OBJECT arg1;
+  arg1.Type = ACPI_TYPE_INTEGER;
+  arg1.Integer.Value = mode;
 
-    ACPI_OBJECT_LIST args;
-    args.Count = 1;
-    args.Pointer = &arg1;
+  ACPI_OBJECT_LIST args;
+  args.Count = 1;
+  args.Pointer = &arg1;
 
-    char method[] = "_PIC";
+  char method[] = "_PIC";
 
-    ACPI_STATUS ret;
-    ret = AcpiEvaluateObject(ACPI_ROOT_OBJECT, method, &args, NULL);
-    if (ACPI_FAILURE(ret)) {
+  ACPI_STATUS ret;
+  ret = AcpiEvaluateObject(ACPI_ROOT_OBJECT, method, &args, NULL);
+  if (ACPI_FAILURE(ret)) {
 #ifdef RUNTIME_DEBUG
-        printf("SetInterruptRoutingMode failed.");
+    printf("SetInterruptRoutingMode failed.");
 #endif
-        return false;
-    }
-    return true;
+    return false;
+  }
+  return true;
 }
 
 bool AcpiManager::Init() {
-    ACPI_STATUS ret;
+  ACPI_STATUS ret;
 
-    ret = AcpiInitializeSubsystem();
-    if (ACPI_FAILURE(ret)) {
-        printf("AcpiInitializeSubsystem failed.");
-        return false;
-    }
+  ret = AcpiInitializeSubsystem();
+  if (ACPI_FAILURE(ret)) {
+    printf("AcpiInitializeSubsystem failed.");
+    return false;
+  }
 
-    ret = AcpiInitializeTables(NULL, 16, FALSE);
-    if (ACPI_FAILURE(ret)) {
-        printf("AcpiInitializeTables failed.");
-        return false;
-    }
+  ret = AcpiInitializeTables(NULL, 16, FALSE);
+  if (ACPI_FAILURE(ret)) {
+    printf("AcpiInitializeTables failed.");
+    return false;
+  }
 
-    ret = AcpiLoadTables();
-    if (ACPI_FAILURE(ret)) {
-        printf("AcpiInitializeTables failed.");
-        return false;
-    }
+  ret = AcpiLoadTables();
+  if (ACPI_FAILURE(ret)) {
+    printf("AcpiInitializeTables failed.");
+    return false;
+  }
 
-    ret = AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION);
-    if (ACPI_FAILURE(ret)) {
-        printf("AcpiInitializeTables failed.");
-        return false;
-    }
+  ret = AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION);
+  if (ACPI_FAILURE(ret)) {
+    printf("AcpiInitializeTables failed.");
+    return false;
+  }
 
-    ret = AcpiInitializeObjects(ACPI_FULL_INITIALIZATION);
-    if (ACPI_FAILURE(ret)) {
-        printf("AcpiInitializeTables failed.");
-        return false;
-    }
+  ret = AcpiInitializeObjects(ACPI_FULL_INITIALIZATION);
+  if (ACPI_FAILURE(ret)) {
+    printf("AcpiInitializeTables failed.");
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
 ACPI_STATUS WalkCallback(ACPI_HANDLE object, UINT32 nesting_level, void* data, void** returns) {
-    RT_ASSERT(data);
-    AcpiObjectsList* list = reinterpret_cast<AcpiObjectsList*>(data);
-    list->Push(object);
-    return AE_OK;
+  RT_ASSERT(data);
+  AcpiObjectsList* list = reinterpret_cast<AcpiObjectsList*>(data);
+  list->Push(object);
+  return AE_OK;
 }
 
 AcpiObjectsList AcpiManager::GetPciDevices() {
-    void* ptr = nullptr;
-    AcpiObjectsList devlist;
-    AcpiGetDevices(NULL, WalkCallback, &devlist, &ptr);
-    return devlist;
+  void* ptr = nullptr;
+  AcpiObjectsList devlist;
+  AcpiGetDevices(NULL, WalkCallback, &devlist, &ptr);
+  return devlist;
 }
 
 } // namespace rt

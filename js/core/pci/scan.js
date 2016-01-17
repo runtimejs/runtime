@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,11 @@
 /* eslint-disable key-spacing */
 'use strict';
 var resources = require('../resources');
-var acpi = resources.acpi;
 var io = resources.ioRange;
 var irqRange = resources.irqRange;
 var memrange = resources.memoryRange;
 var allocator = resources.allocator;
-
-var acpiDevices = acpi.getPciDevices();
+var acpiDevices = __SYSCALL.acpiGetPciDevices();
 var addressPortResource = io.port(0xCF8);
 var dataPortResource = io.port(0xCFC);
 

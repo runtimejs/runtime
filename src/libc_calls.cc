@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,33 +20,33 @@
 
 extern "C" {
 
-void exit(int code) {
+  void exit(int code) {
     GLOBAL_boot_services()->FatalError("exit() requested");
-}
+  }
 
-void abort() {
+  void abort() {
     GLOBAL_boot_services()->FatalError("abort() requested");
-}
+  }
 
-size_t __stdio_read(FILE *f, unsigned char *buf, size_t len) {
+  size_t __stdio_read(FILE* f, unsigned char* buf, size_t len) {
     GLOBAL_boot_services()->FatalError("stdio read requested");
-}
+  }
 
-void __assert_fail(const char *expr, const char *file, int line, const char *func) {
+  void __assert_fail(const char* expr, const char* file, int line, const char* func) {
     GLOBAL_boot_services()->FatalError("Assertion failed: %s (%s: %s: %d)\n", expr, file, func, line);
-}
+  }
 
-void __cxa_bad_cast() {
+  void __cxa_bad_cast() {
     GLOBAL_boot_services()->FatalError("__cxa_bad_cast: dynamic_cast failed");
     abort();
-}
+  }
 
-void __cxa_bad_typeid() {
+  void __cxa_bad_typeid() {
     GLOBAL_boot_services()->FatalError("__cxa_bad_typeid");
     abort();
-}
+  }
 
-struct tm {
+  struct tm {
     int tm_sec;
     int tm_min;
     int tm_hour;
@@ -57,58 +57,64 @@ struct tm {
     int tm_yday;
     int tm_isdst;
     long __tm_gmtoff;
-    const char *__tm_zone;
-};
+    const char* __tm_zone;
+  };
 
 
 
-size_t strftime_l(char *s, size_t n, const char *f, const struct tm *tm, locale_t l) {
+  size_t strftime_l(char* s, size_t n, const char* f, const struct tm* tm, locale_t l) {
     GLOBAL_boot_services()->FatalError("strftime_l requested");
-}
+  }
 
-int __lockfile(FILE *f) { return 1; }
-void __unlockfile(FILE *f) { }
-int __stdio_close(FILE *f) { return 0; }
-long __stdio_seek(FILE *f, long off, int whence) { return -1; }
-void __stdio_exit(void) { }
+  int __lockfile(FILE* f) {
+    return 1;
+  }
+  void __unlockfile(FILE* f) { }
+  int __stdio_close(FILE* f) {
+    return 0;
+  }
+  long __stdio_seek(FILE* f, long off, int whence) {
+    return -1;
+  }
+  void __stdio_exit(void) { }
 
-int *__errno_location(void) {
+  int* __errno_location(void) {
     static int e;
     return &e;
-}
+  }
 
-void sched_yield() { }
+  void sched_yield() { }
 
-FILE* fopen(const char* filename, const char* mode) {
+  FILE* fopen(const char* filename, const char* mode) {
     RT_ASSERT(filename);
     return GLOBAL_boot_services()->fileio()->FOpen(filename);
-}
+  }
 
-int fseeko(FILE* stream, off_t offset, int whence) {
+  int fseeko(FILE* stream, off_t offset, int whence) {
     GLOBAL_boot_services()->FatalError("fseeko requested");
-}
+  }
 
-off_t ftello(FILE* stream) {
+  off_t ftello(FILE* stream) {
     GLOBAL_boot_services()->FatalError("ftello requested");
-}
+  }
 
-char *fgets(char* s, int n, FILE* f) {
+  char* fgets(char* s, int n, FILE* f) {
     GLOBAL_boot_services()->FatalError("fgets requested");
-}
+  }
 
-size_t fwrite(const void* src, size_t size, size_t nmemb, FILE* f) {
+  size_t fwrite(const void* src, size_t size, size_t nmemb, FILE* f) {
     return GLOBAL_boot_services()->fileio()->FWrite(src, size, nmemb, f);
-}
+  }
 
-int fputc(int c, FILE *f) {
+  int fputc(int c, FILE* f) {
     return GLOBAL_boot_services()->fileio()->FPutc(c, f);
-}
+  }
 
-size_t fread(void* destv, size_t size, size_t nmemb, FILE* f) {
+  size_t fread(void* destv, size_t size, size_t nmemb, FILE* f) {
     GLOBAL_boot_services()->FatalError("fread requested");
-}
+  }
 
-int printf(const char* fmt, ...) {
+  int printf(const char* fmt, ...) {
     RT_ASSERT(fmt);
     RT_ASSERT(GLOBAL_boot_services()->logger());
     va_list ap;
@@ -116,118 +122,118 @@ int printf(const char* fmt, ...) {
     int count = GLOBAL_boot_services()->logger()->VPrintf(rt::LogDataType::DEFAULT, fmt, ap);
     va_end(ap);
     return count;
-}
+  }
 
-int vprintf(const char* fmt, va_list ap) {
+  int vprintf(const char* fmt, va_list ap) {
     return GLOBAL_boot_services()->logger()->VPrintf(rt::LogDataType::DEFAULT, fmt, ap);
-}
+  }
 
-int vfprintf(FILE* f, const char* fmt, va_list ap) {
+  int vfprintf(FILE* f, const char* fmt, va_list ap) {
     rt::Logger* log = GLOBAL_boot_services()->logger();
     log->__tmp_Lock();
     int c = GLOBAL_boot_services()->fileio()->VFPrintf(f, fmt, ap);
     log->__tmp_Unlock();
     return c;
-}
+  }
 
-int vsscanf(const char* s, const char* fmt, va_list ap) {
+  int vsscanf(const char* s, const char* fmt, va_list ap) {
     GLOBAL_boot_services()->FatalError("vsscanf requested");
-}
+  }
 
-int vswprintf(wchar_t *s, size_t n, const wchar_t *fmt, va_list ap) {
+  int vswprintf(wchar_t* s, size_t n, const wchar_t* fmt, va_list ap) {
     GLOBAL_boot_services()->FatalError("vswprintf requested");
-}
+  }
 
-int sscanf(const char* s, const char* fmt, ...) {
+  int sscanf(const char* s, const char* fmt, ...) {
     GLOBAL_boot_services()->FatalError("sscanf requested");
-}
+  }
 
-int fscanf(FILE* f, const char* fmt, ...) {
+  int fscanf(FILE* f, const char* fmt, ...) {
     GLOBAL_boot_services()->FatalError("fscanf requested");
-}
+  }
 
-int __uflow(FILE *f) {
+  int __uflow(FILE* f) {
     GLOBAL_boot_services()->FatalError("__uflow requested");
-}
+  }
 
-void rewind(FILE *f) {
+  void rewind(FILE* f) {
     GLOBAL_boot_services()->FatalError("rewind requested");
-}
+  }
 
-int setvbuf(FILE* f, char* buf, int type, size_t size) {
+  int setvbuf(FILE* f, char* buf, int type, size_t size) {
     GLOBAL_boot_services()->FatalError("setvbuf requested");
-}
+  }
 
-int fseek(FILE *f, long off, int whence) {
+  int fseek(FILE* f, long off, int whence) {
     GLOBAL_boot_services()->FatalError("fseek requested");
-}
+  }
 
-long ftell(FILE *f) {
+  long ftell(FILE* f) {
     GLOBAL_boot_services()->FatalError("ftell requested");
-}
+  }
 
-int fprintf(FILE* f, const char* fmt, ...) {
+  int fprintf(FILE* f, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
     int count = vfprintf(f, fmt, va);
     va_end(va);
     return count;
-}
+  }
 
-int fflush(FILE *f) {
+  int fflush(FILE* f) {
     return GLOBAL_boot_services()->fileio()->FFlush(f);
-}
+  }
 
-int fclose(FILE *f) {
+  int fclose(FILE* f) {
     return GLOBAL_boot_services()->fileio()->FClose(f);
-}
+  }
 
-int feof(FILE *f) {
+  int feof(FILE* f) {
     GLOBAL_boot_services()->FatalError("feof requested");
-}
+  }
 
-int ferror(FILE *f) {
+  int ferror(FILE* f) {
     GLOBAL_boot_services()->FatalError("ferror requested");
-}
+  }
 
-int asprintf(char** s, const char* fmt, ...) {
+  int asprintf(char** s, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
     int count = vasprintf(s, fmt, va);
     va_end(va);
     return count;
-}
+  }
 
-int vasprintf(char** s, const char* fmt, va_list ap) {
+  int vasprintf(char** s, const char* fmt, va_list ap) {
     GLOBAL_boot_services()->FatalError("vasprintf requested");
-}
+  }
 
-int swprintf(wchar_t* s, size_t n, const wchar_t* fmt, ...) {
+  int swprintf(wchar_t* s, size_t n, const wchar_t* fmt, ...) {
     GLOBAL_boot_services()->FatalError("swprintf requested");
-}
+  }
 
-int vsprintf(char* s, const char* fmt, va_list ap) {
+  int vsprintf(char* s, const char* fmt, va_list ap) {
     return tfp_vsprintf(s, fmt, ap);
-}
+  }
 
-int vsnprintf(char* s, size_t n, const char* fmt, va_list ap) {
+  int vsnprintf(char* s, size_t n, const char* fmt, va_list ap) {
     return tfp_vsnprintf(s, n, fmt, ap);
-}
+  }
 
-int sprintf(char* s, const char* fmt, ...) {
+  int sprintf(char* s, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
     int count = tfp_vsprintf(s, fmt, va);
     va_end(va);
     return count;
-}
+  }
 
-int snprintf(char* s, size_t n, const char* fmt, ...) {
+  int snprintf(char* s, size_t n, const char* fmt, ...) {
     va_list va;
     va_start(va, fmt);
     int count = tfp_vsnprintf(s, n, fmt, va);
     va_end(va);
     return count;
-}
+  }
 
 }

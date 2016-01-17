@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -65,7 +65,7 @@ class DescriptorTable {
 
   setBuffer(descriptorId, buf, len, flags) {
     var base = SIZE * descriptorId;
-    var addr = runtime.bufferAddress(buf);
+    var addr = __SYSCALL.bufferAddress(buf);
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 0, addr[1]); // high
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 4, addr[2]); // low
     u8view.setUint32LE(this.mem, base + OFFSET_LEN, len >>> 0);

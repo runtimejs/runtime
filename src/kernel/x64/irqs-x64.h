@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,16 +20,16 @@ namespace rt {
 
 class IrqsArch {
 public:
-    IrqsArch() {}
-    void SetUp();
+  IrqsArch() {}
+  void SetUp();
 private:
-    void DisableNMI();
-    void EnableNMI();
-    void InstallGate(uint8_t vector, uint64_t (*func)(), uint8_t type);
+  void DisableNMI();
+  void EnableNMI();
+  void InstallGate(uint8_t vector, uint64_t (*func)(), uint8_t type);
 
-    static const uint64_t kIDTTableBase = 0;
-    static const uint8_t kCodeSelector = 0x8;
-    DELETE_COPY_AND_ASSIGN(IrqsArch);
+  static const uint64_t kIDTTableBase = 0;
+  static const uint8_t kCodeSelector = 0x8;
+  DELETE_COPY_AND_ASSIGN(IrqsArch);
 };
 
 } // namespace rt

@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,19 +19,19 @@
 namespace rt {
 
 bool EntropySource(unsigned char* buffer, size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
-    }
-    return true;
+  for (size_t i = 0; i < length; ++i) {
+    buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
+  }
+  return true;
 }
 
 AcpiManager* Engines::acpi_manager() {
-    if (nullptr == _acpi_manager) {
-        _acpi_manager = new AcpiManager();
-    }
+  if (nullptr == _acpi_manager) {
+    _acpi_manager = new AcpiManager();
+  }
 
-    RT_ASSERT(_acpi_manager);
-    return _acpi_manager;
+  RT_ASSERT(_acpi_manager);
+  return _acpi_manager;
 }
 
 } // namespace rt

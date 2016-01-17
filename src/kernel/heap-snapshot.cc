@@ -18,37 +18,37 @@
 namespace rt {
 
 v8::OutputStream::WriteResult HeapSnapshotStream::WriteAsciiChunk(char* data, int size) {
-    if (!data || size <= 0) {
-        return v8::OutputStream::WriteResult::kContinue;
-    }
-
-    // Use buffer allocator because we're going to wrap
-    // it in ArrayBuffer and let V8 free it
-    void* buf = GLOBAL_engines()->AllocateUninitializedBuffer(size);
-    memcpy(buf, data, size);
-    chunks_.push_back(std::make_pair(buf, size));
+  if (!data || size <= 0) {
     return v8::OutputStream::WriteResult::kContinue;
+  }
+
+  // Use buffer allocator because we're going to wrap
+  // it in ArrayBuffer and let V8 free it
+  void* buf = GLOBAL_engines()->AllocateUninitializedBuffer(size);
+  memcpy(buf, data, size);
+  chunks_.push_back(std::make_pair(buf, size));
+  return v8::OutputStream::WriteResult::kContinue;
 }
 
 v8::Local<v8::Array> HeapSnapshotStream::FetchBuffers(v8::Isolate* iv8) {
-    RT_ASSERT(iv8);
-    v8::EscapableHandleScope scope(iv8);
+  RT_ASSERT(iv8);
+  v8::EscapableHandleScope scope(iv8);
 
-    v8::Local<v8::Array> ret = v8::Array::New(iv8, chunks_.size());
-    v8::Local<v8::Context> context = iv8->GetCurrentContext();
-    size_t next = 0;
+  v8::Local<v8::Array> ret = v8::Array::New(iv8, chunks_.size());
+  v8::Local<v8::Context> context = iv8->GetCurrentContext();
+  size_t next = 0;
 
-    for (auto chunk : chunks_) {
-        // Let V8 free the buffers
-        auto buf = v8::ArrayBuffer::New(iv8,
-            chunk.first, chunk.second,
-            v8::ArrayBufferCreationMode::kInternalized);
-        auto u8 = v8::Uint8Array::New(buf, 0, buf->ByteLength());
-        ret->Set(context, next++, u8);
-    }
+  for (auto chunk : chunks_) {
+    // Let V8 free the buffers
+    auto buf = v8::ArrayBuffer::New(iv8,
+                                    chunk.first, chunk.second,
+                                    v8::ArrayBufferCreationMode::kInternalized);
+    auto u8 = v8::Uint8Array::New(buf, 0, buf->ByteLength());
+    ret->Set(context, next++, u8);
+  }
 
-    chunks_.clear();
-    return scope.Escape(ret);
+  chunks_.clear();
+  return scope.Escape(ret);
 }
 
 } // namespace rt

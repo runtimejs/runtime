@@ -11,6 +11,9 @@
 
 namespace v8 {
 namespace internal {
+
+class RegisterConfiguration;
+
 namespace compiler {
 
 class CallDescriptor;
@@ -18,7 +21,6 @@ class Graph;
 class InstructionSequence;
 class Linkage;
 class PipelineData;
-class RegisterConfiguration;
 class Schedule;
 
 class Pipeline {
@@ -28,11 +30,13 @@ class Pipeline {
   // Run the entire pipeline and generate a handle to a code object.
   Handle<Code> GenerateCode();
 
-  // Run the pipeline on an interpreter bytecode handler machine graph and
-  // generate code.
-  static Handle<Code> GenerateCodeForInterpreter(
-      Isolate* isolate, CallDescriptor* call_descriptor, Graph* graph,
-      Schedule* schedule, const char* bytecode_name);
+  // Run the pipeline on a machine graph and generate code. The {schedule} must
+  // be valid, hence the given {graph} does not need to be schedulable.
+  static Handle<Code> GenerateCodeForCodeStub(Isolate* isolate,
+                                              CallDescriptor* call_descriptor,
+                                              Graph* graph, Schedule* schedule,
+                                              Code::Kind kind,
+                                              const char* debug_name);
 
   // Run the pipeline on a machine graph and generate code. If {schedule} is
   // {nullptr}, then compute a new schedule for code generation.

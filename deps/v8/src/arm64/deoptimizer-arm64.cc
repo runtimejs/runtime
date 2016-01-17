@@ -6,6 +6,7 @@
 #include "src/codegen.h"
 #include "src/deoptimizer.h"
 #include "src/full-codegen/full-codegen.h"
+#include "src/register-configuration.h"
 #include "src/safepoint-table.h"
 
 
@@ -48,7 +49,8 @@ void Deoptimizer::PatchCodeForDeoptimization(Isolate* isolate, Code* code) {
     Address call_address = code_start_address + deopt_data->Pc(i)->value();
     Address deopt_entry = GetDeoptimizationEntry(isolate, i, LAZY);
 
-    PatchingAssembler patcher(call_address, patch_size() / kInstructionSize);
+    PatchingAssembler patcher(isolate, call_address,
+                              patch_size() / kInstructionSize);
     patcher.ldr_pcrel(ip0, (2 * kInstructionSize) >> kLoadLiteralScaleLog2);
     patcher.blr(ip0);
     patcher.dc64(reinterpret_cast<intptr_t>(deopt_entry));
@@ -75,7 +77,7 @@ void Deoptimizer::FillInputFrame(Address tos, JavaScriptFrame* frame) {
   input_->SetRegister(jssp.code(), reinterpret_cast<intptr_t>(frame->sp()));
   input_->SetRegister(fp.code(), reinterpret_cast<intptr_t>(frame->fp()));
 
-  for (int i = 0; i < DoubleRegister::NumAllocatableRegisters(); i++) {
+  for (int i = 0; i < DoubleRegister::kMaxNumRegisters; i++) {
     input_->SetDoubleRegister(i, 0.0);
   }
 
@@ -122,8 +124,10 @@ void Deoptimizer::TableEntryGenerator::Generate() {
   // in the input frame.
 
   // Save all allocatable floating point registers.
-  CPURegList saved_fp_registers(CPURegister::kFPRegister, kDRegSizeInBits,
-                                FPRegister::kAllocatableFPRegisters);
+  CPURegList saved_fp_registers(
+      CPURegister::kFPRegister, kDRegSizeInBits,
+      RegisterConfiguration::ArchDefault(RegisterConfiguration::CRANKSHAFT)
+          ->allocatable_double_codes_mask());
   __ PushCPURegList(saved_fp_registers);
 
   // We save all the registers expcept jssp, sp and lr.

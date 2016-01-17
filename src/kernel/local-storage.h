@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,31 +22,30 @@ namespace rt {
 /**
  * Thread local data container. Supports max 16 slots.
  */
-class LocalStorage
-{
+class LocalStorage {
 public:
-    LocalStorage()
-        :	next_index_(1) {
-        for (uint32_t i = 0; i < kMaxSlots; ++i) {
-            storage_[i] = nullptr;
-        }
+  LocalStorage()
+    :	next_index_(1) {
+    for (uint32_t i = 0; i < kMaxSlots; ++i) {
+      storage_[i] = nullptr;
     }
+  }
 
-    inline void* Get(uint64_t keyid) {
-        RT_ASSERT(keyid < kMaxSlots);
-        return storage_[keyid];
-    }
+  inline void* Get(uint64_t keyid) {
+    RT_ASSERT(keyid < kMaxSlots);
+    return storage_[keyid];
+  }
 
-    inline void Set(uint64_t keyid, void* value) {
-        RT_ASSERT(keyid < kMaxSlots);
-        storage_[keyid] = value;
-    }
+  inline void Set(uint64_t keyid, void* value) {
+    RT_ASSERT(keyid < kMaxSlots);
+    storage_[keyid] = value;
+  }
 
-    DELETE_COPY_AND_ASSIGN(LocalStorage);
+  DELETE_COPY_AND_ASSIGN(LocalStorage);
 private:
-    static const size_t kMaxSlots = 16;
-    std::array<void*, kMaxSlots> storage_;
-    uint64_t next_index_;
+  static const size_t kMaxSlots = 16;
+  std::array<void*, kMaxSlots> storage_;
+  uint64_t next_index_;
 };
 
 

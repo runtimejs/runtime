@@ -1,4 +1,4 @@
-// Copyright 2015 runtime.js project authors
+// Copyright 2015-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,8 @@ test('create interface', function(t) {
   t.end();
 });
 
-test.skip('interface handle echo request', function(t) {
+/*
+  test.skip('interface handle echo request', function(t) {
   t.plan(1);
   var intf = new Interface(MACAddress.ZERO);
   intf.disableArp();
@@ -65,3 +66,4 @@ test.skip('interface handle echo request', function(t) {
 
   intf.receive(request);
 });
+*/

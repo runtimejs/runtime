@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,5 +22,5 @@ void main(void* mbt);
  * image offset 0x1000
  */
 extern "C" void startup_cpp(void* mbt) {
-    main(mbt);
+  main(mbt);
 }

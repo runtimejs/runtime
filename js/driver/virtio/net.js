@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,7 +47,6 @@ var virtioHeader = (function() {
 function initializeNetworkDevice(pciDevice) {
   var ioSpace = pciDevice.getBAR(0).resource;
   var irq = pciDevice.getIRQ();
-  var allocator = runtime.allocator;
 
   var features = {
     // Device specific
@@ -75,7 +74,7 @@ function initializeNetworkDevice(pciDevice) {
     VIRTIO_RING_F_EVENT_IDX: 29
   };
 
-  var dev = new VirtioDevice('net', ioSpace, allocator);
+  var dev = new VirtioDevice('net', ioSpace);
   dev.setDriverAck();
 
   var driverFeatures = {

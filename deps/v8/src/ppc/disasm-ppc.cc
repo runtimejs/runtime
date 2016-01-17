@@ -78,6 +78,7 @@ class Decoder {
 
   void DecodeExt1(Instruction* instr);
   void DecodeExt2(Instruction* instr);
+  void DecodeExt3(Instruction* instr);
   void DecodeExt4(Instruction* instr);
   void DecodeExt5(Instruction* instr);
 
@@ -116,7 +117,9 @@ void Decoder::PrintRegister(int reg) {
 
 
 // Print the double FP register name according to the active name converter.
-void Decoder::PrintDRegister(int reg) { Print(FPRegisters::Name(reg)); }
+void Decoder::PrintDRegister(int reg) {
+  Print(DoubleRegister::from_code(reg).ToString());
+}
 
 
 // Print SoftwareInterrupt codes. Factoring this out reduces the complexity of
@@ -607,6 +610,16 @@ void Decoder::DecodeExt2(Instruction* instr) {
       Format(instr, "stfdux   'rs, 'ra, 'rb");
       return;
     }
+    case POPCNTW: {
+      Format(instr, "popcntw  'ra, 'rs");
+      return;
+    }
+#if V8_TARGET_ARCH_PPC64
+    case POPCNTD: {
+      Format(instr, "popcntd  'ra, 'rs");
+      return;
+    }
+#endif
   }
 
   switch (instr->Bits(10, 2) << 2) {
@@ -870,6 +883,23 @@ void Decoder::DecodeExt2(Instruction* instr) {
 }
 
 
+void Decoder::DecodeExt3(Instruction* instr) {
+  switch (instr->Bits(10, 1) << 1) {
+    case FCFID: {
+      Format(instr, "fcfids'. 'Dt, 'Db");
+      break;
+    }
+    case FCFIDU: {
+      Format(instr, "fcfidus'.'Dt, 'Db");
+      break;
+    }
+    default: {
+      Unknown(instr);  // not used by V8
+    }
+  }
+}
+
+
 void Decoder::DecodeExt4(Instruction* instr) {
   switch (instr->Bits(5, 1) << 1) {
     case FDIV: {
@@ -919,12 +949,24 @@ void Decoder::DecodeExt4(Instruction* instr) {
       Format(instr, "fcfid'.  'Dt, 'Db");
       break;
     }
+    case FCFIDU: {
+      Format(instr, "fcfidu'. 'Dt, 'Db");
+      break;
+    }
     case FCTID: {
       Format(instr, "fctid   'Dt, 'Db");
       break;
     }
     case FCTIDZ: {
       Format(instr, "fctidz  'Dt, 'Db");
+      break;
+    }
+    case FCTIDU: {
+      Format(instr, "fctidu  'Dt, 'Db");
+      break;
+    }
+    case FCTIDUZ: {
+      Format(instr, "fctiduz 'Dt, 'Db");
       break;
     }
     case FCTIW: {
@@ -973,6 +1015,18 @@ void Decoder::DecodeExt4(Instruction* instr) {
     }
     case FNEG: {
       Format(instr, "fneg'.   'Dt, 'Db");
+      break;
+    }
+    case MCRFS: {
+      Format(instr, "mcrfs   ?,?");
+      break;
+    }
+    case MTFSB0: {
+      Format(instr, "mtfsb0'. ?");
+      break;
+    }
+    case MTFSB1: {
+      Format(instr, "mtfsb1'. ?");
       break;
     }
     default: {
@@ -1287,7 +1341,10 @@ int Decoder::InstructionDecode(byte* instr_ptr) {
       Format(instr, "stfdu   'Dt, 'int16('ra)");
       break;
     }
-    case EXT3:
+    case EXT3: {
+      DecodeExt3(instr);
+      break;
+    }
     case EXT4: {
       DecodeExt4(instr);
       break;
@@ -1349,7 +1406,7 @@ const char* NameConverter::NameOfConstant(byte* addr) const {
 
 
 const char* NameConverter::NameOfCPURegister(int reg) const {
-  return v8::internal::Registers::Name(reg);
+  return v8::internal::Register::from_code(reg).ToString();
 }
 
 const char* NameConverter::NameOfByteCPURegister(int reg) const {

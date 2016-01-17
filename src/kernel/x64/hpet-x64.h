@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,63 +19,63 @@
 namespace rt {
 
 struct HPETRegisters {
-    uint32_t generalCapabilities;
-    uint32_t counterPeriod;
-    uint64_t reserved0;
-    uint64_t generalConfiguration;
-    uint64_t reserved1;
-    uint64_t generalInterruptStatus;
+  uint32_t generalCapabilities;
+  uint32_t counterPeriod;
+  uint64_t reserved0;
+  uint64_t generalConfiguration;
+  uint64_t reserved1;
+  uint64_t generalInterruptStatus;
 } __attribute__((packed));
 
 struct HPETTimerConfig {
-    uint64_t config;
-    uint64_t comparatorValue;
-    uint64_t interruptRoute;
-    uint64_t reserved0;
+  uint64_t config;
+  uint64_t comparatorValue;
+  uint64_t interruptRoute;
+  uint64_t reserved0;
 };
 
 class HpetX64 {
 public:
-    /**
-     * Create HPET instance using registers base address
-     */
-    HpetX64(void* address);
+  /**
+   * Create HPET instance using registers base address
+   */
+  HpetX64(void* address);
 
-    /**
-     * Read counter value converted to microseconds
-     */
-    uint64_t ReadMicroseconds() const {
-        return ReadCounter() / us_div_;
-    }
+  /**
+   * Read counter value converted to microseconds
+   */
+  uint64_t ReadMicroseconds() const {
+    return ReadCounter() / us_div_;
+  }
 
-    /**
-     * Read raw counter value
-     */
-    uint64_t ReadCounter() const {
-        return *counter_;
-    }
+  /**
+   * Read raw counter value
+   */
+  uint64_t ReadCounter() const {
+    return *counter_;
+  }
 
-    /**
-     * Reset counter (must be disabled)
-     */
-    void ResetCounter() {
-        *counter_ = 0;
-    }
+  /**
+   * Reset counter (must be disabled)
+   */
+  void ResetCounter() {
+    *counter_ = 0;
+  }
 
-    HPETTimerConfig* GetTimerConfig(uint8_t timer_index) {
-        return reinterpret_cast<HPETTimerConfig*>(reinterpret_cast<uint8_t*>(address_) +
-            kTimerConfigsOffset + sizeof(HPETTimerConfig) * timer_index);
-    }
+  HPETTimerConfig* GetTimerConfig(uint8_t timer_index) {
+    return reinterpret_cast<HPETTimerConfig*>(reinterpret_cast<uint8_t*>(address_) +
+           kTimerConfigsOffset + sizeof(HPETTimerConfig) * timer_index);
+  }
 private:
-    static const int kCapabilitiesCounterSizeMask = (1 << 13);
-    static const int kConfigurationEnable = (1 << 0);
-    static const int kCounterOffset = 0x0f0;
-    static const int kTimerConfigsOffset = 0x100;
-    void* address_;
-    HPETRegisters* registers_;
-    volatile uint64_t* counter_;
-    uint64_t frequency_;
-    uint64_t us_div_;
+  static const int kCapabilitiesCounterSizeMask = (1 << 13);
+  static const int kConfigurationEnable = (1 << 0);
+  static const int kCounterOffset = 0x0f0;
+  static const int kTimerConfigsOffset = 0x100;
+  void* address_;
+  HPETRegisters* registers_;
+  volatile uint64_t* counter_;
+  uint64_t frequency_;
+  uint64_t us_div_;
 };
 
 } // namespace rt

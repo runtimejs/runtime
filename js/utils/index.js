@@ -1,4 +1,4 @@
-// Copyright 2015 runtime.js project authors
+// Copyright 2015-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,4 +32,4 @@ exports.getRandomUint8 = function() {
  */
 exports.timeNow = function() {
   return Math.floor(performance.now());
-}
+};

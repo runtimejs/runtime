@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,16 +14,15 @@
 
 'use strict';
 
-/* global isolate */
 var packagejson = require('./package.json');
 require('module-singleton')(packagejson);
 require('./version');
 
-console.log(`v${packagejson.version} core library`);
+console.log(`runtime.js v${packagejson.version}`);
 console.log('loading...');
 
 var isDebug = packagejson.runtimejs.debug;
-global.debug = isDebug ? isolate.log : function() {};
+global.debug = isDebug ? console.log : function() {};
 
 // Load runtime.js core
 var runtime = require('./core');

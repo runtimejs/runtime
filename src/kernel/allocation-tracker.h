@@ -26,50 +26,50 @@ namespace rt {
 class AllocationTracker {
 public:
 #ifdef RUNTIME_ALLOCATION_TRACKER
-    AllocationTracker() : nested_(false) {}
+  AllocationTracker() : nested_(false) {}
 
-    /**
-     * Add allocated pointer into hashtable
-     */
-    void RegisterAlloc(void* ptr) {
-        if (nested_) {
-            return;
-        }
-
-        nested_ = true;
-        map_[ptr] = true;
-        nested_ = false;
+  /**
+   * Add allocated pointer into hashtable
+   */
+  void RegisterAlloc(void* ptr) {
+    if (nested_) {
+      return;
     }
 
-    /**
-     * Remove pointer from hashtable, gets called
-     * automatically on every free()
-     */
-    void UnregisterAlloc(void* ptr) {
-        if (nested_) {
-            return;
-        }
+    nested_ = true;
+    map_[ptr] = true;
+    nested_ = false;
+  }
 
-        nested_ = true;
-        auto search = map_.find(ptr);
-        if (search != map_.end()) {
-            map_.erase(search);
-        }
-        nested_ = false;
+  /**
+   * Remove pointer from hashtable, gets called
+   * automatically on every free()
+   */
+  void UnregisterAlloc(void* ptr) {
+    if (nested_) {
+      return;
     }
 
-    /**
-     * Get total number of unfreed tracked pointers
-     */
-    size_t unfreed_allocations_count() {
-        nested_ = true;
-        size_t result =  map_.size();
-        nested_ = false;
-        return result;
+    nested_ = true;
+    auto search = map_.find(ptr);
+    if (search != map_.end()) {
+      map_.erase(search);
     }
+    nested_ = false;
+  }
+
+  /**
+   * Get total number of unfreed tracked pointers
+   */
+  size_t unfreed_allocations_count() {
+    nested_ = true;
+    size_t result =  map_.size();
+    nested_ = false;
+    return result;
+  }
 private:
-    bool nested_;
-    std::unordered_map<void*, bool> map_;
+  bool nested_;
+  std::unordered_map<void*, bool> map_;
 #endif // RUNTIME_ALLOCATION_TRACKER
 };
 

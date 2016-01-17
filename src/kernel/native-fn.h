@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,38 +26,46 @@ namespace rt {
  */
 class ExternalFunction : public NativeObjectWrapper {
 public:
-    ExternalFunction(uint32_t index, size_t export_id, Thread* thread,
-                     ResourceHandle<EngineThread> recv)
-        :	NativeObjectWrapper(NativeTypeId::TYPEID_FUNCTION),
-            index_(index), export_id_(export_id),
-            thread_(thread), recv_(recv) {
-        RT_ASSERT(thread_);
-    }
+  ExternalFunction(uint32_t index, size_t export_id, Thread* thread,
+                   ResourceHandle<EngineThread> recv)
+    :	NativeObjectWrapper(NativeTypeId::TYPEID_FUNCTION),
+      index_(index), export_id_(export_id),
+      thread_(thread), recv_(recv) {
+    RT_ASSERT(thread_);
+  }
 
-    /**
-     * ID allocated by function impementor
-     */
-    uint32_t index() const { return index_; }
+  /**
+   * ID allocated by function impementor
+   */
+  uint32_t index() const {
+    return index_;
+  }
 
-    /**
-     * Isolate which implements function
-     */
-    Thread* thread() const { return thread_; }
+  /**
+   * Isolate which implements function
+   */
+  Thread* thread() const {
+    return thread_;
+  }
 
-    /**
-     * Unique exported function ID
-     */
-    size_t export_id() const { return export_id_; }
+  /**
+   * Unique exported function ID
+   */
+  size_t export_id() const {
+    return export_id_;
+  }
 
-    /**
-     * Function owner thread
-     */
-    ResourceHandle<EngineThread> recv() const { return recv_; }
+  /**
+   * Function owner thread
+   */
+  ResourceHandle<EngineThread> recv() const {
+    return recv_;
+  }
 private:
-    uint32_t index_;
-    size_t export_id_;
-    Thread* thread_;
-    ResourceHandle<EngineThread> recv_;
+  uint32_t index_;
+  size_t export_id_;
+  Thread* thread_;
+  ResourceHandle<EngineThread> recv_;
 };
 
 } // namespace rt

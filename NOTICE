@@ -12,5 +12,6 @@ This product includes software libraries:
 - crc64 function by Salvatore Sanfilippo <antirez at gmail dot com>
 - expect.js library by Guillermo Rauch (https://github.com/LearnBoost/expect.js/)
 - concurrentqueue by Cameron Desrochers (https://github.com/cameron314/concurrentqueue)
+- miniz (https://code.google.com/p/miniz/), located at deps/miniz
 
 These libraries have their own licenses.

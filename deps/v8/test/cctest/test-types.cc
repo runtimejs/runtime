@@ -2,12 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// TODO(mythria): Remove this define after this flag is turned on globally
-#define V8_IMMINENT_DEPRECATION_WARNINGS
-
 #include <vector>
 
-#include "src/hydrogen-types.h"
+#include "src/crankshaft/hydrogen-types.h"
 #include "src/types.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/types-fuzz.h"

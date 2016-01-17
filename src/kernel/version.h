@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,21 +20,15 @@ namespace rt {
 
 class Version {
 public:
-    static uint32_t getMajor() {
-        return 0;
-    }
-
-    static uint32_t getMinor() {
-        return 1;
-    }
-
-    static uint32_t getRev() {
-        return 14;
-    }
-
+  /**
+   * Get kernel version represented by a single number.
+   */
+  static uint32_t getVersionNumber() {
+    return 2;
+  }
 private:
-    ~Version() = delete;
-    DELETE_COPY_AND_ASSIGN(Version);
+  ~Version() = delete;
+  DELETE_COPY_AND_ASSIGN(Version);
 };
 
 } // namespace rt

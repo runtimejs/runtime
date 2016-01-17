@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,11 +13,10 @@
 // limitations under the License.
 
 'use strict';
-var resources = require('../resources');
 var driverUtils = require('../driver-utils');
 
 // Take ownership of the display
-resources.natives.stopVideoLog();
+__SYSCALL.stopVideoLog();
 
 var w = 80;
 var h = 25;

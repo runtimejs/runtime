@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,9 +20,9 @@ namespace rt {
 
 class Trace {
 public:
-    Trace() {}
+  Trace() {}
 private:
-    DELETE_COPY_AND_ASSIGN(Trace);
+  DELETE_COPY_AND_ASSIGN(Trace);
 };
 
 } // namespace rt

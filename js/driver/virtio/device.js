@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
 'use strict';
 var VRing = require('./vring');
 
-function VirtioDevice(deviceType, ioSpace, allocator) {
-  this.mem = allocator.allocDMA();
+function VirtioDevice(deviceType, ioSpace) {
+  this.mem = __SYSCALL.allocDMA();
   this.io = (function(ioSpaceResource) {
     var ioPorts = {
       // Common

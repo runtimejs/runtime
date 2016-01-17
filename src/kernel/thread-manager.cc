@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,97 +20,100 @@
 namespace rt {
 
 void ThreadEntryPoint(Thread* t) {
-    RT_ASSERT(t);
+  RT_ASSERT(t);
+  Cpu::EnableInterrupts();
+
+  t->SetUp();
+
+  for (;;) {
     Cpu::EnableInterrupts();
-
-    t->SetUp();
-
-    for (;;) {
-        Cpu::EnableInterrupts();
-        if (!t->Run()) {
-            break;
-        }
-        t->thread_manager()->Preempt();
+    if (!t->Run()) {
+      break;
     }
-
-    t->TearDown();
     t->thread_manager()->Preempt();
+  }
 
-    Cpu::HangSystem();
+  t->TearDown();
+  t->thread_manager()->Preempt();
+
+  Cpu::HangSystem();
 }
 
 ThreadManager::ThreadManager(Engine* engine)
-    :	current_thread_(nullptr),
-        engine_(engine),
-        current_thread_index_(0),
-        ev_done_total_(0),
-        ev_done_checkpoint_(0) {
+  :	current_thread_(nullptr),
+    engine_(engine),
+    current_thread_index_(0),
+    ev_done_total_(0),
+    ev_done_checkpoint_(0) {
 #ifdef RUNTIME_TRACK_STATE
-    state_stack().Push(RuntimeState::INIT);
+  state_stack().Push(RuntimeState::INIT);
 #endif
-    RT_ASSERT(engine);
-    threads_.reserve(128);
-    ticks_counter_ = 1;
+  RT_ASSERT(engine);
+  threads_.reserve(128);
+  ticks_counter_ = 1;
 }
 
 extern "C" void preemptStart(void* current_state, void* new_state);
 extern "C" void threadStructInit(void* thread_state,
-    void (*entry_point)(Thread* t), uintptr_t sp, Thread* t);
+                                 void (*entry_point)(Thread* t), uintptr_t sp, Thread* t);
 
 void ThreadManager::ThreadInit(Thread* t) {
-    RT_ASSERT(t);
-    RT_ASSERT(t->GetStackBottom());
-    threadStructInit(t->_fxstate, ThreadEntryPoint, t->GetStackBottom(), t);
+  RT_ASSERT(t);
+  RT_ASSERT(t->GetStackBottom());
+  threadStructInit(t->_fxstate, ThreadEntryPoint, t->GetStackBottom(), t);
 }
 
 void ThreadManager::ProcessNewThreads() {
-    auto threads = engine_->threads().TakeNewThreads();
-    if (0 == threads.size()) return;
+  auto threads = engine_->threads().TakeNewThreads();
+  if (0 == threads.size()) {
+    return;
+  }
 
-    for (auto thread : threads) {
-        thread.getUnsafe()->thread_ = CreateThread(thread);
-    }
+  for (auto thread : threads) {
+    thread.getUnsafe()->thread_ = CreateThread(thread);
+  }
 }
 
 void ThreadManager::ProcessTimeouts() {
-    uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
-    while (timeouts_.Elapsed(ticks_now)) {
-        ThreadTimeout t { timeouts_.Take() };
-        uint32_t timeout_id = t.index();
+  uint64_t ticks_now { GLOBAL_platform()->BootTimeMicroseconds() };
+  while (timeouts_.Elapsed(ticks_now)) {
+    ThreadTimeout t { timeouts_.Take() };
+    uint32_t timeout_id = t.index();
 
-        {   std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
-                ThreadMessage::Type::TIMEOUT_EVENT,
-                ResourceHandle<EngineThread>(), TransportData(), nullptr, timeout_id));
-            t.thread()->handle().getUnsafe()->PushMessage(std::move(msg));
-        }
+    {
+      std::unique_ptr<ThreadMessage> msg(new ThreadMessage(
+                                           ThreadMessage::Type::TIMEOUT_EVENT,
+                                           ResourceHandle<EngineThread>(), TransportData(), nullptr, timeout_id));
+      t.thread()->handle().getUnsafe()->PushMessage(std::move(msg));
     }
+  }
 }
 
 void ThreadManager::TimerInterruptNotify(SystemContextIRQ& irq_context) {
-    ticks_counter_++;
+  ticks_counter_++;
 }
 
 void ThreadManager::SetTimeout(Thread* thread, uint32_t timeout_id, uint64_t timeout_ms) {
-    RT_ASSERT(thread);
-    uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
-    uint64_t when = time_now + timeout_ms * 1000;
-    timeouts_.Set(ThreadTimeout(thread, timeout_id), when);
+  RT_ASSERT(thread);
+  uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
+  uint64_t when = time_now + timeout_ms * 1000;
+  timeouts_.Set(ThreadTimeout(thread, timeout_id), when);
 }
 
 void ThreadManager::Preempt() {
-    Thread* curr_thread = current_thread();
-    Thread* new_thread = SwitchToNextThread();
+  Thread* curr_thread = current_thread();
+  Thread* new_thread = SwitchToNextThread();
 
-    ProcessNewThreads();
-    ProcessTimeouts();
-    GLOBAL_engines()->v8_platform()->RunBackgroundTasks();
-    GLOBAL_engines()->v8_platform()->RunForegroundTasks();
+  ProcessNewThreads();
+  ProcessTimeouts();
+  GLOBAL_engines()->v8_platform()->RunBackgroundTasks();
+  GLOBAL_engines()->v8_platform()->RunForegroundTasks();
 
-    if (curr_thread == new_thread) {
-        return;
-    }
+  if (curr_thread == new_thread) {
+    return;
+  }
 
-    preemptStart(curr_thread->_fxstate, new_thread->_fxstate);
+  preemptStart(curr_thread->_fxstate, new_thread->_fxstate);
 }
 
 } // namespace rt

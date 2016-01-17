@@ -5,10 +5,8 @@
 #ifndef V8_CCTEST_COMPILER_FUNCTION_TESTER_H_
 #define V8_CCTEST_COMPILER_FUNCTION_TESTER_H_
 
-#include "src/v8.h"
-#include "test/cctest/cctest.h"
-
-#include "src/ast-numbering.h"
+#include "src/ast/ast-numbering.h"
+#include "src/ast/scopes.h"
 #include "src/compiler.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/pipeline.h"
@@ -16,9 +14,9 @@
 #include "src/full-codegen/full-codegen.h"
 #include "src/handles.h"
 #include "src/objects-inl.h"
-#include "src/parser.h"
-#include "src/rewriter.h"
-#include "src/scopes.h"
+#include "src/parsing/parser.h"
+#include "src/parsing/rewriter.h"
+#include "test/cctest/cctest.h"
 
 namespace v8 {
 namespace internal {
@@ -37,17 +35,29 @@ class FunctionTester : public InitializedHandleScope {
     CHECK_EQ(0u, flags_ & ~supported_flags);
   }
 
-  // TODO(turbofan): generalize FunctionTester to work with N arguments. Now, it
-  // can handle up to four.
-  explicit FunctionTester(Graph* graph)
+  FunctionTester(Graph* graph, int param_count)
       : isolate(main_isolate()),
-        function(NewFunction("(function(a,b,c,d){})")),
+        function(NewFunction(BuildFunction(param_count).c_str())),
         flags_(0) {
     CompileGraph(graph);
   }
 
+  FunctionTester(const CallInterfaceDescriptor& descriptor, Handle<Code> code)
+      : isolate(main_isolate()),
+        function(
+            (FLAG_allow_natives_syntax = true,
+             NewFunction(BuildFunctionFromDescriptor(descriptor).c_str()))),
+        flags_(0) {
+    Compile(function);
+    function->ReplaceCode(*code);
+  }
+
   Isolate* isolate;
   Handle<JSFunction> function;
+
+  MaybeHandle<Object> Call() {
+    return Execution::Call(isolate, function, undefined(), 0, nullptr);
+  }
 
   MaybeHandle<Object> Call(Handle<Object> a, Handle<Object> b) {
     Handle<Object> args[] = {a, b};
@@ -121,13 +131,13 @@ class FunctionTester : public InitializedHandleScope {
   }
 
   Handle<JSFunction> NewFunction(const char* source) {
-    return v8::Utils::OpenHandle(
-        *v8::Local<v8::Function>::Cast(CompileRun(source)));
+    return Handle<JSFunction>::cast(v8::Utils::OpenHandle(
+        *v8::Local<v8::Function>::Cast(CompileRun(source))));
   }
 
   Handle<JSObject> NewObject(const char* source) {
-    return v8::Utils::OpenHandle(
-        *v8::Local<v8::Object>::Cast(CompileRun(source)));
+    return Handle<JSObject>::cast(v8::Utils::OpenHandle(
+        *v8::Local<v8::Object>::Cast(CompileRun(source))));
   }
 
   Handle<String> Val(const char* string) {
@@ -176,15 +186,16 @@ class FunctionTester : public InitializedHandleScope {
     Pipeline pipeline(&info);
     Handle<Code> code = pipeline.GenerateCode();
     CHECK(!code.is_null());
+    info.dependencies()->Commit(code);
     info.context()->native_context()->AddOptimizedCode(*code);
     function->ReplaceCode(*code);
     return function;
   }
 
-  static Handle<JSFunction> ForMachineGraph(Graph* graph) {
+  static Handle<JSFunction> ForMachineGraph(Graph* graph, int param_count) {
     JSFunction* p = NULL;
     {  // because of the implicit handle scope of FunctionTester.
-      FunctionTester f(graph);
+      FunctionTester f(graph, param_count);
       p = *f.function;
     }
     return Handle<JSFunction>(p);  // allocated in outer handle scope.
@@ -192,6 +203,25 @@ class FunctionTester : public InitializedHandleScope {
 
  private:
   uint32_t flags_;
+
+  std::string BuildFunction(int param_count) {
+    std::string function_string = "(function(";
+    if (param_count > 0) {
+      char next = 'a';
+      function_string += next;
+      while (param_count-- > 0) {
+        function_string += ',';
+        function_string += ++next;
+      }
+    }
+    function_string += "){})";
+    return function_string;
+  }
+
+  std::string BuildFunctionFromDescriptor(
+      const CallInterfaceDescriptor& descriptor) {
+    return BuildFunction(descriptor.GetParameterCount());
+  }
 
   // Compile the given machine graph instead of the source of the function
   // and replace the JSFunction's code with the result.
@@ -212,8 +242,8 @@ class FunctionTester : public InitializedHandleScope {
     return function;
   }
 };
-}
-}
-}  // namespace v8::internal::compiler
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_CCTEST_COMPILER_FUNCTION_TESTER_H_

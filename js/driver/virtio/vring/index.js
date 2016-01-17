@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -101,7 +101,7 @@ VRing.prototype.placeBuffers = function(buffers, isWriteOnly) {
   var lengths = [];
   for (var i = 0, l = buffers.length; i < l; ++i) {
     var u8 = buffers[i];
-    var addr = runtime.bufferAddress(u8);
+    var addr = __SYSCALL.bufferAddress(u8);
     if (addr[3] === 0) {
       pageSplitBuffers.push(u8);
       lengths.push(addr[0]);

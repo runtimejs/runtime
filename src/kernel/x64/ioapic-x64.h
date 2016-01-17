@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,68 +20,68 @@
 namespace rt {
 
 enum class IoApicAccessorRegister {
-    IOREGSEL    = 0x00,  // Register selector
-    IOWIN       = 0x10   // Register data
+  IOREGSEL    = 0x00,  // Register selector
+  IOWIN       = 0x10   // Register data
 };
 
 enum class IoApicRegister {
-    ID          = 0x00,  // IO APIC ID
-    VER         = 0x01,  // IO APIC Version / Max Redirection Entry
-    ARB         = 0x02,  // APIC Arbitration ID
-    REDTBL      = 0x10   // Redirection Entries
+  ID          = 0x00,  // IO APIC ID
+  VER         = 0x01,  // IO APIC Version / Max Redirection Entry
+  ARB         = 0x02,  // APIC Arbitration ID
+  REDTBL      = 0x10   // Redirection Entries
 };
 
 class IoApicRegistersAccessor {
 public:
-    explicit IoApicRegistersAccessor(uintptr_t address)
-        :	address_(address) {
-        RT_ASSERT(address);
-    }
+  explicit IoApicRegistersAccessor(uintptr_t address)
+    :	address_(address) {
+    RT_ASSERT(address);
+  }
 
-    inline uint32_t Read(IoApicRegister reg) const {
-        RT_ASSERT(address_);
-        *(volatile uint32_t*)(address_ +
-            static_cast<uint8_t>(IoApicAccessorRegister::IOREGSEL))
-                = static_cast<uint32_t>(reg);
+  inline uint32_t Read(IoApicRegister reg) const {
+    RT_ASSERT(address_);
+    *(volatile uint32_t*)(address_ +
+                          static_cast<uint8_t>(IoApicAccessorRegister::IOREGSEL))
+      = static_cast<uint32_t>(reg);
 
-        return *(volatile uint32_t*)(address_ +
-            static_cast<uint8_t>(IoApicAccessorRegister::IOWIN));
-    }
+    return *(volatile uint32_t*)(address_ +
+                                 static_cast<uint8_t>(IoApicAccessorRegister::IOWIN));
+  }
 
-    inline void Write(IoApicRegister reg, uint8_t reg_offset, uint32_t value) const {
-        RT_ASSERT(address_);
-        *(volatile uint32_t*)(address_ +
-            static_cast<uint8_t>(IoApicAccessorRegister::IOREGSEL))
-                = static_cast<uint32_t>(reg) + reg_offset;
+  inline void Write(IoApicRegister reg, uint8_t reg_offset, uint32_t value) const {
+    RT_ASSERT(address_);
+    *(volatile uint32_t*)(address_ +
+                          static_cast<uint8_t>(IoApicAccessorRegister::IOREGSEL))
+      = static_cast<uint32_t>(reg) + reg_offset;
 
-        *(volatile uint32_t*)(address_ +
-            static_cast<uint8_t>(IoApicAccessorRegister::IOWIN)) = value;
-    }
+    *(volatile uint32_t*)(address_ +
+                          static_cast<uint8_t>(IoApicAccessorRegister::IOWIN)) = value;
+  }
 
-    inline void SetEntry(uint8_t index, uint64_t data) const {
-        Write(IoApicRegister::REDTBL, index * 2, static_cast<uint32_t>(data));
-        Write(IoApicRegister::REDTBL, index * 2 + 1, static_cast<uint32_t>(data >> 32));
-    }
+  inline void SetEntry(uint8_t index, uint64_t data) const {
+    Write(IoApicRegister::REDTBL, index * 2, static_cast<uint32_t>(data));
+    Write(IoApicRegister::REDTBL, index * 2 + 1, static_cast<uint32_t>(data >> 32));
+  }
 private:
-    uintptr_t address_;
+  uintptr_t address_;
 };
 
 class IoApicX64 {
 public:
-    IoApicX64(uint32_t id, uintptr_t address, uint32_t interrupt_base);
+  IoApicX64(uint32_t id, uintptr_t address, uint32_t interrupt_base);
 
-    void Init();
+  void Init();
 
-    void EnableIrq(uint32_t first_irq_offset, uint32_t irq) {
-        registers_.SetEntry(irq, first_irq_offset + irq + interrupt_base_);
-    }
+  void EnableIrq(uint32_t first_irq_offset, uint32_t irq) {
+    registers_.SetEntry(irq, first_irq_offset + irq + interrupt_base_);
+  }
 
 private:
-    uint32_t id_;
-    uintptr_t address_;
-    uint32_t interrupt_base_;
-    IoApicRegistersAccessor registers_;
-    DELETE_COPY_AND_ASSIGN(IoApicX64);
+  uint32_t id_;
+  uintptr_t address_;
+  uint32_t interrupt_base_;
+  IoApicRegistersAccessor registers_;
+  DELETE_COPY_AND_ASSIGN(IoApicX64);
 };
 
 } // namespace rt

@@ -15,13 +15,13 @@
 #pragma once
 
 const char INIT_JS[] = R"JAVASCRIPT(
-// NOTE: This script is executed in every context automatically
-var console = (function(undef) {
+// JS code to prepare runtime.js environment
+var console = (function() {
   var times = {};
 
   return {
-    log: isolate.log,
-    error: isolate.log,
+    log: __SYSCALL.log,
+    error: __SYSCALL.log,
     time: function(label) {
       times['l' + label] = Date.now();
     },
@@ -32,57 +32,10 @@ var console = (function(undef) {
       }
 
       var d = Date.now() - time;
-      isolate.log(label + ': ' + d/1000 + 'ms' + '\n');
-      times['l' + label] = undef;
+      __SYSCALL.log(label + ': ' + d/1000 + 'ms' + '\n');
+      times['l' + label] = void 0;
     },
   };
 })();
-
-(function(__native) {
-  "use strict";
-
-  /**
-   * Helper function to support IPC function calls
-   */
-  function RPC_CALL(fn, threadPtr, argsArray, promiseid) {
-    if (null === fn) {
-      // Invalid function call
-      __native.callResult(false, threadPtr, promiseid, null);
-      return;
-    }
-
-    var ret;
-    try {
-      ret = fn.apply(this, argsArray);
-    } catch (err) {
-      __native.callResult(false, threadPtr, promiseid, err);
-      throw err;
-    }
-
-    if (ret instanceof Promise) {
-      if (!ret.then) return;
-
-      ret.then(function(result) {
-        __native.callResult(true, threadPtr, promiseid, result);
-      }, function(err) {
-        __native.callResult(false, threadPtr, promiseid, err);
-      }).catch(function(err) {
-        __native.callResult(false, threadPtr, promiseid, err);
-      });
-
-      return;
-    }
-
-    if (ret instanceof Error) {
-      __native.callResult(false, threadPtr, promiseid, ret);
-    } else {
-      __native.callResult(true, threadPtr, promiseid, ret);
-    }
-  };
-
-  __native.installInternals({
-    callWrapper: RPC_CALL,
-  });
-});
 // No more code here
 )JAVASCRIPT";

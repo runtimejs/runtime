@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,14 +14,12 @@
 
 'use strict';
 
-/* global kernel */
 /* eslint-disable quotes */
 var terminal = require('./terminal');
 var assert = require('assert');
 var typeutils = require('typeutils');
 
 var color = terminal.color;
-var version = kernel.version();
 
 terminal.print(
    "\n                   _   _                   _     \n"
@@ -33,9 +31,6 @@ terminal.print(
 
 terminal.print('\n', 1, color.DARKGRAY, color.BLACK);
 terminal.print('# Welcome to ', 1, color.DARKGRAY, color.BLACK);
-terminal.print('runtime.js ', 1, color.LIGHTGRAY, color.BLACK);
-terminal.print('v' + version.runtime.join('.') + ' on', 1, color.DARKGRAY, color.BLACK);
-terminal.print(' V8 ', 1, color.LIGHTGRAY, color.BLACK);
-terminal.print(version.v8 + '\n\n', 1, color.DARKGRAY, color.BLACK);
+terminal.print('runtime.js\n\n', 1, color.LIGHTGRAY, color.BLACK);
 
 module.exports = terminal;

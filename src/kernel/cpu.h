@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,54 +24,54 @@ namespace rt {
 
 class Cpu {
 public:
-    /**
-     * Pause operation for busy-wait loops
-     */
-    static void WaitPause() {
-        CpuPlatform::WaitPause();
-    }
+  /**
+   * Pause operation for busy-wait loops
+   */
+  static void WaitPause() {
+    CpuPlatform::WaitPause();
+  }
 
-    /**
-     * Disable interrupts and stop execution
-     */
-    __attribute__((__noreturn__)) static void HangSystem() {
-        CpuPlatform::HangSystem();
-    }
+  /**
+   * Disable interrupts and stop execution
+   */
+  __attribute__((__noreturn__)) static void HangSystem() {
+    CpuPlatform::HangSystem();
+  }
 
-    /**
-     * Get current CPU index
-     */
-    static uint32_t id() {
-        return CpuPlatform::id();
-    }
+  /**
+   * Get current CPU index
+   */
+  static uint32_t id() {
+    return CpuPlatform::id();
+  }
 
-    /**
-     * Enable interrupts on current CPU
-     */
-    static void EnableInterrupts() {
-        CpuPlatform::EnableInterrupts();
-    }
+  /**
+   * Enable interrupts on current CPU
+   */
+  static void EnableInterrupts() {
+    CpuPlatform::EnableInterrupts();
+  }
 
-    /**
-     * Disable interrupts on current CPU
-     */
-    static void DisableInterrupts() {
-        CpuPlatform::DisableInterrupts();
-    }
+  /**
+   * Disable interrupts on current CPU
+   */
+  static void DisableInterrupts() {
+    CpuPlatform::DisableInterrupts();
+  }
 
-    /**
-     * Get interrupts enabled status
-     */
-    static bool IsInterruptsEnabled() {
-        return CpuPlatform::IsInterruptsEnabled();
-    }
+  /**
+   * Get interrupts enabled status
+   */
+  static bool IsInterruptsEnabled() {
+    return CpuPlatform::IsInterruptsEnabled();
+  }
 
-    /**
-     * Put CPU into sleep until next interrupt
-     */
-    static void Halt() {
-        CpuPlatform::Halt();
-    }
+  /**
+   * Put CPU into sleep until next interrupt
+   */
+  static void Halt() {
+    CpuPlatform::Halt();
+  }
 };
 
 } // namespace rt

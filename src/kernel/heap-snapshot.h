@@ -24,15 +24,17 @@ namespace rt {
 using rt::Constants;
 
 class HeapSnapshotStream : public v8::OutputStream {
- public:
-    HeapSnapshotStream() {}
-    virtual int GetChunkSize() { return 2 * Constants::MiB; }
-    virtual void EndOfStream() {}
-    virtual v8::OutputStream::WriteResult WriteAsciiChunk(char* data, int size);
-    v8::Local<v8::Array> FetchBuffers(v8::Isolate* iv8);
+public:
+  HeapSnapshotStream() {}
+  virtual int GetChunkSize() {
+    return 2 * Constants::MiB;
+  }
+  virtual void EndOfStream() {}
+  virtual v8::OutputStream::WriteResult WriteAsciiChunk(char* data, int size);
+  v8::Local<v8::Array> FetchBuffers(v8::Isolate* iv8);
 private:
-    std::vector<std::pair<void*, size_t>> chunks_;
-    DELETE_COPY_AND_ASSIGN(HeapSnapshotStream);
+  std::vector<std::pair<void*, size_t>> chunks_;
+  DELETE_COPY_AND_ASSIGN(HeapSnapshotStream);
 };
 
 } // namespace rt

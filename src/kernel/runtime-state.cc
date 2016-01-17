@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,28 +17,43 @@
 namespace rt {
 
 const char* RuntimeStateToString(RuntimeState state) {
-    RT_ASSERT((uint32_t)state < (uint32_t)RuntimeState::LAST);
-    switch (state) {
-    case RuntimeState::INIT: return "INIT";
-    case RuntimeState::EVENT_LOOP: return "EVENT_LOOP";
-    case RuntimeState::HALT: return "HALT";
-    case RuntimeState::JAVASCRIPT: return "JAVASCRIPT";
-    case RuntimeState::NATIVE_CALL: return "NATIVE_CALL";
-    case RuntimeState::TRANSPORT_SERIALIZER: return "TRANSPORT_SERIALIZER";
-    case RuntimeState::TRANSPORT_DESERIALIZER: return "TRANSPORT_DESERIALIZER";
-    case RuntimeState::RPC_CALL: return "RPC_CALL";
-    case RuntimeState::HANDLE_CALL: return "HANDLE_CALL";
-    case RuntimeState::ALLOCATOR: return "ALLOCATOR";
-    case RuntimeState::CALL_ON_BACKGROUND: return "CALL_ON_BACKGROUND";
-    case RuntimeState::PROMISE_NATIVE_API: return "PROMISE_NATIVE_API";
-    case RuntimeState::PIPE_CREATE: return "PIPE_CREATE";
-    case RuntimeState::PIPE_PUSH: return "PIPE_PUSH";
-    case RuntimeState::PIPE_PULL: return "PIPE_PULL";
-    default:
-        RT_ASSERT(!"should not be here");
-    }
+  RT_ASSERT((uint32_t)state < (uint32_t)RuntimeState::LAST);
+  switch (state) {
+  case RuntimeState::INIT:
+    return "INIT";
+  case RuntimeState::EVENT_LOOP:
+    return "EVENT_LOOP";
+  case RuntimeState::HALT:
+    return "HALT";
+  case RuntimeState::JAVASCRIPT:
+    return "JAVASCRIPT";
+  case RuntimeState::NATIVE_CALL:
+    return "NATIVE_CALL";
+  case RuntimeState::TRANSPORT_SERIALIZER:
+    return "TRANSPORT_SERIALIZER";
+  case RuntimeState::TRANSPORT_DESERIALIZER:
+    return "TRANSPORT_DESERIALIZER";
+  case RuntimeState::RPC_CALL:
+    return "RPC_CALL";
+  case RuntimeState::HANDLE_CALL:
+    return "HANDLE_CALL";
+  case RuntimeState::ALLOCATOR:
+    return "ALLOCATOR";
+  case RuntimeState::CALL_ON_BACKGROUND:
+    return "CALL_ON_BACKGROUND";
+  case RuntimeState::PROMISE_NATIVE_API:
+    return "PROMISE_NATIVE_API";
+  case RuntimeState::PIPE_CREATE:
+    return "PIPE_CREATE";
+  case RuntimeState::PIPE_PUSH:
+    return "PIPE_PUSH";
+  case RuntimeState::PIPE_PULL:
+    return "PIPE_PULL";
+  default:
+    RT_ASSERT(!"should not be here");
+  }
 
-    return "<INVALID_STATE>";
+  return "<INVALID_STATE>";
 }
 
 } // namespace rt

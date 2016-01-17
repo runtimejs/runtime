@@ -1,4 +1,4 @@
-// Copyright 2014-2015 runtime.js project authors
+// Copyright 2014-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,7 @@
 'use strict';
 var test = require('tape');
 var resources = require('../../../core/resources');
-var allocator = resources.allocator;
-var mem = allocator.allocDMA();
+var mem = __SYSCALL.allocDMA();
 var VRing = require('../../../driver/virtio/vring');
 var DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
 

@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,28 +27,28 @@ namespace rt {
  */
 class IRQBinding {
 public:
-    IRQBinding(ResourceHandle<EngineThread> thread, size_t recv_index)
-        :	thread_(thread), recv_index_(recv_index),
-            reusable_msg_(new ThreadMessage(ThreadMessage::Type::IRQ_RAISE,
-            ResourceHandle<EngineThread>(), TransportData(), nullptr, recv_index_)) {
-        reusable_msg_->MakeReusable();
-    }
+  IRQBinding(ResourceHandle<EngineThread> thread, size_t recv_index)
+    :	thread_(thread), recv_index_(recv_index),
+      reusable_msg_(new ThreadMessage(ThreadMessage::Type::IRQ_RAISE,
+                                      ResourceHandle<EngineThread>(), TransportData(), nullptr, recv_index_)) {
+    reusable_msg_->MakeReusable();
+  }
 
-    IRQBinding(IRQBinding&& other)
-        :	thread_(other.thread_),
-            recv_index_(other.recv_index_),
-            reusable_msg_(std::move(other.reusable_msg_)) {}
+  IRQBinding(IRQBinding&& other)
+    :	thread_(other.thread_),
+      recv_index_(other.recv_index_),
+      reusable_msg_(std::move(other.reusable_msg_)) {}
 
-    void Raise(SystemContextIRQ irq_context) const {
-        RT_ASSERT(reusable_msg_);
-        RT_ASSERT(reusable_msg_->reusable());
-        thread_.getUnsafe()->PushMessageIRQ(irq_context, reusable_msg_.get());
-    }
+  void Raise(SystemContextIRQ irq_context) const {
+    RT_ASSERT(reusable_msg_);
+    RT_ASSERT(reusable_msg_->reusable());
+    thread_.getUnsafe()->PushMessageIRQ(irq_context, reusable_msg_.get());
+  }
 private:
-    ResourceHandle<EngineThread> thread_;
-    size_t recv_index_;
-    std::unique_ptr<ThreadMessage> reusable_msg_;
-    DELETE_COPY_AND_ASSIGN(IRQBinding);
+  ResourceHandle<EngineThread> thread_;
+  size_t recv_index_;
+  std::unique_ptr<ThreadMessage> reusable_msg_;
+  DELETE_COPY_AND_ASSIGN(IRQBinding);
 };
 
 /**
@@ -56,27 +56,27 @@ private:
  */
 class IrqDispatcher {
 public:
-    IrqDispatcher() {}
+  IrqDispatcher() {}
 
-    /**
-     * Bind new handler for provided IRQ number
-     */
-    void Bind(uint8_t number, ResourceHandle<EngineThread> thread, size_t recv_index) {
-        NoInterrupsScope no_interrupts;
-        ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
-        RT_ASSERT(number < kIrqCount);
-        bindings_[number].push_back(std::move(IRQBinding(thread, recv_index)));
-    }
+  /**
+   * Bind new handler for provided IRQ number
+   */
+  void Bind(uint8_t number, ResourceHandle<EngineThread> thread, size_t recv_index) {
+    NoInterrupsScope no_interrupts;
+    ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
+    RT_ASSERT(number < kIrqCount);
+    bindings_[number].push_back(std::move(IRQBinding(thread, recv_index)));
+  }
 
-    /**
-     * Execute all handlers for provided IRQ number
-     */
-    void Raise(SystemContextIRQ irq_context, uint8_t number);
+  /**
+   * Execute all handlers for provided IRQ number
+   */
+  void Raise(SystemContextIRQ irq_context, uint8_t number);
 private:
-    static const uint32_t kIrqCount = 225;
-    std::vector<IRQBinding> bindings_[kIrqCount];
-    threadlib::spinlock_t bindings_locker_;
-    DELETE_COPY_AND_ASSIGN(IrqDispatcher);
+  static const uint32_t kIrqCount = 225;
+  std::vector<IRQBinding> bindings_[kIrqCount];
+  threadlib::spinlock_t bindings_locker_;
+  DELETE_COPY_AND_ASSIGN(IrqDispatcher);
 };
 
 } // namespace rt

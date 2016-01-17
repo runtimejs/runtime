@@ -481,14 +481,9 @@ class Isolate {
     return isolate;
   }
 
-  INLINE(static Isolate* UncheckedCurrent()) {
-    DCHECK(base::NoBarrier_Load(&isolate_key_created_) == 1);
-    return reinterpret_cast<Isolate*>(
-        base::Thread::GetThreadLocal(isolate_key_));
-  }
-
-  // Like UncheckedCurrent, but skips the check that |isolate_key_| was
-  // initialized. Callers have to ensure that themselves.
+  // Like Current, but skips the check that |isolate_key_| was initialized.
+  // Callers have to ensure that themselves.
+  // DO NOT USE. The only remaining callsite will be deleted soon.
   INLINE(static Isolate* UnsafeCurrent()) {
     return reinterpret_cast<Isolate*>(
         base::Thread::GetThreadLocal(isolate_key_));
@@ -522,6 +517,10 @@ class Isolate {
   // Find the PerThread for given (isolate, thread) combination
   // If one does not yet exist, return null.
   PerIsolateThreadData* FindPerThreadDataForThread(ThreadId thread_id);
+
+  // Discard the PerThread for this particular (isolate, thread) combination
+  // If one does not yet exist, no-op.
+  void DiscardPerThreadDataForThisThread();
 
   // Returns the key used to store the pointer to the current isolate.
   // Used internally for V8 threads that do not execute JavaScript but still
@@ -617,7 +616,7 @@ class Isolate {
 
   // Returns the global object of the current context. It could be
   // a builtin object, or a JS global object.
-  inline Handle<GlobalObject> global_object();
+  inline Handle<JSGlobalObject> global_object();
 
   // Returns the global proxy object of the current context.
   JSObject* global_proxy() {
@@ -655,6 +654,9 @@ class Isolate {
       int frame_limit,
       StackTrace::StackTraceOptions options);
 
+  void SetAbortOnUncaughtExceptionCallback(
+      v8::Isolate::AbortOnUncaughtExceptionCallback callback);
+
   enum PrintStackMode { kPrintStackConcise, kPrintStackVerbose };
   void PrintCurrentStackTrace(FILE* out);
   void PrintStack(StringStream* accumulator,
@@ -676,13 +678,12 @@ class Isolate {
   Handle<JSArray> GetDetailedFromSimpleStackTrace(
       Handle<JSObject> error_object);
 
-  // Returns if the top context may access the given global object. If
+  // Returns if the given context may access the given global object. If
   // the result is false, the pending exception is guaranteed to be
   // set.
+  bool MayAccess(Handle<Context> accessing_context, Handle<JSObject> receiver);
 
-  bool MayAccess(Handle<JSObject> receiver);
   bool IsInternallyUsedPropertyName(Handle<Object> name);
-  bool IsInternallyUsedPropertyName(Object* name);
 
   void SetFailedAccessCheckCallback(v8::FailedAccessCheckCallback callback);
   void ReportFailedAccessCheck(Handle<JSObject> receiver);
@@ -936,7 +937,7 @@ class Isolate {
   bool initialized_from_snapshot() { return initialized_from_snapshot_; }
 
   double time_millis_since_init() {
-    return base::OS::TimeCurrentMillis() - time_millis_at_init_;
+    return heap_.MonotonicallyIncreasingTimeInMs() - time_millis_at_init_;
   }
 
   DateCache* date_cache() {
@@ -948,10 +949,6 @@ class Isolate {
       delete date_cache_;
     }
     date_cache_ = date_cache;
-  }
-
-  ErrorToStringHelper* error_tostring_helper() {
-    return &error_tostring_helper_;
   }
 
   Map* get_initial_js_array_map(ElementsKind kind,
@@ -1024,9 +1021,11 @@ class Isolate {
 
   void* stress_deopt_count_address() { return &stress_deopt_count_; }
 
-  void* vector_store_virtual_register_address() {
-    return &vector_store_virtual_register_;
+  void* virtual_handler_register_address() {
+    return &virtual_handler_register_;
   }
+
+  void* virtual_slot_register_address() { return &virtual_slot_register_; }
 
   base::RandomNumberGenerator* random_number_generator();
 
@@ -1039,6 +1038,12 @@ class Isolate {
       next_optimization_id_ = 0;
     }
     return id;
+  }
+
+  void IncrementJsCallsFromApiCounter() { ++js_calls_from_api_counter_; }
+
+  unsigned int js_calls_from_api_counter() {
+    return js_calls_from_api_counter_;
   }
 
   // Get (and lazily initialize) the registry for per-isolate symbols.
@@ -1082,8 +1087,9 @@ class Isolate {
 
   FutexWaitListNode* futex_wait_list_node() { return &futex_wait_list_node_; }
 
-  void RegisterCancelableTask(Cancelable* task);
-  void RemoveCancelableTask(Cancelable* task);
+  CancelableTaskManager* cancelable_task_manager() {
+    return cancelable_task_manager_;
+  }
 
   interpreter::Interpreter* interpreter() const { return interpreter_; }
 
@@ -1195,10 +1201,6 @@ class Isolate {
   // the frame.
   void RemoveMaterializedObjectsOnUnwind(StackFrame* frame);
 
-  // Traverse prototype chain to find out whether the object is derived from
-  // the Error object.
-  bool IsErrorObject(Handle<Object> obj);
-
   base::Atomic32 id_;
   EntryStackItem* entry_stack_;
   int stack_trace_nesting_level_;
@@ -1243,7 +1245,6 @@ class Isolate {
       regexp_macro_assembler_canonicalize_;
   RegExpStack* regexp_stack_;
   DateCache* date_cache_;
-  ErrorToStringHelper error_tostring_helper_;
   unibrow::Mapping<unibrow::Ecma262Canonicalize> interp_canonicalize_mapping_;
   CallInterfaceDescriptorData* call_descriptor_data_;
   base::RandomNumberGenerator* random_number_generator_;
@@ -1303,9 +1304,13 @@ class Isolate {
   // Counts deopt points if deopt_every_n_times is enabled.
   unsigned int stress_deopt_count_;
 
-  Address vector_store_virtual_register_;
+  Address virtual_handler_register_;
+  Address virtual_slot_register_;
 
   int next_optimization_id_;
+
+  // Counts javascript calls from the API. Wraps around on overflow.
+  unsigned int js_calls_from_api_counter_;
 
 #if TRACE_MAPS
   int next_unique_sfi_id_;
@@ -1323,7 +1328,10 @@ class Isolate {
 
   FutexWaitListNode futex_wait_list_node_;
 
-  std::set<Cancelable*> cancelable_tasks_;
+  CancelableTaskManager* cancelable_task_manager_;
+
+  v8::Isolate::AbortOnUncaughtExceptionCallback
+      abort_on_uncaught_exception_callback_;
 
   friend class ExecutionAccess;
   friend class HandleScopeImplementer;
@@ -1550,6 +1558,7 @@ class CodeTracer final : public Malloced {
   int scope_depth_;
 };
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_ISOLATE_H_

@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,15 +18,14 @@
 
 namespace rt {
 
-class Constants
-{
+class Constants {
 public:
-    static const uint64_t GiB = 1024 * 1024 * 1024;
-    static const uint64_t MiB = 1024 * 1024;
-    static const uint64_t KiB = 1024;
+  static const uint64_t GiB = 1024 * 1024 * 1024;
+  static const uint64_t MiB = 1024 * 1024;
+  static const uint64_t KiB = 1024;
 private:
-    Constants() {}
-    DELETE_COPY_AND_ASSIGN(Constants);
+  Constants() {}
+  DELETE_COPY_AND_ASSIGN(Constants);
 };
 
 } // namespace rt

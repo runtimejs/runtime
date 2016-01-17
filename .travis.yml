@@ -1,5 +1,6 @@
 language: cpp
 compiler: gcc
+sudo: false
 
 before_script:
     - cd tools

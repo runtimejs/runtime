@@ -10,12 +10,10 @@
 #include "src/allocation.h"
 #include "src/compiler.h"
 #include "src/hashmap.h"
-#include "src/strings-storage.h"
+#include "src/profiler/strings-storage.h"
 
 namespace v8 {
 namespace internal {
-
-struct OffsetRange;
 
 // Provides a mapping from the offsets within generated code to
 // the source line.
@@ -83,10 +81,6 @@ class CodeEntry {
 
   void FillFunctionInfo(SharedFunctionInfo* shared);
 
-  List<OffsetRange>* no_frame_ranges() const { return no_frame_ranges_; }
-  void set_no_frame_ranges(List<OffsetRange>* ranges) {
-    no_frame_ranges_ = ranges;
-  }
   void set_inlined_function_infos(
       const std::vector<InlinedFunctionInfo>& infos) {
     inlined_function_infos_ = infos;
@@ -125,7 +119,6 @@ class CodeEntry {
   int column_number_;
   int script_id_;
   int position_;
-  List<OffsetRange>* no_frame_ranges_;
   const char* bailout_reason_;
   const char* deopt_reason_;
   SourcePosition deopt_position_;
@@ -163,6 +156,7 @@ class ProfileNode {
   const std::vector<CpuProfileDeoptInfo>& deopt_infos() const {
     return deopt_infos_;
   }
+  Isolate* isolate() const;
 
   void Print(int indent);
 
@@ -193,7 +187,7 @@ class ProfileNode {
 
 class ProfileTree {
  public:
-  ProfileTree();
+  explicit ProfileTree(Isolate* isolate);
   ~ProfileTree();
 
   ProfileNode* AddPathFromEnd(
@@ -207,6 +201,8 @@ class ProfileTree {
     root_->Print(0);
   }
 
+  Isolate* isolate() const { return isolate_; }
+
  private:
   template <typename Callback>
   void TraverseDepthFirst(Callback* callback);
@@ -214,6 +210,7 @@ class ProfileTree {
   CodeEntry root_entry_;
   unsigned next_node_id_;
   ProfileNode* root_;
+  Isolate* isolate_;
 
   unsigned next_function_id_;
   HashMap function_ids_;
@@ -224,7 +221,7 @@ class ProfileTree {
 
 class CpuProfile {
  public:
-  CpuProfile(const char* title, bool record_samples);
+  CpuProfile(Isolate* isolate, const char* title, bool record_samples);
 
   // Add pc -> ... -> main() call path to the profile.
   void AddPath(base::TimeTicks timestamp, const Vector<CodeEntry*>& path,
@@ -346,6 +343,8 @@ class CpuProfilesCollection {
   List<CodeEntry*> code_entries_;
   List<CpuProfile*> finished_profiles_;
 
+  Isolate* isolate_;
+
   // Accessed by VM thread and profile generator thread.
   List<CpuProfile*> current_profiles_;
   base::Semaphore current_profiles_semaphore_;
@@ -383,6 +382,7 @@ class ProfileGenerator {
 };
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_PROFILER_PROFILE_GENERATOR_H_

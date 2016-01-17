@@ -1,4 +1,4 @@
-// Copyright 2014 Runtime.JS project authors
+// Copyright 2014 runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,96 +24,108 @@ typedef void (*FileIoDataEvent)(char c);
 
 class FileIoFile {
 public:
-    FileIoFile(const char* name, FileIoDataEvent onwrite)
-        :	_name(name),
-            _onwrite(onwrite) {
-        RT_ASSERT(_name);
+  FileIoFile(const char* name, FileIoDataEvent onwrite)
+    :	_name(name),
+      _onwrite(onwrite) {
+    RT_ASSERT(_name);
+  }
+  void WriteByte(char c) {
+    if (nullptr == _onwrite) {
+      return;
     }
-    void WriteByte(char c) {
-        if (nullptr == _onwrite) return;
-        _onwrite(c);
-    }
+    _onwrite(c);
+  }
 
 private:
-    const char* _name;
-    FileIoDataEvent _onwrite;
+  const char* _name;
+  FileIoDataEvent _onwrite;
 };
 
 void fileio_printer(void* p, char c, size_t offset);
 
 class FileIo {
-    friend class BootServices;
+  friend class BootServices;
 public:
-    FILE* FOpen(const char* name) {
+  FILE* FOpen(const char* name) {
 
-        printf("open: %s\n", name);
+    printf("open: %s\n", name);
 
-        if (0 == strcmp(name, "v8.log")) {
-            return v8_log();
-        }
-
-        if (0 == strcmp(name, "snapshot")) {
-            return v8_snapshot();
-        }
-
-        if (0 == strcmp(name, "deopt")) {
-            return stdout_get();
-        }
-
-        RT_ASSERT(!"Trying to open unknown file.");
-        return nullptr;
+    if (0 == strcmp(name, "v8.log")) {
+      return v8_log();
     }
 
-    int FPutc(int c, FILE* f) {
-        RT_ASSERT(f);
-        FileIoFile* file = reinterpret_cast<FileIoFile*>(f);
-        file->WriteByte(static_cast<char>(c));
-        return c;
+    if (0 == strcmp(name, "snapshot")) {
+      return v8_snapshot();
     }
 
-    size_t FWrite(const void* src, size_t size, size_t nmemb, FILE* f) {
-        RT_ASSERT(f);
-        size_t result = 0;
-        size_t len = size * nmemb;
-        const char* data = reinterpret_cast<const char*>(src);
-        FileIoFile* file = reinterpret_cast<FileIoFile*>(f);
-        for (size_t i = 0; i < len; ++i) {
-            file->WriteByte(data[i]);
-            ++result;
-        }
-        return result;
+    if (0 == strcmp(name, "deopt")) {
+      return stdout_get();
     }
 
-    int VFPrintf(FILE* f, const char* fmt, va_list va) {
-        RT_ASSERT(f);
-        return tfp_format(f, fileio_printer, fmt, va);
-    }
+    RT_ASSERT(!"Trying to open unknown file.");
+    return nullptr;
+  }
 
-    int FFlush(FILE *f) {
-        RT_ASSERT(f);
-        return 0;
-    }
+  int FPutc(int c, FILE* f) {
+    RT_ASSERT(f);
+    FileIoFile* file = reinterpret_cast<FileIoFile*>(f);
+    file->WriteByte(static_cast<char>(c));
+    return c;
+  }
 
-    int FClose(FILE *f) {
-        RT_ASSERT(f);
-        return 0;
+  size_t FWrite(const void* src, size_t size, size_t nmemb, FILE* f) {
+    RT_ASSERT(f);
+    size_t result = 0;
+    size_t len = size * nmemb;
+    const char* data = reinterpret_cast<const char*>(src);
+    FileIoFile* file = reinterpret_cast<FileIoFile*>(f);
+    for (size_t i = 0; i < len; ++i) {
+      file->WriteByte(data[i]);
+      ++result;
     }
+    return result;
+  }
 
-    FILE* stdio_out() { return reinterpret_cast<FILE*>(&_stdout); }
-    FILE* stdio_in() { return reinterpret_cast<FILE*>(&_stdin); }
-    FILE* stdio_err() { return reinterpret_cast<FILE*>(&_stderr); }
-    FILE* v8_log() { return reinterpret_cast<FILE*>(&_v8_log); }
-    FILE* v8_snapshot() { return reinterpret_cast<FILE*>(&_v8_snapshot); }
+  int VFPrintf(FILE* f, const char* fmt, va_list va) {
+    RT_ASSERT(f);
+    return tfp_format(f, fileio_printer, fmt, va);
+  }
+
+  int FFlush(FILE* f) {
+    RT_ASSERT(f);
+    return 0;
+  }
+
+  int FClose(FILE* f) {
+    RT_ASSERT(f);
+    return 0;
+  }
+
+  FILE* stdio_out() {
+    return reinterpret_cast<FILE*>(&_stdout);
+  }
+  FILE* stdio_in() {
+    return reinterpret_cast<FILE*>(&_stdin);
+  }
+  FILE* stdio_err() {
+    return reinterpret_cast<FILE*>(&_stderr);
+  }
+  FILE* v8_log() {
+    return reinterpret_cast<FILE*>(&_v8_log);
+  }
+  FILE* v8_snapshot() {
+    return reinterpret_cast<FILE*>(&_v8_snapshot);
+  }
 private:
-    FileIoFile _stdout;
-    FileIoFile _stderr;
-    FileIoFile _stdin;
-    FileIoFile _v8_log;
-    FileIoFile _v8_snapshot;
+  FileIoFile _stdout;
+  FileIoFile _stderr;
+  FileIoFile _stdin;
+  FileIoFile _v8_log;
+  FileIoFile _v8_snapshot;
 
-    FileIo();
-    ~FileIo() {}
-    DELETE_COPY_AND_ASSIGN(FileIo);
+  FileIo();
+  ~FileIo() {}
+  DELETE_COPY_AND_ASSIGN(FileIo);
 };
 
 } // namespace rt

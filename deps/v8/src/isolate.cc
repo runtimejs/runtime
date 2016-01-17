@@ -9,7 +9,8 @@
 #include <fstream>  // NOLINT(readability/streams)
 #include <sstream>
 
-#include "src/ast.h"
+#include "src/ast/ast.h"
+#include "src/ast/scopeinfo.h"
 #include "src/base/platform/platform.h"
 #include "src/base/sys-info.h"
 #include "src/base/utils/random-number-generator.h"
@@ -18,14 +19,13 @@
 #include "src/codegen.h"
 #include "src/compilation-cache.h"
 #include "src/compilation-statistics.h"
+#include "src/crankshaft/hydrogen.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
 #include "src/frames-inl.h"
-#include "src/hydrogen.h"
 #include "src/ic/stub-cache.h"
 #include "src/interpreter/interpreter.h"
 #include "src/isolate-inl.h"
-#include "src/lithium-allocator.h"
 #include "src/log.h"
 #include "src/messages.h"
 #include "src/profiler/cpu-profiler.h"
@@ -33,7 +33,6 @@
 #include "src/prototype.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/runtime-profiler.h"
-#include "src/scopeinfo.h"
 #include "src/simulator.h"
 #include "src/snapshot/serialize.h"
 #include "src/v8.h"
@@ -133,6 +132,22 @@ Isolate::PerIsolateThreadData*
     DCHECK(thread_data_table_->Lookup(this, thread_id) == per_thread);
   }
   return per_thread;
+}
+
+
+void Isolate::DiscardPerThreadDataForThisThread() {
+  int thread_id_int = base::Thread::GetThreadLocalInt(Isolate::thread_id_key_);
+  if (thread_id_int) {
+    ThreadId thread_id = ThreadId(thread_id_int);
+    DCHECK(!thread_manager_->mutex_owner_.Equals(thread_id));
+    base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
+    PerIsolateThreadData* per_thread =
+        thread_data_table_->Lookup(this, thread_id);
+    if (per_thread) {
+      DCHECK(!per_thread->thread_state_);
+      thread_data_table_->Remove(per_thread);
+    }
+  }
 }
 
 
@@ -317,9 +332,8 @@ static bool IsVisibleInStackTrace(JSFunction* fun,
   // exposed, in which case the native flag is set.
   // The --builtins-in-stack-traces command line flag allows including
   // internal call sites in the stack trace for debugging purposes.
-  if (!FLAG_builtins_in_stack_traces) {
-    if (receiver->IsJSBuiltinsObject()) return false;
-    if (fun->IsBuiltin()) return fun->shared()->native();
+  if (!FLAG_builtins_in_stack_traces && fun->shared()->IsBuiltin()) {
+    return fun->shared()->native();
   }
   return true;
 }
@@ -774,25 +788,17 @@ bool Isolate::IsInternallyUsedPropertyName(Handle<Object> name) {
 }
 
 
-bool Isolate::IsInternallyUsedPropertyName(Object* name) {
-  if (name->IsSymbol()) {
-    return Symbol::cast(name)->is_private();
-  }
-  return name == heap()->hidden_string();
-}
-
-
-bool Isolate::MayAccess(Handle<JSObject> receiver) {
+bool Isolate::MayAccess(Handle<Context> accessing_context,
+                        Handle<JSObject> receiver) {
   DCHECK(receiver->IsJSGlobalProxy() || receiver->IsAccessCheckNeeded());
 
   // Check for compatibility between the security tokens in the
   // current lexical context and the accessed object.
-  DCHECK(context());
 
+  // During bootstrapping, callback functions are not enabled yet.
+  if (bootstrapper()->IsActive()) return true;
   {
     DisallowHeapAllocation no_gc;
-    // During bootstrapping, callback functions are not enabled yet.
-    if (bootstrapper()->IsActive()) return true;
 
     if (receiver->IsJSGlobalProxy()) {
       Object* receiver_context =
@@ -801,7 +807,8 @@ bool Isolate::MayAccess(Handle<JSObject> receiver) {
 
       // Get the native context of current top context.
       // avoid using Isolate::native_context() because it uses Handle.
-      Context* native_context = context()->global_object()->native_context();
+      Context* native_context =
+          accessing_context->global_object()->native_context();
       if (receiver_context == native_context) return true;
 
       if (Context::cast(receiver_context)->security_token() ==
@@ -812,23 +819,34 @@ bool Isolate::MayAccess(Handle<JSObject> receiver) {
 
   HandleScope scope(this);
   Handle<Object> data;
-  v8::NamedSecurityCallback callback;
+  v8::AccessCheckCallback callback = nullptr;
+  v8::NamedSecurityCallback named_callback = nullptr;
   { DisallowHeapAllocation no_gc;
     AccessCheckInfo* access_check_info = GetAccessCheckInfo(this, receiver);
     if (!access_check_info) return false;
-    Object* fun_obj = access_check_info->named_callback();
-    callback = v8::ToCData<v8::NamedSecurityCallback>(fun_obj);
-    if (!callback) return false;
-    data = handle(access_check_info->data(), this);
+    Object* fun_obj = access_check_info->callback();
+    callback = v8::ToCData<v8::AccessCheckCallback>(fun_obj);
+    if (!callback) {
+      fun_obj = access_check_info->named_callback();
+      named_callback = v8::ToCData<v8::NamedSecurityCallback>(fun_obj);
+      if (!named_callback) return false;
+      data = handle(access_check_info->data(), this);
+    }
   }
 
   LOG(this, ApiSecurityCheck());
 
-  // Leaving JavaScript.
-  VMState<EXTERNAL> state(this);
-  Handle<Object> key = factory()->undefined_value();
-  return callback(v8::Utils::ToLocal(receiver), v8::Utils::ToLocal(key),
-                  v8::ACCESS_HAS, v8::Utils::ToLocal(data));
+  {
+    // Leaving JavaScript.
+    VMState<EXTERNAL> state(this);
+    if (callback) {
+      return callback(v8::Utils::ToLocal(accessing_context),
+                      v8::Utils::ToLocal(receiver));
+    }
+    Handle<Object> key = factory()->undefined_value();
+    return named_callback(v8::Utils::ToLocal(receiver), v8::Utils::ToLocal(key),
+                          v8::ACCESS_HAS, v8::Utils::ToLocal(data));
+  }
 }
 
 
@@ -1008,13 +1026,21 @@ Object* Isolate::Throw(Object* exception, MessageLocation* location) {
       Handle<Object> message_obj = CreateMessage(exception_handle, location);
       thread_local_top()->pending_message_obj_ = *message_obj;
 
-      // If the abort-on-uncaught-exception flag is specified, abort on any
-      // exception not caught by JavaScript, even when an external handler is
-      // present.  This flag is intended for use by JavaScript developers, so
-      // print a user-friendly stack trace (not an internal one).
+      // For any exception not caught by JavaScript, even when an external
+      // handler is present:
+      // If the abort-on-uncaught-exception flag is specified, and if the
+      // embedder didn't specify a custom uncaught exception callback,
+      // or if the custom callback determined that V8 should abort, then
+      // abort.
       if (FLAG_abort_on_uncaught_exception &&
-          PredictExceptionCatcher() != CAUGHT_BY_JAVASCRIPT) {
-        FLAG_abort_on_uncaught_exception = false;  // Prevent endless recursion.
+          PredictExceptionCatcher() != CAUGHT_BY_JAVASCRIPT &&
+          (!abort_on_uncaught_exception_callback_ ||
+           abort_on_uncaught_exception_callback_(
+               reinterpret_cast<v8::Isolate*>(this)))) {
+        // Prevent endless recursion.
+        FLAG_abort_on_uncaught_exception = false;
+        // This flag is intended for use by JavaScript developers, so
+        // print a user-friendly stack trace (not an internal one).
         PrintF(stderr, "%s\n\nFROM\n",
                MessageHandler::GetLocalizedMessage(this, message_obj).get());
         PrintCurrentStackTrace(stderr);
@@ -1323,7 +1349,7 @@ bool Isolate::ComputeLocationFromStackTrace(MessageLocation* target,
   for (int i = 1; i < elements_limit; i += 4) {
     Handle<JSFunction> fun =
         handle(JSFunction::cast(elements->get(i + 1)), this);
-    if (!fun->IsSubjectToDebugging()) continue;
+    if (!fun->shared()->IsSubjectToDebugging()) continue;
 
     Object* script = fun->shared()->script();
     if (script->IsScript() &&
@@ -1338,29 +1364,11 @@ bool Isolate::ComputeLocationFromStackTrace(MessageLocation* target,
 }
 
 
-// Traverse prototype chain to find out whether the object is derived from
-// the Error object.
-bool Isolate::IsErrorObject(Handle<Object> obj) {
-  if (!obj->IsJSObject()) return false;
-  Handle<Object> error_constructor = error_function();
-  DisallowHeapAllocation no_gc;
-  for (PrototypeIterator iter(this, *obj, PrototypeIterator::START_AT_RECEIVER);
-       !iter.IsAtEnd(); iter.Advance()) {
-    if (iter.GetCurrent()->IsJSProxy()) return false;
-    if (iter.GetCurrent<JSObject>()->map()->GetConstructor() ==
-        *error_constructor) {
-      return true;
-    }
-  }
-  return false;
-}
-
-
 Handle<JSMessageObject> Isolate::CreateMessage(Handle<Object> exception,
                                                MessageLocation* location) {
   Handle<JSArray> stack_trace_object;
   if (capture_stack_trace_for_uncaught_exceptions_) {
-    if (IsErrorObject(exception)) {
+    if (Object::IsErrorObject(this, exception)) {
       // We fetch the stack trace that corresponds to this error object.
       // If the lookup fails, the exception is probably not a valid Error
       // object. In that case, we fall through and capture the stack trace
@@ -1602,6 +1610,12 @@ void Isolate::SetCaptureStackTraceForUncaughtExceptions(
 }
 
 
+void Isolate::SetAbortOnUncaughtExceptionCallback(
+    v8::Isolate::AbortOnUncaughtExceptionCallback callback) {
+  abort_on_uncaught_exception_callback_ = callback;
+}
+
+
 Handle<Context> Isolate::native_context() {
   return handle(context()->native_context());
 }
@@ -1764,13 +1778,17 @@ Isolate::Isolate(bool enable_serializer)
       deferred_handles_head_(NULL),
       optimizing_compile_dispatcher_(NULL),
       stress_deopt_count_(0),
-      vector_store_virtual_register_(NULL),
+      virtual_handler_register_(NULL),
+      virtual_slot_register_(NULL),
       next_optimization_id_(0),
+      js_calls_from_api_counter_(0),
 #if TRACE_MAPS
       next_unique_sfi_id_(0),
 #endif
       use_counter_callback_(NULL),
-      basic_block_profiler_(NULL) {
+      basic_block_profiler_(NULL),
+      cancelable_task_manager_(new CancelableTaskManager()),
+      abort_on_uncaught_exception_callback_(NULL) {
   {
     base::LockGuard<base::Mutex> lock_guard(thread_data_table_mutex_.Pointer());
     CHECK(thread_data_table_);
@@ -1808,6 +1826,8 @@ Isolate::Isolate(bool enable_serializer)
 
   InitializeLoggingAndCounters();
   debug_ = new Debug(this);
+
+  init_memcopy_functions(this);
 }
 
 
@@ -1819,7 +1839,9 @@ void Isolate::TearDown() {
   // direct pointer. We don't use Enter/Exit here to avoid
   // initializing the thread data.
   PerIsolateThreadData* saved_data = CurrentPerIsolateThreadData();
-  Isolate* saved_isolate = UncheckedCurrent();
+  DCHECK(base::NoBarrier_Load(&isolate_key_created_) == 1);
+  Isolate* saved_isolate =
+      reinterpret_cast<Isolate*>(base::Thread::GetThreadLocal(isolate_key_));
   SetIsolateThreadLocals(this, NULL);
 
   Deinit();
@@ -1847,8 +1869,6 @@ void Isolate::ClearSerializerData() {
   external_reference_table_ = NULL;
   delete external_reference_map_;
   external_reference_map_ = NULL;
-  delete root_index_map_;
-  root_index_map_ = NULL;
 }
 
 
@@ -1875,6 +1895,10 @@ void Isolate::Deinit() {
     PrintF(stdout, "=== Stress deopt counter: %u\n", stress_deopt_count_);
   }
 
+  if (cpu_profiler_) {
+    cpu_profiler_->DeleteAllProfiles();
+  }
+
   // We must stop the logger before we tear down other components.
   Sampler* sampler = logger_->sampler();
   if (sampler && sampler->IsActive()) sampler->Stop();
@@ -1895,18 +1919,18 @@ void Isolate::Deinit() {
   delete basic_block_profiler_;
   basic_block_profiler_ = NULL;
 
-  for (Cancelable* task : cancelable_tasks_) {
-    task->Cancel();
-  }
-  cancelable_tasks_.clear();
-
   heap_.TearDown();
   logger_->TearDown();
+
+  cancelable_task_manager()->CancelAndWait();
 
   delete heap_profiler_;
   heap_profiler_ = NULL;
   delete cpu_profiler_;
   cpu_profiler_ = NULL;
+
+  delete root_index_map_;
+  root_index_map_ = NULL;
 
   ClearSerializerData();
 }
@@ -1999,6 +2023,9 @@ Isolate::~Isolate() {
 
   delete debug_;
   debug_ = NULL;
+
+  delete cancelable_task_manager_;
+  cancelable_task_manager_ = nullptr;
 
 #if USE_SIMULATOR
   Simulator::TearDown(simulator_i_cache_, simulator_redirection_);
@@ -2120,7 +2147,7 @@ bool Isolate::Init(Deserializer* des) {
 #endif
 #endif
 
-  code_aging_helper_ = new CodeAgingHelper();
+  code_aging_helper_ = new CodeAgingHelper(this);
 
   { // NOLINT
     // Ensure that the thread has a valid stack guard.  The v8::Locker object
@@ -2169,12 +2196,6 @@ bool Isolate::Init(Deserializer* des) {
   // occur, clearing/updating ICs.
   runtime_profiler_ = new RuntimeProfiler(this);
 
-  if (create_heap_objects) {
-    if (!bootstrapper_->CreateCodeStubContext(this)) {
-      return false;
-    }
-  }
-
   // If we are deserializing, read the state into the now-empty heap.
   if (!create_heap_objects) {
     des->Deserialize(this);
@@ -2214,7 +2235,7 @@ bool Isolate::Init(Deserializer* des) {
                heap_.amount_of_external_allocated_memory_at_last_global_gc_)),
            Internals::kAmountOfExternalAllocatedMemoryAtLastGlobalGCOffset);
 
-  time_millis_at_init_ = base::OS::TimeCurrentMillis();
+  time_millis_at_init_ = heap_.MonotonicallyIncreasingTimeInMs();
 
   heap_.NotifyDeserializationComplete();
 
@@ -2384,18 +2405,15 @@ CodeTracer* Isolate::GetCodeTracer() {
 
 
 Map* Isolate::get_initial_js_array_map(ElementsKind kind, Strength strength) {
-  Context* native_context = context()->native_context();
-  Object* maybe_map_array = is_strong(strength)
-                                ? native_context->js_array_strong_maps()
-                                : native_context->js_array_maps();
-  if (!maybe_map_array->IsUndefined()) {
-    Object* maybe_transitioned_map =
-        FixedArray::cast(maybe_map_array)->get(kind);
-    if (!maybe_transitioned_map->IsUndefined()) {
-      return Map::cast(maybe_transitioned_map);
+  if (IsFastElementsKind(kind)) {
+    DisallowHeapAllocation no_gc;
+    Object* const initial_js_array_map = context()->native_context()->get(
+        Context::ArrayMapIndex(kind, strength));
+    if (!initial_js_array_map->IsUndefined()) {
+      return Map::cast(initial_js_array_map);
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 
@@ -2556,6 +2574,7 @@ Handle<JSObject> Isolate::GetSymbolRegistry() {
     SetUpSubregistry(registry, map, "for");
     SetUpSubregistry(registry, map, "for_api");
     SetUpSubregistry(registry, map, "keyFor");
+    SetUpSubregistry(registry, map, "private_api");
   }
   return Handle<JSObject>::cast(factory()->symbol_registry());
 }
@@ -2653,9 +2672,9 @@ void Isolate::RunMicrotasks() {
         SaveContext save(this);
         set_context(microtask_function->context()->native_context());
         MaybeHandle<Object> maybe_exception;
-        MaybeHandle<Object> result =
-            Execution::TryCall(microtask_function, factory()->undefined_value(),
-                               0, NULL, &maybe_exception);
+        MaybeHandle<Object> result = Execution::TryCall(
+            this, microtask_function, factory()->undefined_value(), 0, NULL,
+            &maybe_exception);
         // If execution is terminating, just bail out.
         Handle<Object> exception;
         if (result.is_null() && maybe_exception.is_null()) {
@@ -2766,18 +2785,6 @@ void Isolate::CheckDetachedContextsAfterGC() {
     heap()->RightTrimFixedArray<Heap::CONCURRENT_TO_SWEEPER>(
         *detached_contexts, length - new_length);
   }
-}
-
-
-void Isolate::RegisterCancelableTask(Cancelable* task) {
-  cancelable_tasks_.insert(task);
-}
-
-
-void Isolate::RemoveCancelableTask(Cancelable* task) {
-  auto removed = cancelable_tasks_.erase(task);
-  USE(removed);
-  DCHECK(removed == 1);
 }
 
 

@@ -66,6 +66,8 @@ class HeapProfiler {
   Handle<HeapObject> FindHeapObjectById(SnapshotObjectId id);
   void ClearHeapObjectMap();
 
+  Isolate* isolate() const { return heap()->isolate(); }
+
  private:
   Heap* heap() const;
 
@@ -79,6 +81,7 @@ class HeapProfiler {
   base::Mutex profiler_mutex_;
 };
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_PROFILER_HEAP_PROFILER_H_

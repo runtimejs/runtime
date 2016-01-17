@@ -15,7 +15,7 @@ namespace compiler {
 
 namespace {
 LinkageLocation regloc(Register reg) {
-  return LinkageLocation::ForRegister(Register::ToAllocationIndex(reg));
+  return LinkageLocation::ForRegister(reg.code());
 }
 
 
@@ -208,7 +208,7 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
 #endif
 
   // The target for C calls is always an address (i.e. machine pointer).
-  MachineType target_type = kMachPtr;
+  MachineType target_type = MachineType::Pointer();
   LinkageLocation target_loc = LinkageLocation::ForAnyRegister();
   return new (zone) CallDescriptor(  // --
       CallDescriptor::kCallAddress,  // kind
@@ -223,6 +223,7 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
       CallDescriptor::kNoFlags,      // flags
       "c-call");
 }
-}
-}
-}
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

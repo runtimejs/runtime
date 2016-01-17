@@ -1,4 +1,4 @@
-// Copyright 2015 runtime.js project authors
+// Copyright 2015-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ test('some math functions (in case they rely on embedded libc)', function(t) {
   t.equal((Math.atan(1, 0) * 4).toFixed(2), '3.14');
   t.equal(Math.pow(2, 10), 1024);
   t.equal(Math.sqrt(81), 9);
-  t.equal(Math.exp(1).toFixed(2), '2.72')
+  t.equal(Math.exp(1).toFixed(2), '2.72');
   t.end();
 });
 

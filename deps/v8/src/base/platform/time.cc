@@ -677,4 +677,5 @@ bool TimeTicks::KernelTimestampAvailable() {
 
 #endif  // V8_OS_WIN
 
-} }  // namespace v8::base
+}  // namespace base
+}  // namespace v8
