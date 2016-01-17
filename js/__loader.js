@@ -249,5 +249,6 @@
   });
 
   loader.require(runtimePackagePath + '/index.js');
+  loader.require('/');
 })();
 
