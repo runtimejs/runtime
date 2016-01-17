@@ -20,7 +20,8 @@
   "homepage": "http://runtimejs.org",
   "devDependencies": {
     "eslint": "^1.8.0",
-    "eslint-plugin-runtime-internal": "*",
+    "eslint-config-runtime": "^1.0.0",
+    "eslint-plugin-runtime-internal": "^1.0.0",
     "runtime-tools": "*",
     "runtimeify": "*",
     "tape": "^4.0.0"
@@ -32,6 +33,7 @@
     "assert": "^1.3.0",
     "assert-error": "^1.0.2",
     "bit-twiddle": "^1.0.2",
+    "eslint": "^1.10.3",
     "event-controller": "^1.0.1",
     "isint": "^1.0.0",
     "module-singleton": "^2.0.0",
