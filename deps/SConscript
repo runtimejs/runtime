@@ -11,6 +11,7 @@ libs_config = {
             'eastl/include',
             'concurrentqueue',
             'printf',
+            'trace_event',
             'v8/src',
             'v8',
             '../src',
