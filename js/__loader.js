@@ -243,9 +243,9 @@
 
   var runtimePackagePath = __SYSCALL.initrdGetKernelIndex().split('/').slice(0, -1).join('/');
   var loader = new Loader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, {
-    assert: runtimePackagePath + '/node_modules/assert',
+    assert: 'assert',
     inherits: runtimePackagePath + '/modules/inherits.js',
-    util: runtimePackagePath + '/node_modules/util/util.js',
+    util: 'util/util.js'
   });
 
   loader.require(runtimePackagePath + '/index.js');
