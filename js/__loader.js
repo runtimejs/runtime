@@ -16,8 +16,10 @@
 
 (function() {
   // from https://github.com/runtimejs/runtime-module-loader/blob/master/index.js
-  function Loader(existsFileFn, readFileFn, evalScriptFn, builtins) {
+  function Loader(existsFileFn, readFileFn, evalScriptFn, builtins, builtinsResolveFrom) {
+    builtinsResolveFrom = builtinsResolveFrom || '/';
     var cache = {};
+    var builtinsResolveFromComponents = builtinsResolveFrom.split('/');
     builtins = builtins || {};
 
     function throwError(err) {
@@ -196,8 +198,11 @@
     function resolve(module, path) {
       path = String(path || '');
 
+      var resolveFrom = module.dirComponents;
+
       if (builtins.hasOwnProperty(path)) {
         path = builtins[path];
+        resolveFrom = builtinsResolveFromComponents;
       }
 
       var pathComponents = path.split('/');
@@ -209,7 +214,7 @@
           firstPathComponent === '') {
         var combinedPathComponents = (firstPathComponent === '')
           ? pathComponents
-          : module.dirComponents.concat(pathComponents);
+          : resolveFrom.concat(pathComponents);
 
         var normalizedPath = normalizePath(combinedPathComponents);
         if (!normalizedPath) {
@@ -221,7 +226,7 @@
         return loadedPath;
       }
 
-      return loadNodeModules(module.dirComponents, pathComponents);
+      return loadNodeModules(resolveFrom, pathComponents);
     }
 
     this.require = function require(path) {
@@ -244,9 +249,9 @@
   var runtimePackagePath = __SYSCALL.initrdGetKernelIndex().split('/').slice(0, -1).join('/');
   var loader = new Loader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, {
     assert: 'assert',
-    inherits: runtimePackagePath + '/modules/inherits.js',
+    inherits: './modules/inherits.js',
     util: 'util/util.js'
-  });
+  }, runtimePackagePath);
 
   loader.require(runtimePackagePath + '/index.js');
   loader.require('/');
