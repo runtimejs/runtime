@@ -157,7 +157,7 @@ void Initrd::Init(const void* buf, size_t len) {
       }
 
       auto f = files_[file.content()];
-      files_.push_back(InitrdFile(f.Name(), f.Size(), f.Data()));
+      files_.push_back(InitrdFile(file.name(), f.Size(), f.Data()));
     } else {
       uint32_t crc32 = CRC32::Compute(file.buf(), file.len());
       if (file.content() != crc32) {
