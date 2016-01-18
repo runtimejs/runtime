@@ -24,7 +24,7 @@ public:
    * Get kernel version represented by a single number.
    */
   static uint32_t getVersionNumber() {
-    return 2;
+    return 3;
   }
 private:
   ~Version() = delete;
