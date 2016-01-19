@@ -71,9 +71,9 @@
         module.exports = JSON.parse(content);
       } else {
         evalScriptFn(
-          '(function(require, exports, module, __filename, __dirname) { ' +
+          '(function(require,exports,module,__filename,__dirname){' +
           content +
-          '})(function(path){return global.module.require(path);},global.module.exports,global.module,global.module.filename,global.module.dirname)',
+          '})((function(m){return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)',
         displayPath);
       }
 
