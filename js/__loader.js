@@ -248,12 +248,29 @@
 
   var runtimePackagePath = __SYSCALL.initrdGetKernelIndex().split('/').slice(0, -1).join('/');
   var loader = new Loader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, {
+    /* eslint-disable camelcase */
     assert: 'assert',
+    events: 'events',
+    buffer: 'buffer',
+    process: './modules/process.js',
+    constants: 'constants-browserify',
+    os: './modules/os.js',
+    punycode: 'punycode',
+    querystring: 'querystring-es3',
+    string_decoder: 'string_decoder',
+    path: 'path-browserify',
+    url: 'url',
+    stream: 'stream-browserify',
     inherits: './modules/inherits.js',
+    sys: 'util/util.js',
     util: 'util/util.js'
+    /* eslint-enable camelcase */
   }, runtimePackagePath);
 
   loader.require(runtimePackagePath + '/index.js');
+
+  global.process = loader.require('process');
+  global.Buffer = loader.require('buffer').Buffer;
   loader.require('/');
 })();
 
