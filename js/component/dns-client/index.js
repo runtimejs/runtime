@@ -72,7 +72,7 @@ function DNSClient(serverIP, serverPort) {
       }
 
       if (req.retry > 0) {
-        self._sendQuery(req.domain);
+        self._sendQuery(req.domain, req.opts.query || 'A');
         --req.retry;
       } else {
         req.cb(new Error('E_FAILED'));
@@ -85,8 +85,8 @@ function DNSClient(serverIP, serverPort) {
   }, 1000);
 }
 
-DNSClient.prototype._sendQuery = function(domain) {
-  var query = dnsPacket.getQuery(domain);
+DNSClient.prototype._sendQuery = function(domain, type) {
+  var query = dnsPacket.getQuery(domain, type);
   this._socket.send(this._serverIP, this._serverPort, query);
 };
 
@@ -95,7 +95,7 @@ DNSClient.prototype.resolve = function(domain, opts, cb) {
   assert(typeutils.isString(domain));
   assert(typeutils.isFunction(cb));
 
-  this._sendQuery(domain);
+  this._sendQuery(domain, opts.query || 'A');
   this._requests.push({
     domain: domain,
     retry: 3,

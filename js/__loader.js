@@ -249,11 +249,45 @@
   var runtimePackagePath = __SYSCALL.initrdGetKernelIndex().split('/').slice(0, -1).join('/');
   var loader = new Loader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, {
     assert: 'assert',
+    events: 'events',
+    buffer: 'buffer',
+    process: './modules/process.js',
+    console: './modules/console.js',
+    constants: 'constants-browserify',
+    os: './modules/os.js',
+    __errors__: './modules/errors.js',
+    timers: './modules/timers.js',
+    dns: './modules/dns.js',
+    punycode: 'punycode',
+    querystring: 'querystring-es3',
+    string_decoder: 'string_decoder',
+    path: 'path-browserify',
+    url: 'url',
+    stream: 'stream-browserify',
     inherits: './modules/inherits.js',
     util: 'util/util.js'
   }, runtimePackagePath);
 
   loader.require(runtimePackagePath + '/index.js');
+
+  global.process = loader.require('process');
+  global.Buffer = loader.require('buffer').Buffer;
+  const stream = loader.require('stream');
+  class StdoutStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      runtime.stdio.defaultStdio.write(String(chunk));
+      callback();
+    }
+  }
+  class StderrStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      runtime.stdio.defaultStdio.writeError(String(chunk));
+      callback();
+    }
+  }
+  process.stdout = new StdoutStream();
+  process.stderr = new StderrStream();
+  loader.require('console');
+  Object.assign(global, loader.require('__errors__'));
   loader.require('/');
 })();
-
