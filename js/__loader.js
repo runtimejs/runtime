@@ -270,7 +270,6 @@
     os: './modules/os.js',
     __errors__: './modules/errors.js',
     net: './modules/net.js',
-    timers: './modules/timers.js',
     dns: './modules/dns.js',
     punycode: 'punycode',
     querystring: 'querystring-es3',

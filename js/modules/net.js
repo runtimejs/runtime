@@ -45,49 +45,40 @@ class Server extends EventEmitter {
     }
   }
   close(cb) {
-    return new Promise((resolve, reject) => {
-      this.once('close', function() {
-        if (cb) cb(null);
-        resolve();
-      });
-      this._handle.close();
+    this.once('close', function() {
+      if (cb) cb(null);
     });
+    this._handle.close();
   }
   get connections() {
     return this._connections.length;
   }
   getConnections(cb) {
-    return new Promise((resolve, reject) => {
-      if (cb) cb(null, this._connections.length);
-      resolve(this._connections.length);
-    });
+    if (cb) cb(null, this._connections.length);
   }
   listen(port, hostname, backlog, callback) {
-    return new Promise((resolve, reject) => {
-      let options = {};
-      if (typeof hostname === 'function') {
-        callback = hostname;
-        hostname = null;
-      }
-      if (typeof backlog === 'function') {
-        callback = backlog;
-        backlog = null;
-      }
-      if (typeof port === 'object') {
-        options = port;
-        port = options.port || null;
-      }
-      if (typeof port === 'function') {
-        callback = port;
-        port = null;
-      }
-      options.port = port;
-      this.once('listening', function() {
-        if (callback) callback();
-        resolve();
-      });
-      this._handle.listen(options.port);
+    let options = {};
+    if (typeof hostname === 'function') {
+      callback = hostname;
+      hostname = null;
+    }
+    if (typeof backlog === 'function') {
+      callback = backlog;
+      backlog = null;
+    }
+    if (typeof port === 'object') {
+      options = port;
+      port = options.port || null;
+    }
+    if (typeof port === 'function') {
+      callback = port;
+      port = null;
+    }
+    options.port = port;
+    this.once('listening', function() {
+      if (callback) callback();
     });
+    this._handle.listen(options.port);
   }
 
   // ref and unref do nothing, since runtime isn't a process
@@ -120,31 +111,30 @@ class Socket extends Duplex {
   }
   connect(port, host, cb) {
     let opts = {};
-    return new Promise((resolve, reject) => {
-      if (typeof port === 'object') {
-        opts = port;
-        port = opts.port || null;
-        host = opts.host || 'localhost';
-      }
-      if (typeof host === 'function') {
-        cb = host;
-        host = 'localhost';
-      }
-      if (!port || typeof port === 'function') {
-        const err = new Error('Socket.connect: Must provide a port.');
-        if (cb) cb(err);
-        reject(err);
-        return;
-      }
-      host = host || 'localhost';
-      this.once('connect', function() {
-        if (cb) cb();
-        resolve();
-      });
-      dns.lookup(host).then((data) => {
-        this.emit('lookup', null, data[0], data[1]);
-        this._handle.open(data[0], port);
-      }).catch((err) => this.emit('lookup', err, null, null));
+    if (typeof port === 'object') {
+      opts = port;
+      port = opts.port || null;
+      host = opts.host || 'localhost';
+    }
+    if (typeof host === 'function') {
+      cb = host;
+      host = 'localhost';
+    }
+    if (!port || typeof port === 'function') {
+      const err = new Error('Socket.connect: Must provide a port.');
+      if (cb) cb(err);
+      reject(err);
+      return;
+    }
+    host = host || 'localhost';
+    this.once('connect', function() {
+      if (cb) cb();
+      resolve();
+    });
+    dns.lookup(host, function(err, data) {
+      if (err) return this.emit('lookup', err, null, null);
+      this.emit('lookup', null, data[0], data[1]);
+      this._handle.open(data[0], port);
     });
   }
   destroy() {

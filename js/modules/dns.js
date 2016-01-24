@@ -45,75 +45,64 @@ let servers = [
 ];
 
 function lookup(hostname, opts, cb) {
-  return new Promise(function(resolve, reject) {
-    if (opts.family && opts.family === 6) return throwIPv6Err(cb, reject);
-    opts.query = opts.query || 'A';
-    if (hostname === 'localhost' && opts.query === 'A') {
-      if (!opts.all) {
-        if (cb) cb(null, '127.0.0.1', 4);
-        resolve(['127.0.0.1', 4]);
+  if (opts.family && opts.family === 6) return throwIPv6Err(cb, reject);
+  opts.query = opts.query || 'A';
+  if (hostname === 'localhost' && opts.query === 'A') {
+    if (!opts.all) {
+      if (cb) cb(null, '127.0.0.1', 4);
+      resolve(['127.0.0.1', 4]);
+    } else {
+      if (opts.addrOnly) {
+        if (cb) cb(null, ['127.0.0.1']);
+        resolve(['127.0.0.1']);
       } else {
-        if (opts.addrOnly) {
-          if (cb) cb(null, ['127.0.0.1']);
-          resolve(['127.0.0.1']);
-        } else {
-          if (cb) cb(null, [{address: '127.0.0.1', family: 4}]);
-          resolve([{address: '127.0.0.1', family: 4}]);
-        }
+        if (cb) cb(null, [{address: '127.0.0.1', family: 4}]);
+        resolve([{address: '127.0.0.1', family: 4}]);
       }
+    }
+    return;
+  }
+  runtime.dns.resolve(hostname, {
+    query: opts.query
+  }, function(err, data) {
+    if (err) {
+      if (cb) cb(err, null, null);
       return;
     }
-    runtime.dns.resolve(hostname, {
-      query: opts.query
-    }, function(err, data) {
-      if (err) {
-        if (cb) cb(err, null, null);
-        reject(err);
-        return;
-      }
-      var res;
-      var ret = [];
-      for (var i = 0; i < data.results.length; i++) {
-        res = data.results[i];
-        if (!opts.all && i === 0) {
-          var addr = res.address.join('.');
-          if (cb) cb(null, addr, 4);
-          resolve([addr, 4]);
-          break;
-        } else {
-          switch (res.record) {
-            case 'A':
-              if (opts.addrOnly) {
-                ret.push(res.address.join('.'));
-              } else {
-                ret.push({
-                  address: res.address.join('.'),
-                  family: 4
-                });
-              }
-              break;
-          }
+    var res;
+    var ret = [];
+    for (var i = 0; i < data.results.length; i++) {
+      res = data.results[i];
+      if (!opts.all && i === 0) {
+        var addr = res.address.join('.');
+        if (cb) cb(null, addr, 4);
+        break;
+      } else {
+        switch (res.record) {
+          case 'A':
+            if (opts.addrOnly) {
+              ret.push(res.address.join('.'));
+            } else {
+              ret.push({
+                address: res.address.join('.'),
+                family: 4
+              });
+            }
+            break;
         }
       }
-      if (ret.length === 0) {
-        var err = new SystemError('dns query failed', exports.NODATA, 'runtime.dns.resolve');
-        if (cb) cb(err, null);
-        reject(err);
-        return;
-      }
-      if (cb) cb(null, ret);
-      resolve(ret);
-    });
+    }
+    if (ret.length === 0) {
+      if (cb) cb(new SystemError('dns query failed', exports.NODATA, 'runtime.dns.resolve'), null);
+      return;
+    }
+    if (cb) cb(null, ret);
   });
 }
 
-function throwIPv6Err(cb, reject) {
+function throwIPv6Err(cb) {
   var err = new SystemError('runtime doesn\'t support IPv6', exports.BADFAMILY);
-  if (cb || reject) {
-    if (cb) cb(err);
-    if (reject) reject(err);
-    return;
-  }
+  if (cb) return cb(err);
   throw err;
 }
 
@@ -144,9 +133,7 @@ exports.resolve4 = function(hostname, cb) {
 }
 
 exports.resolve6 = function(hostname, cb) {
-  return new Promise(function(resolve, reject) {
-    throwIPv6Err(cb, reject);
-  });
+  throwIPv6Err(cb);
 }
 
 exports.resolve = function(hostname, rrtype, cb) {
