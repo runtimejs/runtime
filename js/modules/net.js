@@ -34,7 +34,10 @@ class Server extends EventEmitter {
       this._connections.push(socket);
     }
     this._handle.onclose = () => this.emit('close');
-    this._handle.onerror = (err) => this.emit('error', err), this.close();
+    this._handle.onerror = (err) => {
+      this.emit('error', err);
+      this.close();
+    }
     this._handle.onlisten = () => this.emit('listening');
   }
   address() {
@@ -45,9 +48,7 @@ class Server extends EventEmitter {
     }
   }
   close(cb) {
-    this.once('close', function() {
-      if (cb) cb(null);
-    });
+    this.once('close', cb);
     this._handle.close();
   }
   get connections() {
