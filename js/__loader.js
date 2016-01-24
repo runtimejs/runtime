@@ -256,6 +256,7 @@
     constants: 'constants-browserify',
     os: './modules/os.js',
     __errors__: './modules/errors.js',
+    net: './modules/net.js',
     timers: './modules/timers.js',
     dns: './modules/dns.js',
     punycode: 'punycode',
@@ -263,7 +264,7 @@
     string_decoder: 'string_decoder',
     path: 'path-browserify',
     url: 'url',
-    stream: 'stream-browserify',
+    stream: './modules/stream.js',
     inherits: './modules/inherits.js',
     util: 'util/util.js'
   }, runtimePackagePath);

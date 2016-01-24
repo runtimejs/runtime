@@ -47,8 +47,24 @@ let servers = [
 function lookup(hostname, opts, cb) {
   return new Promise(function(resolve, reject) {
     if (opts.family && opts.family === 6) return throwIPv6Err(cb, reject);
+    opts.query = opts.query || 'A';
+    if (hostname === 'localhost' && opts.query === 'A') {
+      if (!opts.all) {
+        if (cb) cb(null, '127.0.0.1', 4);
+        resolve(['127.0.0.1', 4]);
+      } else {
+        if (opts.addrOnly) {
+          if (cb) cb(null, ['127.0.0.1']);
+          resolve(['127.0.0.1']);
+        } else {
+          if (cb) cb(null, [{address: '127.0.0.1', family: 4}]);
+          resolve([{address: '127.0.0.1', family: 4}]);
+        }
+      }
+      return;
+    }
     runtime.dns.resolve(hostname, {
-      query: opts.query || 'A'
+      query: opts.query
     }, function(err, data) {
       if (err) {
         if (cb) cb(err, null, null);
@@ -62,7 +78,7 @@ function lookup(hostname, opts, cb) {
         if (!opts.all && i === 0) {
           var addr = res.address.join('.');
           if (cb) cb(null, addr, 4);
-          resolve({ address: addr, family: 4 });
+          resolve([addr, 4]);
           break;
         } else {
           switch (res.record) {
