@@ -123,13 +123,11 @@ class Socket extends Duplex {
     if (!port || typeof port === 'function') {
       const err = new Error('Socket.connect: Must provide a port.');
       if (cb) cb(err);
-      reject(err);
       return;
     }
     host = host || 'localhost';
     this.once('connect', function() {
       if (cb) cb();
-      resolve();
     });
     dns.lookup(host, (err, data) => {
       if (err) return this.emit('lookup', err, null, null);
