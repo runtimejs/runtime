@@ -151,7 +151,6 @@ class Socket extends Duplex {
   get localPort() {
     return this._handle.localPort;
   }
-  pause() {}
   ref() {}
   get remoteAddress() {
     return this._handle.remoteAddress;
@@ -162,7 +161,6 @@ class Socket extends Duplex {
   get remotePort() {
     return this._handle.remotePort;
   }
-  resume() {}
   setKeepAlive() {}
   setNoDelay() {}
   setTimeout() {}
