@@ -61,7 +61,11 @@ module.exports = {
       heapUsed: 0
     };
   },
-  nextTick: setImmediate,
+  nextTick: function nextTick(fn, ...args) {
+    setImmediate(function() {
+      fn(...args);
+    });
+  },
   pid: 1,
   platform: 'runtime',
   release: {

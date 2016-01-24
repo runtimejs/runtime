@@ -41,6 +41,7 @@
     "path-browserify": "0.0.0",
     "punycode": "^1.4.0",
     "querystring-es3": "^0.2.1",
+    "readable-stream": "^2.0.5",
     "string_decoder": "^0.10.31",
     "typeutils": "^1.0.1",
     "u8-view": "^1.0.0",
