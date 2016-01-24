@@ -131,7 +131,7 @@ class Socket extends Duplex {
       if (cb) cb();
       resolve();
     });
-    dns.lookup(host, function(err, data) {
+    dns.lookup(host, (err, data) => {
       if (err) return this.emit('lookup', err, null, null);
       this.emit('lookup', null, data[0], data[1]);
       this._handle.open(data[0], port);
