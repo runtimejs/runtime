@@ -109,7 +109,7 @@ function lookup(hostname, opts, cb) {
 
 function throwIPv6Err(cb, reject) {
   var err = new SystemError('runtime doesn\'t support IPv6', exports.BADFAMILY);
-  if (cb) {
+  if (cb || reject) {
     if (cb) cb(err);
     if (reject) reject(err);
     return;
