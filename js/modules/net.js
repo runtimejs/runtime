@@ -76,9 +76,7 @@ class Server extends EventEmitter {
       port = null;
     }
     options.port = port;
-    this.once('listening', function() {
-      if (callback) callback();
-    });
+    this.once('listening', callback);
     this._handle.listen(options.port);
   }
 
@@ -94,7 +92,7 @@ class Socket extends Duplex {
       runtimeSocket = opts;
       opts = null;
     }
-    this._handle = runtimeSocket;
+    this._handle = runtimeSocket || new runtime.net.TCPSocket();
     this._handle.ondata = (u8) => this.push(new Buffer(u8));
     this._handle.onopen = () => this.emit('connect');
     this._handle.onend = () => this.push(null);
@@ -114,27 +112,30 @@ class Socket extends Duplex {
     let opts = {};
     if (typeof port === 'object') {
       opts = port;
-      port = opts.port || null;
+      port = opts.port || 80;
       host = opts.host || 'localhost';
     }
     if (typeof host === 'function') {
       cb = host;
       host = 'localhost';
     }
-    if (!port || typeof port === 'function') {
+    if (!port || typeof port === 'function' || port === null) {
       const err = new Error('Socket.connect: Must provide a port.');
       if (cb) cb(err);
       return;
     }
     host = host || 'localhost';
-    this.once('connect', function() {
-      if (cb) cb();
-    });
-    dns.lookup(host, (err, data) => {
-      if (err) return this.emit('lookup', err, null, null);
-      this.emit('lookup', null, data[0], data[1]);
-      this._handle.open(data[0], port);
-    });
+    if (cb) this.once('connect', cb);
+    if (exports.isIP(host) !== 0) {
+      this.emit('lookup', null, host, exports.isIP(host));
+      this._handle.open(host, parseInt(port));
+    } else {
+      dns.lookup(host, (err, addr, family) => {
+        if (err) return this.emit('lookup', err, null, null);
+        this.emit('lookup', null, addr, family);
+        this._handle.open(addr, parseInt(port));
+      });
+    }
   }
   destroy() {
     this._handle.close();
@@ -180,9 +181,9 @@ class Socket extends Duplex {
 exports.Server = Server;
 exports.Socket = Socket;
 
-exports.createConnection = function(host, port, cb) {
+exports.createConnection = function(port, host, cb) {
   const socket = new Socket();
-  socket.connect(host, port, cb);
+  socket.connect(port, host, cb);
   return socket;
 }
 
@@ -193,7 +194,7 @@ exports.createServer = function(opts, cb) {
   }
   opts = opts || {};
   const server = new Server();
-  server.on('connection', cb);
+  if (cb) server.on('connection', cb);
   return server;
 }
 
