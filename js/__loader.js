@@ -266,6 +266,7 @@
     buffer: 'buffer',
     process: './modules/process.js',
     constants: 'constants-browserify',
+    fs: './modules/fs.js',
     os: './modules/os.js',
     punycode: 'punycode',
     querystring: 'querystring-es3',

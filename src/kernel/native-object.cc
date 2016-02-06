@@ -281,19 +281,44 @@ NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
 
   InitrdFile file = GLOBAL_initrd()->Get(filename_buf);
   if (file.IsEmpty()) {
-    printf("required file not found '%s'\n", filename_buf);
-    RT_ASSERT(!"not found");
     args.GetReturnValue().SetNull();
     return;
   }
 
-//  printf("[INITRD] Load %s len %d\n", file.Name(), file.Size());
   v8::MaybeLocal<v8::String> text { v8::String::NewFromUtf8(iv8,
                                     reinterpret_cast<const char*>(file.Data()),
                                     v8::NewStringType::kNormal, file.Size())
                                   };
 
   args.GetReturnValue().Set(text.ToLocalChecked());
+}
+
+NATIVE_FUNCTION(NativesObject, InitrdReadFileBuffer) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  VALIDATEARG(0, STRING, "argument 0 is not a string");
+
+  v8::Local<v8::String> filename = arg0->ToString(context).ToLocalChecked();
+  v8::String::Utf8Value filename_utf8(filename);
+  const char* filename_buf = *filename_utf8;
+  RT_ASSERT(filename_buf);
+
+  InitrdFile file = GLOBAL_initrd()->Get(filename_buf);
+  if (file.IsEmpty()) {
+    args.GetReturnValue().SetNull();
+    return;
+  }
+
+  // Create a copy of the original buffer because it can be modified
+  void* buf = GLOBAL_engines()->AllocateUninitializedBuffer(file.Size());
+  RT_ASSERT(buf);
+  memcpy(buf, file.Data(), file.Size());
+
+  // Let V8 manage buffer lifetime
+  v8::Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(iv8, buf, file.Size(),
+    v8::ArrayBufferCreationMode::kInternalized);
+
+  args.GetReturnValue().Set(v8::Uint8Array::New(ab, 0, file.Size()));
 }
 
 NATIVE_FUNCTION(NativesObject, InitrdGetKernelIndex) {
