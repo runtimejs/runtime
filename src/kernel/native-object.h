@@ -49,7 +49,8 @@ public:
   DECLARE_NATIVE(GetCommandLine);      // Get kernel command line string
 
   // runtime.js syscalls: Initrd FS access
-  DECLARE_NATIVE(InitrdReadFile);      // Read file from initrd filesystem
+  DECLARE_NATIVE(InitrdReadFile);      // Read file from initrd filesystem into string
+  DECLARE_NATIVE(InitrdReadFileBuffer);// Read file from initrd filesystem into buffer
   DECLARE_NATIVE(InitrdListFiles);     // List all files on initrd filesystem
   DECLARE_NATIVE(InitrdGetKernelIndex);// Get kernel entry point file
 
