@@ -152,9 +152,6 @@ exports.parseResponse = function(u8) {
     case queries.CNAME: // CNAME record
       results.push({hostname: host, record: 'CNAME', name: readHostname(reader).join('.')});
       break;
-    case queries.MX:
-      console.log(reader.readUint8());
-      break;
     default:
       for (var b = 0; b < rdLen; ++b) {
         reader.readUint8();

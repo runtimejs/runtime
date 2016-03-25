@@ -47,10 +47,10 @@ class Console {
     this._stdout.write(`${label}: ${Date.now()-this._labels[label]}ms\n`);
   }
   trace(...data) {
-    let trace = Error.captureStackTrace();
+    let trace = (new Error()).stack;
     let arr = trace.split('\n');
     arr[0] = 'Trace';
-    arr[0] += `: ${util.format(...data)}`;
+    if (data.length > 0) arr[0] += `: ${util.format(...data)}`;
     trace = arr.join('\n');
     this._stdout.write(`${trace}\n`);
   }
