@@ -290,11 +290,23 @@
   const stream = loader.require('stream');
   class StdoutStream extends stream.Writable {
     _write(chunk, encoding, callback) {
-      runtime.stdio.defaultStdio.write(String(chunk));
+      __SYSCALL.log(String(chunk));
       callback();
     }
   }
   class StderrStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      __SYSCALL.log(String(chunk));
+      callback();
+    }
+  }
+  class TermoutStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      runtime.stdio.defaultStdio.write(String(chunk));
+      callback();
+    }
+  }
+  class TermerrStream extends stream.Writable {
     _write(chunk, encoding, callback) {
       runtime.stdio.defaultStdio.writeError(String(chunk));
       callback();
@@ -302,6 +314,8 @@
   }
   process.stdout = new StdoutStream();
   process.stderr = new StderrStream();
+  process.runtimeout = new TermoutStream();
+  process.runtimeerr = new TermerrStream();
   loader.require('console');
   Object.assign(global, loader.require('__errors__'));
   loader.require('/');
