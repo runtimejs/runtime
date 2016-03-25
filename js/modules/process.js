@@ -17,8 +17,11 @@ module.exports = {
   abort: function() {
     throw new Error('abort()');
   },
-  arch: '',
+  arch: 'x64', // since runtime.js only runs in qemu-system-x86_64, it's an x64 system.
   argv: [],
+  binding: function(name) {
+    throw new Error('no such module: ' + name);
+  },
   chdir: function() {
     throw new Error('chdir is not supported');
   },

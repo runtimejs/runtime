@@ -37,3 +37,7 @@ exports.getByName = function(intfName) {
 exports.forEach = function(fn) {
   intfs.forEach(fn);
 };
+
+exports.getAll = function() {
+  return intfs;
+}
