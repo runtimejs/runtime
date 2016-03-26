@@ -44,6 +44,7 @@ public:
 
   // runtime.js syscalls: General
   DECLARE_NATIVE(Log);                 // Log into serial port
+  DECLARE_NATIVE(Write);               // Same, log into serial port, but without extra newline
   DECLARE_NATIVE(Eval);                // Eval string as another script
   DECLARE_NATIVE(Version);             // Get runtime.js version
   DECLARE_NATIVE(GetCommandLine);      // Get kernel command line string
