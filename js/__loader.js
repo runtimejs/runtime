@@ -265,15 +265,19 @@
     events: 'events',
     buffer: 'buffer',
     process: './modules/process.js',
+    console: './modules/console.js',
     constants: 'constants-browserify',
     fs: './modules/fs.js',
     os: './modules/os.js',
+    __errors__: './modules/errors.js',
+    net: './modules/net.js',
+    dns: './modules/dns.js',
     punycode: 'punycode',
     querystring: 'querystring-es3',
     string_decoder: 'string_decoder',
     path: 'path-browserify',
     url: 'url',
-    stream: 'stream-browserify',
+    stream: './modules/stream.js',
     inherits: './modules/inherits.js',
     sys: 'util/util.js',
     util: 'util/util.js'
@@ -284,6 +288,36 @@
 
   global.process = loader.require('process');
   global.Buffer = loader.require('buffer').Buffer;
+  const stream = loader.require('stream');
+  class StdoutStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      __SYSCALL.write(String(chunk));
+      callback();
+    }
+  }
+  class StderrStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      __SYSCALL.write(String(chunk));
+      callback();
+    }
+  }
+  class TermoutStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      runtime.stdio.defaultStdio.write(String(chunk));
+      callback();
+    }
+  }
+  class TermerrStream extends stream.Writable {
+    _write(chunk, encoding, callback) {
+      runtime.stdio.defaultStdio.writeError(String(chunk));
+      callback();
+    }
+  }
+  process.stdout = new StdoutStream();
+  process.stderr = new StderrStream();
+  process.termout = new TermoutStream();
+  process.termerr = new TermerrStream();
+  loader.require('console');
+  Object.assign(global, loader.require('__errors__'));
   loader.require('/');
 })();
-

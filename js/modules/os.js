@@ -13,14 +13,16 @@
 // limitations under the License.
 'use strict';
 
+var interfaces = require('../core/net/interfaces');
+
 exports.EOL = '\n';
 
 exports.arch = function() {
-  return '';
+  return process.arch;
 };
 
 exports.cpus = function() {
-  return []
+  return [];
 };
 
 exports.endianness = function() {
@@ -44,7 +46,17 @@ exports.loadavg = function() {
 };
 
 exports.networkInterfaces = function() {
-  return [];
+  var ret = {};
+  for (var intf of interfaces.getAll()) {
+    ret[intf.name] = [{
+      address: intf.ipAddr.toString(),
+      netmask: intf.netmask.toString(),
+      family: 'IPv4',
+      mac: intf.macAddr.toString(),
+      internal: false // since it's unknown whether it's internal, let's go with false by default
+    }];
+  }
+  return ret;
 };
 
 exports.platform = function() {
@@ -52,7 +64,7 @@ exports.platform = function() {
 };
 
 exports.release = function() {
-  return '0.0.0';
+  return __SYSCALL.version().kernel;
 };
 
 exports.tmpdir = function() {

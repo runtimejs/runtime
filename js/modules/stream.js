@@ -1,4 +1,4 @@
-// Copyright 2014-present runtime.js project authors
+// Copyright 2015-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,31 +13,21 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var intfs = [];
 
-exports.add = function(intf) {
-  intfs.push(intf);
-};
+var EventEmitter = require('events').EventEmitter;
+var inherits = require('inherits');
 
-exports.count = function() {
-  return intfs.length;
-};
-
-exports.getByName = function(intfName) {
-  for (var i = 0, l = intfs.length; i < l; ++i) {
-    if (intfName === intfs[i].name) {
-      return intfs[i];
-    }
-  }
-
-  return null;
-};
-
-exports.forEach = function(fn) {
-  intfs.forEach(fn);
-};
-
-exports.getAll = function() {
-  return intfs;
+function Stream() {
+  EventEmitter.call(this);
 }
+
+inherits(Stream, EventEmitter);
+
+module.exports = Stream;
+
+Stream.Readable = require('readable-stream/readable.js');
+Stream.Writable = require('readable-stream/writable.js');
+Stream.Duplex = require('readable-stream/duplex.js');
+Stream.Transform = require('readable-stream/transform.js');
+Stream.PassThrough = require('readable-stream/passthrough.js');
+Stream.Stream = Stream;

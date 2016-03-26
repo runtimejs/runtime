@@ -18,7 +18,19 @@ var isDomain = require('./is-domain');
 var PacketReader = require('./packet-reader');
 var randomId = 0x3322;
 
-exports.getQuery = function(domain) {
+var queries = {
+  'A': 0x01,
+  'NS': 0x02,
+  'CNAME': 0x05,
+  'PTR': 0x0C,
+  'MX': 0x0F,
+  'SRV': 0x21,
+  'SOA': 0x06,
+  'TXT': 0x0A
+}
+
+exports.getQuery = function(domain, query) {
+  // query isn't used (for now)
   assert(isDomain(domain));
 
   var bufferLength = 17;
@@ -51,9 +63,9 @@ exports.getQuery = function(domain) {
       view.setUint8(offset++, label.charCodeAt(j));
     }
   }
-  view.setUint8(offset++, 0);
+  view.setUint8(offset++, 0); // null terminator
 
-  view.setUint16(offset + 0, 1, false); // Type A query (host address)
+  view.setUint16(offset + 0, queries[query], false); // Type A query (host address)
   view.setUint16(offset + 2, 1, false); // Query IN (Internet address)
   return u8;
 };
@@ -129,7 +141,7 @@ exports.parseResponse = function(u8) {
     var bytes = [];
 
     switch (recordType) {
-    case 1: // A record
+    case queries.A: // A record
       if (4 !== rdLen) {
         return null;
       }
@@ -137,7 +149,7 @@ exports.parseResponse = function(u8) {
       results.push({hostname: host, record: 'A', address: [reader.readUint8(), reader.readUint8(),
         reader.readUint8(), reader.readUint8()], ttl: ttl });
       break;
-    case 5: // CNAME record
+    case queries.CNAME: // CNAME record
       results.push({hostname: host, record: 'CNAME', name: readHostname(reader).join('.')});
       break;
     default:

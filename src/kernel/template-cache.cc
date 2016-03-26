@@ -89,6 +89,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 #define SET_SYSCALL(NAME, FN) syscall->Set(iv8_, NAME, v8::FunctionTemplate::New(iv8_, FN))
     // General
     SET_SYSCALL("log", NativesObject::Log);
+    SET_SYSCALL("write", NativesObject::Write);
     SET_SYSCALL("eval", NativesObject::Eval);
     SET_SYSCALL("version", NativesObject::Version);
     SET_SYSCALL("getCommandLine", NativesObject::GetCommandLine);

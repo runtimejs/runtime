@@ -269,6 +269,27 @@ NATIVE_FUNCTION(NativesObject, Log) {
   args.GetReturnValue().SetUndefined();
 }
 
+NATIVE_FUNCTION(NativesObject, Write) {
+  PROLOGUE_NOTHIS;
+  int argc = args.Length();
+  for (int i = 0; i < argc; ++i) {
+    v8::Local<v8::Value> v = args[i];
+    v8::Local<v8::String> s = v->ToString(context).ToLocalChecked();
+
+    uint32_t len = s->Length();
+
+    uint8_t* buf = new uint8_t[len+1];
+    s->WriteOneByte(buf, 0);
+    printf("%s", buf);
+    delete[] buf;
+
+    if (i != argc - 1) {
+      printf(" ");
+    }
+  }
+  args.GetReturnValue().SetUndefined();
+}
+
 NATIVE_FUNCTION(NativesObject, InitrdReadFile) {
   PROLOGUE_NOTHIS;
   USEARG(0);

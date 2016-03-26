@@ -1,4 +1,4 @@
-// Copyright 2014-present runtime.js project authors
+// Copyright 2015-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,33 +11,21 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 'use strict';
-var assert = require('assert');
-var intfs = [];
 
-exports.add = function(intf) {
-  intfs.push(intf);
-};
+exports.Error = Error;
 
-exports.count = function() {
-  return intfs.length;
-};
-
-exports.getByName = function(intfName) {
-  for (var i = 0, l = intfs.length; i < l; ++i) {
-    if (intfName === intfs[i].name) {
-      return intfs[i];
-    }
+class SystemError {
+  constructor(message, errcode, call) {
+    var msg = '';
+    if (errcode) msg += `${errcode}: `;
+    if (message) msg += message;
+    if (call) msg += `, ${call}`;
+    var err = new Error(msg);
+    err.code = errcode || '';
+    err.syscall = call || '';
+    return err;
   }
-
-  return null;
-};
-
-exports.forEach = function(fn) {
-  intfs.forEach(fn);
-};
-
-exports.getAll = function() {
-  return intfs;
 }
+
+exports.SystemError = SystemError;
