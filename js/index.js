@@ -14,7 +14,7 @@
 
 'use strict';
 
-var packagejson = require('./package.json');
+var packagejson = require('../package.json');
 require('module-singleton')(packagejson);
 require('./version');
 

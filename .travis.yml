@@ -1,14 +1,23 @@
 language: cpp
 compiler: gcc
 sudo: false
-
 before_script:
-    - cd tools
-    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.1-Linux-x86_64.tar.xz
-    - tar -xf x86_64-elf-4.9.1-Linux-x86_64.tar.xz
-    - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/fasm-1.71.21.tgz
-    - tar -xf fasm-1.71.21.tgz
-    - cd ..
-    - export PATH=$PWD/tools/x86_64-elf-4.9.1-Linux-x86_64/bin:$PWD/tools/fasm:$PATH
-
-script: scons
+- node scripts/make-release.js "$TRAVIS_TAG"
+- cd tools
+- wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.1-Linux-x86_64.tar.xz
+- tar -xf x86_64-elf-4.9.1-Linux-x86_64.tar.xz
+- wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/fasm-1.71.21.tgz
+- tar -xf fasm-1.71.21.tgz
+- cd ..
+- export PATH=$PWD/tools/x86_64-elf-4.9.1-Linux-x86_64/bin:$PWD/tools/fasm:$PATH
+script: RUNTIME_BUILD=release scons
+before_deploy: gzip -k disk/boot/runtime
+deploy:
+  - provider: releases
+    skip_cleanup: true
+    api_key:
+      secure: P+Ei+zxl/jN4Mt+sIm0jfikU0F81yQJEDQgLharThnblm8SILYLZ4jo+vSC7YA5u75wjj6ej3Guxk/Nm0Ajg4C9K7BLVZViZzrRhT8VdxZ8680EOn0A7/abHKA8AT+By8n4sOMhGgbsOLUUHQC+Bo7KLA2S2NGLgHJCKuEatPjg=
+    file: disk/boot/runtime.gz
+    on:
+      tags: true
+      repo: runtimejs/runtime

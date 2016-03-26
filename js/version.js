@@ -19,7 +19,7 @@ if (!global.__SYSCALL) {
   throw 'error: this program requires runtime.js environment';
 }
 
-var requiredKernelVersion = require('./runtimecorelib.json').kernelVersion;
+var requiredKernelVersion = require('../runtimecorelib.json').kernelVersion;
 var currentKernelVersion = __SYSCALL.version().kernel;
 
 if (currentKernelVersion !== requiredKernelVersion) {
