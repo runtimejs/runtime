@@ -11,7 +11,7 @@ before_script:
 - cd ..
 - export PATH=$PWD/tools/x86_64-elf-4.9.1-Linux-x86_64/bin:$PWD/tools/fasm:$PATH
 script: RUNTIME_BUILD=release scons
-before_deploy: gzip -k disk/boot/runtime
+before_deploy: gzip disk/boot/runtime
 deploy:
   - provider: releases
     skip_cleanup: true
