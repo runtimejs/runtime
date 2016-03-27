@@ -2,8 +2,10 @@
   "name": "runtimejs",
   "version": "0.2.5",
   "description": "Core runtime.js library",
-  "main": "index.js",
+  "main": "js/index.js",
+  "private": true,
   "scripts": {
+    "postinstall": "node scripts/update-versions.js",
     "lint": "eslint .",
     "test": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd",
     "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
@@ -33,7 +35,6 @@
     "bit-twiddle": "^1.0.2",
     "buffer": "^4.3.0",
     "constants-browserify": "^1.0.0",
-    "eslint": "^1.10.3",
     "event-controller": "^1.0.1",
     "events": "^1.1.0",
     "isint": "^1.0.0",

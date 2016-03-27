@@ -13,3 +13,15 @@ README.md
 LICENSE.isaac
 LICENSE
 /node_modules/util/test/
+/src
+/deps
+/tmp
+/scripts
+/testcc
+/disk
+/docker
+/docs
+/gen
+/out
+/runtimejs
+*.o
