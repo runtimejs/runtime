@@ -2,6 +2,7 @@ language: cpp
 compiler: gcc
 sudo: false
 before_script:
+- npm install -g npm@2
 - node scripts/make-release.js "$TRAVIS_TAG"
 - cd tools
 - wget https://github.com/runtimejs/toolchain-bin-linux/raw/master/x86_64-elf-4.9.1-Linux-x86_64.tar.xz
