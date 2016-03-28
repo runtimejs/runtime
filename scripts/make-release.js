@@ -20,7 +20,7 @@ assert(fs.readFileSync(configKernel, 'utf8').trim() === String(releaseId), 'kern
 assert(require('../runtimecorelib.json').kernelVersion === releaseId);
 
 // Remove { private: true } from package.json
-var packageFile = path.join(__dirname, '../js/package.json');
+var packageFile = path.join(__dirname, '../package.json');
 delete package.private;
 fs.writeFileSync(packageFile, JSON.stringify(package, null, 2) + os.EOL);
 
