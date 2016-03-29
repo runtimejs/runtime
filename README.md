@@ -57,6 +57,10 @@ The kernel is written in C++ and manages low-level resources like CPU and memory
 
 [API docs](https://github.com/runtimejs/runtime/wiki/API-docs)
 
+## Community
+
+[Modules and projects developed by the community for runtime.js](https://github.com/runtimejs/runtime/wiki/Community)
+
 License
 ----
 Apache License, Version 2.0
