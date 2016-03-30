@@ -280,7 +280,8 @@
     stream: './modules/stream.js',
     inherits: './modules/inherits.js',
     sys: 'util/util.js',
-    util: 'util/util.js'
+    util: 'util/util.js',
+    http: './modules/http.js'
     /* eslint-enable camelcase */
   }, runtimePackagePath);
 
