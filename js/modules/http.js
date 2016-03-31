@@ -26,7 +26,7 @@ class Server extends net.Server {
       this._handle2._connectionHandler(socket._handle);
     });
     this._handle2._handle = this._handle;
-    this._handle2.onrequest = (req) => this.emit('request', new IncomingMessage(req), new ServerResponse(req));
+    this._handle2.onrequest = (req) => this.emit('request', new IncomingMessage(true, req), new ServerResponse(req));
   }
 }
 
@@ -87,9 +87,53 @@ class ServerResponse extends stream.Writable {
 }
 
 class IncomingMessage extends stream.Readable {
-  constructor(request) {
+  constructor(server, reqOrRes) {
     super();
-    this._handle = request;
+    this._handle = reqOrRes;
+    this._ms = null;
+    this._ontimeout = () => null;
+    this._server = server;
+  }
+  _read(size) {
+    // just like net, we can't force a read. do nothing.
+  }
+  get headers() {
+    var headers = {};
+    for (var header of this._handle._headers) headers[header[0]] = header[1];
+    return headers;
+  }
+  get httpVersion() {
+    return this._handle.httpVersion;
+  }
+  get method() {
+    return (this._server) ? this._handle.method : undefined;
+  }
+  get rawHeaders() {
+    var headers = [];
+    for (var header of this._handle._headers) headers.push(header[0], header[1]);
+    return headers;
+  }
+  get rawTrailers() {
+    return []; // for now
+  }
+  setTimeout(ms, cb) {
+    this._ms = ms;
+    this._ontimeout = cb;
+  }
+  get statusCode() {
+    return (!this._server) ? this._handle.statusCode : undefined;
+  }
+  get statusMessage() {
+    return (!this._server) ? this._handle.statusMessage : undefined;
+  }
+  get socket() {
+    return null; // for now
+  }
+  get trailers() {
+    return (!this._server) ? this._handle.trailers : undefined;
+  }
+  get url() {
+    return (this._server) ? this._handle.path : undefined;
   }
 }
 
