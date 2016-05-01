@@ -7,10 +7,76 @@ const EventEmitter = require('events');
 const stream = require('stream');
 const eshttp = require('eshttp');
 const net = require('net');
+const url = require('url');
+const dns = require('dns');
+
+const or = (...objs) => {
+  for (let obj of objs) if (obj !== undefined && obj !== null) return obj;
+}
 
 class ClientRequest extends stream.Writable {
   constructor() {
     super();
+    this._body = '';
+    this._aborted = false;
+    this._method = '';
+    this._path = '';
+    this._headers = {};
+    this._handle = null;
+    this._interalListeners = [];
+    this._resolved = false;
+  }
+  _emitInterals() {
+    this._resolved = true;
+    let listener = null;
+    while (listener = this._interalListeners.shift()) listener();
+  }
+  _write(chunk, encoding, callback) {
+    const cb = () => {
+      this._body += chunk;
+      callback();
+    }
+    if (this._resolved) {
+      cb();
+    } else {
+      this._interalListeners.push(cb);
+    }
+  }
+  end(data, encoding, callback) {
+    const cb = () => {
+      super.end(data, encoding, callback);
+      this._handle.request(new eshttp.HttpRequest(this._method, this._path, this._headers), (err, response) => {
+        if (this._aborted) return;
+        if (err) return this.emit('error', err);
+        this.emit('response', new IncomingMessage(false, response));
+      });
+      this._handle.close();
+    }
+    if (this._resolved) {
+      cb();
+    } else {
+      this._interalListeners.push(cb);
+    }
+  }
+  abort() {
+    const cb = () => this._handle.close();
+    if (this._resolved) {
+      cb();
+    } else {
+      this._interalListeners.push(cb);
+    }
+  }
+  flushHeaders() {
+    // to be implemented
+  }
+  setNoDelay(noDelay) {
+    // to be implemented
+  }
+  setSocketKeepAlive(enable, initialDelay) {
+    // to be implemented
+  }
+  setTimeout(timeout, callback) {
+    // to be implemented
   }
 }
 
@@ -53,7 +119,7 @@ class ServerResponse extends stream.Writable {
     this.finished = true;
   }
   addTrailers(headers) {
-    if (this._handle._parser) for (var key of Object.keys(headers)) this._handle._parser._addTrailer(key, headers[key]);
+    if (this._handle._parser) for (let key of Object.keys(headers)) this._handle._parser._addTrailer(key, headers[key]);
   }
   getHeader(name) {
     return this._handle._headers.get(name);
@@ -82,7 +148,7 @@ class ServerResponse extends stream.Writable {
   writeHead(statusCode, statusMessage, headers) {
     this._handle._code = statusCode || this.statusCode;
     if (this._handle._parser) this._handle._parser._phrase = statusMessage || this.statusMessage;
-    if (headers) for (var key of Objects.keys(headers)) this._handle._headers.set(key, headers[key]);
+    if (headers) for (let key of Objects.keys(headers)) this._handle._headers.set(key, headers[key]);
   }
 }
 
@@ -93,13 +159,17 @@ class IncomingMessage extends stream.Readable {
     this._ms = null;
     this._ontimeout = () => null;
     this._server = server;
+    if (!this._server) {
+      this._handle.ondata = (data) => this.push(new Buffer(data));
+      this._handle.onend = () => this.push(null);
+    }
   }
   _read(size) {
     // just like net, we can't force a read. do nothing.
   }
   get headers() {
-    var headers = {};
-    for (var header of this._handle._headers) headers[header[0]] = header[1];
+    const headers = {};
+    for (let header of this._handle._headers) headers[header[0]] = header[1];
     return headers;
   }
   get httpVersion() {
@@ -109,8 +179,8 @@ class IncomingMessage extends stream.Readable {
     return (this._server) ? this._handle.method : undefined;
   }
   get rawHeaders() {
-    var headers = [];
-    for (var header of this._handle._headers) headers.push(header[0], header[1]);
+    const headers = [];
+    for (let header of this._handle._headers) headers.push(header[0], header[1]);
     return headers;
   }
   get rawTrailers() {
@@ -142,7 +212,33 @@ exports.Server = Server;
 exports.ServerResponse = ServerResponse;
 exports.IncomingMessage = IncomingMessage;
 exports.createServer = (cb) => {
-  var server = new Server();
+  const server = new Server();
   if (cb) server.on('request', cb);
   return server;
+}
+exports.request = (opt, cb) => {
+  if (typeof opt === 'string') opt = url.parse(opt);
+  let protocol = or(opt.protocol, 'http:');
+  if (protocol !== 'http:') throw new Error(`Protocol "${protcol}" not supported. Expected "http:"`);
+  let ip = or(opt.hostname, opt.host, 'localhost');
+  let port = or(opt.port, 80);
+  let req = new ClientRequest();
+  req._headers = or(opt.headers, {});
+  req._method = or(opt.method, 'GET');
+  req._path = or(opt.path, '/');
+  let onresolved = () => {
+    req._handle = new eshttp.HttpClient(ip, port);
+    req._emitInterals();
+  }
+  if (net.isIP(ip)) {
+    onresolved();
+  } else {
+    dns.lookup(opt.host, (err, address) => {
+      if (err) return req.emit('error', err);
+      ip = address;
+      onresolved();
+    });
+  }
+  if (cb) req.on('response', cb);
+  return req;
 }

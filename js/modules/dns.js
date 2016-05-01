@@ -73,7 +73,7 @@ function lookup(hostname, opts, cb) {
       if (!opts.all && i === 0) {
         var addr = res.address.join('.');
         if (cb) cb(null, addr, 4);
-        break;
+        return;
       } else {
         switch (res.record) {
           case 'A':
