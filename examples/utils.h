@@ -56,7 +56,9 @@ prompt_input(const char *prompt, char *input, const size_t max_input_len,
         printf("\nEnter %s (%zu bytes) > ", prompt, max_input_len);
     }
     fflush(stdout);
-    fgets(input_tmp, sizeof input_tmp, stdin);
+    if (fgets(input_tmp, sizeof input_tmp, stdin) == NULL) {
+        input_tmp[0] = '\0';
+    }
     actual_input_len = strlen(input_tmp);
 
     /* trim \n */
@@ -99,7 +101,9 @@ print_verification(int ret)
 static void
 init(void)
 {
-    sodium_init();
+    if (sodium_init() != 0) {
+        abort();
+    }
     printf("Using libsodium %s\n", sodium_version_string());
 }
 

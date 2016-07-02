@@ -26,9 +26,9 @@
  *
  */
 
-#include "api.h"
 #include "crypto_hash_sha256.h"
 #include "utils.h"
+#include "private/common.h"
 
 #include <sys/types.h>
 
@@ -37,53 +37,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Avoid namespace collisions with BSD <sys/endian.h>. */
-#define be32dec _sha256_be32dec
-#define be32enc _sha256_be32enc
-#define be64enc _sha256_be64enc
-
-static inline uint32_t
-be32dec(const void *pp)
-{
-    const uint8_t *p = (uint8_t const *)pp;
-
-    return ((uint32_t)(p[3]) + ((uint32_t)(p[2]) << 8) +
-            ((uint32_t)(p[1]) << 16) + ((uint32_t)(p[0]) << 24));
-}
-
-static inline void
-be32enc(void *pp, uint32_t x)
-{
-    uint8_t *p = (uint8_t *)pp;
-
-    p[3] = x & 0xff;
-    p[2] = (x >> 8) & 0xff;
-    p[1] = (x >> 16) & 0xff;
-    p[0] = (x >> 24) & 0xff;
-}
-
-static inline void
-be64enc(void * pp, uint64_t x)
-{
-    uint8_t * p = (uint8_t *)pp;
-
-    p[7] = x & 0xff;
-    p[6] = (x >> 8) & 0xff;
-    p[5] = (x >> 16) & 0xff;
-    p[4] = (x >> 24) & 0xff;
-    p[3] = (x >> 32) & 0xff;
-    p[2] = (x >> 40) & 0xff;
-    p[1] = (x >> 48) & 0xff;
-    p[0] = (x >> 56) & 0xff;
-}
-
 static void
 be32enc_vect(unsigned char *dst, const uint32_t *src, size_t len)
 {
     size_t i;
 
     for (i = 0; i < len / 4; i++) {
-        be32enc(dst + i * 4, src[i]);
+        STORE32_BE(dst + i * 4, src[i]);
     }
 }
 
@@ -93,7 +53,7 @@ be32dec_vect(uint32_t *dst, const unsigned char *src, size_t len)
     size_t i;
 
     for (i = 0; i < len / 4; i++) {
-        dst[i] = be32dec(src + i * 4);
+        dst[i] = LOAD32_BE(src + i * 4);
     }
 }
 
@@ -222,7 +182,7 @@ SHA256_Pad(crypto_hash_sha256_state *state)
     unsigned char len[8];
     uint32_t r, plen;
 
-    be64enc(len, state->count);
+    STORE64_BE(len, state->count);
 
     r = (state->count >> 3) & 0x3f;
     plen = (r < 56) ? (56 - r) : (120 - r);
@@ -250,6 +210,7 @@ crypto_hash_sha256_update(crypto_hash_sha256_state *state,
                           const unsigned char *in,
                           unsigned long long inlen)
 {
+    unsigned long long i;
     uint32_t r;
 
     if (inlen <= 0U) {
@@ -259,10 +220,14 @@ crypto_hash_sha256_update(crypto_hash_sha256_state *state,
     state->count += (uint64_t)(inlen) << 3;
 
     if (inlen < 64 - r) {
-        memcpy(&state->buf[r], in, inlen);
+        for (i = 0; i < inlen; i++) {
+            state->buf[r + i] = in[i];
+        }
         return 0;
     }
-    memcpy(&state->buf[r], in, 64 - r);
+    for (i = 0; i < 64 - r; i++) {
+        state->buf[r + i] = in[i];
+    }
     SHA256_Transform(state->state, state->buf);
     in += 64 - r;
     inlen -= 64 - r;
@@ -272,8 +237,10 @@ crypto_hash_sha256_update(crypto_hash_sha256_state *state,
         in += 64;
         inlen -= 64;
     }
-    memcpy(state->buf, in, inlen);
-
+    inlen &= 63;
+    for (i = 0; i < inlen; i++) {
+        state->buf[i] = in[i];
+    }
     return 0;
 }
 
@@ -289,8 +256,8 @@ crypto_hash_sha256_final(crypto_hash_sha256_state *state,
 }
 
 int
-crypto_hash(unsigned char *out, const unsigned char *in,
-            unsigned long long inlen)
+crypto_hash_sha256(unsigned char *out, const unsigned char *in,
+                   unsigned long long inlen)
 {
     crypto_hash_sha256_state state;
 

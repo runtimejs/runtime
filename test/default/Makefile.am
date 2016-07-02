@@ -3,6 +3,7 @@ EXTRA_DIST = \
 	cmptest.h \
 	wintest.bat \
 	pre.js.inc \
+	aead_aes256gcm.exp \
 	aead_chacha20poly1305.exp \
 	auth.exp \
 	auth2.exp \
@@ -36,6 +37,7 @@ EXTRA_DIST = \
 	onetimeauth2.exp \
 	onetimeauth7.exp \
 	pwhash.exp \
+	pwhash_scrypt.exp \
 	pwhash_scrypt_ll.exp \
 	randombytes.exp \
 	scalarmult.exp \
@@ -63,6 +65,7 @@ EXTRA_DIST = \
 	verify1.exp
 
 DISTCLEANFILES = \
+	aead_aes256gcm.res \
 	aead_chacha20poly1305.res \
 	auth.res \
 	auth2.res \
@@ -96,6 +99,7 @@ DISTCLEANFILES = \
 	onetimeauth2.res \
 	onetimeauth7.res \
 	pwhash.res \
+	pwhash_scrypt.res \
 	pwhash_scrypt_ll.res \
 	randombytes.res \
 	scalarmult.res \
@@ -124,6 +128,7 @@ DISTCLEANFILES = \
 
 if NATIVECLIENT
 CLEANFILES = \
+	aead_aes256gcm.final \
 	aead_chacha20poly1305.final \
 	auth.final \
 	auth2.final \
@@ -157,6 +162,7 @@ CLEANFILES = \
 	onetimeauth2.final \
 	onetimeauth7.final \
 	pwhash.final \
+	pwhash_scrypt.final \
 	pwhash_scrypt_ll.final \
 	randombytes.final \
 	scalarmult.final \
@@ -180,6 +186,7 @@ CLEANFILES = \
 	stream3.final \
 	stream4.final \
 	verify1.final \
+	aead_aes256gcm.nexe \
 	aead_chacha20poly1305.nexe \
 	auth.nexe \
 	auth2.nexe \
@@ -213,6 +220,7 @@ CLEANFILES = \
 	onetimeauth2.nexe \
 	onetimeauth7.nexe \
 	pwhash.nexe \
+	pwhash_scrypt.nexe \
 	pwhash_scrypt_ll.nexe \
 	randombytes.nexe \
 	scalarmult.nexe \
@@ -249,6 +257,7 @@ AM_CPPFLAGS = \
 AM_LDFLAGS = @TEST_LDFLAGS@
 
 TESTS_TARGETS = \
+	aead_aes256gcm \
 	aead_chacha20poly1305 \
 	auth \
 	auth2 \
@@ -281,6 +290,7 @@ TESTS_TARGETS = \
 	onetimeauth2 \
 	onetimeauth7 \
 	pwhash \
+	pwhash_scrypt \
 	pwhash_scrypt_ll \
 	randombytes \
 	scalarmult \
@@ -319,6 +329,9 @@ TESTS = $(TESTS_TARGETS)
 
 TESTS_LDADD = \
 	${top_builddir}/src/libsodium/libsodium.la
+
+aead_aes256gcm_SOURCE                 = cmptest.h aead_aes256gcm.c
+aead_aes256gcm_LDADD                  = $(TESTS_LDADD)
 
 aead_chacha20poly1305_SOURCE          = cmptest.h aead_chacha20poly1305.c
 aead_chacha20poly1305_LDADD           = $(TESTS_LDADD)
@@ -416,6 +429,9 @@ onetimeauth7_LDADD        = $(TESTS_LDADD)
 pwhash_SOURCE             = cmptest.h pwhash.c
 pwhash_LDADD              = $(TESTS_LDADD)
 
+pwhash_scrypt_SOURCE      = cmptest.h pwhash_scrypt.c
+pwhash_scrypt_LDADD       = $(TESTS_LDADD)
+
 pwhash_scrypt_ll_SOURCE   = cmptest.h pwhash_scrypt_ll.c
 pwhash_scrypt_ll_LDADD    = $(TESTS_LDADD)
 
@@ -496,3 +512,5 @@ LOG_COMPILER = ./nacl-test-wrapper.sh
 endif
 
 verify: check
+
+@VALGRIND_CHECK_RULES@
