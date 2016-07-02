@@ -28,6 +28,7 @@
 #include <kernel/logger.h>
 #include <kernel/platform.h>
 #include <kernel/irqs.h>
+#include <sodium.h>
 
 #define DEFINE_GLOBAL_OBJECT(name, type)                       \
     static uint8_t placement_##name[sizeof(type)] alignas(16); \
@@ -57,6 +58,8 @@ extern function_pointer start_ctors[];
 extern function_pointer end_ctors[];
 
 int mksnapshot_main(int argc, char** argv);
+
+randombytes_implementation randombytes_sysrandom_implementation;
 
 namespace rt {
 
@@ -137,6 +140,21 @@ void KernelMain::MakeV8Snapshot() {
   mksnapshot_main(2, argv);
 }
 
+const char* runtime_rng_name() {
+    return "runtimejs";
+}
+
+uint32_t runtime_rng_random() {
+    return 42;
+}
+
+void runtime_rng_buf(void* const buf, const size_t size) {
+    uint8_t* b = reinterpret_cast<uint8_t*>(buf);
+    for (size_t i = 0; i < size; ++i) {
+        b[i] = 42;
+    }
+}
+
 void KernelMain::InitSystemBSP(void* mbt) {
   // some musl libc init
   libc.threads_minus_1 = 0;
@@ -159,6 +177,20 @@ void KernelMain::InitSystemBSP(void* mbt) {
     GLOBAL_boot_services()->logger()->SetMode(LoggerMode::VIDEO);
     printf("Snapshot done.\n\nNow you can shutdown the system.\n");
     GLOBAL_platform()->EnterSleepState(5); // S5 poweroff
+    Cpu::HangSystem();
+  }
+
+  randombytes_implementation* impl = new randombytes_implementation();
+  impl->implementation_name = runtime_rng_name;
+  impl->random = runtime_rng_random;
+  impl->stir = nullptr;
+  impl->uniform = nullptr;
+  impl->buf = runtime_rng_buf;
+  impl->close = nullptr;
+  randombytes_set_implementation(impl);
+
+  if (sodium_init() == -1) {
+    printf("Could not initialize libsodium.\n");
     Cpu::HangSystem();
   }
 
