@@ -1,4 +1,5 @@
 
+#include <stdlib.h>
 #include <sys/types.h>
 
 #include <assert.h>
@@ -15,6 +16,9 @@
 #ifdef __native_client__
 # include "randombytes_nativeclient.h"
 #endif
+
+/* C++Builder defines a "random" macro */
+#undef random
 
 #ifndef __EMSCRIPTEN__
 #ifdef __native_client__
@@ -81,12 +85,12 @@ randombytes_stir(void)
             } catch (e) {
                 try {
                     var crypto = require('crypto'),
-                        randomValueIOJS = function() {
+                        randomValueNodeJS = function() {
                             var buf = crypto.randomBytes(4);
                             return (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0;
                         };
-                    randomValueIOJS();
-                    Module.getRandomValue = randomValueIOJS;
+                    randomValueNodeJS();
+                    Module.getRandomValue = randomValueNodeJS;
                 } catch (e) {
                     throw 'No secure random number generator found';
                 }
@@ -106,9 +110,15 @@ randombytes_uniform(const uint32_t upper_bound)
     uint32_t min;
     uint32_t r;
 
+#ifdef __EMSCRIPTEN__
     if (implementation != NULL && implementation->uniform != NULL) {
         return implementation->uniform(upper_bound);
     }
+#else
+    if (implementation->uniform != NULL) {
+        return implementation->uniform(upper_bound);
+    }
+#endif
     if (upper_bound < 2) {
         return 0;
     }

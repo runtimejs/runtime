@@ -1,6 +1,9 @@
 
 #include <stdlib.h>
 
+/* C++Builder defines a "random" macro */
+#undef random
+
 #ifdef __EMSCRIPTEN__
 # define strcmp(s1, s2) xstrcmp(s1, s2)
 
