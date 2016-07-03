@@ -145,14 +145,56 @@ const char* runtime_rng_name() {
 }
 
 uint32_t runtime_rng_random() {
+  // prevent abort()
+  if (GLOBAL_engines()) {
+    v8::Isolate* iv8 = GLOBAL_engines()->cpu_engine()->thread_manager()->current_thread()->IsolateV8();
+    v8::Local<v8::Context> context = iv8->GetCurrentContext();
+
+    v8::Local<v8::Object> global = context->Global();
+    v8::Local<v8::Object> runtimeObj = global->Get(context, v8::String::NewFromUtf8(iv8, "runtime", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked()->ToObject();
+    v8::Local<v8::Object> runtimeRandomObj = runtimeObj->Get(context, v8::String::NewFromUtf8(iv8, "random", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked()->ToObject();
+    v8::Local<v8::Function> runtimeRandomGetRandomValuesFunc = v8::Local<v8::Function>::Cast(runtimeRandomObj->Get(context, v8::String::NewFromUtf8(iv8, "getRandomValues", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked());
+
+    v8::Local<v8::Value> args[1] = { v8::Number::New(iv8, 1) };
+
+    // js equivalent: runtime.random.getRandomValues.apply(undefined, [1])
+    v8::Local<v8::Object> u8Array = runtimeRandomGetRandomValuesFunc->Call(context, v8::Undefined(iv8), 1, args).ToLocalChecked()->ToObject(context).ToLocalChecked();
+    return (uint8_t)(u8Array->Get(0)->ToNumber()->Value());
+  } else {
+    // mainly when libsodium is intialized, which is before V8 is available
+    printf("[randombytes] fallback used\n");
     return 42;
+  }
 }
 
 void runtime_rng_buf(void* const buf, const size_t size) {
-    uint8_t* b = reinterpret_cast<uint8_t*>(buf);
+  uint8_t* b = reinterpret_cast<uint8_t*>(buf);
+
+  // prevent abort()
+  if (GLOBAL_engines()) {
+    v8::Isolate* iv8 = GLOBAL_engines()->cpu_engine()->thread_manager()->current_thread()->IsolateV8();
+    v8::Local<v8::Context> context = iv8->GetCurrentContext();
+
+    v8::Local<v8::Object> global = context->Global();
+    v8::Local<v8::Object> runtimeObj = global->Get(context, v8::String::NewFromUtf8(iv8, "runtime", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked()->ToObject();
+    v8::Local<v8::Object> runtimeRandomObj = runtimeObj->Get(context, v8::String::NewFromUtf8(iv8, "random", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked()->ToObject();
+    v8::Local<v8::Function> runtimeRandomGetRandomValuesFunc = v8::Local<v8::Function>::Cast(runtimeRandomObj->Get(context, v8::String::NewFromUtf8(iv8, "getRandomValues", v8::NewStringType::kNormal).ToLocalChecked()).ToLocalChecked());
+
+    v8::Local<v8::Value> args[1] = { v8::Number::New(iv8, size) };
+
+    // js equivalent: runtime.random.getRandomValues.apply(undefined, [size])
+    v8::Local<v8::Object> u8Array = runtimeRandomGetRandomValuesFunc->Call(context, v8::Undefined(iv8), 1, args).ToLocalChecked()->ToObject(context).ToLocalChecked();
+
     for (size_t i = 0; i < size; ++i) {
-        b[i] = 42;
+      b[i] = (uint8_t)u8Array->Get(i)->ToNumber()->Value();
     }
+  } else {
+    // mainly when libsodium is intialized, which is before V8 is available
+    printf("[randombytes] fallback used\n");
+    for (size_t i = 0; i < size; ++i) {
+      b[i] = 42;
+    }
+  }
 }
 
 void KernelMain::InitSystemBSP(void* mbt) {

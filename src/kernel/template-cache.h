@@ -41,6 +41,7 @@ enum class NativeTypeId : uint32_t {
   TYPEID_RESOURCE_IO_RANGE,
   TYPEID_ISOLATES_MANAGER,
   TYPEID_ALLOCATOR,
+  TYPEID_LIBSODIUM,
   TYPEID_FUNCTION,
 
   LAST // Keep it as the last element
