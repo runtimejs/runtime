@@ -4,15 +4,16 @@
 
 #include "src/compiler/load-elimination.h"
 
+#include "src/compiler/graph.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/types.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
 LoadElimination::~LoadElimination() {}
-
 
 Reduction LoadElimination::Reduce(Node* node) {
   switch (node->opcode()) {
@@ -24,7 +25,6 @@ Reduction LoadElimination::Reduce(Node* node) {
   return NoChange();
 }
 
-
 Reduction LoadElimination::ReduceLoadField(Node* node) {
   DCHECK_EQ(IrOpcode::kLoadField, node->opcode());
   FieldAccess const access = FieldAccessOf(node->op());
@@ -33,8 +33,9 @@ Reduction LoadElimination::ReduceLoadField(Node* node) {
        effect = NodeProperties::GetEffectInput(effect)) {
     switch (effect->opcode()) {
       case IrOpcode::kLoadField: {
+        FieldAccess const effect_access = FieldAccessOf(effect->op());
         if (object == NodeProperties::GetValueInput(effect, 0) &&
-            access == FieldAccessOf(effect->op())) {
+            access == effect_access && effect_access.type->Is(access.type)) {
           Node* const value = effect;
           ReplaceWithValue(node, value);
           return Replace(value);
@@ -45,8 +46,21 @@ Reduction LoadElimination::ReduceLoadField(Node* node) {
         if (access == FieldAccessOf(effect->op())) {
           if (object == NodeProperties::GetValueInput(effect, 0)) {
             Node* const value = NodeProperties::GetValueInput(effect, 1);
-            ReplaceWithValue(node, value);
-            return Replace(value);
+            Type* value_type = NodeProperties::GetType(value);
+            Type* node_type = NodeProperties::GetType(node);
+            // Make sure the replacement's type is a subtype of the node's
+            // type. Otherwise we could confuse optimizations that were
+            // based on the original type.
+            if (value_type->Is(node_type)) {
+              ReplaceWithValue(node, value);
+              return Replace(value);
+            } else {
+              // This LoadField has stronger guarantees than the stored value
+              // can give us, which suggests that we are probably in unreachable
+              // code, guarded by some Check, so don't bother trying to optimize
+              // this LoadField {node}.
+              return NoChange();
+            }
           }
           // TODO(turbofan): Alias analysis to the rescue?
           return NoChange();

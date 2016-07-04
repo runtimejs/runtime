@@ -72,14 +72,14 @@ bool OS::ArmUsingHardFloat() {
 #define GCC_VERSION (__GNUC__ * 10000                                          \
                      + __GNUC_MINOR__ * 100                                    \
                      + __GNUC_PATCHLEVEL__)
-#if GCC_VERSION >= 40600
+#if GCC_VERSION >= 40600 && !defined(__clang__)
 #if defined(__ARM_PCS_VFP)
   return true;
 #else
   return false;
 #endif
 
-#elif GCC_VERSION < 40500
+#elif GCC_VERSION < 40500 && !defined(__clang__)
   return false;
 
 #else
@@ -89,7 +89,7 @@ bool OS::ArmUsingHardFloat() {
       !defined(__VFP_FP__)
   return false;
 #else
-#error "Your version of GCC does not report the FP ABI compiled for."          \
+#error "Your version of compiler does not report the FP ABI compiled for."     \
        "Please report it on this issue"                                        \
        "http://code.google.com/p/v8/issues/detail?id=2140"
 
@@ -375,6 +375,14 @@ bool VirtualMemory::UncommitRegion(void* base, size_t size) {
               kMmapFdOffset) != MAP_FAILED;
 }
 
+bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
+                                         void* free_start, size_t free_size) {
+#if defined(LEAK_SANITIZER)
+  __lsan_unregister_root_region(base, size);
+  __lsan_register_root_region(base, size - free_size);
+#endif
+  return munmap(free_start, free_size) == 0;
+}
 
 bool VirtualMemory::ReleaseRegion(void* base, size_t size) {
 #if defined(LEAK_SANITIZER)

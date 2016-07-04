@@ -1,0 +1,26 @@
+# Copyright 2015 The V8 project authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/features.gni")
+import("//build/config/ui.gni")
+import("//build/config/v8_target_cpu.gni")
+import("//gni/v8.gni")
+
+if (is_android) {
+  import("//build/config/android/config.gni")
+}
+
+if (((v8_target_cpu == "x86" ||
+      v8_target_cpu == "x64" ||
+      v8_target_cpu=="x87") &&
+     (is_linux || is_mac)) ||
+    (v8_target_cpu == "ppc64" && is_linux)) {
+  v8_enable_gdbjit = true
+}
+
+v8_imminent_deprecation_warnings = true
+
+# Add simple extras solely for the purpose of the cctests.
+v8_extra_library_files = [ "//test/cctest/test-extra.js" ]
+v8_experimental_extra_library_files = [ "//test/cctest/test-experimental-extra.js" ]

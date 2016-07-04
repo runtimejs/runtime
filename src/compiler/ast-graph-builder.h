@@ -15,7 +15,7 @@ namespace internal {
 
 // Forward declarations.
 class BitVector;
-
+class CompilationInfo;
 
 namespace compiler {
 
@@ -106,6 +106,9 @@ class AstGraphBuilder : public AstVisitor {
   // Optimization to cache loaded feedback vector.
   SetOncePointer<Node> feedback_vector_;
 
+  // Optimization to cache empty frame state.
+  SetOncePointer<Node> empty_frame_state_;
+
   // Control nodes that exit the function body.
   ZoneVector<Node*> exit_controls_;
 
@@ -167,6 +170,9 @@ class AstGraphBuilder : public AstVisitor {
   // Get or create the node that represents the incoming new target value.
   Node* GetNewTarget();
 
+  // Get or create the node that represents the empty frame state.
+  Node* GetEmptyFrameState();
+
   // Node creation helpers.
   Node* NewNode(const Operator* op, bool incomplete = false) {
     return MakeNode(op, 0, static_cast<Node**>(nullptr), incomplete);
@@ -225,10 +231,17 @@ class AstGraphBuilder : public AstVisitor {
   // Helper to indicate a node exits the function body.
   void UpdateControlDependencyToLeaveFunction(Node* exit);
 
-  // Builds deoptimization for a given node.
+  // Prepare information for lazy deoptimization. This information is attached
+  // to the given node and the output value produced by the node is combined.
+  // Conceptually this frame state is "after" a given operation.
   void PrepareFrameState(Node* node, BailoutId ast_id,
                          OutputFrameStateCombine framestate_combine =
                              OutputFrameStateCombine::Ignore());
+
+  // Prepare information for eager deoptimization. This information is carried
+  // by dedicated {Checkpoint} nodes that are wired into the effect chain.
+  // Conceptually this frame state is "before" a given operation.
+  void PrepareEagerCheckpoint(BailoutId ast_id);
 
   BitVector* GetVariablesAssignedInLoop(IterationStatement* stmt);
 
@@ -277,13 +290,11 @@ class AstGraphBuilder : public AstVisitor {
   Node* BuildVariableAssignment(Variable* variable, Node* value,
                                 Token::Value op, const VectorSlotPair& slot,
                                 BailoutId bailout_id,
-                                FrameStateBeforeAndAfter& states,
                                 OutputFrameStateCombine framestate_combine =
                                     OutputFrameStateCombine::Ignore());
   Node* BuildVariableDelete(Variable* variable, BailoutId bailout_id,
                             OutputFrameStateCombine framestate_combine);
   Node* BuildVariableLoad(Variable* variable, BailoutId bailout_id,
-                          FrameStateBeforeAndAfter& states,
                           const VectorSlotPair& feedback,
                           OutputFrameStateCombine framestate_combine,
                           TypeofMode typeof_mode = NOT_INSIDE_TYPEOF);
@@ -314,14 +325,13 @@ class AstGraphBuilder : public AstVisitor {
   Node* BuildGlobalStore(Handle<Name> name, Node* value,
                          const VectorSlotPair& feedback);
 
+  // Builders for dynamic variable loads and stores.
+  Node* BuildDynamicLoad(Handle<Name> name, TypeofMode typeof_mode);
+  Node* BuildDynamicStore(Handle<Name> name, Node* value);
+
   // Builders for accessing the function context.
   Node* BuildLoadGlobalObject();
   Node* BuildLoadNativeContextField(int index);
-  Node* BuildLoadFeedbackVector();
-
-  // Builder for accessing a (potentially immutable) object field.
-  Node* BuildLoadObjectField(Node* object, int offset);
-  Node* BuildLoadImmutableObjectField(Node* object, int offset);
 
   // Builders for automatic type conversion.
   Node* BuildToBoolean(Node* input, TypeFeedbackId feedback_id);
@@ -342,7 +352,6 @@ class AstGraphBuilder : public AstVisitor {
   Node* BuildThrowUnsupportedSuperError(BailoutId bailout_id);
 
   // Builders for dynamic hole-checks at runtime.
-  Node* BuildHoleCheckSilent(Node* value, Node* for_hole, Node* not_hole);
   Node* BuildHoleCheckThenThrow(Node* value, Variable* var, Node* not_hole,
                                 BailoutId bailout_id);
   Node* BuildHoleCheckElseThrow(Node* value, Variable* var, Node* for_hole,
@@ -376,7 +385,6 @@ class AstGraphBuilder : public AstVisitor {
   // to resolve to a global slot or context slot (inferred from scope chain).
   Node* TryLoadDynamicVariable(Variable* variable, Handle<String> name,
                                BailoutId bailout_id,
-                               FrameStateBeforeAndAfter& states,
                                const VectorSlotPair& feedback,
                                OutputFrameStateCombine combine,
                                TypeofMode typeof_mode);
@@ -420,16 +428,24 @@ class AstGraphBuilder : public AstVisitor {
   void VisitTypeof(UnaryOperation* expr);
   void VisitNot(UnaryOperation* expr);
 
+  // Dispatched from VisitTypeof, VisitLiteralCompareTypeof.
+  void VisitTypeofExpression(Expression* expr);
+
   // Dispatched from VisitBinaryOperation.
   void VisitComma(BinaryOperation* expr);
   void VisitLogicalExpression(BinaryOperation* expr);
   void VisitArithmeticExpression(BinaryOperation* expr);
 
+  // Dispatched from VisitCompareOperation.
+  void VisitLiteralCompareNil(CompareOperation* expr, Expression* sub_expr,
+                              Node* nil_value);
+  void VisitLiteralCompareTypeof(CompareOperation* expr, Expression* sub_expr,
+                                 Handle<String> check);
+
   // Dispatched from VisitForInStatement.
   void VisitForInAssignment(Expression* expr, Node* value,
                             const VectorSlotPair& feedback,
-                            BailoutId bailout_id_before,
-                            BailoutId bailout_id_after);
+                            BailoutId bailout_id);
 
   // Dispatched from VisitObjectLiteral.
   void VisitObjectLiteralAccessor(Node* home_object,
@@ -519,7 +535,8 @@ class AstGraphBuilder::Environment : public ZoneObject {
   // Preserve a checkpoint of the environment for the IR graph. Any
   // further mutation of the environment will not affect checkpoints.
   Node* Checkpoint(BailoutId ast_id, OutputFrameStateCombine combine =
-                                         OutputFrameStateCombine::Ignore());
+                                         OutputFrameStateCombine::Ignore(),
+                   bool node_has_exception = false);
 
   // Control dependency tracked by this environment.
   Node* GetControlDependency() { return control_dependency_; }

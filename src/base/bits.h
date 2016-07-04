@@ -16,6 +16,12 @@
 
 namespace v8 {
 namespace base {
+
+namespace internal {
+template <typename T>
+class CheckedNumeric;
+}
+
 namespace bits {
 
 // CountPopulation32(value) returns the number of bits set in |value|.
@@ -92,6 +98,19 @@ inline unsigned CountLeadingZeros64(uint64_t value) {
 }
 
 
+// ReverseBits(value) returns |value| in reverse bit order.
+template <typename T>
+T ReverseBits(T value) {
+  DCHECK((sizeof(value) == 1) || (sizeof(value) == 2) || (sizeof(value) == 4) ||
+         (sizeof(value) == 8));
+  T result = 0;
+  for (unsigned i = 0; i < (sizeof(value) * 8); i++) {
+    result = (result << 1) | (value & 1);
+    value >>= 1;
+  }
+  return result;
+}
+
 // CountTrailingZeros32(value) returns the number of zero bits preceding the
 // least significant 1 bit in |value| if |value| is non-zero, otherwise it
 // returns 32.
@@ -127,6 +146,14 @@ inline unsigned CountTrailingZeros64(uint64_t value) {
 #endif
 }
 
+// Overloaded versions of CountTrailingZeros32/64.
+inline unsigned CountTrailingZeros(uint32_t value) {
+  return CountTrailingZeros32(value);
+}
+
+inline unsigned CountTrailingZeros(uint64_t value) {
+  return CountTrailingZeros64(value);
+}
 
 // Returns true iff |value| is a power of 2.
 inline bool IsPowerOfTwo32(uint32_t value) {
@@ -281,6 +308,21 @@ inline uint32_t UnsignedDiv32(uint32_t lhs, uint32_t rhs) {
 inline uint32_t UnsignedMod32(uint32_t lhs, uint32_t rhs) {
   return rhs ? lhs % rhs : 0u;
 }
+
+
+// Clamp |value| on overflow and underflow conditions.
+int64_t FromCheckedNumeric(const internal::CheckedNumeric<int64_t> value);
+
+
+// SignedSaturatedAdd64(lhs, rhs) adds |lhs| and |rhs|,
+// checks and returns the result.
+int64_t SignedSaturatedAdd64(int64_t lhs, int64_t rhs);
+
+
+// SignedSaturatedSub64(lhs, rhs) substracts |lhs| by |rhs|,
+// checks and returns the result.
+int64_t SignedSaturatedSub64(int64_t lhs, int64_t rhs);
+
 
 }  // namespace bits
 }  // namespace base

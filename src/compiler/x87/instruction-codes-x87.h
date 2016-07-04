@@ -17,7 +17,11 @@ namespace compiler {
   V(X87Add)                        \
   V(X87And)                        \
   V(X87Cmp)                        \
+  V(X87Cmp16)                      \
+  V(X87Cmp8)                       \
   V(X87Test)                       \
+  V(X87Test16)                     \
+  V(X87Test8)                      \
   V(X87Or)                         \
   V(X87Xor)                        \
   V(X87Sub)                        \
@@ -31,6 +35,12 @@ namespace compiler {
   V(X87Shl)                        \
   V(X87Shr)                        \
   V(X87Sar)                        \
+  V(X87AddPair)                    \
+  V(X87SubPair)                    \
+  V(X87MulPair)                    \
+  V(X87ShlPair)                    \
+  V(X87ShrPair)                    \
+  V(X87SarPair)                    \
   V(X87Ror)                        \
   V(X87Lzcnt)                      \
   V(X87Popcnt)                     \
@@ -53,10 +63,14 @@ namespace compiler {
   V(X87Float64Max)                 \
   V(X87Float64Min)                 \
   V(X87Float64Abs)                 \
+  V(X87Int32ToFloat32)             \
+  V(X87Uint32ToFloat32)            \
   V(X87Int32ToFloat64)             \
   V(X87Float32ToFloat64)           \
   V(X87Uint32ToFloat64)            \
   V(X87Float64ToInt32)             \
+  V(X87Float32ToInt32)             \
+  V(X87Float32ToUint32)            \
   V(X87Float64ToFloat32)           \
   V(X87Float64ToUint32)            \
   V(X87Float64ExtractHighWord32)   \
@@ -66,6 +80,7 @@ namespace compiler {
   V(X87Float64Sqrt)                \
   V(X87Float64Round)               \
   V(X87Float64Cmp)                 \
+  V(X87Float64SilenceNaN)          \
   V(X87Movsxbl)                    \
   V(X87Movzxbl)                    \
   V(X87Movb)                       \
@@ -82,8 +97,10 @@ namespace compiler {
   V(X87PushFloat64)                \
   V(X87PushFloat32)                \
   V(X87Poke)                       \
-  V(X87StackCheck)
-
+  V(X87StackCheck)                 \
+  V(X87Xchgb)                      \
+  V(X87Xchgw)                      \
+  V(X87Xchgl)
 
 // Addressing modes represent the "shape" of inputs to an instruction.
 // Many instructions support multiple addressing modes. Addressing modes

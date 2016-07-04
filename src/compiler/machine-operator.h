@@ -20,43 +20,23 @@ class Operator;
 // For operators that are not supported on all platforms.
 class OptionalOperator final {
  public:
-  explicit OptionalOperator(const Operator* op) : op_(op) {}
+  OptionalOperator(bool supported, const Operator* op)
+      : supported_(supported), op_(op) {}
 
-  bool IsSupported() const { return op_ != nullptr; }
+  bool IsSupported() const { return supported_; }
+  // Gets the operator only if it is supported.
   const Operator* op() const {
-    DCHECK_NOT_NULL(op_);
+    DCHECK(supported_);
     return op_;
   }
+  // Always gets the operator, even for unsupported operators. This is useful to
+  // use the operator as a placeholder in a graph, for instance.
+  const Operator* placeholder() const { return op_; }
 
  private:
+  bool supported_;
   const Operator* const op_;
 };
-
-
-// Supported float64 to int32 truncation modes.
-enum class TruncationMode : uint8_t {
-  kJavaScript,  // ES6 section 7.1.5
-  kRoundToZero  // Round towards zero. Implementation defined for NaN and ovf.
-};
-
-V8_INLINE size_t hash_value(TruncationMode mode) {
-  return static_cast<uint8_t>(mode);
-}
-
-std::ostream& operator<<(std::ostream&, TruncationMode);
-
-TruncationMode TruncationModeOf(Operator const*);
-
-
-// Supported write barrier modes.
-enum WriteBarrierKind {
-  kNoWriteBarrier,
-  kMapWriteBarrier,
-  kPointerWriteBarrier,
-  kFullWriteBarrier
-};
-
-std::ostream& operator<<(std::ostream& os, WriteBarrierKind);
 
 
 // A Load needs a MachineType.
@@ -102,6 +82,9 @@ typedef MachineRepresentation CheckedStoreRepresentation;
 
 CheckedStoreRepresentation CheckedStoreRepresentationOf(Operator const*);
 
+MachineRepresentation StackSlotRepresentationOf(Operator const* op);
+
+MachineRepresentation AtomicStoreRepresentationOf(Operator const* op);
 
 // Interface for building machine-level operators. These operators are
 // machine-level but machine-independent and thus define a language suitable
@@ -134,19 +117,91 @@ class MachineOperatorBuilder final : public ZoneObject {
     kWord64Ctz = 1u << 17,
     kWord32Popcnt = 1u << 18,
     kWord64Popcnt = 1u << 19,
-    kAllOptionalOps = kFloat32Max | kFloat32Min | kFloat64Max | kFloat64Min |
-                      kFloat32RoundDown | kFloat64RoundDown | kFloat32RoundUp |
-                      kFloat64RoundUp | kFloat32RoundTruncate |
-                      kFloat64RoundTruncate | kFloat64RoundTiesAway |
-                      kFloat32RoundTiesEven | kFloat64RoundTiesEven |
-                      kWord32Ctz | kWord64Ctz | kWord32Popcnt | kWord64Popcnt
+    kWord32ReverseBits = 1u << 20,
+    kWord64ReverseBits = 1u << 21,
+    kFloat32Neg = 1u << 22,
+    kFloat64Neg = 1u << 23,
+    kAllOptionalOps =
+        kFloat32Max | kFloat32Min | kFloat64Max | kFloat64Min |
+        kFloat32RoundDown | kFloat64RoundDown | kFloat32RoundUp |
+        kFloat64RoundUp | kFloat32RoundTruncate | kFloat64RoundTruncate |
+        kFloat64RoundTiesAway | kFloat32RoundTiesEven | kFloat64RoundTiesEven |
+        kWord32Ctz | kWord64Ctz | kWord32Popcnt | kWord64Popcnt |
+        kWord32ReverseBits | kWord64ReverseBits | kFloat32Neg | kFloat64Neg
   };
   typedef base::Flags<Flag, unsigned> Flags;
+
+  class AlignmentRequirements {
+   public:
+    enum UnalignedAccessSupport { kNoSupport, kSomeSupport, kFullSupport };
+
+    bool IsUnalignedLoadSupported(const MachineType& machineType,
+                                  uint8_t alignment) const {
+      return IsUnalignedSupported(unalignedLoadSupportedTypes_, machineType,
+                                  alignment);
+    }
+
+    bool IsUnalignedStoreSupported(const MachineType& machineType,
+                                   uint8_t alignment) const {
+      return IsUnalignedSupported(unalignedStoreSupportedTypes_, machineType,
+                                  alignment);
+    }
+
+    static AlignmentRequirements FullUnalignedAccessSupport() {
+      return AlignmentRequirements(kFullSupport);
+    }
+    static AlignmentRequirements NoUnalignedAccessSupport() {
+      return AlignmentRequirements(kNoSupport);
+    }
+    static AlignmentRequirements SomeUnalignedAccessSupport(
+        const Vector<MachineType>& unalignedLoadSupportedTypes,
+        const Vector<MachineType>& unalignedStoreSupportedTypes) {
+      return AlignmentRequirements(kSomeSupport, unalignedLoadSupportedTypes,
+                                   unalignedStoreSupportedTypes);
+    }
+
+   private:
+    explicit AlignmentRequirements(
+        AlignmentRequirements::UnalignedAccessSupport unalignedAccessSupport,
+        Vector<MachineType> unalignedLoadSupportedTypes =
+            Vector<MachineType>(NULL, 0),
+        Vector<MachineType> unalignedStoreSupportedTypes =
+            Vector<MachineType>(NULL, 0))
+        : unalignedSupport_(unalignedAccessSupport),
+          unalignedLoadSupportedTypes_(unalignedLoadSupportedTypes),
+          unalignedStoreSupportedTypes_(unalignedStoreSupportedTypes) {}
+
+    bool IsUnalignedSupported(const Vector<MachineType>& supported,
+                              const MachineType& machineType,
+                              uint8_t alignment) const {
+      if (unalignedSupport_ == kFullSupport) {
+        return true;
+      } else if (unalignedSupport_ == kNoSupport) {
+        return false;
+      } else {
+        for (MachineType m : supported) {
+          if (m == machineType) {
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+
+    const AlignmentRequirements::UnalignedAccessSupport unalignedSupport_;
+    const Vector<MachineType> unalignedLoadSupportedTypes_;
+    const Vector<MachineType> unalignedStoreSupportedTypes_;
+  };
 
   explicit MachineOperatorBuilder(
       Zone* zone,
       MachineRepresentation word = MachineType::PointerRepresentation(),
-      Flags supportedOperators = kNoFlags);
+      Flags supportedOperators = kNoFlags,
+      AlignmentRequirements alignmentRequirements =
+          AlignmentRequirements::NoUnalignedAccessSupport());
+
+  const Operator* Comment(const char* msg);
+  const Operator* DebugBreak();
 
   const Operator* Word32And();
   const Operator* Word32Or();
@@ -160,6 +215,8 @@ class MachineOperatorBuilder final : public ZoneObject {
   const OptionalOperator Word32Ctz();
   const OptionalOperator Word32Popcnt();
   const OptionalOperator Word64Popcnt();
+  const OptionalOperator Word32ReverseBits();
+  const OptionalOperator Word64ReverseBits();
   bool Word32ShiftIsSafe() const { return flags_ & kWord32ShiftIsSafe; }
 
   const Operator* Word64And();
@@ -172,6 +229,13 @@ class MachineOperatorBuilder final : public ZoneObject {
   const Operator* Word64Clz();
   const OptionalOperator Word64Ctz();
   const Operator* Word64Equal();
+
+  const Operator* Int32PairAdd();
+  const Operator* Int32PairSub();
+  const Operator* Int32PairMul();
+  const Operator* Word32PairShl();
+  const Operator* Word32PairShr();
+  const Operator* Word32PairSar();
 
   const Operator* Int32Add();
   const Operator* Int32AddWithOverflow();
@@ -205,6 +269,12 @@ class MachineOperatorBuilder final : public ZoneObject {
   const Operator* Uint64LessThanOrEqual();
   const Operator* Uint64Mod();
 
+  // This operator reinterprets the bits of a word as tagged pointer.
+  const Operator* BitcastWordToTagged();
+
+  // JavaScript float64 to int32/uint32 truncation.
+  const Operator* TruncateFloat64ToWord32();
+
   // These operators change the representation of numbers while preserving the
   // value of the number. Narrowing operators assume the input is representable
   // in the target type and are *not* defined for other inputs.
@@ -213,6 +283,9 @@ class MachineOperatorBuilder final : public ZoneObject {
   const Operator* ChangeFloat32ToFloat64();
   const Operator* ChangeFloat64ToInt32();   // narrowing
   const Operator* ChangeFloat64ToUint32();  // narrowing
+  const Operator* TruncateFloat64ToUint32();
+  const Operator* TruncateFloat32ToInt32();
+  const Operator* TruncateFloat32ToUint32();
   const Operator* TryTruncateFloat32ToInt64();
   const Operator* TryTruncateFloat64ToInt64();
   const Operator* TryTruncateFloat32ToUint64();
@@ -225,10 +298,12 @@ class MachineOperatorBuilder final : public ZoneObject {
   // These operators truncate or round numbers, both changing the representation
   // of the number and mapping multiple input values onto the same output value.
   const Operator* TruncateFloat64ToFloat32();
-  const Operator* TruncateFloat64ToInt32(TruncationMode);
   const Operator* TruncateInt64ToInt32();
+  const Operator* RoundFloat64ToInt32();
+  const Operator* RoundInt32ToFloat32();
   const Operator* RoundInt64ToFloat32();
   const Operator* RoundInt64ToFloat64();
+  const Operator* RoundUint32ToFloat32();
   const Operator* RoundUint64ToFloat32();
   const Operator* RoundUint64ToFloat64();
 
@@ -243,6 +318,7 @@ class MachineOperatorBuilder final : public ZoneObject {
   // (single-precision).
   const Operator* Float32Add();
   const Operator* Float32Sub();
+  const Operator* Float32SubPreserveNan();
   const Operator* Float32Mul();
   const Operator* Float32Div();
   const Operator* Float32Sqrt();
@@ -251,6 +327,7 @@ class MachineOperatorBuilder final : public ZoneObject {
   // (double-precision).
   const Operator* Float64Add();
   const Operator* Float64Sub();
+  const Operator* Float64SubPreserveNan();
   const Operator* Float64Mul();
   const Operator* Float64Div();
   const Operator* Float64Mod();
@@ -291,11 +368,232 @@ class MachineOperatorBuilder final : public ZoneObject {
   const OptionalOperator Float32RoundTiesEven();
   const OptionalOperator Float64RoundTiesEven();
 
+  // Floating point neg.
+  const OptionalOperator Float32Neg();
+  const OptionalOperator Float64Neg();
+
+  // Floating point trigonometric functions (double-precision).
+  const Operator* Float64Acos();
+  const Operator* Float64Acosh();
+  const Operator* Float64Asin();
+  const Operator* Float64Asinh();
+  const Operator* Float64Atan();
+  const Operator* Float64Atan2();
+  const Operator* Float64Atanh();
+  const Operator* Float64Cos();
+  const Operator* Float64Cosh();
+  const Operator* Float64Sin();
+  const Operator* Float64Sinh();
+  const Operator* Float64Tan();
+  const Operator* Float64Tanh();
+
+  // Floating point exponential functions (double-precision).
+  const Operator* Float64Exp();
+  const Operator* Float64Expm1();
+  const Operator* Float64Pow();
+
+  // Floating point logarithm (double-precision).
+  const Operator* Float64Log();
+  const Operator* Float64Log1p();
+  const Operator* Float64Log2();
+  const Operator* Float64Log10();
+
+  // Floating point cube root (double-precision).
+  const Operator* Float64Cbrt();
+
   // Floating point bit representation.
   const Operator* Float64ExtractLowWord32();
   const Operator* Float64ExtractHighWord32();
   const Operator* Float64InsertLowWord32();
   const Operator* Float64InsertHighWord32();
+
+  // Change signalling NaN to quiet NaN.
+  // Identity for any input that is not signalling NaN.
+  const Operator* Float64SilenceNaN();
+
+  // SIMD operators.
+  const Operator* CreateFloat32x4();
+  const Operator* Float32x4ExtractLane();
+  const Operator* Float32x4ReplaceLane();
+  const Operator* Float32x4Abs();
+  const Operator* Float32x4Neg();
+  const Operator* Float32x4Sqrt();
+  const Operator* Float32x4RecipApprox();
+  const Operator* Float32x4RecipSqrtApprox();
+  const Operator* Float32x4Add();
+  const Operator* Float32x4Sub();
+  const Operator* Float32x4Mul();
+  const Operator* Float32x4Div();
+  const Operator* Float32x4Min();
+  const Operator* Float32x4Max();
+  const Operator* Float32x4MinNum();
+  const Operator* Float32x4MaxNum();
+  const Operator* Float32x4Equal();
+  const Operator* Float32x4NotEqual();
+  const Operator* Float32x4LessThan();
+  const Operator* Float32x4LessThanOrEqual();
+  const Operator* Float32x4GreaterThan();
+  const Operator* Float32x4GreaterThanOrEqual();
+  const Operator* Float32x4Select();
+  const Operator* Float32x4Swizzle();
+  const Operator* Float32x4Shuffle();
+  const Operator* Float32x4FromInt32x4();
+  const Operator* Float32x4FromUint32x4();
+
+  const Operator* CreateInt32x4();
+  const Operator* Int32x4ExtractLane();
+  const Operator* Int32x4ReplaceLane();
+  const Operator* Int32x4Neg();
+  const Operator* Int32x4Add();
+  const Operator* Int32x4Sub();
+  const Operator* Int32x4Mul();
+  const Operator* Int32x4Min();
+  const Operator* Int32x4Max();
+  const Operator* Int32x4ShiftLeftByScalar();
+  const Operator* Int32x4ShiftRightByScalar();
+  const Operator* Int32x4Equal();
+  const Operator* Int32x4NotEqual();
+  const Operator* Int32x4LessThan();
+  const Operator* Int32x4LessThanOrEqual();
+  const Operator* Int32x4GreaterThan();
+  const Operator* Int32x4GreaterThanOrEqual();
+  const Operator* Int32x4Select();
+  const Operator* Int32x4Swizzle();
+  const Operator* Int32x4Shuffle();
+  const Operator* Int32x4FromFloat32x4();
+
+  const Operator* Uint32x4Min();
+  const Operator* Uint32x4Max();
+  const Operator* Uint32x4ShiftLeftByScalar();
+  const Operator* Uint32x4ShiftRightByScalar();
+  const Operator* Uint32x4LessThan();
+  const Operator* Uint32x4LessThanOrEqual();
+  const Operator* Uint32x4GreaterThan();
+  const Operator* Uint32x4GreaterThanOrEqual();
+  const Operator* Uint32x4FromFloat32x4();
+
+  const Operator* CreateBool32x4();
+  const Operator* Bool32x4ExtractLane();
+  const Operator* Bool32x4ReplaceLane();
+  const Operator* Bool32x4And();
+  const Operator* Bool32x4Or();
+  const Operator* Bool32x4Xor();
+  const Operator* Bool32x4Not();
+  const Operator* Bool32x4AnyTrue();
+  const Operator* Bool32x4AllTrue();
+  const Operator* Bool32x4Swizzle();
+  const Operator* Bool32x4Shuffle();
+  const Operator* Bool32x4Equal();
+  const Operator* Bool32x4NotEqual();
+
+  const Operator* CreateInt16x8();
+  const Operator* Int16x8ExtractLane();
+  const Operator* Int16x8ReplaceLane();
+  const Operator* Int16x8Neg();
+  const Operator* Int16x8Add();
+  const Operator* Int16x8AddSaturate();
+  const Operator* Int16x8Sub();
+  const Operator* Int16x8SubSaturate();
+  const Operator* Int16x8Mul();
+  const Operator* Int16x8Min();
+  const Operator* Int16x8Max();
+  const Operator* Int16x8ShiftLeftByScalar();
+  const Operator* Int16x8ShiftRightByScalar();
+  const Operator* Int16x8Equal();
+  const Operator* Int16x8NotEqual();
+  const Operator* Int16x8LessThan();
+  const Operator* Int16x8LessThanOrEqual();
+  const Operator* Int16x8GreaterThan();
+  const Operator* Int16x8GreaterThanOrEqual();
+  const Operator* Int16x8Select();
+  const Operator* Int16x8Swizzle();
+  const Operator* Int16x8Shuffle();
+
+  const Operator* Uint16x8AddSaturate();
+  const Operator* Uint16x8SubSaturate();
+  const Operator* Uint16x8Min();
+  const Operator* Uint16x8Max();
+  const Operator* Uint16x8ShiftLeftByScalar();
+  const Operator* Uint16x8ShiftRightByScalar();
+  const Operator* Uint16x8LessThan();
+  const Operator* Uint16x8LessThanOrEqual();
+  const Operator* Uint16x8GreaterThan();
+  const Operator* Uint16x8GreaterThanOrEqual();
+
+  const Operator* CreateBool16x8();
+  const Operator* Bool16x8ExtractLane();
+  const Operator* Bool16x8ReplaceLane();
+  const Operator* Bool16x8And();
+  const Operator* Bool16x8Or();
+  const Operator* Bool16x8Xor();
+  const Operator* Bool16x8Not();
+  const Operator* Bool16x8AnyTrue();
+  const Operator* Bool16x8AllTrue();
+  const Operator* Bool16x8Swizzle();
+  const Operator* Bool16x8Shuffle();
+  const Operator* Bool16x8Equal();
+  const Operator* Bool16x8NotEqual();
+
+  const Operator* CreateInt8x16();
+  const Operator* Int8x16ExtractLane();
+  const Operator* Int8x16ReplaceLane();
+  const Operator* Int8x16Neg();
+  const Operator* Int8x16Add();
+  const Operator* Int8x16AddSaturate();
+  const Operator* Int8x16Sub();
+  const Operator* Int8x16SubSaturate();
+  const Operator* Int8x16Mul();
+  const Operator* Int8x16Min();
+  const Operator* Int8x16Max();
+  const Operator* Int8x16ShiftLeftByScalar();
+  const Operator* Int8x16ShiftRightByScalar();
+  const Operator* Int8x16Equal();
+  const Operator* Int8x16NotEqual();
+  const Operator* Int8x16LessThan();
+  const Operator* Int8x16LessThanOrEqual();
+  const Operator* Int8x16GreaterThan();
+  const Operator* Int8x16GreaterThanOrEqual();
+  const Operator* Int8x16Select();
+  const Operator* Int8x16Swizzle();
+  const Operator* Int8x16Shuffle();
+
+  const Operator* Uint8x16AddSaturate();
+  const Operator* Uint8x16SubSaturate();
+  const Operator* Uint8x16Min();
+  const Operator* Uint8x16Max();
+  const Operator* Uint8x16ShiftLeftByScalar();
+  const Operator* Uint8x16ShiftRightByScalar();
+  const Operator* Uint8x16LessThan();
+  const Operator* Uint8x16LessThanOrEqual();
+  const Operator* Uint8x16GreaterThan();
+  const Operator* Uint8x16GreaterThanOrEqual();
+
+  const Operator* CreateBool8x16();
+  const Operator* Bool8x16ExtractLane();
+  const Operator* Bool8x16ReplaceLane();
+  const Operator* Bool8x16And();
+  const Operator* Bool8x16Or();
+  const Operator* Bool8x16Xor();
+  const Operator* Bool8x16Not();
+  const Operator* Bool8x16AnyTrue();
+  const Operator* Bool8x16AllTrue();
+  const Operator* Bool8x16Swizzle();
+  const Operator* Bool8x16Shuffle();
+  const Operator* Bool8x16Equal();
+  const Operator* Bool8x16NotEqual();
+
+  const Operator* Simd128Load();
+  const Operator* Simd128Load1();
+  const Operator* Simd128Load2();
+  const Operator* Simd128Load3();
+  const Operator* Simd128Store();
+  const Operator* Simd128Store1();
+  const Operator* Simd128Store2();
+  const Operator* Simd128Store3();
+  const Operator* Simd128And();
+  const Operator* Simd128Or();
+  const Operator* Simd128Xor();
+  const Operator* Simd128Not();
 
   // load [base + index]
   const Operator* Load(LoadRepresentation rep);
@@ -303,19 +601,39 @@ class MachineOperatorBuilder final : public ZoneObject {
   // store [base + index], value
   const Operator* Store(StoreRepresentation rep);
 
+  const Operator* StackSlot(MachineRepresentation rep);
+
   // Access to the machine stack.
   const Operator* LoadStackPointer();
   const Operator* LoadFramePointer();
+  const Operator* LoadParentFramePointer();
 
   // checked-load heap, index, length
   const Operator* CheckedLoad(CheckedLoadRepresentation);
   // checked-store heap, index, length, value
   const Operator* CheckedStore(CheckedStoreRepresentation);
 
+  // atomic-load [base + index]
+  const Operator* AtomicLoad(LoadRepresentation rep);
+  // atomic-store [base + index], value
+  const Operator* AtomicStore(MachineRepresentation rep);
+
   // Target machine word-size assumed by this builder.
   bool Is32() const { return word() == MachineRepresentation::kWord32; }
   bool Is64() const { return word() == MachineRepresentation::kWord64; }
   MachineRepresentation word() const { return word_; }
+
+  bool UnalignedLoadSupported(const MachineType& machineType,
+                              uint8_t alignment) {
+    return alignment_requirements_.IsUnalignedLoadSupported(machineType,
+                                                            alignment);
+  }
+
+  bool UnalignedStoreSupported(const MachineType& machineType,
+                               uint8_t alignment) {
+    return alignment_requirements_.IsUnalignedStoreSupported(machineType,
+                                                             alignment);
+  }
 
 // Pseudo operators that translate to 32/64-bit operators depending on the
 // word-size of the target machine assumed by this builder.
@@ -327,6 +645,7 @@ class MachineOperatorBuilder final : public ZoneObject {
   V(Word, Shr)            \
   V(Word, Sar)            \
   V(Word, Ror)            \
+  V(Word, Clz)            \
   V(Word, Equal)          \
   V(Int, Add)             \
   V(Int, Sub)             \
@@ -347,9 +666,11 @@ class MachineOperatorBuilder final : public ZoneObject {
 #undef PSEUDO_OP_LIST
 
  private:
+  Zone* zone_;
   MachineOperatorGlobalCache const& cache_;
   MachineRepresentation const word_;
   Flags const flags_;
+  AlignmentRequirements const alignment_requirements_;
 
   DISALLOW_COPY_AND_ASSIGN(MachineOperatorBuilder);
 };

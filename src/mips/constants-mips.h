@@ -64,9 +64,13 @@ enum FpuMode {
 #elif defined(FPU_MODE_FP64)
   static const FpuMode kFpuMode = kFP64;
 #elif defined(FPU_MODE_FPXX)
-  static const FpuMode kFpuMode = kFPXX;
+#if defined(_MIPS_ARCH_MIPS32R2) || defined(_MIPS_ARCH_MIPS32R6)
+static const FpuMode kFpuMode = kFPXX;
 #else
-  static const FpuMode kFpuMode = kFP32;
+#error "FPXX is supported only on Mips32R2 and Mips32R6"
+#endif
+#else
+static const FpuMode kFpuMode = kFP32;
 #endif
 
 #if(defined(__mips_hard_float) && __mips_hard_float != 0)
@@ -92,13 +96,9 @@ const uint32_t kHoleNanLower32Offset = 4;
 #error Unknown endianness
 #endif
 
-#ifndef FPU_MODE_FPXX
-#define IsFp64Mode() \
-  (kFpuMode == kFP64)
-#else
-#define IsFp64Mode() \
-  (CpuFeatures::IsSupported(FP64FPU))
-#endif
+#define IsFp64Mode() (kFpuMode == kFP64)
+#define IsFp32Mode() (kFpuMode == kFP32)
+#define IsFpxxMode() (kFpuMode == kFPXX)
 
 #ifndef _MIPS_ARCH_MIPS32RX
 #define IsMipsArchVariant(check) \
@@ -108,6 +108,19 @@ const uint32_t kHoleNanLower32Offset = 4;
   (CpuFeatures::IsSupported(static_cast<CpuFeature>(check)))
 #endif
 
+#if defined(V8_TARGET_LITTLE_ENDIAN)
+const uint32_t kMipsLwrOffset = 0;
+const uint32_t kMipsLwlOffset = 3;
+const uint32_t kMipsSwrOffset = 0;
+const uint32_t kMipsSwlOffset = 3;
+#elif defined(V8_TARGET_BIG_ENDIAN)
+const uint32_t kMipsLwrOffset = 3;
+const uint32_t kMipsLwlOffset = 0;
+const uint32_t kMipsSwrOffset = 3;
+const uint32_t kMipsSwlOffset = 0;
+#else
+#error Unknown endianness
+#endif
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -390,7 +403,7 @@ enum Opcode : uint32_t {
   POP10 = ADDI,   // beqzalc, bovc, beqc
   POP26 = BLEZL,  // bgezc, blezc, bgec/blec
   POP27 = BGTZL,  // bgtzc, bltzc, bltc/bgtc
-  POP30 = DADDI,  // bnezalc, bvnc, bnec
+  POP30 = DADDI,  // bnezalc, bnvc, bnec
 };
 
 enum SecondaryField : uint32_t {
@@ -409,6 +422,7 @@ enum SecondaryField : uint32_t {
   MOVZ = ((1U << 3) + 2),
   MOVN = ((1U << 3) + 3),
   BREAK = ((1U << 3) + 5),
+  SYNC = ((1U << 3) + 7),
 
   MFHI = ((2U << 3) + 0),
   CLZ_R6 = ((2U << 3) + 0),
@@ -620,7 +634,6 @@ enum SecondaryField : uint32_t {
   NULLSF = 0U
 };
 
-
 // ----- Emulated conditions.
 // On MIPS we use this enum to abstract from conditional branch instructions.
 // The 'U' prefix is used to specify unsigned comparisons.
@@ -794,6 +807,7 @@ enum CheckForInexactConversion {
   kDontCheckForInexactConversion
 };
 
+enum class MaxMinKind : int { kMin = 0, kMax = 1 };
 
 // -----------------------------------------------------------------------------
 // Hints.
@@ -927,8 +941,7 @@ class Instruction {
       FunctionFieldToBitNumber(TEQ) | FunctionFieldToBitNumber(TNE) |
       FunctionFieldToBitNumber(MOVZ) | FunctionFieldToBitNumber(MOVN) |
       FunctionFieldToBitNumber(MOVCI) | FunctionFieldToBitNumber(SELEQZ_S) |
-      FunctionFieldToBitNumber(SELNEZ_S);
-
+      FunctionFieldToBitNumber(SELNEZ_S) | FunctionFieldToBitNumber(SYNC);
 
   // Get the encoding type of the instruction.
   inline Type InstructionType(TypeChecks checks = NORMAL) const;
@@ -1173,11 +1186,10 @@ Instruction::Type Instruction::InstructionType(TypeChecks checks) const {
           int sa = SaFieldRaw() >> kSaShift;
           switch (sa) {
             case BITSWAP:
-              return kRegisterType;
             case WSBH:
             case SEB:
             case SEH:
-              return kUnsupported;
+              return kRegisterType;
           }
           sa >>= kBp2Bits;
           switch (sa) {

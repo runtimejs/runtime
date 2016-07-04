@@ -31,6 +31,7 @@ class Processor: public AstVisitor {
         result_assigned_(false),
         replacement_(nullptr),
         is_set_(false),
+        zone_(ast_value_factory->zone()),
         scope_(scope),
         factory_(ast_value_factory) {
     InitializeAstVisitor(parser->stack_limit());
@@ -50,7 +51,7 @@ class Processor: public AstVisitor {
     result_assigned_ = true;
     VariableProxy* result_proxy = factory()->NewVariableProxy(result_);
     return factory()->NewAssignment(Token::ASSIGN, result_proxy, value,
-                                    RelocInfo::kNoPosition);
+                                    kNoSourcePosition);
   }
 
   // Inserts '.result = undefined' in front of the given statement.
@@ -92,13 +93,12 @@ class Processor: public AstVisitor {
 
 Statement* Processor::AssignUndefinedBefore(Statement* s) {
   Expression* result_proxy = factory()->NewVariableProxy(result_);
-  Expression* undef = factory()->NewUndefinedLiteral(RelocInfo::kNoPosition);
-  Expression* assignment = factory()->NewAssignment(
-      Token::ASSIGN, result_proxy, undef, RelocInfo::kNoPosition);
-  Block* b = factory()->NewBlock(NULL, 2, false, RelocInfo::kNoPosition);
+  Expression* undef = factory()->NewUndefinedLiteral(kNoSourcePosition);
+  Expression* assignment = factory()->NewAssignment(Token::ASSIGN, result_proxy,
+                                                    undef, kNoSourcePosition);
+  Block* b = factory()->NewBlock(NULL, 2, false, kNoSourcePosition);
   b->statements()->Add(
-      factory()->NewExpressionStatement(assignment, RelocInfo::kNoPosition),
-      zone());
+      factory()->NewExpressionStatement(assignment, kNoSourcePosition), zone());
   b->statements()->Add(s, zone());
   return b;
 }
@@ -148,7 +148,7 @@ void Processor::VisitIfStatement(IfStatement* node) {
   is_set_ = is_set_ && set_in_then;
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -164,7 +164,7 @@ void Processor::VisitIterationStatement(IterationStatement* node) {
   is_set_ = is_set_ && set_after;
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -208,7 +208,7 @@ void Processor::VisitTryCatchStatement(TryCatchStatement* node) {
   is_set_ = is_set_ && set_in_try;
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -225,27 +225,26 @@ void Processor::VisitTryFinallyStatement(TryFinallyStatement* node) {
      // at the end again: ".backup = .result; ...; .result = .backup"
      // This is necessary because the finally block does not normally contribute
      // to the completion value.
+    CHECK(scope() != nullptr);
     Variable* backup = scope()->NewTemporary(
         factory()->ast_value_factory()->dot_result_string());
     Expression* backup_proxy = factory()->NewVariableProxy(backup);
     Expression* result_proxy = factory()->NewVariableProxy(result_);
     Expression* save = factory()->NewAssignment(
-        Token::ASSIGN, backup_proxy, result_proxy, RelocInfo::kNoPosition);
+        Token::ASSIGN, backup_proxy, result_proxy, kNoSourcePosition);
     Expression* restore = factory()->NewAssignment(
-        Token::ASSIGN, result_proxy, backup_proxy, RelocInfo::kNoPosition);
+        Token::ASSIGN, result_proxy, backup_proxy, kNoSourcePosition);
     node->finally_block()->statements()->InsertAt(
-        0, factory()->NewExpressionStatement(save, RelocInfo::kNoPosition),
-        zone());
+        0, factory()->NewExpressionStatement(save, kNoSourcePosition), zone());
     node->finally_block()->statements()->Add(
-        factory()->NewExpressionStatement(restore, RelocInfo::kNoPosition),
-        zone());
+        factory()->NewExpressionStatement(restore, kNoSourcePosition), zone());
   }
   is_set_ = set_after;
   Visit(node->try_block());
   node->set_try_block(replacement_->AsBlock());
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -263,7 +262,7 @@ void Processor::VisitSwitchStatement(SwitchStatement* node) {
   is_set_ = is_set_ && set_after;
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -287,7 +286,7 @@ void Processor::VisitWithStatement(WithStatement* node) {
   node->set_statement(replacement_);
   replacement_ = node;
 
-  if (FLAG_harmony_completion && !is_set_) {
+  if (!is_set_) {
     is_set_ = true;
     replacement_ = AssignUndefinedBefore(node);
   }
@@ -353,14 +352,7 @@ bool Rewriter::Rewrite(ParseInfo* info) {
     if (processor.HasStackOverflow()) return false;
 
     if (processor.result_assigned()) {
-      DCHECK(function->end_position() != RelocInfo::kNoPosition);
-      // Set the position of the assignment statement one character past the
-      // source code, such that it definitely is not in the source code range
-      // of an immediate inner scope. For example in
-      //   eval('with ({x:1}) x = 1');
-      // the end position of the function generated for executing the eval code
-      // coincides with the end of the with scope which is the position of '1'.
-      int pos = function->end_position();
+      int pos = kNoSourcePosition;
       VariableProxy* result_proxy =
           processor.factory()->NewVariableProxy(result, pos);
       Statement* result_statement =
@@ -388,8 +380,7 @@ bool Rewriter::Rewrite(Parser* parser, DoExpression* expr,
 
     if (!processor.result_assigned()) {
       AstNodeFactory* node_factory = processor.factory();
-      Expression* undef =
-          node_factory->NewUndefinedLiteral(RelocInfo::kNoPosition);
+      Expression* undef = node_factory->NewUndefinedLiteral(kNoSourcePosition);
       Statement* completion = node_factory->NewExpressionStatement(
           processor.SetResult(undef), expr->position());
       body->Add(completion, factory->zone());

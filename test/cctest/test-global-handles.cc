@@ -401,3 +401,71 @@ TEST(PersistentBaseGetLocal) {
   CHECK(o == g.Get(isolate));
   CHECK(v8::Local<v8::Object>::New(isolate, g) == g.Get(isolate));
 }
+
+
+void WeakCallback(const v8::WeakCallbackInfo<void>& data) {}
+
+
+TEST(WeakPersistentSmi) {
+  CcTest::InitializeVM();
+  v8::Isolate* isolate = CcTest::isolate();
+
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::Number> n = v8::Number::New(isolate, 0);
+  v8::Global<v8::Number> g(isolate, n);
+
+  // Should not crash.
+  g.SetWeak<void>(nullptr, &WeakCallback, v8::WeakCallbackType::kParameter);
+}
+
+void finalizer(const v8::WeakCallbackInfo<v8::Global<v8::Object>>& data) {
+  data.GetParameter()->ClearWeak();
+  v8::Local<v8::Object> o =
+      v8::Local<v8::Object>::New(data.GetIsolate(), *data.GetParameter());
+  o->Set(data.GetIsolate()->GetCurrentContext(), v8_str("finalizer"),
+         v8_str("was here"))
+      .FromJust();
+}
+
+TEST(FinalizerWeakness) {
+  CcTest::InitializeVM();
+  v8::Isolate* isolate = CcTest::isolate();
+
+  v8::Global<v8::Object> g;
+  int identity;
+
+  {
+    v8::HandleScope scope(isolate);
+    v8::Local<v8::Object> o = v8::Object::New(isolate);
+    identity = o->GetIdentityHash();
+    g.Reset(isolate, o);
+    g.SetWeak(&g, finalizer, v8::WeakCallbackType::kFinalizer);
+  }
+
+  CcTest::i_isolate()->heap()->CollectAllAvailableGarbage();
+
+  CHECK(!g.IsEmpty());
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::Object> o = v8::Local<v8::Object>::New(isolate, g);
+  CHECK_EQ(identity, o->GetIdentityHash());
+  CHECK(o->Has(isolate->GetCurrentContext(), v8_str("finalizer")).FromJust());
+}
+
+TEST(PhatomHandlesWithoutCallbacks) {
+  CcTest::InitializeVM();
+  v8::Isolate* isolate = CcTest::isolate();
+
+  v8::Global<v8::Object> g1, g2;
+  {
+    v8::HandleScope scope(isolate);
+    g1.Reset(isolate, v8::Object::New(isolate));
+    g1.SetWeak();
+    g2.Reset(isolate, v8::Object::New(isolate));
+    g2.SetWeak();
+  }
+
+  CHECK_EQ(0, isolate->NumberOfPhantomHandleResetsSinceLastCall());
+  CcTest::i_isolate()->heap()->CollectAllAvailableGarbage();
+  CHECK_EQ(2, isolate->NumberOfPhantomHandleResetsSinceLastCall());
+  CHECK_EQ(0, isolate->NumberOfPhantomHandleResetsSinceLastCall());
+}

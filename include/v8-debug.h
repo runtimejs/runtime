@@ -18,12 +18,10 @@ enum DebugEvent {
   Exception = 2,
   NewFunction = 3,
   BeforeCompile = 4,
-  AfterCompile  = 5,
+  AfterCompile = 5,
   CompileError = 6,
-  PromiseEvent = 7,
-  AsyncTaskEvent = 8,
+  AsyncTaskEvent = 7,
 };
-
 
 class V8_EXPORT Debug {
  public:
@@ -126,6 +124,8 @@ class V8_EXPORT Debug {
      * there is no message handler.
      */
     virtual ClientData* GetClientData() const = 0;
+
+    virtual Isolate* GetIsolate() const = 0;
 
     virtual ~EventDetails() {}
   };
@@ -261,6 +261,11 @@ class V8_EXPORT Debug {
   V8_DEPRECATED("Use version with an Isolate",
                 static Local<Context> GetDebugContext());
 
+  /**
+   * While in the debug context, this method returns the top-most non-debug
+   * context, if it exists.
+   */
+  static MaybeLocal<Context> GetDebuggedContext(Isolate* isolate);
 
   /**
    * Enable/disable LiveEdit functionality for the given Isolate
@@ -276,6 +281,14 @@ class V8_EXPORT Debug {
    */
   static MaybeLocal<Array> GetInternalProperties(Isolate* isolate,
                                                  Local<Value> value);
+
+  /**
+   * Defines if the ES2015 tail call elimination feature is enabled or not.
+   * The change of this flag triggers deoptimization of all functions that
+   * contain calls at tail position.
+   */
+  static bool IsTailCallEliminationEnabled(Isolate* isolate);
+  static void SetTailCallEliminationEnabled(Isolate* isolate, bool enabled);
 };
 
 

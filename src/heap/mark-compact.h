@@ -5,8 +5,11 @@
 #ifndef V8_HEAP_MARK_COMPACT_H_
 #define V8_HEAP_MARK_COMPACT_H_
 
+#include <deque>
+
 #include "src/base/bits.h"
 #include "src/heap/spaces.h"
+#include "src/heap/store-buffer.h"
 
 namespace v8 {
 namespace internal {
@@ -24,9 +27,6 @@ class CodeFlusher;
 class MarkCompactCollector;
 class MarkingVisitor;
 class RootMarkingVisitor;
-class SlotsBuffer;
-class SlotsBufferAllocator;
-
 
 class Marking : public AllStatic {
  public:
@@ -159,6 +159,8 @@ class Marking : public AllStatic {
 
   // Returns true if the transferred color is black.
   INLINE(static bool TransferColor(HeapObject* from, HeapObject* to)) {
+    if (Page::FromAddress(to->address())->IsFlagSet(Page::BLACK_PAGE))
+      return true;
     MarkBit from_mark_bit = MarkBitFrom(from);
     MarkBit to_mark_bit = MarkBitFrom(to);
     DCHECK(Marking::IsWhite(to_mark_bit));
@@ -317,11 +319,160 @@ class CodeFlusher {
 // Defined in isolate.h.
 class ThreadLocalTop;
 
+class MarkBitCellIterator BASE_EMBEDDED {
+ public:
+  explicit MarkBitCellIterator(MemoryChunk* chunk) : chunk_(chunk) {
+    last_cell_index_ = Bitmap::IndexToCell(Bitmap::CellAlignIndex(
+        chunk_->AddressToMarkbitIndex(chunk_->area_end())));
+    cell_base_ = chunk_->area_start();
+    cell_index_ = Bitmap::IndexToCell(
+        Bitmap::CellAlignIndex(chunk_->AddressToMarkbitIndex(cell_base_)));
+    cells_ = chunk_->markbits()->cells();
+  }
+
+  inline bool Done() { return cell_index_ == last_cell_index_; }
+
+  inline bool HasNext() { return cell_index_ < last_cell_index_ - 1; }
+
+  inline MarkBit::CellType* CurrentCell() {
+    DCHECK(cell_index_ == Bitmap::IndexToCell(Bitmap::CellAlignIndex(
+                              chunk_->AddressToMarkbitIndex(cell_base_))));
+    return &cells_[cell_index_];
+  }
+
+  inline Address CurrentCellBase() {
+    DCHECK(cell_index_ == Bitmap::IndexToCell(Bitmap::CellAlignIndex(
+                              chunk_->AddressToMarkbitIndex(cell_base_))));
+    return cell_base_;
+  }
+
+  inline void Advance() {
+    cell_index_++;
+    cell_base_ += 32 * kPointerSize;
+  }
+
+  // Return the next mark bit cell. If there is no next it returns 0;
+  inline MarkBit::CellType PeekNext() {
+    if (HasNext()) {
+      return cells_[cell_index_ + 1];
+    }
+    return 0;
+  }
+
+ private:
+  MemoryChunk* chunk_;
+  MarkBit::CellType* cells_;
+  unsigned int last_cell_index_;
+  unsigned int cell_index_;
+  Address cell_base_;
+};
+
+// Grey objects can happen on black pages when black objects transition to
+// grey e.g. when calling RecordWrites on them.
+enum LiveObjectIterationMode {
+  kBlackObjects,
+  kGreyObjects,
+  kAllLiveObjects
+};
+
+template <LiveObjectIterationMode T>
+class LiveObjectIterator BASE_EMBEDDED {
+ public:
+  explicit LiveObjectIterator(MemoryChunk* chunk)
+      : chunk_(chunk),
+        it_(chunk_),
+        cell_base_(it_.CurrentCellBase()),
+        current_cell_(*it_.CurrentCell()) {
+    // Black pages can not be iterated.
+    DCHECK(!chunk->IsFlagSet(Page::BLACK_PAGE));
+  }
+
+  HeapObject* Next();
+
+ private:
+  MemoryChunk* chunk_;
+  MarkBitCellIterator it_;
+  Address cell_base_;
+  MarkBit::CellType current_cell_;
+};
 
 // -------------------------------------------------------------------------
 // Mark-Compact collector
 class MarkCompactCollector {
  public:
+  class Evacuator;
+
+  class Sweeper {
+   public:
+    class SweeperTask;
+
+    enum SweepingMode { SWEEP_ONLY, SWEEP_AND_VISIT_LIVE_OBJECTS };
+    enum SkipListRebuildingMode { REBUILD_SKIP_LIST, IGNORE_SKIP_LIST };
+    enum FreeListRebuildingMode { REBUILD_FREE_LIST, IGNORE_FREE_LIST };
+    enum FreeSpaceTreatmentMode { IGNORE_FREE_SPACE, ZAP_FREE_SPACE };
+    enum SweepingParallelism { SWEEP_ON_MAIN_THREAD, SWEEP_IN_PARALLEL };
+
+    typedef std::deque<Page*> SweepingList;
+    typedef List<Page*> SweptList;
+
+    template <SweepingMode sweeping_mode, SweepingParallelism parallelism,
+              SkipListRebuildingMode skip_list_mode,
+              FreeListRebuildingMode free_list_mode,
+              FreeSpaceTreatmentMode free_space_mode>
+    static int RawSweep(PagedSpace* space, Page* p, ObjectVisitor* v);
+
+    explicit Sweeper(Heap* heap)
+        : heap_(heap),
+          pending_sweeper_tasks_semaphore_(0),
+          sweeping_in_progress_(false),
+          late_pages_(false),
+          num_sweeping_tasks_(0) {}
+
+    bool sweeping_in_progress() { return sweeping_in_progress_; }
+    bool contains_late_pages() { return late_pages_; }
+
+    void AddPage(AllocationSpace space, Page* page);
+    void AddLatePage(AllocationSpace space, Page* page);
+
+    int ParallelSweepSpace(AllocationSpace identity, int required_freed_bytes,
+                           int max_pages = 0);
+    int ParallelSweepPage(Page* page, AllocationSpace identity);
+
+    void StartSweeping();
+    void StartSweepingHelper(AllocationSpace space_to_start);
+    void EnsureCompleted();
+    void EnsureNewSpaceCompleted();
+    bool IsSweepingCompleted();
+    void SweepOrWaitUntilSweepingCompleted(Page* page);
+
+    void AddSweptPageSafe(PagedSpace* space, Page* page);
+    Page* GetSweptPageSafe(PagedSpace* space);
+
+   private:
+    static const int kAllocationSpaces = LAST_PAGED_SPACE + 1;
+
+    template <typename Callback>
+    void ForAllSweepingSpaces(Callback callback) {
+      for (int i = 0; i < kAllocationSpaces; i++) {
+        callback(static_cast<AllocationSpace>(i));
+      }
+    }
+
+    Page* GetSweepingPageSafe(AllocationSpace space);
+    void AddSweepingPageSafe(AllocationSpace space, Page* page);
+
+    void PrepareToBeSweptPage(AllocationSpace space, Page* page);
+
+    Heap* heap_;
+    base::Semaphore pending_sweeper_tasks_semaphore_;
+    base::Mutex mutex_;
+    SweptList swept_list_[kAllocationSpaces];
+    SweepingList sweeping_list_[kAllocationSpaces];
+    bool sweeping_in_progress_;
+    bool late_pages_;
+    base::AtomicNumber<intptr_t> num_sweeping_tasks_;
+  };
+
   enum IterationMode {
     kKeepMarking,
     kClearMarkbits,
@@ -373,8 +524,6 @@ class MarkCompactCollector {
   CodeFlusher* code_flusher() { return code_flusher_; }
   inline bool is_code_flushing_enabled() const { return code_flusher_ != NULL; }
 
-  enum SweepingParallelism { SWEEP_ON_MAIN_THREAD, SWEEP_IN_PARALLEL };
-
 #ifdef VERIFY_HEAP
   void VerifyValidStoreAndSlotsBufferEntries();
   void VerifyMarkbitsAreClean();
@@ -394,8 +543,8 @@ class MarkCompactCollector {
         ->IsEvacuationCandidate();
   }
 
-  void RecordRelocSlot(RelocInfo* rinfo, Object* target);
-  void RecordCodeEntrySlot(HeapObject* object, Address slot, Code* target);
+  void RecordRelocSlot(Code* host, RelocInfo* rinfo, Object* target);
+  void RecordCodeEntrySlot(HeapObject* host, Address slot, Code* target);
   void RecordCodeTargetPatch(Address pc, Code* target);
   INLINE(void RecordSlot(HeapObject* object, Object** slot, Object* target));
   INLINE(void ForceRecordSlot(HeapObject* object, Object** slot,
@@ -403,10 +552,6 @@ class MarkCompactCollector {
 
   void UpdateSlots(SlotsBuffer* buffer);
   void UpdateSlotsRecordedIn(SlotsBuffer* buffer);
-
-  void MigrateObject(HeapObject* dst, HeapObject* src, int size,
-                     AllocationSpace to_old_space,
-                     SlotsBuffer** evacuation_slots_buffer);
 
   void InvalidateCode(Code* code);
 
@@ -416,23 +561,10 @@ class MarkCompactCollector {
 
   MarkingParity marking_parity() { return marking_parity_; }
 
-  // Concurrent and parallel sweeping support. If required_freed_bytes was set
-  // to a value larger than 0, then sweeping returns after a block of at least
-  // required_freed_bytes was freed. If required_freed_bytes was set to zero
-  // then the whole given space is swept. It returns the size of the maximum
-  // continuous freed memory chunk.
-  int SweepInParallel(PagedSpace* space, int required_freed_bytes);
-
-  // Sweeps a given page concurrently to the sweeper threads. It returns the
-  // size of the maximum continuous freed memory chunk.
-  int SweepInParallel(Page* page, PagedSpace* space);
-
   // Ensures that sweeping is finished.
   //
   // Note: Can only be called safely from main thread.
   void EnsureSweepingCompleted();
-
-  void SweepOrWaitUntilSweepingCompleted(Page* page);
 
   // Help out in sweeping the corresponding space and refill memory that has
   // been regained.
@@ -440,13 +572,8 @@ class MarkCompactCollector {
   // Note: Thread-safe.
   void SweepAndRefill(CompactionSpace* space);
 
-  // If sweeper threads are not active this method will return true. If
-  // this is a latency issue we should be smarter here. Otherwise, it will
-  // return true if the sweeper threads are done processing the pages.
-  bool IsSweepingCompleted();
-
   // Checks if sweeping is in progress right now on any space.
-  bool sweeping_in_progress() { return sweeping_in_progress_; }
+  bool sweeping_in_progress() { return sweeper().sweeping_in_progress(); }
 
   void set_evacuation(bool evacuation) { evacuation_ = evacuation; }
 
@@ -477,78 +604,46 @@ class MarkCompactCollector {
 
   void InitializeMarkingDeque();
 
-  // The following four methods can just be called after marking, when the
+  // The following two methods can just be called after marking, when the
   // whole transitive closure is known. They must be called before sweeping
   // when mark bits are still intact.
-  bool IsSlotInBlackObject(Page* p, Address slot, HeapObject** out_object);
-  bool IsSlotInBlackObjectSlow(Page* p, Address slot);
-  bool IsSlotInLiveObject(Address slot);
-  void VerifyIsSlotInLiveObject(Address slot, HeapObject* object);
+  bool IsSlotInBlackObject(MemoryChunk* p, Address slot);
+  HeapObject* FindBlackObjectBySlotSlow(Address slot);
 
   // Removes all the slots in the slot buffers that are within the given
   // address range.
   void RemoveObjectSlots(Address start_slot, Address end_slot);
 
-  //
-  // Free lists filled by sweeper and consumed by corresponding spaces
-  // (including compaction spaces).
-  //
-  base::SmartPointer<FreeList>& free_list_old_space() {
-    return free_list_old_space_;
-  }
-  base::SmartPointer<FreeList>& free_list_code_space() {
-    return free_list_code_space_;
-  }
-  base::SmartPointer<FreeList>& free_list_map_space() {
-    return free_list_map_space_;
-  }
+  Sweeper& sweeper() { return sweeper_; }
+
+  void RegisterWrappersWithEmbedderHeapTracer();
+
+  void SetEmbedderHeapTracer(EmbedderHeapTracer* tracer);
+
+  EmbedderHeapTracer* embedder_heap_tracer() { return embedder_heap_tracer_; }
+
+  bool UsingEmbedderHeapTracer() { return embedder_heap_tracer(); }
+
+  void TracePossibleWrapper(JSObject* js_object);
+
+  void RegisterExternallyReferencedObject(Object** object);
 
  private:
-  class CompactionTask;
+  class EvacuateNewSpacePageVisitor;
   class EvacuateNewSpaceVisitor;
   class EvacuateOldSpaceVisitor;
+  class EvacuateRecordOnlyVisitor;
   class EvacuateVisitorBase;
   class HeapObjectVisitor;
-  class SweeperTask;
-
-  static const int kInitialLocalPretenuringFeedbackCapacity = 256;
 
   explicit MarkCompactCollector(Heap* heap);
 
   bool WillBeDeoptimized(Code* code);
-  void EvictPopularEvacuationCandidate(Page* page);
-  void ClearInvalidStoreAndSlotsBufferEntries();
-
-  void StartSweeperThreads();
+  void ClearInvalidRememberedSetSlots();
 
   void ComputeEvacuationHeuristics(int area_size,
                                    int* target_fragmentation_percent,
                                    int* max_evacuated_bytes);
-
-#ifdef DEBUG
-  enum CollectorState {
-    IDLE,
-    PREPARE_GC,
-    MARK_LIVE_OBJECTS,
-    SWEEP_SPACES,
-    ENCODE_FORWARDING_ADDRESSES,
-    UPDATE_POINTERS,
-    RELOCATE_OBJECTS
-  };
-
-  // The current stage of the collector.
-  CollectorState state_;
-#endif
-
-  MarkingParity marking_parity_;
-
-  bool was_marked_incrementally_;
-
-  bool evacuation_;
-
-  SlotsBufferAllocator* slots_buffer_allocator_;
-
-  SlotsBuffer* migration_slots_buffer_;
 
   // Finishes GC, performs heap verification if enabled.
   void Finish();
@@ -610,8 +705,8 @@ class MarkCompactCollector {
   // or overflowed in the heap.  This respects references only considered in
   // the final atomic marking pause including the following:
   //    - Processing of objects reachable through Harmony WeakMaps.
-  //    - Objects reachable due to host application logic like object groups
-  //      or implicit references' groups.
+  //    - Objects reachable due to host application logic like object groups,
+  //      implicit references' groups, or embedder heap tracing.
   void ProcessEphemeralMarking(ObjectVisitor* visitor,
                                bool only_process_harmony_weak_collections);
 
@@ -700,24 +795,10 @@ class MarkCompactCollector {
 
   void EvacuateNewSpacePrologue();
 
-  // Returns local pretenuring feedback.
-  HashMap* EvacuateNewSpaceInParallel();
-
-  void AddEvacuationSlotsBufferSynchronized(
-      SlotsBuffer* evacuation_slots_buffer);
-
-  void EvacuatePages(CompactionSpaceCollection* compaction_spaces,
-                     SlotsBuffer** evacuation_slots_buffer);
-
   void EvacuatePagesInParallel();
 
   // The number of parallel compaction tasks, including the main thread.
-  int NumberOfParallelCompactionTasks();
-
-
-  void StartParallelCompaction(CompactionSpaceCollection** compaction_spaces,
-                               uint32_t* task_ids, int len);
-  void WaitUntilCompactionCompleted(uint32_t* task_ids, int len);
+  int NumberOfParallelCompactionTasks(int pages, intptr_t live_bytes);
 
   void EvacuateNewSpaceAndCandidates();
 
@@ -725,42 +806,19 @@ class MarkCompactCollector {
 
   // Iterates through all live objects on a page using marking information.
   // Returns whether all objects have successfully been visited.
-  bool VisitLiveObjects(MemoryChunk* page, HeapObjectVisitor* visitor,
+  template <class Visitor>
+  bool VisitLiveObjects(MemoryChunk* page, Visitor* visitor,
                         IterationMode mode);
 
   void VisitLiveObjectsBody(Page* page, ObjectVisitor* visitor);
 
   void RecomputeLiveBytes(MemoryChunk* page);
 
-  void SweepAbortedPages();
-
   void ReleaseEvacuationCandidates();
-
-  // Moves the pages of the evacuation_candidates_ list to the end of their
-  // corresponding space pages list.
-  void MoveEvacuationCandidatesToEndOfPagesList();
 
   // Starts sweeping of a space by contributing on the main thread and setting
   // up other pages for sweeping.
   void StartSweepSpace(PagedSpace* space);
-
-  // Finalizes the parallel sweeping phase. Marks all the pages that were
-  // swept in parallel.
-  void ParallelSweepSpacesComplete();
-
-  void ParallelSweepSpaceComplete(PagedSpace* space);
-
-  // Updates store buffer and slot buffer for a pointer in a migrating object.
-  void RecordMigratedSlot(Object* value, Address slot,
-                          SlotsBuffer** evacuation_slots_buffer);
-
-  // Adds the code entry slot to the slots buffer.
-  void RecordMigratedCodeEntrySlot(Address code_entry, Address code_entry_slot,
-                                   SlotsBuffer** evacuation_slots_buffer);
-
-  // Adds the slot of a moved code object.
-  void RecordMigratedCodeObjectSlot(Address code_object,
-                                    SlotsBuffer** evacuation_slots_buffer);
 
 #ifdef DEBUG
   friend class MarkObjectVisitor;
@@ -771,115 +829,54 @@ class MarkCompactCollector {
 #endif
 
   Heap* heap_;
-  base::VirtualMemory* marking_deque_memory_;
-  size_t marking_deque_memory_committed_;
-  MarkingDeque marking_deque_;
-  CodeFlusher* code_flusher_;
-  bool have_code_to_deoptimize_;
 
-  List<Page*> evacuation_candidates_;
+  base::Semaphore page_parallel_job_semaphore_;
 
-  List<MemoryChunk*> newspace_evacuation_candidates_;
+#ifdef DEBUG
+  enum CollectorState {
+    IDLE,
+    PREPARE_GC,
+    MARK_LIVE_OBJECTS,
+    SWEEP_SPACES,
+    ENCODE_FORWARDING_ADDRESSES,
+    UPDATE_POINTERS,
+    RELOCATE_OBJECTS
+  };
 
-  // The evacuation_slots_buffers_ are used by the compaction threads.
-  // When a compaction task finishes, it uses
-  // AddEvacuationSlotsbufferSynchronized to adds its slots buffer to the
-  // evacuation_slots_buffers_ list using the evacuation_slots_buffers_mutex_
-  // lock.
-  base::Mutex evacuation_slots_buffers_mutex_;
-  List<SlotsBuffer*> evacuation_slots_buffers_;
+  // The current stage of the collector.
+  CollectorState state_;
+#endif
 
-  base::SmartPointer<FreeList> free_list_old_space_;
-  base::SmartPointer<FreeList> free_list_code_space_;
-  base::SmartPointer<FreeList> free_list_map_space_;
+  MarkingParity marking_parity_;
+
+  bool was_marked_incrementally_;
+
+  bool evacuation_;
 
   // True if we are collecting slots to perform evacuation from evacuation
   // candidates.
   bool compacting_;
 
-  // True if concurrent or parallel sweeping is currently in progress.
-  bool sweeping_in_progress_;
+  bool black_allocation_;
 
-  // True if parallel compaction is currently in progress.
-  bool compaction_in_progress_;
+  bool have_code_to_deoptimize_;
 
-  // Semaphore used to synchronize sweeper tasks.
-  base::Semaphore pending_sweeper_tasks_semaphore_;
+  base::VirtualMemory* marking_deque_memory_;
+  size_t marking_deque_memory_committed_;
+  MarkingDeque marking_deque_;
+  std::vector<std::pair<void*, void*>> wrappers_to_trace_;
 
-  // Semaphore used to synchronize compaction tasks.
-  base::Semaphore pending_compaction_tasks_semaphore_;
+  CodeFlusher* code_flusher_;
+
+  EmbedderHeapTracer* embedder_heap_tracer_;
+
+  List<Page*> evacuation_candidates_;
+  List<Page*> newspace_evacuation_candidates_;
+
+  Sweeper sweeper_;
 
   friend class Heap;
   friend class StoreBuffer;
-};
-
-
-class MarkBitCellIterator BASE_EMBEDDED {
- public:
-  explicit MarkBitCellIterator(MemoryChunk* chunk) : chunk_(chunk) {
-    last_cell_index_ = Bitmap::IndexToCell(Bitmap::CellAlignIndex(
-        chunk_->AddressToMarkbitIndex(chunk_->area_end())));
-    cell_base_ = chunk_->area_start();
-    cell_index_ = Bitmap::IndexToCell(
-        Bitmap::CellAlignIndex(chunk_->AddressToMarkbitIndex(cell_base_)));
-    cells_ = chunk_->markbits()->cells();
-  }
-
-  inline bool Done() { return cell_index_ == last_cell_index_; }
-
-  inline bool HasNext() { return cell_index_ < last_cell_index_ - 1; }
-
-  inline MarkBit::CellType* CurrentCell() {
-    DCHECK(cell_index_ == Bitmap::IndexToCell(Bitmap::CellAlignIndex(
-                              chunk_->AddressToMarkbitIndex(cell_base_))));
-    return &cells_[cell_index_];
-  }
-
-  inline Address CurrentCellBase() {
-    DCHECK(cell_index_ == Bitmap::IndexToCell(Bitmap::CellAlignIndex(
-                              chunk_->AddressToMarkbitIndex(cell_base_))));
-    return cell_base_;
-  }
-
-  inline void Advance() {
-    cell_index_++;
-    cell_base_ += 32 * kPointerSize;
-  }
-
-  // Return the next mark bit cell. If there is no next it returns 0;
-  inline MarkBit::CellType PeekNext() {
-    if (HasNext()) {
-      return cells_[cell_index_ + 1];
-    }
-    return 0;
-  }
-
- private:
-  MemoryChunk* chunk_;
-  MarkBit::CellType* cells_;
-  unsigned int last_cell_index_;
-  unsigned int cell_index_;
-  Address cell_base_;
-};
-
-enum LiveObjectIterationMode { kBlackObjects, kGreyObjects, kAllLiveObjects };
-
-template <LiveObjectIterationMode T>
-class LiveObjectIterator BASE_EMBEDDED {
- public:
-  explicit LiveObjectIterator(MemoryChunk* chunk)
-      : chunk_(chunk),
-        it_(chunk_),
-        cell_base_(it_.CurrentCellBase()),
-        current_cell_(*it_.CurrentCell()) {}
-
-  HeapObject* Next();
-
- private:
-  MemoryChunk* chunk_;
-  MarkBitCellIterator it_;
-  Address cell_base_;
-  MarkBit::CellType current_cell_;
 };
 
 

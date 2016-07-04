@@ -25,6 +25,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// Flags: --ignition-generators
+
 // Test aspects of the generator runtime.
 
 // See:
@@ -99,7 +101,7 @@ function TestGeneratorObjectPrototype() {
   assertSame(GeneratorObjectPrototype,
              Object.getPrototypeOf((function*(){yield 1}).prototype));
 
-  var expected_property_names = ["next", "throw", "constructor"];
+  var expected_property_names = ["next", "return", "throw", "constructor"];
   var found_property_names =
       Object.getOwnPropertyNames(GeneratorObjectPrototype);
 

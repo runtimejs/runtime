@@ -15,8 +15,13 @@ namespace internal {
 
 
 static bool IsPropertyNameFeedback(Object* feedback) {
-  return feedback->IsString() ||
-         (feedback->IsSymbol() && !Symbol::cast(feedback)->is_private());
+  if (feedback->IsString()) return true;
+  if (!feedback->IsSymbol()) return false;
+  Symbol* symbol = Symbol::cast(feedback);
+  Heap* heap = symbol->GetHeap();
+  return symbol != heap->uninitialized_symbol() &&
+         symbol != heap->premonomorphic_symbol() &&
+         symbol != heap->megamorphic_symbol();
 }
 
 
@@ -32,6 +37,16 @@ FeedbackVectorSlotKind TypeFeedbackMetadata::GetKind(
   return VectorICComputer::decode(data, slot.ToInt());
 }
 
+String* TypeFeedbackMetadata::GetName(FeedbackVectorSlot slot) const {
+  DCHECK(SlotRequiresName(GetKind(slot)));
+  UnseededNumberDictionary* names =
+      UnseededNumberDictionary::cast(get(kNamesTableIndex));
+  int entry = names->FindEntry(GetIsolate(), slot.ToInt());
+  CHECK_NE(UnseededNumberDictionary::kNotFound, entry);
+  Object* name = names->ValueAt(entry);
+  DCHECK(name->IsString());
+  return String::cast(name);
+}
 
 void TypeFeedbackMetadata::SetKind(FeedbackVectorSlot slot,
                                    FeedbackVectorSlotKind kind) {
@@ -52,12 +67,13 @@ template Handle<TypeFeedbackMetadata> TypeFeedbackMetadata::New(
 template <typename Spec>
 Handle<TypeFeedbackMetadata> TypeFeedbackMetadata::New(Isolate* isolate,
                                                        const Spec* spec) {
+  Factory* factory = isolate->factory();
+
   const int slot_count = spec->slots();
   const int slot_kinds_length = VectorICComputer::word_count(slot_count);
   const int length = slot_kinds_length + kReservedIndexCount;
   if (length == kReservedIndexCount) {
-    return Handle<TypeFeedbackMetadata>::cast(
-        isolate->factory()->empty_fixed_array());
+    return Handle<TypeFeedbackMetadata>::cast(factory->empty_fixed_array());
   }
 #ifdef DEBUG
   for (int i = 0; i < slot_count;) {
@@ -71,7 +87,7 @@ Handle<TypeFeedbackMetadata> TypeFeedbackMetadata::New(Isolate* isolate,
   }
 #endif
 
-  Handle<FixedArray> array = isolate->factory()->NewFixedArray(length, TENURED);
+  Handle<FixedArray> array = factory->NewFixedArray(length, TENURED);
   array->set(kSlotsCountIndex, Smi::FromInt(slot_count));
   // Fill the bit-vector part with zeros.
   for (int i = 0; i < slot_kinds_length; i++) {
@@ -80,9 +96,34 @@ Handle<TypeFeedbackMetadata> TypeFeedbackMetadata::New(Isolate* isolate,
 
   Handle<TypeFeedbackMetadata> metadata =
       Handle<TypeFeedbackMetadata>::cast(array);
+
+  // Add names to NamesTable.
+  const int name_count = spec->name_count();
+
+  Handle<UnseededNumberDictionary> names =
+      UnseededNumberDictionary::New(isolate, name_count);
+
+  int name_index = 0;
   for (int i = 0; i < slot_count; i++) {
-    metadata->SetKind(FeedbackVectorSlot(i), spec->GetKind(i));
+    FeedbackVectorSlotKind kind = spec->GetKind(i);
+    metadata->SetKind(FeedbackVectorSlot(i), kind);
+    if (SlotRequiresName(kind)) {
+      Handle<String> name = spec->GetName(name_index);
+      DCHECK(!name.is_null());
+      names = UnseededNumberDictionary::AtNumberPut(names, i, name);
+      name_index++;
+    }
   }
+  DCHECK_EQ(name_count, name_index);
+  metadata->set(kNamesTableIndex, *names);
+
+  // It's important that the TypeFeedbackMetadata have a COW map, since it's
+  // pointed to by both a SharedFunctionInfo and indirectly by closures through
+  // the TypeFeedbackVector. The serializer uses the COW map type to decide
+  // this object belongs in the startup snapshot and not the partial
+  // snapshot(s).
+  metadata->set_map(isolate->heap()->fixed_cow_array_map());
+
   return metadata;
 }
 
@@ -94,14 +135,51 @@ bool TypeFeedbackMetadata::SpecDiffersFrom(
   }
 
   int slots = slot_count();
-  for (int i = 0; i < slots; i++) {
-    if (GetKind(FeedbackVectorSlot(i)) != other_spec->GetKind(i)) {
+  int name_index = 0;
+  for (int i = 0; i < slots;) {
+    FeedbackVectorSlot slot(i);
+    FeedbackVectorSlotKind kind = GetKind(slot);
+    int entry_size = TypeFeedbackMetadata::GetSlotSize(kind);
+
+    if (kind != other_spec->GetKind(i)) {
       return true;
     }
+    if (SlotRequiresName(kind)) {
+      String* name = GetName(slot);
+      DCHECK(name != GetHeap()->empty_string());
+      String* other_name = *other_spec->GetName(name_index++);
+      if (name != other_name) {
+        return true;
+      }
+    }
+    i += entry_size;
   }
   return false;
 }
 
+bool TypeFeedbackMetadata::DiffersFrom(
+    const TypeFeedbackMetadata* other_metadata) const {
+  if (other_metadata->slot_count() != slot_count()) {
+    return true;
+  }
+
+  int slots = slot_count();
+  for (int i = 0; i < slots;) {
+    FeedbackVectorSlot slot(i);
+    FeedbackVectorSlotKind kind = GetKind(slot);
+    int entry_size = TypeFeedbackMetadata::GetSlotSize(kind);
+    if (GetKind(slot) != other_metadata->GetKind(slot)) {
+      return true;
+    }
+    if (SlotRequiresName(kind)) {
+      if (GetName(slot) != other_metadata->GetName(slot)) {
+        return true;
+      }
+    }
+    i += entry_size;
+  }
+  return false;
+}
 
 const char* TypeFeedbackMetadata::Kind2String(FeedbackVectorSlotKind kind) {
   switch (kind) {
@@ -111,6 +189,8 @@ const char* TypeFeedbackMetadata::Kind2String(FeedbackVectorSlotKind kind) {
       return "CALL_IC";
     case FeedbackVectorSlotKind::LOAD_IC:
       return "LOAD_IC";
+    case FeedbackVectorSlotKind::LOAD_GLOBAL_IC:
+      return "LOAD_GLOBAL_IC";
     case FeedbackVectorSlotKind::KEYED_LOAD_IC:
       return "KEYED_LOAD_IC";
     case FeedbackVectorSlotKind::STORE_IC:
@@ -126,6 +206,16 @@ const char* TypeFeedbackMetadata::Kind2String(FeedbackVectorSlotKind kind) {
   return "?";
 }
 
+FeedbackVectorSlotKind TypeFeedbackVector::GetKind(
+    FeedbackVectorSlot slot) const {
+  DCHECK(!is_empty());
+  return metadata()->GetKind(slot);
+}
+
+String* TypeFeedbackVector::GetName(FeedbackVectorSlot slot) const {
+  DCHECK(!is_empty());
+  return metadata()->GetName(slot);
+}
 
 // static
 Handle<TypeFeedbackVector> TypeFeedbackVector::New(
@@ -141,13 +231,29 @@ Handle<TypeFeedbackVector> TypeFeedbackVector::New(
   Handle<FixedArray> array = factory->NewFixedArray(length, TENURED);
   array->set(kMetadataIndex, *metadata);
 
+  DisallowHeapAllocation no_gc;
+
   // Ensure we can skip the write barrier
   Handle<Object> uninitialized_sentinel = UninitializedSentinel(isolate);
   DCHECK_EQ(*factory->uninitialized_symbol(), *uninitialized_sentinel);
-  for (int i = kReservedIndexCount; i < length; i++) {
-    array->set(i, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
-  }
+  for (int i = 0; i < slot_count;) {
+    FeedbackVectorSlot slot(i);
+    FeedbackVectorSlotKind kind = metadata->GetKind(slot);
+    int index = TypeFeedbackVector::GetIndex(slot);
+    int entry_size = TypeFeedbackMetadata::GetSlotSize(kind);
 
+    Object* value;
+    if (kind == FeedbackVectorSlotKind::LOAD_GLOBAL_IC) {
+      value = *factory->empty_weak_cell();
+    } else {
+      value = *uninitialized_sentinel;
+    }
+    array->set(index, value, SKIP_WRITE_BARRIER);
+    for (int j = 1; j < entry_size; j++) {
+      array->set(index + j, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
+    }
+    i += entry_size;
+  }
   return Handle<TypeFeedbackVector>::cast(array);
 }
 
@@ -203,6 +309,11 @@ void TypeFeedbackVector::ClearSlotsImpl(SharedFunctionInfo* shared,
           nexus.Clear(shared->code());
           break;
         }
+        case FeedbackVectorSlotKind::LOAD_GLOBAL_IC: {
+          LoadGlobalICNexus nexus(this, slot);
+          nexus.Clear(shared->code());
+          break;
+        }
         case FeedbackVectorSlotKind::KEYED_LOAD_IC: {
           KeyedLoadICNexus nexus(this, slot);
           nexus.Clear(shared->code());
@@ -246,8 +357,28 @@ void TypeFeedbackVector::ClearAllKeyedStoreICs(Isolate* isolate) {
   SharedFunctionInfo::Iterator iterator(isolate);
   SharedFunctionInfo* shared;
   while ((shared = iterator.Next())) {
-    TypeFeedbackVector* vector = shared->feedback_vector();
-    vector->ClearKeyedStoreICs(shared);
+    if (!shared->OptimizedCodeMapIsCleared()) {
+      FixedArray* optimized_code_map = shared->optimized_code_map();
+      int length = optimized_code_map->length();
+      for (int i = SharedFunctionInfo::kEntriesStart; i < length;
+           i += SharedFunctionInfo::kEntryLength) {
+        Object* lits =
+            optimized_code_map->get(i + SharedFunctionInfo::kLiteralsOffset);
+        TypeFeedbackVector* vector = nullptr;
+        if (lits->IsWeakCell()) {
+          WeakCell* cell = WeakCell::cast(lits);
+          if (cell->value()->IsLiteralsArray()) {
+            vector = LiteralsArray::cast(cell->value())->feedback_vector();
+          }
+        } else {
+          DCHECK(lits->IsLiteralsArray());
+          vector = LiteralsArray::cast(lits)->feedback_vector();
+        }
+        if (vector != nullptr) {
+          vector->ClearKeyedStoreICs(shared);
+        }
+      }
+    }
   }
 }
 
@@ -335,6 +466,10 @@ void FeedbackNexus::ConfigurePremonomorphic() {
 
 
 void FeedbackNexus::ConfigureMegamorphic() {
+  // Keyed ICs must use ConfigureMegamorphicKeyed.
+  DCHECK_NE(FeedbackVectorSlotKind::KEYED_LOAD_IC, vector()->GetKind(slot()));
+  DCHECK_NE(FeedbackVectorSlotKind::KEYED_STORE_IC, vector()->GetKind(slot()));
+
   Isolate* isolate = GetIsolate();
   SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
               SKIP_WRITE_BARRIER);
@@ -342,6 +477,21 @@ void FeedbackNexus::ConfigureMegamorphic() {
                    SKIP_WRITE_BARRIER);
 }
 
+void KeyedLoadICNexus::ConfigureMegamorphicKeyed(IcCheckType property_type) {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
+              SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(static_cast<int>(property_type)),
+                   SKIP_WRITE_BARRIER);
+}
+
+void KeyedStoreICNexus::ConfigureMegamorphicKeyed(IcCheckType property_type) {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
+              SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(static_cast<int>(property_type)),
+                   SKIP_WRITE_BARRIER);
+}
 
 InlineCacheState LoadICNexus::StateFromFeedback() const {
   Isolate* isolate = GetIsolate();
@@ -365,6 +515,17 @@ InlineCacheState LoadICNexus::StateFromFeedback() const {
   return UNINITIALIZED;
 }
 
+InlineCacheState LoadGlobalICNexus::StateFromFeedback() const {
+  Isolate* isolate = GetIsolate();
+  Object* feedback = GetFeedback();
+
+  Object* extra = GetFeedbackExtra();
+  if (!WeakCell::cast(feedback)->cleared() ||
+      extra != *TypeFeedbackVector::UninitializedSentinel(isolate)) {
+    return MONOMORPHIC;
+  }
+  return UNINITIALIZED;
+}
 
 InlineCacheState KeyedLoadICNexus::StateFromFeedback() const {
   Isolate* isolate = GetIsolate();
@@ -464,7 +625,7 @@ InlineCacheState CallICNexus::StateFromFeedback() const {
 int CallICNexus::ExtractCallCount() {
   Object* call_count = GetFeedbackExtra();
   if (call_count->IsSmi()) {
-    int value = Smi::cast(call_count)->value() / 2;
+    int value = Smi::cast(call_count)->value();
     return value;
   }
   return -1;
@@ -481,14 +642,14 @@ void CallICNexus::ConfigureMonomorphicArray() {
         GetIsolate()->factory()->NewAllocationSite();
     SetFeedback(*new_site);
   }
-  SetFeedbackExtra(Smi::FromInt(kCallCountIncrement), SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(1), SKIP_WRITE_BARRIER);
 }
 
 
 void CallICNexus::ConfigureMonomorphic(Handle<JSFunction> function) {
   Handle<WeakCell> new_cell = GetIsolate()->factory()->NewWeakCell(function);
   SetFeedback(*new_cell);
-  SetFeedbackExtra(Smi::FromInt(kCallCountIncrement), SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(1), SKIP_WRITE_BARRIER);
 }
 
 
@@ -500,8 +661,7 @@ void CallICNexus::ConfigureMegamorphic() {
 void CallICNexus::ConfigureMegamorphic(int call_count) {
   SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(GetIsolate()),
               SKIP_WRITE_BARRIER);
-  SetFeedbackExtra(Smi::FromInt(call_count * kCallCountIncrement),
-                   SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(call_count), SKIP_WRITE_BARRIER);
 }
 
 
@@ -512,6 +672,24 @@ void LoadICNexus::ConfigureMonomorphic(Handle<Map> receiver_map,
   SetFeedbackExtra(*handler);
 }
 
+void LoadGlobalICNexus::ConfigureUninitialized() {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(isolate->heap()->empty_weak_cell(), SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(*TypeFeedbackVector::UninitializedSentinel(isolate),
+                   SKIP_WRITE_BARRIER);
+}
+
+void LoadGlobalICNexus::ConfigurePropertyCellMode(Handle<PropertyCell> cell) {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(*isolate->factory()->NewWeakCell(cell));
+  SetFeedbackExtra(*TypeFeedbackVector::UninitializedSentinel(isolate),
+                   SKIP_WRITE_BARRIER);
+}
+
+void LoadGlobalICNexus::ConfigureHandlerMode(Handle<Code> handler) {
+  SetFeedback(GetIsolate()->heap()->empty_weak_cell());
+  SetFeedbackExtra(*handler);
+}
 
 void KeyedLoadICNexus::ConfigureMonomorphic(Handle<Name> name,
                                             Handle<Map> receiver_map,
@@ -562,7 +740,6 @@ void LoadICNexus::ConfigurePolymorphic(MapHandleList* maps,
   SetFeedbackExtra(*TypeFeedbackVector::UninitializedSentinel(isolate),
                    SKIP_WRITE_BARRIER);
 }
-
 
 void KeyedLoadICNexus::ConfigurePolymorphic(Handle<Name> name,
                                             MapHandleList* maps,
@@ -757,6 +934,9 @@ bool FeedbackNexus::FindHandlers(CodeHandleList* code_list, int length) const {
 
 void LoadICNexus::Clear(Code* host) { LoadIC::Clear(GetIsolate(), host, this); }
 
+void LoadGlobalICNexus::Clear(Code* host) {
+  LoadGlobalIC::Clear(GetIsolate(), host, this);
+}
 
 void KeyedLoadICNexus::Clear(Code* host) {
   KeyedLoadIC::Clear(GetIsolate(), host, this);
@@ -819,10 +999,20 @@ KeyedAccessStoreMode KeyedStoreICNexus::GetKeyedAccessStoreMode() const {
   return mode;
 }
 
+IcCheckType KeyedLoadICNexus::GetKeyType() const {
+  Object* feedback = GetFeedback();
+  if (feedback == *TypeFeedbackVector::MegamorphicSentinel(GetIsolate())) {
+    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+  }
+  return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
+}
 
 IcCheckType KeyedStoreICNexus::GetKeyType() const {
-  // The structure of the vector slots tells us the type.
-  return GetFeedback()->IsName() ? PROPERTY : ELEMENT;
+  Object* feedback = GetFeedback();
+  if (feedback == *TypeFeedbackVector::MegamorphicSentinel(GetIsolate())) {
+    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+  }
+  return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
 }
 }  // namespace internal
 }  // namespace v8

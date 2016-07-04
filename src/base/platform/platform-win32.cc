@@ -574,6 +574,7 @@ bool OS::Remove(const char* path) {
   return (DeleteFileA(path) != 0);
 }
 
+char OS::DirectorySeparator() { return '\\'; }
 
 bool OS::isDirectorySeparator(const char ch) {
   return ch == '/' || ch == '\\';
@@ -1289,6 +1290,10 @@ bool VirtualMemory::UncommitRegion(void* base, size_t size) {
   return VirtualFree(base, size, MEM_DECOMMIT) != 0;
 }
 
+bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
+                                         void* free_start, size_t free_size) {
+  return VirtualFree(free_start, free_size, MEM_DECOMMIT) != 0;
+}
 
 bool VirtualMemory::ReleaseRegion(void* base, size_t size) {
   return VirtualFree(base, 0, MEM_RELEASE) != 0;

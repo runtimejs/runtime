@@ -32,8 +32,9 @@
 #include "src/v8.h"
 
 #include "include/v8-profiler.h"
+#include "src/base/hashmap.h"
+#include "src/collector.h"
 #include "src/debug/debug.h"
-#include "src/hashmap.h"
 #include "src/profiler/allocation-tracker.h"
 #include "src/profiler/heap-profiler.h"
 #include "src/profiler/heap-snapshot-generator-inl.h"
@@ -42,7 +43,7 @@
 using i::AllocationTraceNode;
 using i::AllocationTraceTree;
 using i::AllocationTracker;
-using i::HashMap;
+using i::ArrayVector;
 using i::Vector;
 
 namespace {
@@ -64,7 +65,7 @@ class NamedEntriesDetector {
   }
 
   void CheckAllReachables(i::HeapEntry* root) {
-    i::HashMap visited(AddressesMatch);
+    v8::base::HashMap visited(AddressesMatch);
     i::List<i::HeapEntry*> list(10);
     list.Add(root);
     CheckEntry(root);
@@ -74,7 +75,7 @@ class NamedEntriesDetector {
       for (int i = 0; i < children.length(); ++i) {
         if (children[i]->type() == i::HeapGraphEdge::kShortcut) continue;
         i::HeapEntry* child = children[i]->to();
-        i::HashMap::Entry* entry = visited.LookupOrInsert(
+        v8::base::HashMap::Entry* entry = visited.LookupOrInsert(
             reinterpret_cast<void*>(child),
             static_cast<uint32_t>(reinterpret_cast<uintptr_t>(child)));
         if (entry->value)
@@ -142,10 +143,10 @@ static bool ValidateSnapshot(const v8::HeapSnapshot* snapshot, int depth = 3) {
   i::HeapSnapshot* heap_snapshot = const_cast<i::HeapSnapshot*>(
       reinterpret_cast<const i::HeapSnapshot*>(snapshot));
 
-  i::HashMap visited(AddressesMatch);
+  v8::base::HashMap visited(AddressesMatch);
   i::List<i::HeapGraphEdge>& edges = heap_snapshot->edges();
   for (int i = 0; i < edges.length(); ++i) {
-    i::HashMap::Entry* entry = visited.LookupOrInsert(
+    v8::base::HashMap::Entry* entry = visited.LookupOrInsert(
         reinterpret_cast<void*>(edges[i].to()),
         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(edges[i].to())));
     uint32_t ref_count = static_cast<uint32_t>(
@@ -155,7 +156,7 @@ static bool ValidateSnapshot(const v8::HeapSnapshot* snapshot, int depth = 3) {
   uint32_t unretained_entries_count = 0;
   i::List<i::HeapEntry>& entries = heap_snapshot->entries();
   for (int i = 0; i < entries.length(); ++i) {
-    i::HashMap::Entry* entry = visited.Lookup(
+    v8::base::HashMap::Entry* entry = visited.Lookup(
         reinterpret_cast<void*>(&entries[i]),
         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&entries[i])));
     if (!entry && entries[i].id() != 1) {
@@ -366,7 +367,9 @@ TEST(HeapSnapshotCodeObjects) {
     }
   }
   CHECK(compiled_references_x);
-  CHECK(!lazy_references_x);
+  if (i::FLAG_lazy && !(i::FLAG_ignition && i::FLAG_ignition_eager)) {
+    CHECK(!lazy_references_x);
+  }
 }
 
 
@@ -2071,7 +2074,7 @@ TEST(AccessorInfo) {
   const v8::HeapGraphNode* length_accessor =
       GetProperty(descriptors, v8::HeapGraphEdge::kInternal, "4");
   CHECK(length_accessor);
-  CHECK_EQ(0, strcmp("system / ExecutableAccessorInfo",
+  CHECK_EQ(0, strcmp("system / AccessorInfo",
                      *v8::String::Utf8Value(length_accessor->GetName())));
   const v8::HeapGraphNode* name =
       GetProperty(length_accessor, v8::HeapGraphEdge::kInternal, "name");
@@ -2510,8 +2513,7 @@ TEST(ArrayGrowLeftTrim) {
   // Print for better diagnostics in case of failure.
   tracker->trace_tree()->Print(tracker);
 
-  AllocationTraceNode* node =
-      FindNode(tracker, Vector<const char*>(names, arraysize(names)));
+  AllocationTraceNode* node = FindNode(tracker, ArrayVector(names));
   CHECK(node);
   CHECK_GE(node->allocation_count(), 2u);
   CHECK_GE(node->allocation_size(), 4u * 5u);
@@ -2537,8 +2539,7 @@ TEST(TrackHeapAllocations) {
   tracker->trace_tree()->Print(tracker);
 
   const char* names[] = {"", "start", "f_0_0", "f_0_1", "f_0_2"};
-  AllocationTraceNode* node =
-      FindNode(tracker, Vector<const char*>(names, arraysize(names)));
+  AllocationTraceNode* node = FindNode(tracker, ArrayVector(names));
   CHECK(node);
   CHECK_GE(node->allocation_count(), 100u);
   CHECK_GE(node->allocation_size(), 4 * node->allocation_count());
@@ -2587,8 +2588,7 @@ TEST(TrackBumpPointerAllocations) {
     // Print for better diagnostics in case of failure.
     tracker->trace_tree()->Print(tracker);
 
-    AllocationTraceNode* node =
-        FindNode(tracker, Vector<const char*>(names, arraysize(names)));
+    AllocationTraceNode* node = FindNode(tracker, ArrayVector(names));
     CHECK(node);
     CHECK_GE(node->allocation_count(), 100u);
     CHECK_GE(node->allocation_size(), 4 * node->allocation_count());
@@ -2613,8 +2613,7 @@ TEST(TrackBumpPointerAllocations) {
     // Print for better diagnostics in case of failure.
     tracker->trace_tree()->Print(tracker);
 
-    AllocationTraceNode* node =
-        FindNode(tracker, Vector<const char*>(names, arraysize(names)));
+    AllocationTraceNode* node = FindNode(tracker, ArrayVector(names));
     CHECK(node);
     CHECK_LT(node->allocation_count(), 100u);
 
@@ -2643,8 +2642,7 @@ TEST(TrackV8ApiAllocation) {
   // Print for better diagnostics in case of failure.
   tracker->trace_tree()->Print(tracker);
 
-  AllocationTraceNode* node =
-      FindNode(tracker, Vector<const char*>(names, arraysize(names)));
+  AllocationTraceNode* node = FindNode(tracker, ArrayVector(names));
   CHECK(node);
   CHECK_GE(node->allocation_count(), 2u);
   CHECK_GE(node->allocation_size(), 4 * node->allocation_count());
@@ -2851,4 +2849,209 @@ TEST(AddressToTraceMap) {
   map.Clear();
   CHECK_EQ(0u, map.size());
   CHECK_EQ(0u, map.GetTraceNodeId(ToAddress(0x400)));
+}
+
+
+static const v8::AllocationProfile::Node* FindAllocationProfileNode(
+    v8::AllocationProfile& profile, const Vector<const char*>& names) {
+  v8::AllocationProfile::Node* node = profile.GetRootNode();
+  for (int i = 0; node != nullptr && i < names.length(); ++i) {
+    const char* name = names[i];
+    auto children = node->children;
+    node = nullptr;
+    for (v8::AllocationProfile::Node* child : children) {
+      v8::String::Utf8Value child_name(child->name);
+      if (strcmp(*child_name, name) == 0) {
+        node = child;
+        break;
+      }
+    }
+  }
+  return node;
+}
+
+static void CheckNoZeroCountNodes(v8::AllocationProfile::Node* node) {
+  for (auto alloc : node->allocations) {
+    CHECK_GT(alloc.count, 0u);
+  }
+  for (auto child : node->children) {
+    CheckNoZeroCountNodes(child);
+  }
+}
+
+TEST(SamplingHeapProfiler) {
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  LocalContext env;
+  v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
+
+  // Turn off always_opt. Inlining can cause stack traces to be shorter than
+  // what we expect in this test.
+  v8::internal::FLAG_always_opt = false;
+
+  // Suppress randomness to avoid flakiness in tests.
+  v8::internal::FLAG_sampling_heap_profiler_suppress_randomness = true;
+
+  const char* script_source =
+      "var A = [];\n"
+      "function bar(size) { return new Array(size); }\n"
+      "var foo = function() {\n"
+      "  for (var i = 0; i < 1024; ++i) {\n"
+      "    A[i] = bar(1024);\n"
+      "  }\n"
+      "}\n"
+      "foo();";
+
+  // Sample should be empty if requested before sampling has started.
+  {
+    v8::AllocationProfile* profile = heap_profiler->GetAllocationProfile();
+    CHECK(profile == nullptr);
+  }
+
+  int count_1024 = 0;
+  {
+    heap_profiler->StartSamplingHeapProfiler(1024);
+    CompileRun(script_source);
+
+    v8::base::SmartPointer<v8::AllocationProfile> profile(
+        heap_profiler->GetAllocationProfile());
+    CHECK(!profile.is_empty());
+
+    const char* names[] = {"", "foo", "bar"};
+    auto node_bar = FindAllocationProfileNode(*profile, ArrayVector(names));
+    CHECK(node_bar);
+
+    // Count the number of allocations we sampled from bar.
+    for (auto allocation : node_bar->allocations) {
+      count_1024 += allocation.count;
+    }
+
+    heap_profiler->StopSamplingHeapProfiler();
+  }
+
+  // Samples should get cleared once sampling is stopped.
+  {
+    v8::AllocationProfile* profile = heap_profiler->GetAllocationProfile();
+    CHECK(profile == nullptr);
+  }
+
+  // Sampling at a higher rate should give us similar numbers of objects.
+  {
+    heap_profiler->StartSamplingHeapProfiler(128);
+    CompileRun(script_source);
+
+    v8::base::SmartPointer<v8::AllocationProfile> profile(
+        heap_profiler->GetAllocationProfile());
+    CHECK(!profile.is_empty());
+
+    const char* names[] = {"", "foo", "bar"};
+    auto node_bar = FindAllocationProfileNode(*profile, ArrayVector(names));
+    CHECK(node_bar);
+
+    // Count the number of allocations we sampled from bar.
+    int count_128 = 0;
+    for (auto allocation : node_bar->allocations) {
+      count_128 += allocation.count;
+    }
+
+    // We should have similar unsampled counts of allocations. Though
+    // we will sample different numbers of objects at different rates,
+    // the unsampling process should produce similar final estimates
+    // at the true number of allocations. However, the process to
+    // determine these unsampled counts is probabilisitic so we need to
+    // account for error.
+    double max_count = std::max(count_128, count_1024);
+    double min_count = std::min(count_128, count_1024);
+    double percent_difference = (max_count - min_count) / min_count;
+    CHECK_LT(percent_difference, 0.15);
+
+    heap_profiler->StopSamplingHeapProfiler();
+  }
+
+  // A more complicated test cases with deeper call graph and dynamically
+  // generated function names.
+  {
+    heap_profiler->StartSamplingHeapProfiler(64);
+    CompileRun(record_trace_tree_source);
+
+    v8::base::SmartPointer<v8::AllocationProfile> profile(
+        heap_profiler->GetAllocationProfile());
+    CHECK(!profile.is_empty());
+
+    const char* names1[] = {"", "start", "f_0_0", "f_0_1", "f_0_2"};
+    auto node1 = FindAllocationProfileNode(*profile, ArrayVector(names1));
+    CHECK(node1);
+
+    const char* names2[] = {"", "generateFunctions"};
+    auto node2 = FindAllocationProfileNode(*profile, ArrayVector(names2));
+    CHECK(node2);
+
+    heap_profiler->StopSamplingHeapProfiler();
+  }
+
+  // A test case with scripts unloaded before profile gathered
+  {
+    heap_profiler->StartSamplingHeapProfiler(64);
+    CompileRun(
+        "for (var i = 0; i < 1024; i++) {\n"
+        "  eval(\"new Array(100)\");\n"
+        "}\n");
+
+    CcTest::heap()->CollectAllGarbage();
+
+    v8::base::SmartPointer<v8::AllocationProfile> profile(
+        heap_profiler->GetAllocationProfile());
+    CHECK(!profile.is_empty());
+
+    CheckNoZeroCountNodes(profile->GetRootNode());
+
+    heap_profiler->StopSamplingHeapProfiler();
+  }
+}
+
+
+TEST(SamplingHeapProfilerApiAllocation) {
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  LocalContext env;
+  v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
+
+  // Suppress randomness to avoid flakiness in tests.
+  v8::internal::FLAG_sampling_heap_profiler_suppress_randomness = true;
+
+  heap_profiler->StartSamplingHeapProfiler(256);
+
+  for (int i = 0; i < 8 * 1024; ++i) v8::Object::New(env->GetIsolate());
+
+  v8::base::SmartPointer<v8::AllocationProfile> profile(
+      heap_profiler->GetAllocationProfile());
+  CHECK(!profile.is_empty());
+  const char* names[] = {"(V8 API)"};
+  auto node = FindAllocationProfileNode(*profile, ArrayVector(names));
+  CHECK(node);
+
+  heap_profiler->StopSamplingHeapProfiler();
+}
+
+TEST(SamplingHeapProfilerLeftTrimming) {
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  LocalContext env;
+  v8::HeapProfiler* heap_profiler = env->GetIsolate()->GetHeapProfiler();
+
+  // Suppress randomness to avoid flakiness in tests.
+  v8::internal::FLAG_sampling_heap_profiler_suppress_randomness = true;
+
+  heap_profiler->StartSamplingHeapProfiler(64);
+
+  CompileRun(
+      "for (var j = 0; j < 500; ++j) {\n"
+      "  var a = [];\n"
+      "  for (var i = 0; i < 5; ++i)\n"
+      "      a[i] = i;\n"
+      "  for (var i = 0; i < 3; ++i)\n"
+      "      a.shift();\n"
+      "}\n");
+
+  CcTest::heap()->CollectGarbage(v8::internal::NEW_SPACE);
+  // Should not crash.
+
+  heap_profiler->StopSamplingHeapProfiler();
 }

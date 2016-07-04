@@ -41,8 +41,8 @@ ALL_VARIANT_FLAGS = {
   "turbofan": [["--turbo"]],
   "turbofan_opt": [["--turbo", "--always-opt"]],
   "nocrankshaft": [["--nocrankshaft"]],
-  "ignition": [["--ignition", "--turbo", "--ignition-fake-try-catch",
-                "--ignition-fallback-on-eval-and-catch"]],
+  "ignition": [["--ignition"]],
+  "ignition_turbofan": [["--ignition", "--turbo", "--turbo-from-bytecode"]],
   "preparser": [["--min-preparse-length=0"]],
 }
 
@@ -52,15 +52,17 @@ FAST_VARIANT_FLAGS = {
   "stress": [["--stress-opt"]],
   "turbofan": [["--turbo"]],
   "nocrankshaft": [["--nocrankshaft"]],
-  "ignition": [["--ignition", "--turbo", "--ignition-fake-try-catch",
-                "--ignition-fallback-on-eval-and-catch"]],
+  "ignition": [["--ignition"]],
+  "ignition_turbofan": [["--ignition", "--turbo", "--turbo-from-bytecode"]],
   "preparser": [["--min-preparse-length=0"]],
 }
 
 ALL_VARIANTS = set(["default", "stress", "turbofan", "turbofan_opt",
-                    "nocrankshaft", "ignition", "preparser"])
+                    "nocrankshaft", "ignition", "ignition_turbofan",
+                    "preparser"])
 FAST_VARIANTS = set(["default", "turbofan"])
 STANDARD_VARIANT = set(["default"])
+IGNITION_VARIANT = set(["ignition"])
 
 
 class VariantGenerator(object):
@@ -71,12 +73,15 @@ class VariantGenerator(object):
     self.standard_variant = STANDARD_VARIANT & variants
 
   def FilterVariantsByTest(self, testcase):
-    if testcase.outcomes and statusfile.OnlyStandardVariant(
-        testcase.outcomes):
-      return self.standard_variant
-    if testcase.outcomes and statusfile.OnlyFastVariants(testcase.outcomes):
-      return self.fast_variants
-    return self.all_variants
+    result = self.all_variants
+    if testcase.outcomes:
+      if statusfile.OnlyStandardVariant(testcase.outcomes):
+        return self.standard_variant
+      if statusfile.OnlyFastVariants(testcase.outcomes):
+        result = self.fast_variants
+      if statusfile.NoIgnitionVariant(testcase.outcomes):
+        result = result - IGNITION_VARIANT
+    return result
 
   def GetFlagSets(self, testcase, variant):
     if testcase.outcomes and statusfile.OnlyFastVariants(testcase.outcomes):
@@ -104,18 +109,12 @@ class TestSuite(object):
 
   def __init__(self, name, root):
     # Note: This might be called concurrently from different processes.
-    # Changing harddisk state should be done in 'SetupWorkingDirectory' below.
     self.name = name  # string
     self.root = root  # string containing path
     self.tests = None  # list of TestCase objects
     self.rules = None  # dictionary mapping test path to list of outcomes
     self.wildcards = None  # dictionary mapping test paths to list of outcomes
     self.total_duration = None  # float, assigned on demand
-
-  def SetupWorkingDirectory(self):
-    # This is called once per test suite object in a multi-process setting.
-    # Multi-process-unsafe work-directory setup can go here.
-    pass
 
   def shell(self):
     return "d8"
@@ -161,10 +160,6 @@ class TestSuite(object):
     self.tests = self.ListTests(context)
 
   @staticmethod
-  def _FilterFlaky(flaky, mode):
-    return (mode == "run" and not flaky) or (mode == "skip" and flaky)
-
-  @staticmethod
   def _FilterSlow(slow, mode):
     return (mode == "run" and not slow) or (mode == "skip" and slow)
 
@@ -173,13 +168,11 @@ class TestSuite(object):
     return (mode == "run" and not pass_fail) or (mode == "skip" and pass_fail)
 
   def FilterTestCasesByStatus(self, warn_unused_rules,
-                              flaky_tests="dontcare",
                               slow_tests="dontcare",
                               pass_fail_tests="dontcare"):
     filtered = []
     used_rules = set()
     for t in self.tests:
-      flaky = False
       slow = False
       pass_fail = False
       testname = self.CommonTestName(t)
@@ -193,7 +186,6 @@ class TestSuite(object):
         for outcome in t.outcomes:
           if outcome.startswith('Flags: '):
             t.flags += outcome[7:].split()
-        flaky = statusfile.IsFlaky(t.outcomes)
         slow = statusfile.IsSlow(t.outcomes)
         pass_fail = statusfile.IsPassOrFail(t.outcomes)
       skip = False
@@ -205,10 +197,9 @@ class TestSuite(object):
           if statusfile.DoSkip(t.outcomes):
             skip = True
             break  # "for rule in self.wildcards"
-          flaky = flaky or statusfile.IsFlaky(t.outcomes)
           slow = slow or statusfile.IsSlow(t.outcomes)
           pass_fail = pass_fail or statusfile.IsPassOrFail(t.outcomes)
-      if (skip or self._FilterFlaky(flaky, flaky_tests)
+      if (skip
           or self._FilterSlow(slow, slow_tests)
           or self._FilterPassFail(pass_fail, pass_fail_tests)):
         continue  # "for t in self.tests"
@@ -264,14 +255,14 @@ class TestSuite(object):
   def GetSourceForTest(self, testcase):
     return "(no source available)"
 
-  def IsFailureOutput(self, output, testpath):
-    return output.exit_code != 0
+  def IsFailureOutput(self, testcase):
+    return testcase.output.exit_code != 0
 
   def IsNegativeTest(self, testcase):
     return False
 
   def HasFailed(self, testcase):
-    execution_failed = self.IsFailureOutput(testcase.output, testcase.path)
+    execution_failed = self.IsFailureOutput(testcase)
     if self.IsNegativeTest(testcase):
       return not execution_failed
     else:
@@ -330,9 +321,9 @@ class GoogleTestSuite(TestSuite):
       if test_desc.endswith('.'):
         test_case = test_desc
       elif test_case and test_desc:
-        test = testcase.TestCase(self, test_case + test_desc, dependency=None)
+        test = testcase.TestCase(self, test_case + test_desc)
         tests.append(test)
-    tests.sort()
+    tests.sort(key=lambda t: t.path)
     return tests
 
   def GetFlagsForTestCase(self, testcase, context):

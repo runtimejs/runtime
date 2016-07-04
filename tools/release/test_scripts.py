@@ -43,8 +43,6 @@ import merge_to_branch
 from merge_to_branch import *
 import push_to_candidates
 from push_to_candidates import *
-import chromium_roll
-from chromium_roll import ChromiumRoll
 import releases
 from releases import Releases
 from auto_tag import AutoTag
@@ -390,6 +388,20 @@ class ScriptTest(unittest.TestCase):
       f.write("#define V8_PATCH_LEVEL      %s\n" % patch)
       f.write("  // Some line...\n")
       f.write("#define V8_IS_CANDIDATE_VERSION 0\n")
+
+  def WriteFakeWatchlistsFile(self):
+    watchlists_file = os.path.join(TEST_CONFIG["DEFAULT_CWD"], WATCHLISTS_FILE)
+    if not os.path.exists(os.path.dirname(watchlists_file)):
+      os.makedirs(os.path.dirname(watchlists_file))
+    with open(watchlists_file, "w") as f:
+
+      content = """
+    'merges': [
+      # Only enabled on branches created with tools/release/create_release.py
+      # 'v8-merges@googlegroups.com',
+    ],
+"""
+      f.write(content)
 
   def MakeStep(self):
     """Convenience wrapper."""
@@ -954,8 +966,12 @@ Performance and stability improvements on all platforms."""
       Cmd("git checkout -f 3.22.4 -- ChangeLog", "", cb=ResetChangeLog),
       Cmd("git checkout -f 3.22.4 -- include/v8-version.h", "",
           cb=self.WriteFakeVersionFile),
+      Cmd("git checkout -f 3.22.4 -- WATCHLISTS", "",
+          cb=self.WriteFakeWatchlistsFile),
       Cmd("git commit -aF \"%s\"" % TEST_CONFIG["COMMITMSG_FILE"], "",
           cb=CheckVersionCommit),
+      Cmd("git log -1 --format=%H --grep=\"Version 3.22.5\" origin/3.22.5",
+          ""),
       Cmd("git push origin "
           "refs/heads/work-branch:refs/pending/heads/3.22.5 "
           "push_hash:refs/pending-tags/heads/3.22.5 "
@@ -984,6 +1000,18 @@ Performance and stability improvements on all platforms."""
 
     # Note: The version file is on build number 5 again in the end of this test
     # since the git command that merges to master is mocked out.
+
+    # Check for correct content of the WATCHLISTS file
+
+    watchlists_content = FileToText(os.path.join(TEST_CONFIG["DEFAULT_CWD"],
+                                          WATCHLISTS_FILE))
+    expected_watchlists_content = """
+    'merges': [
+      # Only enabled on branches created with tools/release/create_release.py
+      'v8-merges@googlegroups.com',
+    ],
+"""
+    self.assertEqual(watchlists_content, expected_watchlists_content)
 
   C_V8_22624_LOG = """V8 CL.
 
@@ -1014,6 +1042,8 @@ https://github.com/v8/v8/wiki/Triaging%20issues
 Please close rolling in case of a roll revert:
 https://v8-roll.appspot.com/
 This only works with a Google account.
+
+CQ_INCLUDE_TRYBOTS=master.tryserver.blink:linux_blink_rel;master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.mac:mac_optional_gpu_tests_rel;master.tryserver.chromium.win:win_optional_gpu_tests_rel
 
 TBR=reviewer@chromium.org"""
 
@@ -1086,7 +1116,6 @@ deps = {
       Cmd("git status -s -uno", "", cwd=chrome_dir),
       Cmd("git checkout -f master", "", cwd=chrome_dir),
       Cmd("git branch", "", cwd=chrome_dir),
-      Cmd("gclient sync --nohooks", "syncing...", cwd=chrome_dir),
       Cmd("git pull", "", cwd=chrome_dir),
       Cmd("git fetch origin", ""),
       Cmd("git new-branch work-branch", "", cwd=chrome_dir),
@@ -1096,7 +1125,7 @@ deps = {
            self.ROLL_COMMIT_MSG),
           "", cwd=chrome_dir),
       Cmd("git cl upload --send-mail --email \"author@chromium.org\" -f "
-          "--use-commit-queue", "", cwd=chrome_dir),
+          "--use-commit-queue --bypass-hooks", "", cwd=chrome_dir),
       Cmd("git checkout -f master", "", cwd=chrome_dir),
       Cmd("git branch -D work-branch", "", cwd=chrome_dir),
     ]

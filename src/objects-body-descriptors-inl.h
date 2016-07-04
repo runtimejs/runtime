@@ -193,19 +193,24 @@ class JSArrayBuffer::BodyDescriptor final : public BodyDescriptorBase {
 class BytecodeArray::BodyDescriptor final : public BodyDescriptorBase {
  public:
   static bool IsValidSlot(HeapObject* obj, int offset) {
-    return offset == kConstantPoolOffset;
+    return offset >= kConstantPoolOffset &&
+           offset <= kSourcePositionTableOffset;
   }
 
   template <typename ObjectVisitor>
   static inline void IterateBody(HeapObject* obj, int object_size,
                                  ObjectVisitor* v) {
     IteratePointer(obj, kConstantPoolOffset, v);
+    IteratePointer(obj, kHandlerTableOffset, v);
+    IteratePointer(obj, kSourcePositionTableOffset, v);
   }
 
   template <typename StaticVisitor>
   static inline void IterateBody(HeapObject* obj, int object_size) {
     Heap* heap = obj->GetHeap();
     IteratePointer<StaticVisitor>(heap, obj, kConstantPoolOffset);
+    IteratePointer<StaticVisitor>(heap, obj, kHandlerTableOffset);
+    IteratePointer<StaticVisitor>(heap, obj, kSourcePositionTableOffset);
   }
 
   static inline int SizeOf(Map* map, HeapObject* obj) {
@@ -350,6 +355,8 @@ class Code::BodyDescriptor final : public BodyDescriptorBase {
   STATIC_ASSERT(kHandlerTableOffset + kPointerSize ==
                 kDeoptimizationDataOffset);
   STATIC_ASSERT(kDeoptimizationDataOffset + kPointerSize ==
+                kSourcePositionTableOffset);
+  STATIC_ASSERT(kSourcePositionTableOffset + kPointerSize ==
                 kTypeFeedbackInfoOffset);
   STATIC_ASSERT(kTypeFeedbackInfoOffset + kPointerSize == kNextCodeLinkOffset);
 
@@ -451,6 +458,8 @@ ReturnType BodyDescriptorApply(InstanceType type, T1 p1, T2 p2, T3 p3) {
     case TRANSITION_ARRAY_TYPE:
       return Op::template apply<TransitionArray::BodyDescriptor>(p1, p2, p3);
     case JS_OBJECT_TYPE:
+    case JS_ERROR_TYPE:
+    case JS_ARGUMENTS_TYPE:
     case JS_PROMISE_TYPE:
     case JS_CONTEXT_EXTENSION_OBJECT_TYPE:
     case JS_GENERATOR_OBJECT_TYPE:
@@ -464,10 +473,11 @@ ReturnType BodyDescriptorApply(InstanceType type, T1 p1, T2 p2, T3 p3) {
     case JS_MAP_TYPE:
     case JS_SET_ITERATOR_TYPE:
     case JS_MAP_ITERATOR_TYPE:
-    case JS_ITERATOR_RESULT_TYPE:
     case JS_REGEXP_TYPE:
     case JS_GLOBAL_PROXY_TYPE:
     case JS_GLOBAL_OBJECT_TYPE:
+    case JS_API_OBJECT_TYPE:
+    case JS_SPECIAL_API_OBJECT_TYPE:
     case JS_MESSAGE_OBJECT_TYPE:
     case JS_BOUND_FUNCTION_TYPE:
       return Op::template apply<JSObject::BodyDescriptor>(p1, p2, p3);

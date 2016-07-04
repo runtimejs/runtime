@@ -15,10 +15,9 @@ namespace compiler {
 static const char*
     general_register_names_[RegisterConfiguration::kMaxGeneralRegisters];
 static const char*
-    double_register_names_[RegisterConfiguration::kMaxDoubleRegisters];
+    double_register_names_[RegisterConfiguration::kMaxFPRegisters];
 static char register_names_[10 * (RegisterConfiguration::kMaxGeneralRegisters +
-                                  RegisterConfiguration::kMaxDoubleRegisters)];
-
+                                  RegisterConfiguration::kMaxFPRegisters)];
 
 namespace {
 static int allocatable_codes[InstructionSequenceTest::kDefaultNRegs] = {
@@ -35,7 +34,7 @@ static void InitializeRegisterNames() {
     loc += base::OS::SNPrintF(loc, 100, "gp_%d", i);
     *loc++ = 0;
   }
-  for (int i = 0; i < RegisterConfiguration::kMaxDoubleRegisters; ++i) {
+  for (int i = 0; i < RegisterConfiguration::kMaxFPRegisters; ++i) {
     double_register_names_[i] = loc;
     loc += base::OS::SNPrintF(loc, 100, "fp_%d", i) + 1;
     *loc++ = 0;
@@ -68,9 +67,13 @@ RegisterConfiguration* InstructionSequenceTest::config() {
   if (config_.is_empty()) {
     config_.Reset(new RegisterConfiguration(
         num_general_registers_, num_double_registers_, num_general_registers_,
-        num_double_registers_, num_double_registers_, allocatable_codes,
-        allocatable_double_codes, general_register_names_,
-        double_register_names_));
+        num_double_registers_, allocatable_codes, allocatable_double_codes,
+        kSimpleFPAliasing ? RegisterConfiguration::OVERLAP
+                          : RegisterConfiguration::COMBINE,
+        general_register_names_,
+        double_register_names_,  // float register names
+        double_register_names_,
+        double_register_names_));  // SIMD 128 register names
   }
   return config_.get();
 }

@@ -492,7 +492,7 @@ MUST_USE_RESULT static Object* StringReplaceGlobalRegExpWithString(
     }
   }
 
-  RegExpImpl::GlobalCache global_cache(regexp, subject, true, isolate);
+  RegExpImpl::GlobalCache global_cache(regexp, subject, isolate);
   if (global_cache.HasException()) return isolate->heap()->exception();
 
   int32_t* current_match = global_cache.FetchNext();
@@ -544,9 +544,7 @@ MUST_USE_RESULT static Object* StringReplaceGlobalRegExpWithString(
   RegExpImpl::SetLastMatchInfo(last_match_info, subject, capture_count,
                                global_cache.LastSuccessfulMatch());
 
-  Handle<String> result;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, result, builder.ToString());
-  return *result;
+  RETURN_RESULT_OR_FAILURE(isolate, builder.ToString());
 }
 
 
@@ -568,7 +566,7 @@ MUST_USE_RESULT static Object* StringReplaceGlobalRegExpWithEmptyString(
     }
   }
 
-  RegExpImpl::GlobalCache global_cache(regexp, subject, true, isolate);
+  RegExpImpl::GlobalCache global_cache(regexp, subject, isolate);
   if (global_cache.HasException()) return isolate->heap()->exception();
 
   int32_t* current_match = global_cache.FetchNext();
@@ -642,7 +640,7 @@ MUST_USE_RESULT static Object* StringReplaceGlobalRegExpWithEmptyString(
   // TODO(hpayer): We should shrink the large object page if the size
   // of the object changed significantly.
   if (!heap->lo_space()->Contains(*answer)) {
-    heap->CreateFillerObjectAt(end_of_string, delta);
+    heap->CreateFillerObjectAt(end_of_string, delta, ClearRecordedSlots::kNo);
   }
   heap->AdjustLiveBytes(*answer, -delta, Heap::CONCURRENT_TO_SWEEPER);
   return *answer;
@@ -658,8 +656,8 @@ RUNTIME_FUNCTION(Runtime_StringReplaceGlobalRegExpWithString) {
   CONVERT_ARG_HANDLE_CHECKED(JSRegExp, regexp, 1);
   CONVERT_ARG_HANDLE_CHECKED(JSArray, last_match_info, 3);
 
-  RUNTIME_ASSERT(regexp->GetFlags() & JSRegExp::kGlobal);
-  RUNTIME_ASSERT(last_match_info->HasFastObjectElements());
+  CHECK(regexp->GetFlags() & JSRegExp::kGlobal);
+  CHECK(last_match_info->HasFastObjectElements());
 
   subject = String::Flatten(subject);
 
@@ -686,11 +684,11 @@ RUNTIME_FUNCTION(Runtime_StringSplit) {
   CONVERT_ARG_HANDLE_CHECKED(String, subject, 0);
   CONVERT_ARG_HANDLE_CHECKED(String, pattern, 1);
   CONVERT_NUMBER_CHECKED(uint32_t, limit, Uint32, args[2]);
-  RUNTIME_ASSERT(limit > 0);
+  CHECK(limit > 0);
 
   int subject_length = subject->length();
   int pattern_length = pattern->length();
-  RUNTIME_ASSERT(pattern_length > 0);
+  CHECK(pattern_length > 0);
 
   if (limit == 0xffffffffu) {
     FixedArray* last_match_cache_unused;
@@ -734,9 +732,9 @@ RUNTIME_FUNCTION(Runtime_StringSplit) {
   // Create JSArray of substrings separated by separator.
   int part_count = indices.length();
 
-  Handle<JSArray> result = isolate->factory()->NewJSArray(part_count);
-  JSObject::EnsureCanContainHeapObjectElements(result);
-  result->set_length(Smi::FromInt(part_count));
+  Handle<JSArray> result =
+      isolate->factory()->NewJSArray(FAST_ELEMENTS, part_count, part_count,
+                                     INITIALIZE_ARRAY_ELEMENTS_WITH_HOLE);
 
   DCHECK(result->HasFastObjectElements());
 
@@ -746,14 +744,13 @@ RUNTIME_FUNCTION(Runtime_StringSplit) {
     elements->set(0, *subject);
   } else {
     int part_start = 0;
-    for (int i = 0; i < part_count; i++) {
-      HandleScope local_loop_handle(isolate);
+    FOR_WITH_HANDLE_SCOPE(isolate, int, i = 0, i, i < part_count, i++, {
       int part_end = indices.at(i);
       Handle<String> substring =
           isolate->factory()->NewProperSubString(subject, part_start, part_end);
       elements->set(i, *substring);
       part_start = part_end + pattern_length;
-    }
+    });
   }
 
   if (limit == 0xffffffffu) {
@@ -777,14 +774,11 @@ RUNTIME_FUNCTION(Runtime_RegExpExec) {
   CONVERT_ARG_HANDLE_CHECKED(JSArray, last_match_info, 3);
   // Due to the way the JS calls are constructed this must be less than the
   // length of a string, i.e. it is always a Smi.  We check anyway for security.
-  RUNTIME_ASSERT(index >= 0);
-  RUNTIME_ASSERT(index <= subject->length());
+  CHECK(index >= 0);
+  CHECK(index <= subject->length());
   isolate->counters()->regexp_entry_runtime()->Increment();
-  Handle<Object> result;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result,
-      RegExpImpl::Exec(regexp, subject, index, last_match_info));
-  return *result;
+  RETURN_RESULT_OR_FAILURE(
+      isolate, RegExpImpl::Exec(regexp, subject, index, last_match_info));
 }
 
 
@@ -808,7 +802,7 @@ RUNTIME_FUNCTION(Runtime_RegExpConstructResult) {
   HandleScope handle_scope(isolate);
   DCHECK(args.length() == 3);
   CONVERT_SMI_ARG_CHECKED(size, 0);
-  RUNTIME_ASSERT(size >= 0 && size <= FixedArray::kMaxLength);
+  CHECK(size >= 0 && size <= FixedArray::kMaxLength);
   CONVERT_ARG_HANDLE_CHECKED(Object, index, 1);
   CONVERT_ARG_HANDLE_CHECKED(Object, input, 2);
   Handle<FixedArray> elements = isolate->factory()->NewFixedArray(size);
@@ -876,7 +870,7 @@ static Object* SearchRegExpMultiple(Isolate* isolate, Handle<String> subject,
     }
   }
 
-  RegExpImpl::GlobalCache global_cache(regexp, subject, true, isolate);
+  RegExpImpl::GlobalCache global_cache(regexp, subject, isolate);
   if (global_cache.HasException()) return isolate->heap()->exception();
 
   // Ensured in Runtime_RegExpExecMultiple.
@@ -996,11 +990,11 @@ RUNTIME_FUNCTION(Runtime_RegExpExecMultiple) {
   CONVERT_ARG_HANDLE_CHECKED(String, subject, 1);
   CONVERT_ARG_HANDLE_CHECKED(JSArray, last_match_info, 2);
   CONVERT_ARG_HANDLE_CHECKED(JSArray, result_array, 3);
-  RUNTIME_ASSERT(last_match_info->HasFastObjectElements());
-  RUNTIME_ASSERT(result_array->HasFastObjectElements());
+  CHECK(last_match_info->HasFastObjectElements());
+  CHECK(result_array->HasFastObjectElements());
 
   subject = String::Flatten(subject);
-  RUNTIME_ASSERT(regexp->GetFlags() & JSRegExp::kGlobal);
+  CHECK(regexp->GetFlags() & JSRegExp::kGlobal);
 
   if (regexp->CaptureCount() == 0) {
     return SearchRegExpMultiple<false>(isolate, subject, regexp,

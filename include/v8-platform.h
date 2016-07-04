@@ -5,6 +5,7 @@
 #ifndef V8_V8_PLATFORM_H_
 #define V8_V8_PLATFORM_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace v8 {
@@ -54,6 +55,15 @@ class Platform {
   };
 
   virtual ~Platform() {}
+
+  /**
+   * Gets the number of threads that are used to execute background tasks. Is
+   * used to estimate the number of tasks a work package should be split into.
+   * A return value of 0 means that there are no background threads available.
+   * Note that a value of 0 won't prohibit V8 from posting tasks using
+   * |CallOnBackgroundThread|.
+   */
+  virtual size_t NumberOfAvailableBackgroundThreads() { return 0; }
 
   /**
    * Schedules a task to be invoked on a background thread. |expected_runtime|
@@ -142,9 +152,9 @@ class Platform {
    */
   virtual uint64_t AddTraceEvent(
       char phase, const uint8_t* category_enabled_flag, const char* name,
-      uint64_t id, uint64_t bind_id, int32_t num_args, const char** arg_names,
-      const uint8_t* arg_types, const uint64_t* arg_values,
-      unsigned int flags) {
+      const char* scope, uint64_t id, uint64_t bind_id, int32_t num_args,
+      const char** arg_names, const uint8_t* arg_types,
+      const uint64_t* arg_values, unsigned int flags) {
     return 0;
   }
 

@@ -16,6 +16,7 @@ var MakeTypeError;
 var MaxSimple;
 var MinSimple;
 var SpeciesConstructor;
+var speciesSymbol = utils.ImportNow("species_symbol");
 
 utils.Import(function(from) {
   MakeTypeError = from.MakeTypeError;
@@ -70,7 +71,9 @@ function ArrayBufferSlice(start, end) {
     throw MakeTypeError(kIncompatibleMethodReceiver,
                         'ArrayBuffer.prototype.slice', result);
   }
-  // TODO(littledan): Check for a detached ArrayBuffer
+  // Checks for detached source/target ArrayBuffers are done inside of
+  // %ArrayBufferSliceImpl; the reordering of checks does not violate
+  // the spec because all exceptions thrown are TypeErrors.
   if (result === this) {
     throw MakeTypeError(kArrayBufferSpeciesThis);
   }
@@ -81,6 +84,13 @@ function ArrayBufferSlice(start, end) {
   %ArrayBufferSliceImpl(this, result, first, newLen);
   return result;
 }
+
+
+function ArrayBufferSpecies() {
+  return this;
+}
+
+utils.InstallGetter(GlobalArrayBuffer, speciesSymbol, ArrayBufferSpecies);
 
 utils.InstallGetter(GlobalArrayBuffer.prototype, "byteLength",
                     ArrayBufferGetByteLen);
