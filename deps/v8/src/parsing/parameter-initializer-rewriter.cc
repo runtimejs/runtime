@@ -4,6 +4,10 @@
 
 #include "src/parsing/parameter-initializer-rewriter.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include "src/ast/ast.h"
 #include "src/ast/ast-expression-visitor.h"
 #include "src/ast/scopes.h"
@@ -20,7 +24,10 @@ class Rewriter final : public AstExpressionVisitor {
            Scope* new_scope)
       : AstExpressionVisitor(stack_limit, initializer),
         old_scope_(old_scope),
-        new_scope_(new_scope) {}
+        new_scope_(new_scope),
+        old_scope_closure_(old_scope->ClosureScope()),
+        new_scope_closure_(new_scope->ClosureScope()) {}
+  ~Rewriter();
 
  private:
   void VisitExpression(Expression* expr) override {}
@@ -29,10 +36,34 @@ class Rewriter final : public AstExpressionVisitor {
   void VisitClassLiteral(ClassLiteral* expr) override;
   void VisitVariableProxy(VariableProxy* expr) override;
 
+  void VisitBlock(Block* stmt) override;
+  void VisitTryCatchStatement(TryCatchStatement* stmt) override;
+  void VisitWithStatement(WithStatement* stmt) override;
+
   Scope* old_scope_;
   Scope* new_scope_;
+  Scope* old_scope_closure_;
+  Scope* new_scope_closure_;
+  std::vector<std::pair<Variable*, int>> temps_;
 };
 
+struct LessThanSecond {
+  bool operator()(const std::pair<Variable*, int>& left,
+                  const std::pair<Variable*, int>& right) {
+    return left.second < right.second;
+  }
+};
+
+Rewriter::~Rewriter() {
+  if (!temps_.empty()) {
+    // Ensure that we add temporaries in the order they appeared in old_scope_.
+    std::sort(temps_.begin(), temps_.end(), LessThanSecond());
+    for (auto var_and_index : temps_) {
+      var_and_index.first->set_scope(new_scope_closure_);
+      new_scope_closure_->AddTemporary(var_and_index.first);
+    }
+  }
+}
 
 void Rewriter::VisitFunctionLiteral(FunctionLiteral* function_literal) {
   function_literal->scope()->ReplaceOuterScope(new_scope_);
@@ -62,14 +93,38 @@ void Rewriter::VisitClassLiteral(ClassLiteral* class_literal) {
 void Rewriter::VisitVariableProxy(VariableProxy* proxy) {
   if (proxy->is_resolved()) {
     Variable* var = proxy->var();
-    DCHECK_EQ(var->mode(), TEMPORARY);
-    if (old_scope_->RemoveTemporary(var)) {
-      var->set_scope(new_scope_);
-      new_scope_->AddTemporary(var);
+    if (var->mode() != TEMPORARY) return;
+    // Temporaries are only placed in ClosureScopes.
+    DCHECK_EQ(var->scope(), var->scope()->ClosureScope());
+    // If the temporary is already where it should be, return quickly.
+    if (var->scope() == new_scope_closure_) return;
+    int index = old_scope_closure_->RemoveTemporary(var);
+    if (index >= 0) {
+      temps_.push_back(std::make_pair(var, index));
     }
   } else if (old_scope_->RemoveUnresolved(proxy)) {
     new_scope_->AddUnresolved(proxy);
   }
+}
+
+
+void Rewriter::VisitBlock(Block* stmt) {
+  if (stmt->scope() != nullptr)
+    stmt->scope()->ReplaceOuterScope(new_scope_);
+  else
+    VisitStatements(stmt->statements());
+}
+
+
+void Rewriter::VisitTryCatchStatement(TryCatchStatement* stmt) {
+  Visit(stmt->try_block());
+  stmt->scope()->ReplaceOuterScope(new_scope_);
+}
+
+
+void Rewriter::VisitWithStatement(WithStatement* stmt) {
+  Visit(stmt->expression());
+  stmt->scope()->ReplaceOuterScope(new_scope_);
 }
 
 

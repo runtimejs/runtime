@@ -14,10 +14,9 @@ namespace internal {
 
 #define __ ACCESS_MASM(masm)
 
-
 static void ProbeTable(Isolate* isolate, MacroAssembler* masm,
-                       Code::Kind ic_kind, Code::Flags flags,
-                       StubCache::Table table, Register receiver, Register name,
+                       Code::Flags flags, StubCache::Table table,
+                       Register receiver, Register name,
                        // Number of the cache entry, not scaled.
                        Register offset, Register scratch, Register scratch2,
                        Register offset_scratch) {
@@ -42,13 +41,11 @@ static void ProbeTable(Isolate* isolate, MacroAssembler* masm,
   scratch = no_reg;
 
   // Multiply by 3 because there are 3 fields per entry (name, code, map).
-  __ sll(offset_scratch, offset, 1);
-  __ Addu(offset_scratch, offset_scratch, offset);
+  __ Lsa(offset_scratch, offset, offset, 1);
 
   // Calculate the base address of the entry.
   __ li(base_addr, Operand(key_offset));
-  __ sll(at, offset_scratch, kPointerSizeLog2);
-  __ Addu(base_addr, base_addr, at);
+  __ Lsa(base_addr, base_addr, offset_scratch, kPointerSizeLog2);
 
   // Check that the key in the entry matches the name.
   __ lw(at, MemOperand(base_addr, 0));
@@ -99,9 +96,6 @@ void StubCache::GenerateProbe(MacroAssembler* masm, Code::Kind ic_kind,
   // entry size being 12.
   DCHECK(sizeof(Entry) == 12);
 
-  // Make sure the flags does not name a specific type.
-  DCHECK(Code::ExtractTypeFromFlags(flags) == 0);
-
   // Make sure that there are no register conflicts.
   DCHECK(!AreAliased(receiver, name, scratch, extra, extra2, extra3));
 
@@ -147,8 +141,8 @@ void StubCache::GenerateProbe(MacroAssembler* masm, Code::Kind ic_kind,
   __ And(scratch, scratch, Operand(mask));
 
   // Probe the primary table.
-  ProbeTable(isolate, masm, ic_kind, flags, kPrimary, receiver, name, scratch,
-             extra, extra2, extra3);
+  ProbeTable(isolate, masm, flags, kPrimary, receiver, name, scratch, extra,
+             extra2, extra3);
 
   // Primary miss: Compute hash for secondary probe.
   __ srl(at, name, kCacheIndexShift);
@@ -158,8 +152,8 @@ void StubCache::GenerateProbe(MacroAssembler* masm, Code::Kind ic_kind,
   __ And(scratch, scratch, Operand(mask2));
 
   // Probe the secondary table.
-  ProbeTable(isolate, masm, ic_kind, flags, kSecondary, receiver, name, scratch,
-             extra, extra2, extra3);
+  ProbeTable(isolate, masm, flags, kSecondary, receiver, name, scratch, extra,
+             extra2, extra3);
 
   // Cache miss: Fall-through and let caller handle the miss by
   // entering the runtime system.

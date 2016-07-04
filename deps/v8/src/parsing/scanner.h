@@ -8,15 +8,16 @@
 #define V8_PARSING_SCANNER_H_
 
 #include "src/allocation.h"
+#include "src/base/hashmap.h"
 #include "src/base/logging.h"
 #include "src/char-predicates.h"
+#include "src/collector.h"
 #include "src/globals.h"
-#include "src/hashmap.h"
 #include "src/list.h"
+#include "src/messages.h"
 #include "src/parsing/token.h"
-#include "src/unicode.h"
 #include "src/unicode-decoder.h"
-#include "src/utils.h"
+#include "src/unicode.h"
 
 namespace v8 {
 namespace internal {
@@ -142,14 +143,15 @@ class DuplicateFinder {
   UnicodeCache* unicode_constants_;
   // Backing store used to store strings used as hashmap keys.
   SequenceCollector<unsigned char> backing_store_;
-  HashMap map_;
+  base::HashMap map_;
   // Buffer used for string->number->canonical string conversions.
   char number_buffer_[kBufferSize];
 };
 
-
 // ----------------------------------------------------------------------------
 // LiteralBuffer -  Collector of chars of literals.
+
+const int kMaxAscii = 127;
 
 class LiteralBuffer {
  public:
@@ -157,7 +159,16 @@ class LiteralBuffer {
 
   ~LiteralBuffer() { backing_store_.Dispose(); }
 
-  INLINE(void AddChar(uint32_t code_unit)) {
+  INLINE(void AddChar(char code_unit)) {
+    if (position_ >= backing_store_.length()) ExpandBuffer();
+    DCHECK(is_one_byte_);
+    DCHECK(0 <= code_unit && code_unit <= kMaxAscii);
+    backing_store_[position_] = static_cast<byte>(code_unit);
+    position_ += kOneByteSize;
+    return;
+  }
+
+  INLINE(void AddChar(uc32 code_unit)) {
     if (position_ >= backing_store_.length()) ExpandBuffer();
     if (is_one_byte_) {
       if (code_unit <= unibrow::Latin1::kMaxChar) {
@@ -224,8 +235,14 @@ class LiteralBuffer {
     } else {
       is_one_byte_ = other->is_one_byte_;
       position_ = other->position_;
-      backing_store_.Dispose();
-      backing_store_ = other->backing_store_.Clone();
+      if (position_ < backing_store_.length()) {
+        std::copy(other->backing_store_.begin(),
+                  other->backing_store_.begin() + position_,
+                  backing_store_.begin());
+      } else {
+        backing_store_.Dispose();
+        backing_store_ = other->backing_store_.Clone();
+      }
     }
   }
 
@@ -354,6 +371,10 @@ class Scanner {
   // (the token last returned by Next()).
   Location location() const { return current_.location; }
 
+  bool has_error() const { return scanner_error_ != MessageTemplate::kNone; }
+  MessageTemplate::Template error() const { return scanner_error_; }
+  Location error_location() const { return scanner_error_location_; }
+
   // Similar functions for the upcoming token.
 
   // One token look-ahead (past the token returned by Next()).
@@ -414,6 +435,13 @@ class Scanner {
   // Returns the location of the last seen octal literal.
   Location octal_position() const { return octal_pos_; }
   void clear_octal_position() { octal_pos_ = Location::invalid(); }
+  // Returns the location of the last seen decimal literal with a leading zero.
+  Location decimal_with_leading_zero_position() const {
+    return decimal_with_leading_zero_pos_;
+  }
+  void clear_decimal_with_leading_zero_position() {
+    decimal_with_leading_zero_pos_ = Location::invalid();
+  }
 
   // Returns the value of the last smi that was scanned.
   int smi_value() const { return current_.smi_value_; }
@@ -429,6 +457,12 @@ class Scanner {
   bool HasAnyLineTerminatorBeforeNext() const {
     return has_line_terminator_before_next_ ||
            has_multiline_comment_before_next_;
+  }
+
+  bool HasAnyLineTerminatorAfterNext() {
+    Token::Value ensure_next_next = PeekAhead();
+    USE(ensure_next_next);
+    return has_line_terminator_after_next_;
   }
 
   // Scans the input as a regular expression pattern, previous
@@ -447,6 +481,14 @@ class Scanner {
   }
 
   bool IdentifierIsFutureStrictReserved(const AstRawString* string) const;
+
+  bool FoundHtmlComment() const { return found_html_comment_; }
+
+#define DECLARE_ACCESSORS(name)                                \
+  inline bool allow_##name() const { return allow_##name##_; } \
+  inline void set_allow_##name(bool allow) { allow_##name##_ = allow; }
+  DECLARE_ACCESSORS(harmony_exponentiation_operator)
+#undef ACCESSOR
 
  private:
   // The current and look-ahead token.
@@ -473,6 +515,8 @@ class Scanner {
     current_.literal_chars = NULL;
     current_.raw_literal_chars = NULL;
     next_next_.token = Token::UNINITIALIZED;
+    found_html_comment_ = false;
+    scanner_error_ = MessageTemplate::kNone;
   }
 
   // Support BookmarkScope functionality.
@@ -482,6 +526,19 @@ class Scanner {
   bool BookmarkHasBeenReset();
   void DropBookmark();
   static void CopyTokenDesc(TokenDesc* to, TokenDesc* from);
+
+  void ReportScannerError(const Location& location,
+                          MessageTemplate::Template error) {
+    if (has_error()) return;
+    scanner_error_ = error;
+    scanner_error_location_ = location;
+  }
+
+  void ReportScannerError(int pos, MessageTemplate::Template error) {
+    if (has_error()) return;
+    scanner_error_ = error;
+    scanner_error_location_ = Location(pos, pos + 1);
+  }
 
   // Literal buffer support
   inline void StartLiteral() {
@@ -506,6 +563,11 @@ class Scanner {
   }
 
   INLINE(void AddLiteralChar(uc32 c)) {
+    DCHECK_NOT_NULL(next_.literal_chars);
+    next_.literal_chars->AddChar(c);
+  }
+
+  INLINE(void AddLiteralChar(char c)) {
     DCHECK_NOT_NULL(next_.literal_chars);
     next_.literal_chars->AddChar(c);
   }
@@ -554,7 +616,7 @@ class Scanner {
   }
 
   void PushBack(uc32 ch) {
-    if (ch > static_cast<uc32>(unibrow::Utf16::kMaxNonSurrogateCharCode)) {
+    if (c0_ > static_cast<uc32>(unibrow::Utf16::kMaxNonSurrogateCharCode)) {
       source_->PushBack(unibrow::Utf16::TrailSurrogate(c0_));
       source_->PushBack(unibrow::Utf16::LeadSurrogate(c0_));
     } else {
@@ -628,13 +690,13 @@ class Scanner {
     return current_.raw_literal_chars->is_one_byte();
   }
 
-  template <bool capture_raw>
+  template <bool capture_raw, bool unicode = false>
   uc32 ScanHexNumber(int expected_length);
   // Scan a number of any length but not bigger than max_value. For example, the
   // number can be 000000001, so it's very long in characters but its value is
   // small.
   template <bool capture_raw>
-  uc32 ScanUnlimitedLengthHexNumber(int max_value);
+  uc32 ScanUnlimitedLengthHexNumber(int max_value, int beg_pos);
 
   // Scans a single JavaScript token.
   void Scan();
@@ -738,9 +800,9 @@ class Scanner {
   // Input stream. Must be initialized to an Utf16CharacterStream.
   Utf16CharacterStream* source_;
 
-
-  // Start position of the octal literal last scanned.
+  // Last-seen positions of potentially problematic tokens.
   Location octal_pos_;
+  Location decimal_with_leading_zero_pos_;
 
   // One Unicode character look-ahead; c0_ < 0 at the end of the input.
   uc32 c0_;
@@ -752,6 +814,15 @@ class Scanner {
   // Whether there is a multi-line comment that contains a
   // line-terminator after the current token, and before the next.
   bool has_multiline_comment_before_next_;
+  bool has_line_terminator_after_next_;
+
+  // Whether this scanner encountered an HTML comment.
+  bool found_html_comment_;
+
+  bool allow_harmony_exponentiation_operator_;
+
+  MessageTemplate::Template scanner_error_;
+  Location scanner_error_location_;
 };
 
 }  // namespace internal

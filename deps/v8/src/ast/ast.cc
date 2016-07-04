@@ -5,15 +5,17 @@
 #include "src/ast/ast.h"
 
 #include <cmath>  // For isfinite.
+
+#include "src/ast/prettyprinter.h"
 #include "src/ast/scopes.h"
+#include "src/base/hashmap.h"
 #include "src/builtins.h"
 #include "src/code-stubs.h"
 #include "src/contexts.h"
 #include "src/conversions.h"
-#include "src/hashmap.h"
 #include "src/parsing/parser.h"
-#include "src/property.h"
 #include "src/property-details.h"
+#include "src/property.h"
 #include "src/string-stream.h"
 #include "src/type-info.h"
 
@@ -32,6 +34,19 @@ AST_NODE_LIST(DECL_ACCEPT)
 // ----------------------------------------------------------------------------
 // Implementation of other node functionality.
 
+#ifdef DEBUG
+
+void AstNode::Print(Isolate* isolate) {
+  AstPrinter::PrintOut(isolate, this);
+}
+
+
+void AstNode::PrettyPrint(Isolate* isolate) {
+  PrettyPrinter::PrintOut(isolate, this);
+}
+
+#endif  // DEBUG
+
 
 bool Expression::IsSmiLiteral() const {
   return IsLiteral() && AsLiteral()->value()->IsSmi();
@@ -44,11 +59,21 @@ bool Expression::IsStringLiteral() const {
 
 
 bool Expression::IsNullLiteral() const {
-  return IsLiteral() && AsLiteral()->value()->IsNull();
+  if (!IsLiteral()) return false;
+  Handle<Object> value = AsLiteral()->value();
+  return !value->IsSmi() &&
+         value->IsNull(HeapObject::cast(*value)->GetIsolate());
 }
 
+bool Expression::IsUndefinedLiteral() const {
+  if (IsLiteral()) {
+    Handle<Object> value = AsLiteral()->value();
+    if (!value->IsSmi() &&
+        value->IsUndefined(HeapObject::cast(*value)->GetIsolate())) {
+      return true;
+    }
+  }
 
-bool Expression::IsUndefinedLiteral(Isolate* isolate) const {
   const VariableProxy* var_proxy = AsVariableProxy();
   if (var_proxy == NULL) return false;
   Variable* var = var_proxy->var();
@@ -102,17 +127,17 @@ void VariableProxy::AssignFeedbackVectorSlots(Isolate* isolate,
   if (UsesVariableFeedbackSlot()) {
     // VariableProxies that point to the same Variable within a function can
     // make their loads from the same IC slot.
-    if (var()->IsUnallocated()) {
+    if (var()->IsUnallocated() || var()->mode() == DYNAMIC_GLOBAL) {
       ZoneHashMap::Entry* entry = cache->Get(var());
       if (entry != NULL) {
         variable_feedback_slot_ = FeedbackVectorSlot(
             static_cast<int>(reinterpret_cast<intptr_t>(entry->value)));
         return;
       }
-    }
-    variable_feedback_slot_ = spec->AddLoadICSlot();
-    if (var()->IsUnallocated()) {
+      variable_feedback_slot_ = spec->AddLoadGlobalICSlot(var()->name());
       cache->Put(var(), variable_feedback_slot_);
+    } else {
+      variable_feedback_slot_ = spec->AddLoadICSlot();
     }
   }
 }
@@ -133,15 +158,11 @@ static void AssignVectorSlots(Expression* expr, FeedbackVectorSpec* spec,
   }
 }
 
-
-void ForEachStatement::AssignFeedbackVectorSlots(
-    Isolate* isolate, FeedbackVectorSpec* spec,
-    FeedbackVectorSlotCache* cache) {
-  // TODO(adamk): for-of statements do not make use of this feedback slot.
-  // The each_slot_ should be specific to ForInStatement, and this work moved
-  // there.
-  if (IsForOfStatement()) return;
+void ForInStatement::AssignFeedbackVectorSlots(Isolate* isolate,
+                                               FeedbackVectorSpec* spec,
+                                               FeedbackVectorSlotCache* cache) {
   AssignVectorSlots(each(), spec, &each_slot_);
+  for_in_feedback_slot_ = spec->AddGeneralSlot();
 }
 
 
@@ -254,14 +275,21 @@ ObjectLiteralProperty::ObjectLiteralProperty(AstValueFactory* ast_value_factory,
   }
 }
 
+bool ObjectLiteralProperty::NeedsSetFunctionName() const {
+  return is_computed_name_ &&
+         (value_->IsAnonymousFunctionDefinition() ||
+          (value_->IsFunctionLiteral() &&
+           IsConciseMethod(value_->AsFunctionLiteral()->kind())));
+}
 
 void ClassLiteral::AssignFeedbackVectorSlots(Isolate* isolate,
                                              FeedbackVectorSpec* spec,
                                              FeedbackVectorSlotCache* cache) {
   // This logic that computes the number of slots needed for vector store
   // ICs must mirror FullCodeGenerator::VisitClassLiteral.
+  prototype_slot_ = spec->AddLoadICSlot();
   if (NeedsProxySlot()) {
-    slot_ = spec->AddStoreICSlot();
+    proxy_slot_ = spec->AddStoreICSlot();
   }
 
   for (int i = 0; i < properties()->length(); i++) {
@@ -366,7 +394,7 @@ void ObjectLiteral::CalculateEmitStore(Zone* zone) {
     if (property->is_computed_name()) continue;
     if (property->kind() == ObjectLiteral::Property::PROTOTYPE) continue;
     Literal* literal = property->key()->AsLiteral();
-    DCHECK(!literal->value()->IsNull());
+    DCHECK(!literal->IsNullLiteral());
 
     // If there is an existing entry do not emit a store unless the previous
     // entry was also an accessor.
@@ -436,29 +464,26 @@ void ObjectLiteral::BuildConstantProperties(Isolate* isolate) {
     // (value->IsNumber()).
     // TODO(verwaest): Remove once we can store them inline.
     if (FLAG_track_double_fields &&
-        (value->IsNumber() || value->IsUninitialized())) {
+        (value->IsNumber() || value->IsUninitialized(isolate))) {
       may_store_doubles_ = true;
     }
 
-    is_simple = is_simple && !value->IsUninitialized();
+    is_simple = is_simple && !value->IsUninitialized(isolate);
 
     // Keep track of the number of elements in the object literal and
     // the largest element index.  If the largest element index is
     // much larger than the number of elements, creating an object
     // literal with fast elements will be a waste of space.
     uint32_t element_index = 0;
-    if (key->IsString()
-        && Handle<String>::cast(key)->AsArrayIndex(&element_index)
-        && element_index > max_element_index) {
-      max_element_index = element_index;
+    if (key->IsString() && String::cast(*key)->AsArrayIndex(&element_index)) {
+      max_element_index = Max(element_index, max_element_index);
       elements++;
-    } else if (key->IsSmi()) {
-      int key_value = Smi::cast(*key)->value();
-      if (key_value > 0
-          && static_cast<uint32_t>(key_value) > max_element_index) {
-        max_element_index = key_value;
-      }
+      key = isolate->factory()->NewNumberFromUint(element_index);
+    } else if (key->ToArrayIndex(&element_index)) {
+      max_element_index = Max(element_index, max_element_index);
       elements++;
+    } else if (key->IsNumber()) {
+      key = isolate->factory()->NumberToString(key);
     }
 
     // Add name, value pair to the fixed array.
@@ -476,18 +501,19 @@ void ObjectLiteral::BuildConstantProperties(Isolate* isolate) {
 
 
 void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
+  DCHECK_LT(first_spread_index_, 0);
+
   if (!constant_elements_.is_null()) return;
 
-  int constants_length =
-      first_spread_index_ >= 0 ? first_spread_index_ : values()->length();
+  int constants_length = values()->length();
 
   // Allocate a fixed array to hold all the object literals.
   Handle<JSArray> array = isolate->factory()->NewJSArray(
       FAST_HOLEY_SMI_ELEMENTS, constants_length, constants_length,
-      Strength::WEAK, INITIALIZE_ARRAY_ELEMENTS_WITH_HOLE);
+      INITIALIZE_ARRAY_ELEMENTS_WITH_HOLE);
 
   // Fill in the literals.
-  bool is_simple = (first_spread_index_ < 0);
+  bool is_simple = true;
   int depth_acc = 1;
   bool is_holey = false;
   int array_index = 0;
@@ -505,12 +531,12 @@ void ArrayLiteral::BuildConstantElements(Isolate* isolate) {
     // New handle scope here, needs to be after BuildContants().
     HandleScope scope(isolate);
     Handle<Object> boilerplate_value = GetBoilerplateValue(element, isolate);
-    if (boilerplate_value->IsTheHole()) {
+    if (boilerplate_value->IsTheHole(isolate)) {
       is_holey = true;
       continue;
     }
 
-    if (boilerplate_value->IsUninitialized()) {
+    if (boilerplate_value->IsUninitialized(isolate)) {
       boilerplate_value = handle(Smi::FromInt(0), isolate);
       is_simple = false;
     }
@@ -553,7 +579,7 @@ void ArrayLiteral::AssignFeedbackVectorSlots(Isolate* isolate,
   int array_index = 0;
   for (; array_index < values()->length(); array_index++) {
     Expression* subexpr = values()->at(array_index);
-    if (subexpr->IsSpread()) break;
+    DCHECK(!subexpr->IsSpread());
     if (CompileTimeValue::IsCompileTimeValue(subexpr)) continue;
 
     // We'll reuse the same literal slot for all of the non-constant
@@ -649,24 +675,21 @@ static bool IsVoidOfLiteral(Expression* expr) {
 static bool MatchLiteralCompareUndefined(Expression* left,
                                          Token::Value op,
                                          Expression* right,
-                                         Expression** expr,
-                                         Isolate* isolate) {
+                                         Expression** expr) {
   if (IsVoidOfLiteral(left) && Token::IsEqualityOp(op)) {
     *expr = right;
     return true;
   }
-  if (left->IsUndefinedLiteral(isolate) && Token::IsEqualityOp(op)) {
+  if (left->IsUndefinedLiteral() && Token::IsEqualityOp(op)) {
     *expr = right;
     return true;
   }
   return false;
 }
 
-
-bool CompareOperation::IsLiteralCompareUndefined(
-    Expression** expr, Isolate* isolate) {
-  return MatchLiteralCompareUndefined(left_, op_, right_, expr, isolate) ||
-      MatchLiteralCompareUndefined(right_, op_, left_, expr, isolate);
+bool CompareOperation::IsLiteralCompareUndefined(Expression** expr) {
+  return MatchLiteralCompareUndefined(left_, op_, right_, expr) ||
+         MatchLiteralCompareUndefined(right_, op_, left_, expr);
 }
 
 
@@ -797,14 +820,313 @@ void AstVisitor::VisitExpressions(ZoneList<Expression*>* expressions) {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Implementation of AstTraversalVisitor
+
+#define RECURSE(call)               \
+  do {                              \
+    DCHECK(!HasStackOverflow());    \
+    call;                           \
+    if (HasStackOverflow()) return; \
+  } while (false)
+
+#define RECURSE_EXPRESSION(call)    \
+  do {                              \
+    DCHECK(!HasStackOverflow());    \
+    ++depth_;                       \
+    call;                           \
+    --depth_;                       \
+    if (HasStackOverflow()) return; \
+  } while (false)
+
+AstTraversalVisitor::AstTraversalVisitor(Isolate* isolate) : depth_(0) {
+  InitializeAstVisitor(isolate);
+}
+
+AstTraversalVisitor::AstTraversalVisitor(uintptr_t stack_limit) : depth_(0) {
+  InitializeAstVisitor(stack_limit);
+}
+
+void AstTraversalVisitor::VisitDeclarations(ZoneList<Declaration*>* decls) {
+  for (int i = 0; i < decls->length(); ++i) {
+    Declaration* decl = decls->at(i);
+    RECURSE(Visit(decl));
+  }
+}
+
+void AstTraversalVisitor::VisitStatements(ZoneList<Statement*>* stmts) {
+  for (int i = 0; i < stmts->length(); ++i) {
+    Statement* stmt = stmts->at(i);
+    RECURSE(Visit(stmt));
+    if (stmt->IsJump()) break;
+  }
+}
+
+void AstTraversalVisitor::VisitVariableDeclaration(VariableDeclaration* decl) {}
+
+void AstTraversalVisitor::VisitFunctionDeclaration(FunctionDeclaration* decl) {
+  RECURSE(Visit(decl->fun()));
+}
+
+void AstTraversalVisitor::VisitImportDeclaration(ImportDeclaration* decl) {}
+
+void AstTraversalVisitor::VisitBlock(Block* stmt) {
+  RECURSE(VisitStatements(stmt->statements()));
+}
+
+void AstTraversalVisitor::VisitExpressionStatement(ExpressionStatement* stmt) {
+  RECURSE(Visit(stmt->expression()));
+}
+
+void AstTraversalVisitor::VisitEmptyStatement(EmptyStatement* stmt) {}
+
+void AstTraversalVisitor::VisitSloppyBlockFunctionStatement(
+    SloppyBlockFunctionStatement* stmt) {
+  RECURSE(Visit(stmt->statement()));
+}
+
+void AstTraversalVisitor::VisitIfStatement(IfStatement* stmt) {
+  RECURSE(Visit(stmt->condition()));
+  RECURSE(Visit(stmt->then_statement()));
+  RECURSE(Visit(stmt->else_statement()));
+}
+
+void AstTraversalVisitor::VisitContinueStatement(ContinueStatement* stmt) {}
+
+void AstTraversalVisitor::VisitBreakStatement(BreakStatement* stmt) {}
+
+void AstTraversalVisitor::VisitReturnStatement(ReturnStatement* stmt) {
+  RECURSE(Visit(stmt->expression()));
+}
+
+void AstTraversalVisitor::VisitWithStatement(WithStatement* stmt) {
+  RECURSE(stmt->expression());
+  RECURSE(stmt->statement());
+}
+
+void AstTraversalVisitor::VisitSwitchStatement(SwitchStatement* stmt) {
+  RECURSE(Visit(stmt->tag()));
+
+  ZoneList<CaseClause*>* clauses = stmt->cases();
+
+  for (int i = 0; i < clauses->length(); ++i) {
+    CaseClause* clause = clauses->at(i);
+    if (!clause->is_default()) {
+      Expression* label = clause->label();
+      RECURSE(Visit(label));
+    }
+    ZoneList<Statement*>* stmts = clause->statements();
+    RECURSE(VisitStatements(stmts));
+  }
+}
+
+void AstTraversalVisitor::VisitCaseClause(CaseClause* clause) { UNREACHABLE(); }
+
+void AstTraversalVisitor::VisitDoWhileStatement(DoWhileStatement* stmt) {
+  RECURSE(Visit(stmt->body()));
+  RECURSE(Visit(stmt->cond()));
+}
+
+void AstTraversalVisitor::VisitWhileStatement(WhileStatement* stmt) {
+  RECURSE(Visit(stmt->cond()));
+  RECURSE(Visit(stmt->body()));
+}
+
+void AstTraversalVisitor::VisitForStatement(ForStatement* stmt) {
+  if (stmt->init() != NULL) {
+    RECURSE(Visit(stmt->init()));
+  }
+  if (stmt->cond() != NULL) {
+    RECURSE(Visit(stmt->cond()));
+  }
+  if (stmt->next() != NULL) {
+    RECURSE(Visit(stmt->next()));
+  }
+  RECURSE(Visit(stmt->body()));
+}
+
+void AstTraversalVisitor::VisitForInStatement(ForInStatement* stmt) {
+  RECURSE(Visit(stmt->enumerable()));
+  RECURSE(Visit(stmt->body()));
+}
+
+void AstTraversalVisitor::VisitForOfStatement(ForOfStatement* stmt) {
+  RECURSE(Visit(stmt->assign_iterator()));
+  RECURSE(Visit(stmt->next_result()));
+  RECURSE(Visit(stmt->result_done()));
+  RECURSE(Visit(stmt->assign_each()));
+  RECURSE(Visit(stmt->body()));
+}
+
+void AstTraversalVisitor::VisitTryCatchStatement(TryCatchStatement* stmt) {
+  RECURSE(Visit(stmt->try_block()));
+  RECURSE(Visit(stmt->catch_block()));
+}
+
+void AstTraversalVisitor::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
+  RECURSE(Visit(stmt->try_block()));
+  RECURSE(Visit(stmt->finally_block()));
+}
+
+void AstTraversalVisitor::VisitDebuggerStatement(DebuggerStatement* stmt) {}
+
+void AstTraversalVisitor::VisitFunctionLiteral(FunctionLiteral* expr) {
+  Scope* scope = expr->scope();
+  RECURSE_EXPRESSION(VisitDeclarations(scope->declarations()));
+  RECURSE_EXPRESSION(VisitStatements(expr->body()));
+}
+
+void AstTraversalVisitor::VisitNativeFunctionLiteral(
+    NativeFunctionLiteral* expr) {}
+
+void AstTraversalVisitor::VisitDoExpression(DoExpression* expr) {
+  RECURSE(VisitBlock(expr->block()));
+  RECURSE(VisitVariableProxy(expr->result()));
+}
+
+void AstTraversalVisitor::VisitConditional(Conditional* expr) {
+  RECURSE_EXPRESSION(Visit(expr->condition()));
+  RECURSE_EXPRESSION(Visit(expr->then_expression()));
+  RECURSE_EXPRESSION(Visit(expr->else_expression()));
+}
+
+void AstTraversalVisitor::VisitVariableProxy(VariableProxy* expr) {}
+
+void AstTraversalVisitor::VisitLiteral(Literal* expr) {}
+
+void AstTraversalVisitor::VisitRegExpLiteral(RegExpLiteral* expr) {}
+
+void AstTraversalVisitor::VisitObjectLiteral(ObjectLiteral* expr) {
+  ZoneList<ObjectLiteralProperty*>* props = expr->properties();
+  for (int i = 0; i < props->length(); ++i) {
+    ObjectLiteralProperty* prop = props->at(i);
+    if (!prop->key()->IsLiteral()) {
+      RECURSE_EXPRESSION(Visit(prop->key()));
+    }
+    RECURSE_EXPRESSION(Visit(prop->value()));
+  }
+}
+
+void AstTraversalVisitor::VisitArrayLiteral(ArrayLiteral* expr) {
+  ZoneList<Expression*>* values = expr->values();
+  for (int i = 0; i < values->length(); ++i) {
+    Expression* value = values->at(i);
+    RECURSE_EXPRESSION(Visit(value));
+  }
+}
+
+void AstTraversalVisitor::VisitAssignment(Assignment* expr) {
+  RECURSE_EXPRESSION(Visit(expr->target()));
+  RECURSE_EXPRESSION(Visit(expr->value()));
+}
+
+void AstTraversalVisitor::VisitYield(Yield* expr) {
+  RECURSE_EXPRESSION(Visit(expr->generator_object()));
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+void AstTraversalVisitor::VisitThrow(Throw* expr) {
+  RECURSE_EXPRESSION(Visit(expr->exception()));
+}
+
+void AstTraversalVisitor::VisitProperty(Property* expr) {
+  RECURSE_EXPRESSION(Visit(expr->obj()));
+  RECURSE_EXPRESSION(Visit(expr->key()));
+}
+
+void AstTraversalVisitor::VisitCall(Call* expr) {
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+  ZoneList<Expression*>* args = expr->arguments();
+  for (int i = 0; i < args->length(); ++i) {
+    Expression* arg = args->at(i);
+    RECURSE_EXPRESSION(Visit(arg));
+  }
+}
+
+void AstTraversalVisitor::VisitCallNew(CallNew* expr) {
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+  ZoneList<Expression*>* args = expr->arguments();
+  for (int i = 0; i < args->length(); ++i) {
+    Expression* arg = args->at(i);
+    RECURSE_EXPRESSION(Visit(arg));
+  }
+}
+
+void AstTraversalVisitor::VisitCallRuntime(CallRuntime* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  for (int i = 0; i < args->length(); ++i) {
+    Expression* arg = args->at(i);
+    RECURSE_EXPRESSION(Visit(arg));
+  }
+}
+
+void AstTraversalVisitor::VisitUnaryOperation(UnaryOperation* expr) {
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+void AstTraversalVisitor::VisitCountOperation(CountOperation* expr) {
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+void AstTraversalVisitor::VisitBinaryOperation(BinaryOperation* expr) {
+  RECURSE_EXPRESSION(Visit(expr->left()));
+  RECURSE_EXPRESSION(Visit(expr->right()));
+}
+
+void AstTraversalVisitor::VisitCompareOperation(CompareOperation* expr) {
+  RECURSE_EXPRESSION(Visit(expr->left()));
+  RECURSE_EXPRESSION(Visit(expr->right()));
+}
+
+void AstTraversalVisitor::VisitThisFunction(ThisFunction* expr) {}
+
+void AstTraversalVisitor::VisitClassLiteral(ClassLiteral* expr) {
+  if (expr->extends() != nullptr) {
+    RECURSE_EXPRESSION(Visit(expr->extends()));
+  }
+  RECURSE_EXPRESSION(Visit(expr->constructor()));
+  ZoneList<ObjectLiteralProperty*>* props = expr->properties();
+  for (int i = 0; i < props->length(); ++i) {
+    ObjectLiteralProperty* prop = props->at(i);
+    if (!prop->key()->IsLiteral()) {
+      RECURSE_EXPRESSION(Visit(prop->key()));
+    }
+    RECURSE_EXPRESSION(Visit(prop->value()));
+  }
+}
+
+void AstTraversalVisitor::VisitSpread(Spread* expr) {
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+void AstTraversalVisitor::VisitEmptyParentheses(EmptyParentheses* expr) {}
+
+void AstTraversalVisitor::VisitSuperPropertyReference(
+    SuperPropertyReference* expr) {
+  RECURSE_EXPRESSION(VisitVariableProxy(expr->this_var()));
+  RECURSE_EXPRESSION(Visit(expr->home_object()));
+}
+
+void AstTraversalVisitor::VisitSuperCallReference(SuperCallReference* expr) {
+  RECURSE_EXPRESSION(VisitVariableProxy(expr->this_var()));
+  RECURSE_EXPRESSION(VisitVariableProxy(expr->new_target_var()));
+  RECURSE_EXPRESSION(VisitVariableProxy(expr->this_function_var()));
+}
+
+void AstTraversalVisitor::VisitRewritableExpression(
+    RewritableExpression* expr) {
+  RECURSE(Visit(expr->expression()));
+}
+
+#undef RECURSE_EXPRESSION
+#undef RECURSE
 
 CaseClause::CaseClause(Zone* zone, Expression* label,
                        ZoneList<Statement*>* statements, int pos)
     : Expression(zone, pos),
       label_(label),
       statements_(statements),
-      compare_type_(Type::None(zone)) {}
-
+      compare_type_(Type::None()) {}
 
 uint32_t Literal::Hash() {
   return raw_value()->IsString()

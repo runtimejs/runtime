@@ -328,6 +328,32 @@ TEST(AssemblerX64TestlOperations) {
   CHECK_EQ(1u, result);
 }
 
+TEST(AssemblerX64TestwOperations) {
+  typedef uint16_t (*F)(uint16_t * x);
+  CcTest::InitializeVM();
+  // Allocate an executable page of memory.
+  size_t actual_size;
+  byte* buffer = static_cast<byte*>(v8::base::OS::Allocate(
+      Assembler::kMinimalBufferSize, &actual_size, true));
+  CHECK(buffer);
+  Assembler assm(CcTest::i_isolate(), buffer, static_cast<int>(actual_size));
+
+  // Set rax with the ZF flag of the testl instruction.
+  Label done;
+  __ movq(rax, Immediate(1));
+  __ testw(Operand(arg1, 0), Immediate(0xf0f0));
+  __ j(not_zero, &done, Label::kNear);
+  __ movq(rax, Immediate(0));
+  __ bind(&done);
+  __ ret(0);
+
+  CodeDesc desc;
+  assm.GetCode(&desc);
+  // Call the function from C++.
+  uint16_t operand = 0x8000;
+  uint16_t result = FUNCTION_CAST<F>(buffer)(&operand);
+  CHECK_EQ(1u, result);
+}
 
 TEST(AssemblerX64XorlOperations) {
   CcTest::InitializeVM();
@@ -2268,6 +2294,26 @@ TEST(AssemblerX64JumpTables2) {
     PrintF("f(%d) = %d\n", i, res);
     CHECK_EQ(values[i], res);
   }
+}
+
+TEST(AssemblerX64PslldWithXmm15) {
+  CcTest::InitializeVM();
+  // Allocate an executable page of memory.
+  size_t actual_size;
+  byte* buffer = static_cast<byte*>(v8::base::OS::Allocate(
+      Assembler::kMinimalBufferSize, &actual_size, true));
+  CHECK(buffer);
+  Assembler assm(CcTest::i_isolate(), buffer, static_cast<int>(actual_size));
+
+  __ movq(xmm15, arg1);
+  __ pslld(xmm15, 1);
+  __ movq(rax, xmm15);
+  __ ret(0);
+
+  CodeDesc desc;
+  assm.GetCode(&desc);
+  uint64_t result = FUNCTION_CAST<F5>(buffer)(V8_UINT64_C(0x1122334455667788));
+  CHECK_EQ(V8_UINT64_C(0x22446688aaccef10), result);
 }
 
 #undef __

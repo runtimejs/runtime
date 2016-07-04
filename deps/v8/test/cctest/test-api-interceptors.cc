@@ -854,6 +854,52 @@ THREADED_TEST(InterceptorLoadICInvalidatedCallbackViaGlobal) {
   CHECK_EQ(42 * 10, value->Int32Value(context.local()).FromJust());
 }
 
+// Test load of a non-existing global when a global object has an interceptor.
+THREADED_TEST(InterceptorLoadGlobalICGlobalWithInterceptor) {
+  v8::Isolate* isolate = CcTest::isolate();
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::ObjectTemplate> templ_global = v8::ObjectTemplate::New(isolate);
+  templ_global->SetHandler(v8::NamedPropertyHandlerConfiguration(
+      EmptyInterceptorGetter, EmptyInterceptorSetter));
+
+  LocalContext context(nullptr, templ_global);
+  i::Handle<i::JSReceiver> global_proxy =
+      v8::Utils::OpenHandle<Object, i::JSReceiver>(context->Global());
+  CHECK(global_proxy->IsJSGlobalProxy());
+  i::Handle<i::JSGlobalObject> global(
+      i::JSGlobalObject::cast(global_proxy->map()->prototype()));
+  CHECK(global->map()->has_named_interceptor());
+
+  v8::Local<Value> value = CompileRun(
+      "var f = function() { "
+      "  try {"
+      "    x;"
+      "    return false;"
+      "  } catch(e) {"
+      "    return true;"
+      "  }"
+      "};"
+      "for (var i = 0; i < 10; i++) {"
+      "  f();"
+      "};"
+      "f();");
+  CHECK_EQ(true, value->BooleanValue(context.local()).FromJust());
+
+  value = CompileRun(
+      "var f = function() { "
+      "  try {"
+      "    typeof(x);"
+      "    return true;"
+      "  } catch(e) {"
+      "    return false;"
+      "  }"
+      "};"
+      "for (var i = 0; i < 10; i++) {"
+      "  f();"
+      "};"
+      "f();");
+  CHECK_EQ(true, value->BooleanValue(context.local()).FromJust());
+}
 
 static void InterceptorLoadICGetter0(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
@@ -1879,9 +1925,9 @@ THREADED_TEST(IndexedInterceptorWithNoSetter) {
   ExpectString(code, "PASSED");
 }
 
-
 static bool AccessAlwaysBlocked(Local<v8::Context> accessing_context,
-                                Local<v8::Object> accessed_object) {
+                                Local<v8::Object> accessed_object,
+                                Local<v8::Value> data) {
   return false;
 }
 
@@ -2270,33 +2316,34 @@ THREADED_TEST(Enumerators) {
   // This order is not mandated by the spec, so this test is just
   // documenting our behavior.
   CHECK_EQ(17u, result->Length());
-  // Indexed properties + indexed interceptor properties in numerical order.
-  CHECK(v8_str("0")
+  // Indexed properties.
+  CHECK(v8_str("5")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 0))
                          .ToLocalChecked())
             .FromJust());
-  CHECK(v8_str("1")
+  CHECK(v8_str("10")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 1))
                          .ToLocalChecked())
             .FromJust());
-  CHECK(v8_str("5")
+  CHECK(v8_str("140000")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 2))
                          .ToLocalChecked())
             .FromJust());
-  CHECK(v8_str("10")
+  CHECK(v8_str("4294967294")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 3))
                          .ToLocalChecked())
             .FromJust());
-  CHECK(v8_str("140000")
+  // Indexed Interceptor properties
+  CHECK(v8_str("0")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 4))
                          .ToLocalChecked())
             .FromJust());
-  CHECK(v8_str("4294967294")
+  CHECK(v8_str("1")
             ->Equals(context.local(),
                      result->Get(context.local(), v8::Integer::New(isolate, 5))
                          .ToLocalChecked())
@@ -3475,9 +3522,9 @@ struct AccessCheckData {
 
 AccessCheckData* g_access_check_data = nullptr;
 
-
 bool SimpleAccessChecker(Local<v8::Context> accessing_context,
-                         Local<v8::Object> access_object) {
+                         Local<v8::Object> access_object,
+                         Local<v8::Value> data) {
   g_access_check_data->count++;
   return g_access_check_data->result;
 }
@@ -3887,4 +3934,29 @@ THREADED_TEST(NonMaskingInterceptorGlobalEvalRegression) {
       "obj.x = 9;"
       "eval('obj.x');",
       9);
+}
+
+static void CheckReceiver(Local<Name> name,
+                          const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(info.This()->IsObject());
+}
+
+TEST(Regress609134Interceptor) {
+  LocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+  auto fun_templ = v8::FunctionTemplate::New(isolate);
+  fun_templ->InstanceTemplate()->SetHandler(
+      v8::NamedPropertyHandlerConfiguration(CheckReceiver));
+
+  CHECK(env->Global()
+            ->Set(env.local(), v8_str("Fun"),
+                  fun_templ->GetFunction(env.local()).ToLocalChecked())
+            .FromJust());
+
+  CompileRun(
+      "var f = new Fun();"
+      "Number.prototype.__proto__ = f;"
+      "var a = 42;"
+      "for (var i = 0; i<3; i++) { a.foo; }");
 }

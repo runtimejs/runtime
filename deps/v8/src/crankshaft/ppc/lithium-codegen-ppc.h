@@ -44,7 +44,7 @@ class LCodeGen : public LCodeGenBase {
   }
 
   bool NeedsEagerFrame() const {
-    return GetStackSlotCount() > 0 || info()->is_non_deferred_calling() ||
+    return HasAllocatedStackSlots() || info()->is_non_deferred_calling() ||
            !info()->IsStub() || info()->requires_frame();
   }
   bool NeedsDeferredFrame() const {
@@ -128,8 +128,6 @@ class LCodeGen : public LCodeGenBase {
 #undef DECLARE_DO
 
  private:
-  LanguageMode language_mode() const { return info()->language_mode(); }
-
   Scope* scope() const { return scope_; }
 
   Register scratch0() { return kLithiumScratch; }
@@ -141,7 +139,13 @@ class LCodeGen : public LCodeGenBase {
                        Handle<String> class_name, Register input,
                        Register temporary, Register temporary2);
 
-  int GetStackSlotCount() const { return chunk()->spill_slot_count(); }
+  bool HasAllocatedStackSlots() const {
+    return chunk()->HasAllocatedStackSlots();
+  }
+  int GetStackSlotCount() const { return chunk()->GetSpillSlotCount(); }
+  int GetTotalFrameSlotCount() const {
+    return chunk()->GetTotalFrameSlotCount();
+  }
 
   void AddDeferredCode(LDeferredCode* code) { deferred_.Add(code, zone()); }
 
@@ -188,11 +192,14 @@ class LCodeGen : public LCodeGenBase {
   void CallRuntimeFromDeferred(Runtime::FunctionId id, int argc,
                                LInstruction* instr, LOperand* context);
 
+  void PrepareForTailCall(const ParameterCount& actual, Register scratch1,
+                          Register scratch2, Register scratch3);
+
   // Generate a direct call to a known function.  Expects the function
   // to be in r4.
   void CallKnownFunction(Handle<JSFunction> function,
                          int formal_parameter_count, int arity,
-                         LInstruction* instr);
+                         bool is_tail_call, LInstruction* instr);
 
   void RecordSafepointWithLazyDeopt(LInstruction* instr,
                                     SafepointMode safepoint_mode);
@@ -221,15 +228,13 @@ class LCodeGen : public LCodeGenBase {
   void EmitInteger32MathAbs(LMathAbs* instr);
 #endif
 
-  // Support for recording safepoint and position information.
+  // Support for recording safepoint information.
   void RecordSafepoint(LPointerMap* pointers, Safepoint::Kind kind,
                        int arguments, Safepoint::DeoptMode mode);
   void RecordSafepoint(LPointerMap* pointers, Safepoint::DeoptMode mode);
   void RecordSafepoint(Safepoint::DeoptMode mode);
   void RecordSafepointWithRegisters(LPointerMap* pointers, int arguments,
                                     Safepoint::DeoptMode mode);
-
-  void RecordAndWritePosition(int position) override;
 
   static Condition TokenToCondition(Token::Value op);
   void EmitGoto(int block);

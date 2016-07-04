@@ -67,9 +67,9 @@ macro IS_ARRAYBUFFER(arg)       = (%_ClassOf(arg) === 'ArrayBuffer');
 macro IS_BOOLEAN(arg)           = (typeof(arg) === 'boolean');
 macro IS_BOOLEAN_WRAPPER(arg)   = (%_ClassOf(arg) === 'Boolean');
 macro IS_DATAVIEW(arg)          = (%_ClassOf(arg) === 'DataView');
-macro IS_DATE(arg)              = (%_IsDate(arg));
+macro IS_DATE(arg)              = (%IsDate(arg));
 macro IS_ERROR(arg)             = (%_ClassOf(arg) === 'Error');
-macro IS_FUNCTION(arg)          = (%_IsFunction(arg));
+macro IS_FUNCTION(arg)          = (%IsFunction(arg));
 macro IS_GENERATOR(arg)         = (%_ClassOf(arg) === 'Generator');
 macro IS_GLOBAL(arg)            = (%_ClassOf(arg) === 'global');
 macro IS_MAP(arg)               = (%_ClassOf(arg) === 'Map');
@@ -85,12 +85,12 @@ macro IS_SCRIPT(arg)            = (%_ClassOf(arg) === 'Script');
 macro IS_SET(arg)               = (%_ClassOf(arg) === 'Set');
 macro IS_SET_ITERATOR(arg)      = (%_ClassOf(arg) === 'Set Iterator');
 macro IS_SHAREDARRAYBUFFER(arg) = (%_ClassOf(arg) === 'SharedArrayBuffer');
-macro IS_SIMD_VALUE(arg)        = (%_IsSimdValue(arg));
+macro IS_SIMD_VALUE(arg)        = (%IsSimdValue(arg));
 macro IS_STRING(arg)            = (typeof(arg) === 'string');
 macro IS_STRING_WRAPPER(arg)    = (%_ClassOf(arg) === 'String');
-macro IS_STRONG(arg)            = (%IsStrong(arg));
 macro IS_SYMBOL(arg)            = (typeof(arg) === 'symbol');
 macro IS_SYMBOL_WRAPPER(arg)    = (%_ClassOf(arg) === 'Symbol');
+macro IS_TYPEDARRAY(arg)        = (%_IsTypedArray(arg));
 macro IS_UNDEFINED(arg)         = (arg === (void 0));
 macro IS_WEAKMAP(arg)           = (%_ClassOf(arg) === 'WeakMap');
 macro IS_WEAKSET(arg)           = (%_ClassOf(arg) === 'WeakSet');
@@ -110,12 +110,10 @@ macro NUMBER_IS_NAN(arg) = (!%_IsSmi(%IS_VAR(arg)) && !(arg == arg));
 macro NUMBER_IS_FINITE(arg) = (%_IsSmi(%IS_VAR(arg)) || ((arg == arg) && (arg != 1/0) && (arg != -1/0)));
 macro TO_BOOLEAN(arg) = (!!(arg));
 macro TO_INTEGER(arg) = (%_ToInteger(arg));
-macro TO_INTEGER_MAP_MINUS_ZERO(arg) = (%_IsSmi(%IS_VAR(arg)) ? arg : %NumberToIntegerMapMinusZero(arg));
 macro TO_INT32(arg) = ((arg) | 0);
 macro TO_UINT32(arg) = ((arg) >>> 0);
+macro INVERT_NEG_ZERO(arg) = ((arg) + 0);
 macro TO_LENGTH(arg) = (%_ToLength(arg));
-macro TO_LENGTH_OR_UINT32(arg) = (FLAG_harmony_tolength ? TO_LENGTH(arg) : TO_UINT32(arg));
-macro TO_LENGTH_OR_INTEGER(arg) = (FLAG_harmony_tolength ? TO_LENGTH(arg) : TO_INTEGER(arg));
 macro TO_STRING(arg) = (%_ToString(arg));
 macro TO_NUMBER(arg) = (%_ToNumber(arg));
 macro TO_OBJECT(arg) = (%_ToObject(arg));
@@ -124,15 +122,17 @@ macro TO_PRIMITIVE_NUMBER(arg) = (%_ToPrimitive_Number(arg));
 macro TO_PRIMITIVE_STRING(arg) = (%_ToPrimitive_String(arg));
 macro TO_NAME(arg) = (%_ToName(arg));
 macro JSON_NUMBER_TO_STRING(arg) = ((%_IsSmi(%IS_VAR(arg)) || arg - arg == 0) ? %_NumberToString(arg) : "null");
-macro HAS_OWN_PROPERTY(arg, index) = (%_Call(ObjectHasOwnProperty, arg, index));
-macro HAS_INDEX(array, index, is_array) = ((is_array && %_HasFastPackedElements(%IS_VAR(array))) ? (index < array.length) : (index in array));
+macro HAS_OWN_PROPERTY(obj, key) = (%_Call(ObjectHasOwnProperty, obj, key));
 
 # Private names.
 macro IS_PRIVATE(sym) = (%SymbolIsPrivate(sym));
-macro HAS_PRIVATE(obj, sym) = (%HasOwnProperty(obj, sym));
+macro HAS_PRIVATE(obj, key) = HAS_OWN_PROPERTY(obj, key);
 macro HAS_DEFINED_PRIVATE(obj, sym) = (!IS_UNDEFINED(obj[sym]));
 macro GET_PRIVATE(obj, sym) = (obj[sym]);
 macro SET_PRIVATE(obj, sym, val) = (obj[sym] = val);
+
+# To avoid ES2015 Function name inference.
+macro ANONYMOUS_FUNCTION(fn) = (0, (fn));
 
 # Constants.  The compiler constant folds them.
 define INFINITY = (1/0);
@@ -175,16 +175,6 @@ macro OVERRIDE_POS(override) = ((override)[(override).length - 2]);
 macro OVERRIDE_SUBJECT(override) = ((override)[(override).length - 1]);
 # 1-based so index of 1 returns the first capture
 macro OVERRIDE_CAPTURE(override, index) = ((override)[(index)]);
-
-# PropertyDescriptor return value indices - must match
-# PropertyDescriptorIndices in runtime-object.cc.
-define IS_ACCESSOR_INDEX = 0;
-define VALUE_INDEX = 1;
-define GETTER_INDEX = 2;
-define SETTER_INDEX = 3;
-define WRITABLE_INDEX = 4;
-define ENUMERABLE_INDEX = 5;
-define CONFIGURABLE_INDEX = 6;
 
 # For messages.js
 # Matches Script::Type from objects.h
@@ -240,7 +230,6 @@ define NOT_FOUND = -1;
 
 # Check whether debug is active.
 define DEBUG_IS_ACTIVE = (%_DebugIsActive() != 0);
-macro DEBUG_PREPARE_STEP_IN_IF_STEPPING(function) = if (%_DebugIsActive() != 0) %DebugPrepareStepInIfStepping(function);
 
 # SharedFlag equivalents
 define kNotShared = false;
@@ -253,11 +242,9 @@ define kLegacyConst = 2;
 define kMarkDequeOverflow = 3;
 define kStoreBufferOverflow = 4;
 define kSlotsBufferOverflow = 5;
-define kObjectObserve = 6;
 define kForcedGC = 7;
 define kSloppyMode = 8;
 define kStrictMode = 9;
-define kStrongMode = 10;
 define kRegExpPrototypeStickyGetter = 11;
 define kRegExpPrototypeToString = 12;
 define kRegExpPrototypeUnicodeGetter = 13;
@@ -267,3 +254,15 @@ define kIntlResolved = 16;
 define kPromiseChain = 17;
 define kPromiseAccept = 18;
 define kPromiseDefer = 19;
+define kHtmlCommentInExternalScript = 20;
+define kHtmlComment = 21;
+define kSloppyModeBlockScopedFunctionRedefinition = 22;
+define kForInInitializer = 23;
+define kArrayProtectorDirtied = 24;
+define kArraySpeciesModified = 25;
+define kArrayPrototypeConstructorModified = 26;
+define kArrayInstanceProtoModified = 27;
+define kArrayInstanceConstructorModified = 28;
+define kLegacyFunctionDeclaration = 29;
+define kRegExpPrototypeSourceGetter = 30;
+define kRegExpPrototypeOldFlagGetter = 31;

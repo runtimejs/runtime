@@ -39,8 +39,15 @@ class JSGraph : public ZoneObject {
   }
 
   // Canonicalized global constants.
+  Node* AllocateInNewSpaceStubConstant();
+  Node* AllocateInOldSpaceStubConstant();
+  Node* ToNumberBuiltinConstant();
   Node* CEntryStubConstant(int result_size);
   Node* EmptyFixedArrayConstant();
+  Node* EmptyLiteralsArrayConstant();
+  Node* HeapNumberMapConstant();
+  Node* OptimizedOutConstant();
+  Node* StaleRegisterConstant();
   Node* UndefinedConstant();
   Node* TheHoleConstant();
   Node* TrueConstant();
@@ -95,6 +102,10 @@ class JSGraph : public ZoneObject {
     return IntPtrConstant(bit_cast<intptr_t>(value));
   }
 
+  Node* RelocatableInt32Constant(int32_t value, RelocInfo::Mode rmode);
+  Node* RelocatableInt64Constant(int64_t value, RelocInfo::Mode rmode);
+  Node* RelocatableIntPtrConstant(intptr_t value, RelocInfo::Mode rmode);
+
   // Creates a Float32Constant node, usually canonicalized.
   Node* Float32Constant(float value);
 
@@ -114,9 +125,9 @@ class JSGraph : public ZoneObject {
   // stubs and runtime functions that do not require a context.
   Node* NoContextConstant() { return ZeroConstant(); }
 
-  // Creates an empty frame states for cases where we know that a function
-  // cannot deopt.
-  Node* EmptyFrameState();
+  // Creates an empty StateValues node, used when we don't have any concrete
+  // values for a certain part of the frame state.
+  Node* EmptyStateValues();
 
   // Create a control node that serves as dependency for dead nodes.
   Node* Dead();
@@ -134,8 +145,15 @@ class JSGraph : public ZoneObject {
 
  private:
   enum CachedNode {
+    kAllocateInNewSpaceStubConstant,
+    kAllocateInOldSpaceStubConstant,
+    kToNumberBuiltinConstant,
     kCEntryStubConstant,
     kEmptyFixedArrayConstant,
+    kEmptyLiteralsArrayConstant,
+    kHeapNumberMapConstant,
+    kOptimizedOutConstant,
+    kStaleRegisterConstant,
     kUndefinedConstant,
     kTheHoleConstant,
     kTrueConstant,
@@ -144,7 +162,7 @@ class JSGraph : public ZoneObject {
     kZeroConstant,
     kOneConstant,
     kNaNConstant,
-    kEmptyFrameState,
+    kEmptyStateValues,
     kDead,
     kNumCachedNodes  // Must remain last.
   };

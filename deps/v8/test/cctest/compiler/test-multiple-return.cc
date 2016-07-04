@@ -27,8 +27,7 @@ CallDescriptor* GetCallDescriptor(Zone* zone, int return_count,
                                   int param_count) {
   MachineSignature::Builder msig(zone, return_count, param_count);
   LocationSignature::Builder locations(zone, return_count, param_count);
-  const RegisterConfiguration* config =
-      RegisterConfiguration::ArchDefault(RegisterConfiguration::TURBOFAN);
+  const RegisterConfiguration* config = RegisterConfiguration::Turbofan();
 
   // Add return location(s).
   CHECK(return_count <= config->num_allocatable_general_registers());
@@ -69,7 +68,8 @@ CallDescriptor* GetCallDescriptor(Zone* zone, int return_count,
 
 
 TEST(ReturnThreeValues) {
-  Zone zone;
+  base::AccountingAllocator allocator;
+  Zone zone(&allocator);
   CallDescriptor* desc = GetCallDescriptor(&zone, 3, 2);
   HandleAndZoneScope handles;
   RawMachineAssembler m(handles.main_isolate(),
@@ -84,7 +84,8 @@ TEST(ReturnThreeValues) {
   Node* mul = m.Int32Mul(p0, p1);
   m.Return(add, sub, mul);
 
-  CompilationInfo info("testing", handles.main_isolate(), handles.main_zone());
+  CompilationInfo info(ArrayVector("testing"), handles.main_isolate(),
+                       handles.main_zone());
   Handle<Code> code =
       Pipeline::GenerateCodeForTesting(&info, desc, m.graph(), m.Export());
 #ifdef ENABLE_DISASSEMBLER

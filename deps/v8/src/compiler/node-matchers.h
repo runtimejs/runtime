@@ -157,6 +157,7 @@ struct FloatMatcher final : public ValueMatcher<T, kOpcode> {
   bool IsMinusZero() const {
     return this->Is(0.0) && std::signbit(this->Value());
   }
+  bool IsNegative() const { return this->HasValue() && this->Value() < 0.0; }
   bool IsNaN() const { return this->HasValue() && std::isnan(this->Value()); }
   bool IsZero() const { return this->Is(0.0) && !std::signbit(this->Value()); }
 };
@@ -171,6 +172,10 @@ struct HeapObjectMatcher final
     : public ValueMatcher<Handle<HeapObject>, IrOpcode::kHeapConstant> {
   explicit HeapObjectMatcher(Node* node)
       : ValueMatcher<Handle<HeapObject>, IrOpcode::kHeapConstant>(node) {}
+
+  bool Is(Handle<HeapObject> const& value) const {
+    return this->HasValue() && this->Value().address() == value.address();
+  }
 };
 
 
@@ -253,7 +258,8 @@ typedef BinopMatcher<UintPtrMatcher, UintPtrMatcher> UintPtrBinopMatcher;
 typedef BinopMatcher<Float32Matcher, Float32Matcher> Float32BinopMatcher;
 typedef BinopMatcher<Float64Matcher, Float64Matcher> Float64BinopMatcher;
 typedef BinopMatcher<NumberMatcher, NumberMatcher> NumberBinopMatcher;
-
+typedef BinopMatcher<HeapObjectMatcher, HeapObjectMatcher>
+    HeapObjectBinopMatcher;
 
 template <class BinopMatcher, IrOpcode::Value kMulOpcode,
           IrOpcode::Value kShiftOpcode>

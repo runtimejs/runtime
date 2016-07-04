@@ -90,11 +90,66 @@ class InstructionScheduler final : public ZoneObject {
     int start_cycle_;
   };
 
-  // Compare the two nodes and return true if node1 is a better candidate than
-  // node2 (i.e. node1 should be scheduled before node2).
-  bool CompareNodes(ScheduleGraphNode *node1, ScheduleGraphNode *node2) const;
+  // Keep track of all nodes ready to be scheduled (i.e. all their dependencies
+  // have been scheduled. Note that this class is inteded to be extended by
+  // concrete implementation of the scheduling queue which define the policy
+  // to pop node from the queue.
+  class SchedulingQueueBase {
+   public:
+    explicit SchedulingQueueBase(InstructionScheduler* scheduler)
+      : scheduler_(scheduler),
+        nodes_(scheduler->zone()) {
+    }
 
-  // Perform scheduling for the current block.
+    void AddNode(ScheduleGraphNode* node) {
+      nodes_.push_back(node);
+    }
+
+    bool IsEmpty() const {
+      return nodes_.empty();
+    }
+
+   protected:
+    InstructionScheduler* scheduler_;
+    ZoneLinkedList<ScheduleGraphNode*> nodes_;
+  };
+
+  // A scheduling queue which prioritize nodes on the critical path (we look
+  // for the instruction with the highest latency on the path to reach the end
+  // of the graph).
+  class CriticalPathFirstQueue : public SchedulingQueueBase  {
+   public:
+    explicit CriticalPathFirstQueue(InstructionScheduler* scheduler)
+      : SchedulingQueueBase(scheduler) { }
+
+    // Look for the best candidate to schedule, remove it from the queue and
+    // return it.
+    ScheduleGraphNode* PopBestCandidate(int cycle);
+
+   private:
+    // Compare the two nodes and return true if node1 is a better candidate than
+    // node2 (i.e. node1 should be scheduled before node2).
+    bool CompareNodes(ScheduleGraphNode *node1, ScheduleGraphNode *node2) const;
+  };
+
+  // A queue which pop a random node from the queue to perform stress tests on
+  // the scheduler.
+  class StressSchedulerQueue : public SchedulingQueueBase  {
+   public:
+    explicit StressSchedulerQueue(InstructionScheduler* scheduler)
+      : SchedulingQueueBase(scheduler) { }
+
+    ScheduleGraphNode* PopBestCandidate(int cycle);
+
+   private:
+    Isolate *isolate() {
+      return scheduler_->isolate();
+    }
+  };
+
+  // Perform scheduling for the current block specifying the queue type to
+  // use to determine the next best candidate.
+  template <typename QueueType>
   void ScheduleBlock();
 
   // Return the scheduling properties of the given instruction.
@@ -122,10 +177,12 @@ class InstructionScheduler final : public ZoneObject {
   // Identify nops used as a definition point for live-in registers at
   // function entry.
   bool IsFixedRegisterParameter(const Instruction* instr) const {
-    return (instr->arch_opcode() == kArchNop) &&
-      (instr->OutputCount() == 1) &&
-      (instr->OutputAt(0)->IsUnallocated()) &&
-      UnallocatedOperand::cast(instr->OutputAt(0))->HasFixedRegisterPolicy();
+    return (instr->arch_opcode() == kArchNop) && (instr->OutputCount() == 1) &&
+           (instr->OutputAt(0)->IsUnallocated()) &&
+           (UnallocatedOperand::cast(instr->OutputAt(0))
+                ->HasFixedRegisterPolicy() ||
+            UnallocatedOperand::cast(instr->OutputAt(0))
+                ->HasFixedFPRegisterPolicy());
   }
 
   void ComputeTotalLatencies();
@@ -134,6 +191,7 @@ class InstructionScheduler final : public ZoneObject {
 
   Zone* zone() { return zone_; }
   InstructionSequence* sequence() { return sequence_; }
+  Isolate* isolate() { return sequence()->isolate(); }
 
   Zone* zone_;
   InstructionSequence* sequence_;
@@ -153,6 +211,9 @@ class InstructionScheduler final : public ZoneObject {
   // All these nops are chained together and added as a predecessor of every
   // other instructions in the basic block.
   ScheduleGraphNode* last_live_in_reg_marker_;
+
+  // Last deoptimization instruction encountered while building the graph.
+  ScheduleGraphNode* last_deopt_;
 };
 
 }  // namespace compiler

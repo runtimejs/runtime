@@ -98,6 +98,11 @@ SelectParameters const& SelectParametersOf(const Operator* const op) {
   return OpParameter<SelectParameters>(op);
 }
 
+CallDescriptor const* CallDescriptorOf(const Operator* const op) {
+  DCHECK(op->opcode() == IrOpcode::kCall ||
+         op->opcode() == IrOpcode::kTailCall);
+  return OpParameter<CallDescriptor const*>(op);
+}
 
 size_t ProjectionIndexOf(const Operator* const op) {
   DCHECK_EQ(IrOpcode::kProjection, op->opcode());
@@ -142,20 +147,74 @@ std::ostream& operator<<(std::ostream& os, ParameterInfo const& i) {
   return os;
 }
 
+bool operator==(RelocatablePtrConstantInfo const& lhs,
+                RelocatablePtrConstantInfo const& rhs) {
+  return lhs.rmode() == rhs.rmode() && lhs.value() == rhs.value() &&
+         lhs.type() == rhs.type();
+}
 
-#define CACHED_OP_LIST(V)                                  \
-  V(Dead, Operator::kFoldable, 0, 0, 0, 1, 1, 1)           \
-  V(IfTrue, Operator::kKontrol, 0, 0, 1, 0, 0, 1)          \
-  V(IfFalse, Operator::kKontrol, 0, 0, 1, 0, 0, 1)         \
-  V(IfSuccess, Operator::kKontrol, 0, 0, 1, 0, 0, 1)       \
-  V(IfDefault, Operator::kKontrol, 0, 0, 1, 0, 0, 1)       \
-  V(Throw, Operator::kKontrol, 1, 1, 1, 0, 0, 1)           \
-  V(Terminate, Operator::kKontrol, 0, 1, 1, 0, 0, 1)       \
-  V(OsrNormalEntry, Operator::kFoldable, 0, 1, 1, 0, 1, 1) \
-  V(OsrLoopEntry, Operator::kFoldable, 0, 1, 1, 0, 1, 1)   \
-  V(BeginRegion, Operator::kNoThrow, 0, 1, 0, 0, 1, 0)     \
-  V(FinishRegion, Operator::kNoThrow, 1, 1, 0, 1, 1, 0)
+bool operator!=(RelocatablePtrConstantInfo const& lhs,
+                RelocatablePtrConstantInfo const& rhs) {
+  return !(lhs == rhs);
+}
 
+size_t hash_value(RelocatablePtrConstantInfo const& p) {
+  return base::hash_combine(p.value(), p.rmode(), p.type());
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         RelocatablePtrConstantInfo const& p) {
+  return os << p.value() << "|" << p.rmode() << "|" << p.type();
+}
+
+size_t hash_value(RegionObservability observability) {
+  return static_cast<size_t>(observability);
+}
+
+std::ostream& operator<<(std::ostream& os, RegionObservability observability) {
+  switch (observability) {
+    case RegionObservability::kObservable:
+      return os << "observable";
+    case RegionObservability::kNotObservable:
+      return os << "not-observable";
+  }
+  UNREACHABLE();
+  return os;
+}
+
+RegionObservability RegionObservabilityOf(Operator const* op) {
+  DCHECK_EQ(IrOpcode::kBeginRegion, op->opcode());
+  return OpParameter<RegionObservability>(op);
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         const ZoneVector<MachineType>* types) {
+  // Print all the MachineTypes, separated by commas.
+  bool first = true;
+  for (MachineType elem : *types) {
+    if (!first) {
+      os << ", ";
+    }
+    first = false;
+    os << elem;
+  }
+  return os;
+}
+
+#define CACHED_OP_LIST(V)                                    \
+  V(Dead, Operator::kFoldable, 0, 0, 0, 1, 1, 1)             \
+  V(DeoptimizeIf, Operator::kFoldable, 2, 1, 1, 0, 1, 1)     \
+  V(DeoptimizeUnless, Operator::kFoldable, 2, 1, 1, 0, 1, 1) \
+  V(IfTrue, Operator::kKontrol, 0, 0, 1, 0, 0, 1)            \
+  V(IfFalse, Operator::kKontrol, 0, 0, 1, 0, 0, 1)           \
+  V(IfSuccess, Operator::kKontrol, 0, 0, 1, 0, 0, 1)         \
+  V(IfDefault, Operator::kKontrol, 0, 0, 1, 0, 0, 1)         \
+  V(Throw, Operator::kKontrol, 1, 1, 1, 0, 0, 1)             \
+  V(Terminate, Operator::kKontrol, 0, 1, 1, 0, 0, 1)         \
+  V(OsrNormalEntry, Operator::kFoldable, 0, 1, 1, 0, 1, 1)   \
+  V(OsrLoopEntry, Operator::kFoldable, 0, 1, 1, 0, 1, 1)     \
+  V(Checkpoint, Operator::kKontrol, 0, 1, 1, 0, 1, 0)        \
+  V(FinishRegion, Operator::kKontrol, 1, 1, 0, 1, 1, 0)
 
 #define CACHED_RETURN_LIST(V) \
   V(1)                        \
@@ -334,6 +393,20 @@ struct CommonOperatorGlobalCache final {
   CACHED_EFFECT_PHI_LIST(CACHED_EFFECT_PHI)
 #undef CACHED_EFFECT_PHI
 
+  template <RegionObservability kRegionObservability>
+  struct BeginRegionOperator final : public Operator1<RegionObservability> {
+    BeginRegionOperator()
+        : Operator1<RegionObservability>(                  // --
+              IrOpcode::kBeginRegion, Operator::kKontrol,  // opcode
+              "BeginRegion",                               // name
+              0, 1, 0, 0, 1, 0,                            // counts
+              kRegionObservability) {}                     // parameter
+  };
+  BeginRegionOperator<RegionObservability::kObservable>
+      kBeginRegionObservableOperator;
+  BeginRegionOperator<RegionObservability::kNotObservable>
+      kBeginRegionNotObservableOperator;
+
   template <size_t kInputCount>
   struct LoopOperator final : public Operator {
     LoopOperator()
@@ -396,7 +469,7 @@ struct CommonOperatorGlobalCache final {
               IrOpcode::kProjection,  // opcode
               Operator::kPure,        // flags
               "Projection",           // name
-              1, 0, 0, 1, 0, 0,       // counts,
+              1, 0, 1, 1, 0, 0,       // counts,
               kIndex) {}              // parameter
   };
 #define CACHED_PROJECTION(index) \
@@ -668,6 +741,23 @@ const Operator* CommonOperatorBuilder::HeapConstant(
       value);                                         // parameter
 }
 
+const Operator* CommonOperatorBuilder::RelocatableInt32Constant(
+    int32_t value, RelocInfo::Mode rmode) {
+  return new (zone()) Operator1<RelocatablePtrConstantInfo>(  // --
+      IrOpcode::kRelocatableInt32Constant, Operator::kPure,   // opcode
+      "RelocatableInt32Constant",                             // name
+      0, 0, 0, 1, 0, 0,                                       // counts
+      RelocatablePtrConstantInfo(value, rmode));              // parameter
+}
+
+const Operator* CommonOperatorBuilder::RelocatableInt64Constant(
+    int64_t value, RelocInfo::Mode rmode) {
+  return new (zone()) Operator1<RelocatablePtrConstantInfo>(  // --
+      IrOpcode::kRelocatableInt64Constant, Operator::kPure,   // opcode
+      "RelocatableInt64Constant",                             // name
+      0, 0, 0, 1, 0, 0,                                       // counts
+      RelocatablePtrConstantInfo(value, rmode));              // parameter
+}
 
 const Operator* CommonOperatorBuilder::Select(MachineRepresentation rep,
                                               BranchHint hint) {
@@ -716,24 +806,17 @@ const Operator* CommonOperatorBuilder::EffectPhi(int effect_input_count) {
       0, effect_input_count, 1, 0, 1, 0);     // counts
 }
 
-
-const Operator* CommonOperatorBuilder::Guard(Type* type) {
-  return new (zone()) Operator1<Type*>(      // --
-      IrOpcode::kGuard, Operator::kKontrol,  // opcode
-      "Guard",                               // name
-      1, 0, 1, 1, 0, 0,                      // counts
-      type);                                 // parameter
+const Operator* CommonOperatorBuilder::BeginRegion(
+    RegionObservability region_observability) {
+  switch (region_observability) {
+    case RegionObservability::kObservable:
+      return &cache_.kBeginRegionObservableOperator;
+    case RegionObservability::kNotObservable:
+      return &cache_.kBeginRegionNotObservableOperator;
+  }
+  UNREACHABLE();
+  return nullptr;
 }
-
-
-const Operator* CommonOperatorBuilder::EffectSet(int arguments) {
-  DCHECK(arguments > 1);                      // Disallow empty/singleton sets.
-  return new (zone()) Operator(               // --
-      IrOpcode::kEffectSet, Operator::kPure,  // opcode
-      "EffectSet",                            // name
-      0, arguments, 0, 0, 1, 0);              // counts
-}
-
 
 const Operator* CommonOperatorBuilder::StateValues(int arguments) {
   switch (arguments) {
@@ -803,11 +886,6 @@ const Operator* CommonOperatorBuilder::Call(const CallDescriptor* descriptor) {
 }
 
 
-const Operator* CommonOperatorBuilder::LazyBailout() {
-  return Call(Linkage::GetLazyBailoutDescriptor(zone()));
-}
-
-
 const Operator* CommonOperatorBuilder::TailCall(
     const CallDescriptor* descriptor) {
   class TailCallOperator final : public Operator1<const CallDescriptor*> {
@@ -837,12 +915,12 @@ const Operator* CommonOperatorBuilder::Projection(size_t index) {
       break;
   }
   // Uncached.
-  return new (zone()) Operator1<size_t>(         // --
-      IrOpcode::kProjection,                     // opcode
-      Operator::kFoldable | Operator::kNoThrow,  // flags
-      "Projection",                              // name
-      1, 0, 0, 1, 0, 0,                          // counts
-      index);                                    // parameter
+  return new (zone()) Operator1<size_t>(  // --
+      IrOpcode::kProjection,              // opcode
+      Operator::kPure,                    // flags
+      "Projection",                       // name
+      1, 0, 1, 1, 0, 0,                   // counts
+      index);                             // parameter
 }
 
 
@@ -866,11 +944,9 @@ const Operator* CommonOperatorBuilder::ResizeMergeOrPhi(const Operator* op,
 const FrameStateFunctionInfo*
 CommonOperatorBuilder::CreateFrameStateFunctionInfo(
     FrameStateType type, int parameter_count, int local_count,
-    Handle<SharedFunctionInfo> shared_info,
-    ContextCallingMode context_calling_mode) {
+    Handle<SharedFunctionInfo> shared_info) {
   return new (zone()->New(sizeof(FrameStateFunctionInfo)))
-      FrameStateFunctionInfo(type, parameter_count, local_count, shared_info,
-                             context_calling_mode);
+      FrameStateFunctionInfo(type, parameter_count, local_count, shared_info);
 }
 
 }  // namespace compiler

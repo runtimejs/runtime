@@ -11,13 +11,17 @@
 // -------------------------------------------------------------------
 // Imports
 
-var GlobalObject = global.Object;
 var GlobalSymbol = global.Symbol;
 var hasInstanceSymbol = utils.ImportNow("has_instance_symbol");
 var isConcatSpreadableSymbol =
     utils.ImportNow("is_concat_spreadable_symbol");
 var iteratorSymbol = utils.ImportNow("iterator_symbol");
 var MakeTypeError;
+var matchSymbol = utils.ImportNow("match_symbol");
+var replaceSymbol = utils.ImportNow("replace_symbol");
+var searchSymbol = utils.ImportNow("search_symbol");
+var speciesSymbol = utils.ImportNow("species_symbol");
+var splitSymbol = utils.ImportNow("split_symbol");
 var toPrimitiveSymbol = utils.ImportNow("to_primitive_symbol");
 var toStringTagSymbol = utils.ImportNow("to_string_tag_symbol");
 var unscopablesSymbol = utils.ImportNow("unscopables_symbol");
@@ -73,32 +77,19 @@ function SymbolKeyFor(symbol) {
   return %SymbolRegistry().keyFor[symbol];
 }
 
-
-// ES6 19.1.2.8
-function ObjectGetOwnPropertySymbols(obj) {
-  obj = TO_OBJECT(obj);
-
-  return %GetOwnPropertyKeys(obj, PROPERTY_FILTER_SKIP_STRINGS);
-}
-
 // -------------------------------------------------------------------
 
-%FunctionSetPrototype(GlobalSymbol, new GlobalObject());
-
 utils.InstallConstants(GlobalSymbol, [
-  // TODO(rossberg): expose when implemented.
-  // "hasInstance", hasInstanceSymbol,
-  // "isConcatSpreadable", isConcatSpreadableSymbol,
+  "hasInstance", hasInstanceSymbol,
+  "isConcatSpreadable", isConcatSpreadableSymbol,
   "iterator", iteratorSymbol,
-  // TODO(yangguo): expose when implemented.
-  // "match", matchSymbol,
-  // "replace", replaceSymbol,
-  // "search", searchSymbol,
-  // "split, splitSymbol,
+  "match", matchSymbol,
+  "replace", replaceSymbol,
+  "search", searchSymbol,
+  "species", speciesSymbol,
+  "split", splitSymbol,
   "toPrimitive", toPrimitiveSymbol,
-  // TODO(dslomov, caitp): Currently defined in harmony-tostring.js ---
-  // Move here when shipping
-  // "toStringTag", toStringTagSymbol,
+  "toStringTag", toStringTagSymbol,
   "unscopables", unscopablesSymbol,
 ]);
 
@@ -107,8 +98,6 @@ utils.InstallFunctions(GlobalSymbol, DONT_ENUM, [
   "keyFor", SymbolKeyFor
 ]);
 
-%AddNamedProperty(
-    GlobalSymbol.prototype, "constructor", GlobalSymbol, DONT_ENUM);
 %AddNamedProperty(
     GlobalSymbol.prototype, toStringTagSymbol, "Symbol", DONT_ENUM | READ_ONLY);
 
@@ -119,10 +108,6 @@ utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM | READ_ONLY, [
 utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM, [
   "toString", SymbolToString,
   "valueOf", SymbolValueOf
-]);
-
-utils.InstallFunctions(GlobalObject, DONT_ENUM, [
-  "getOwnPropertySymbols", ObjectGetOwnPropertySymbols
 ]);
 
 // -------------------------------------------------------------------

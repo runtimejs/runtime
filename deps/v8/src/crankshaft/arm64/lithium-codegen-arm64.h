@@ -49,10 +49,8 @@ class LCodeGen: public LCodeGenBase {
   }
 
   bool NeedsEagerFrame() const {
-    return GetStackSlotCount() > 0 ||
-        info()->is_non_deferred_calling() ||
-        !info()->IsStub() ||
-        info()->requires_frame();
+    return HasAllocatedStackSlots() || info()->is_non_deferred_calling() ||
+           !info()->IsStub() || info()->requires_frame();
   }
   bool NeedsDeferredFrame() const {
     return !NeedsEagerFrame() && info()->is_deferred_calling();
@@ -253,7 +251,13 @@ class LCodeGen: public LCodeGenBase {
   void RegisterEnvironmentForDeoptimization(LEnvironment* environment,
                                             Safepoint::DeoptMode mode);
 
-  int GetStackSlotCount() const { return chunk()->spill_slot_count(); }
+  bool HasAllocatedStackSlots() const {
+    return chunk()->HasAllocatedStackSlots();
+  }
+  int GetStackSlotCount() const { return chunk()->GetSpillSlotCount(); }
+  int GetTotalFrameSlotCount() const {
+    return chunk()->GetTotalFrameSlotCount();
+  }
 
   void AddDeferredCode(LDeferredCode* code) { deferred_.Add(code, zone()); }
 
@@ -318,14 +322,16 @@ class LCodeGen: public LCodeGenBase {
                                LInstruction* instr,
                                LOperand* context);
 
+  void PrepareForTailCall(const ParameterCount& actual, Register scratch1,
+                          Register scratch2, Register scratch3);
+
   // Generate a direct call to a known function.  Expects the function
   // to be in x1.
   void CallKnownFunction(Handle<JSFunction> function,
                          int formal_parameter_count, int arity,
-                         LInstruction* instr);
+                         bool is_tail_call, LInstruction* instr);
 
-  // Support for recording safepoint and position information.
-  void RecordAndWritePosition(int position) override;
+  // Support for recording safepoint information.
   void RecordSafepoint(LPointerMap* pointers,
                        Safepoint::Kind kind,
                        int arguments,

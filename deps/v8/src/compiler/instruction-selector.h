@@ -52,7 +52,7 @@ class InstructionSelector final {
   InstructionSelector(
       Zone* zone, size_t node_count, Linkage* linkage,
       InstructionSequence* sequence, Schedule* schedule,
-      SourcePositionTable* source_positions,
+      SourcePositionTable* source_positions, Frame* frame,
       SourcePositionMode source_position_mode = kCallSourcePositions,
       Features features = SupportedFeatures());
 
@@ -100,6 +100,17 @@ class InstructionSelector final {
   Instruction* Emit(Instruction* instr);
 
   // ===========================================================================
+  // ===== Architecture-independent deoptimization exit emission methods. ======
+  // ===========================================================================
+
+  Instruction* EmitDeoptimize(InstructionCode opcode, InstructionOperand output,
+                              InstructionOperand a, InstructionOperand b,
+                              Node* frame_state);
+  Instruction* EmitDeoptimize(InstructionCode opcode, size_t output_count,
+                              InstructionOperand* outputs, size_t input_count,
+                              InstructionOperand* inputs, Node* frame_state);
+
+  // ===========================================================================
   // ============== Architecture-independent CPU feature methods. ==============
   // ===========================================================================
 
@@ -128,6 +139,8 @@ class InstructionSelector final {
   // TODO(sigurds) This should take a CpuFeatures argument.
   static MachineOperatorBuilder::Flags SupportedMachineOperatorFlags();
 
+  static MachineOperatorBuilder::AlignmentRequirements AlignmentRequirements();
+
   // ===========================================================================
   // ============ Architecture-independent graph covering methods. =============
   // ===========================================================================
@@ -137,6 +150,31 @@ class InstructionSelector final {
   // instruction. A node can be covered if the {user} of the node has the only
   // edge and the two are in the same basic block.
   bool CanCover(Node* user, Node* node) const;
+
+  // Used in pattern matching during code generation.
+  // This function checks that {node} and {user} are in the same basic block,
+  // and that {user} is the only user of {node} in this basic block.  This
+  // check guarantees that there are no users of {node} scheduled between
+  // {node} and {user}, and thus we can select a single instruction for both
+  // nodes, if such an instruction exists. This check can be used for example
+  // when selecting instructions for:
+  //   n = Int32Add(a, b)
+  //   c = Word32Compare(n, 0, cond)
+  //   Branch(c, true_label, false_label)
+  // Here we can generate a flag-setting add instruction, even if the add has
+  // uses in other basic blocks, since the flag-setting add instruction will
+  // still generate the result of the addition and not just set the flags.
+  // However, if we had uses of the add in the same basic block, we could have:
+  //   n = Int32Add(a, b)
+  //   o = OtherOp(n, ...)
+  //   c = Word32Compare(n, 0, cond)
+  //   Branch(c, true_label, false_label)
+  // where we cannot select the add and the compare together.  If we were to
+  // select a flag-setting add instruction for Word32Compare and Int32Add while
+  // visiting Word32Compare, we would then have to select an instruction for
+  // OtherOp *afterwards*, which means we would attempt to use the result of
+  // the add before we have defined it.
+  bool IsOnlyUserOfNodeInSameBlock(Node* user, Node* node) const;
 
   // Checks if {node} was already defined, and therefore code was already
   // generated for it.
@@ -148,6 +186,9 @@ class InstructionSelector final {
 
   // Checks if {node} is currently live.
   bool IsLive(Node* node) const { return !IsDefined(node) && IsUsed(node); }
+
+  // Gets the effect level of {node}.
+  int GetEffectLevel(Node* node) const;
 
   int GetVirtualRegister(const Node* node);
   const std::map<NodeId, int> GetVirtualRegistersForTesting() const;
@@ -167,6 +208,9 @@ class InstructionSelector final {
   // Inform the instruction selection that {node} has at least one use and we
   // will need to generate code for it.
   void MarkAsUsed(Node* node);
+
+  // Sets the effect level of {node}.
+  void SetEffectLevel(Node* node, int effect_level);
 
   // Inform the register allocation of the representation of the value produced
   // by {node}.
@@ -205,8 +249,9 @@ class InstructionSelector final {
   // {call_code_immediate} to generate immediate operands to calls of code.
   // {call_address_immediate} to generate immediate operands to address calls.
   void InitializeCallBuffer(Node* call, CallBuffer* buffer,
-                            CallBufferFlags flags, int stack_param_delta = 0);
+                            CallBufferFlags flags, int stack_slot_delta = 0);
   bool IsTailCallAddressImmediate();
+  int GetTempsCountForTailCallFromJSFunction();
 
   FrameStateDescriptor* GetFrameStateDescriptor(Node* node);
 
@@ -224,12 +269,15 @@ class InstructionSelector final {
   // Visit the node and generate code, if any.
   void VisitNode(Node* node);
 
+  // Visit the node and generate code for IEEE 754 functions.
+  void VisitFloat64Ieee754Binop(Node*, InstructionCode code);
+  void VisitFloat64Ieee754Unop(Node*, InstructionCode code);
+
 #define DECLARE_GENERATOR(x) void Visit##x(Node* node);
   MACHINE_OP_LIST(DECLARE_GENERATOR)
 #undef DECLARE_GENERATOR
 
   void VisitFinishRegion(Node* node);
-  void VisitGuard(Node* node);
   void VisitParameter(Node* node);
   void VisitIfException(Node* node);
   void VisitOsrValue(Node* node);
@@ -237,6 +285,8 @@ class InstructionSelector final {
   void VisitProjection(Node* node);
   void VisitConstant(Node* node);
   void VisitCall(Node* call, BasicBlock* handler = nullptr);
+  void VisitDeoptimizeIf(Node* node);
+  void VisitDeoptimizeUnless(Node* node);
   void VisitTailCall(Node* call);
   void VisitGoto(BasicBlock* target);
   void VisitBranch(Node* input, BasicBlock* tbranch, BasicBlock* fbranch);
@@ -247,6 +297,9 @@ class InstructionSelector final {
 
   void EmitPrepareArguments(ZoneVector<compiler::PushParameter>* arguments,
                             const CallDescriptor* descriptor, Node* node);
+
+  void EmitIdentity(Node* node);
+  bool CanProduceSignalingNaN(Node* node);
 
   // ===========================================================================
 
@@ -269,8 +322,10 @@ class InstructionSelector final {
   ZoneVector<Instruction*> instructions_;
   BoolVector defined_;
   BoolVector used_;
+  IntVector effect_level_;
   IntVector virtual_registers_;
   InstructionScheduler* scheduler_;
+  Frame* frame_;
 };
 
 }  // namespace compiler

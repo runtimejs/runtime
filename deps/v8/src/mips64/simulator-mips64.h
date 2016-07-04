@@ -31,7 +31,6 @@ namespace internal {
 // should act as a function matching the type arm_regexp_matcher.
 // The fifth (or ninth) argument is a dummy that reserves the space used for
 // the return address added by the ExitFrame in native calls.
-#ifdef MIPS_ABI_N64
 typedef int (*mips_regexp_matcher)(String* input,
                                    int64_t start_offset,
                                    const byte* input_start,
@@ -47,26 +46,6 @@ typedef int (*mips_regexp_matcher)(String* input,
                                    p7, p8)                                     \
   (FUNCTION_CAST<mips_regexp_matcher>(entry)(p0, p1, p2, p3, p4, p5, p6, p7,   \
                                              NULL, p8))
-
-#else  // O32 Abi.
-
-typedef int (*mips_regexp_matcher)(String* input,
-                                   int32_t start_offset,
-                                   const byte* input_start,
-                                   const byte* input_end,
-                                   void* return_address,
-                                   int* output,
-                                   int32_t output_size,
-                                   Address stack_base,
-                                   int32_t direct_call,
-                                   Isolate* isolate);
-
-#define CALL_GENERATED_REGEXP_CODE(isolate, entry, p0, p1, p2, p3, p4, p5, p6, \
-                                   p7, p8)                                     \
-  (FUNCTION_CAST<mips_regexp_matcher>(entry)(p0, p1, p2, p3, NULL, p4, p5, p6, \
-                                             p7, p8))
-
-#endif  // MIPS_ABI_N64
 
 
 // The stack limit beyond which we will throw stack overflow errors in
@@ -105,7 +84,7 @@ class SimulatorStack : public v8::internal::AllStatic {
 // Running with a simulator.
 
 #include "src/assembler.h"
-#include "src/hashmap.h"
+#include "src/base/hashmap.h"
 
 namespace v8 {
 namespace internal {
@@ -247,7 +226,7 @@ class Simulator {
   // Call on program start.
   static void Initialize(Isolate* isolate);
 
-  static void TearDown(HashMap* i_cache, Redirection* first);
+  static void TearDown(base::HashMap* i_cache, Redirection* first);
 
   // V8 generally calls into generated JS code with 5 parameters and into
   // generated RegExp code with 7 parameters. This is a convenience function,
@@ -267,8 +246,7 @@ class Simulator {
   char* last_debugger_input() { return last_debugger_input_; }
 
   // ICache checking.
-  static void FlushICache(v8::internal::HashMap* i_cache, void* start,
-                          size_t size);
+  static void FlushICache(base::HashMap* i_cache, void* start, size_t size);
 
   // Returns true if pc register contains one of the 'special_values' defined
   // below (bad_ra, end_sim_pc).
@@ -436,10 +414,9 @@ class Simulator {
   }
 
   // ICache.
-  static void CheckICache(v8::internal::HashMap* i_cache, Instruction* instr);
-  static void FlushOnePage(v8::internal::HashMap* i_cache, intptr_t start,
-                           size_t size);
-  static CachePage* GetCachePage(v8::internal::HashMap* i_cache, void* page);
+  static void CheckICache(base::HashMap* i_cache, Instruction* instr);
+  static void FlushOnePage(base::HashMap* i_cache, intptr_t start, size_t size);
+  static CachePage* GetCachePage(base::HashMap* i_cache, void* page);
 
   enum Exception {
     none,
@@ -484,7 +461,7 @@ class Simulator {
   char* last_debugger_input_;
 
   // Icache simulation.
-  v8::internal::HashMap* i_cache_;
+  base::HashMap* i_cache_;
 
   v8::internal::Isolate* isolate_;
 
@@ -516,18 +493,11 @@ class Simulator {
       reinterpret_cast<int64_t*>(p3), reinterpret_cast<int64_t*>(p4)))
 
 
-#ifdef MIPS_ABI_N64
 #define CALL_GENERATED_REGEXP_CODE(isolate, entry, p0, p1, p2, p3, p4, p5, p6, \
                                    p7, p8)                                     \
   static_cast<int>(Simulator::current(isolate)->Call(                          \
       entry, 10, p0, p1, p2, p3, p4, reinterpret_cast<int64_t*>(p5), p6, p7,   \
       NULL, p8))
-#else  // Must be O32 Abi.
-#define CALL_GENERATED_REGEXP_CODE(isolate, entry, p0, p1, p2, p3, p4, p5, p6, \
-                                   p7, p8)                                     \
-  static_cast<int>(Simulator::current(isolate)->Call(                          \
-      entry, 10, p0, p1, p2, p3, NULL, p4, p5, p6, p7, p8))
-#endif  // MIPS_ABI_N64
 
 
 // The simulator has its own stack. Thus it has a different stack limit from

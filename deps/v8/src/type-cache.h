@@ -13,12 +13,13 @@ namespace internal {
 class TypeCache final {
  private:
   // This has to be first for the initialization magic to work.
+  base::AccountingAllocator allocator;
   Zone zone_;
 
  public:
   static TypeCache const& Get();
 
-  TypeCache() = default;
+  TypeCache() : zone_(&allocator) {}
 
   Type* const kInt8 =
       CreateNative(CreateRange<int8_t>(), Type::UntaggedIntegral8());
@@ -41,25 +42,38 @@ class TypeCache final {
 
   Type* const kSingletonZero = CreateRange(0.0, 0.0);
   Type* const kSingletonOne = CreateRange(1.0, 1.0);
+  Type* const kSingletonMinusOne = CreateRange(-1.0, -1.0);
+  Type* const kMinusOneOrZero = CreateRange(-1.0, 0.0);
   Type* const kZeroOrOne = CreateRange(0.0, 1.0);
   Type* const kZeroToThirtyOne = CreateRange(0.0, 31.0);
   Type* const kZeroToThirtyTwo = CreateRange(0.0, 32.0);
   Type* const kZeroish =
       Type::Union(kSingletonZero, Type::MinusZeroOrNaN(), zone());
   Type* const kInteger = CreateRange(-V8_INFINITY, V8_INFINITY);
-  Type* const kPositiveInteger = CreateRange(0.0, V8_INFINITY);
   Type* const kIntegerOrMinusZero =
       Type::Union(kInteger, Type::MinusZero(), zone());
   Type* const kIntegerOrMinusZeroOrNaN =
       Type::Union(kIntegerOrMinusZero, Type::NaN(), zone());
+  Type* const kPositiveInteger = CreateRange(0.0, V8_INFINITY);
+  Type* const kPositiveIntegerOrMinusZero =
+      Type::Union(kPositiveInteger, Type::MinusZero(), zone());
+  Type* const kPositiveIntegerOrMinusZeroOrNaN =
+      Type::Union(kPositiveIntegerOrMinusZero, Type::NaN(), zone());
 
   Type* const kAdditiveSafeInteger =
       CreateRange(-4503599627370496.0, 4503599627370496.0);
   Type* const kSafeInteger = CreateRange(-kMaxSafeInteger, kMaxSafeInteger);
+  Type* const kAdditiveSafeIntegerOrMinusZero =
+      Type::Union(kAdditiveSafeInteger, Type::MinusZero(), zone());
+  Type* const kSafeIntegerOrMinusZero =
+      Type::Union(kSafeInteger, Type::MinusZero(), zone());
   Type* const kPositiveSafeInteger = CreateRange(0.0, kMaxSafeInteger);
+  Type* const kSafeSigned32 = CreateRange(-kMaxInt, kMaxInt);
 
   Type* const kUntaggedUndefined =
       Type::Intersect(Type::Undefined(), Type::Untagged(), zone());
+  Type* const kSigned32OrMinusZero =
+      Type::Union(Type::Signed32(), Type::MinusZero(), zone());
 
   // Asm.js related types.
   Type* const kAsmSigned = kInt32;
@@ -111,10 +125,6 @@ class TypeCache final {
   // [0, String::kMaxLength].
   Type* const kStringLengthType =
       CreateNative(CreateRange(0.0, String::kMaxLength), Type::TaggedSigned());
-
-  // When initializing arrays, we'll unfold the loop if the number of
-  // elements is known to be of this type.
-  Type* const kElementLoopUnrollType = CreateRange(0.0, 16.0);
 
 #define TYPED_ARRAY(TypeName, type_name, TYPE_NAME, ctype, size) \
   Type* const k##TypeName##Array = CreateArray(k##TypeName);

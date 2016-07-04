@@ -41,7 +41,6 @@ void RelocInfo::set_target_address(Address target,
   }
 }
 
-
 inline int CPURegister::code() const {
   DCHECK(IsValid());
   return reg_code;
@@ -693,7 +692,6 @@ Address RelocInfo::target_address() {
   return Assembler::target_address_at(pc_, host_);
 }
 
-
 Address RelocInfo::target_address_address() {
   DCHECK(IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_)
                               || rmode_ == EMBEDDED_OBJECT
@@ -731,8 +729,9 @@ void RelocInfo::set_target_object(Object* target,
   if (write_barrier_mode == UPDATE_WRITE_BARRIER &&
       host() != NULL &&
       target->IsHeapObject()) {
-    host()->GetHeap()->incremental_marking()->RecordWrite(
-        host(), &Memory::Object_at(pc_), HeapObject::cast(target));
+    host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(
+        host(), this, HeapObject::cast(target));
+    host()->GetHeap()->RecordWriteIntoCode(host(), this, target);
   }
 }
 
@@ -852,25 +851,7 @@ void RelocInfo::WipeOut() {
   }
 }
 
-
-bool RelocInfo::IsPatchedReturnSequence() {
-  // The sequence must be:
-  //   ldr ip0, [pc, #offset]
-  //   blr ip0
-  // See arm64/debug-arm64.cc DebugCodegen::PatchDebugBreakSlot
-  Instruction* i1 = reinterpret_cast<Instruction*>(pc_);
-  Instruction* i2 = i1->following();
-  return i1->IsLdrLiteralX() && (i1->Rt() == kIp0Code) &&
-         i2->IsBranchAndLinkToRegister() && (i2->Rn() == kIp0Code);
-}
-
-
-bool RelocInfo::IsPatchedDebugBreakSlotSequence() {
-  Instruction* current_instr = reinterpret_cast<Instruction*>(pc_);
-  return !current_instr->IsNop(Assembler::DEBUG_BREAK_NOP);
-}
-
-
+template <typename ObjectVisitor>
 void RelocInfo::Visit(Isolate* isolate, ObjectVisitor* visitor) {
   RelocInfo::Mode mode = rmode();
   if (mode == RelocInfo::EMBEDDED_OBJECT) {

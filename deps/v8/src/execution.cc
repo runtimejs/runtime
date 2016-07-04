@@ -94,6 +94,7 @@ MUST_USE_RESULT MaybeHandle<Object> Invoke(Isolate* isolate, bool is_construct,
     if (FLAG_profile_deserialization && target->IsJSFunction()) {
       PrintDeserializedCodeInfo(Handle<JSFunction>::cast(target));
     }
+    RuntimeCallTimerScope timer(isolate, &RuntimeCallStats::JS_Execution);
     value = CALL_GENERATED_CODE(isolate, stub_entry, orig_func, func, recv,
                                 argc, argv);
   }
@@ -105,7 +106,7 @@ MUST_USE_RESULT MaybeHandle<Object> Invoke(Isolate* isolate, bool is_construct,
 #endif
 
   // Update the pending exception flag and return the value.
-  bool has_exception = value->IsException();
+  bool has_exception = value->IsException(isolate);
   DCHECK(has_exception == isolate->has_pending_exception());
   if (has_exception) {
     isolate->ReportPendingMessages();
@@ -138,18 +139,9 @@ MaybeHandle<Object> Execution::Call(Isolate* isolate, Handle<Object> callable,
     Handle<JSFunction> function = Handle<JSFunction>::cast(callable);
     SaveContext save(isolate);
     isolate->set_context(function->context());
-    // Do proper receiver conversion for non-strict mode api functions.
-    if (!receiver->IsJSReceiver() &&
-        is_sloppy(function->shared()->language_mode())) {
-      if (receiver->IsUndefined() || receiver->IsNull()) {
-        receiver = handle(function->global_proxy(), isolate);
-      } else {
-        ASSIGN_RETURN_ON_EXCEPTION(
-            isolate, receiver, Execution::ToObject(isolate, receiver), Object);
-      }
-    }
     DCHECK(function->context()->global_object()->IsJSGlobalObject());
-    auto value = Builtins::InvokeApiFunction(function, receiver, argc, argv);
+    auto value =
+        Builtins::InvokeApiFunction(isolate, function, receiver, argc, argv);
     bool has_exception = value.is_null();
     DCHECK(has_exception == isolate->has_pending_exception());
     if (has_exception) {
@@ -421,18 +413,6 @@ void StackGuard::InitThread(const ExecutionAccess& lock) {
 // --- C a l l s   t o   n a t i v e s ---
 
 
-MaybeHandle<JSReceiver> Execution::ToObject(Isolate* isolate,
-                                            Handle<Object> obj) {
-  Handle<JSReceiver> receiver;
-  if (JSReceiver::ToObject(isolate, obj).ToHandle(&receiver)) {
-    return receiver;
-  }
-  THROW_NEW_ERROR(isolate,
-                  NewTypeError(MessageTemplate::kUndefinedOrNullToObject),
-                  JSReceiver);
-}
-
-
 Handle<String> Execution::GetStackTraceLine(Handle<Object> recv,
                                             Handle<JSFunction> fun,
                                             Handle<Object> pos,
@@ -492,7 +472,7 @@ Object* StackGuard::HandleInterrupts() {
 
   isolate_->counters()->stack_interrupts()->Increment();
   isolate_->counters()->runtime_profiler_ticks()->Increment();
-  isolate_->runtime_profiler()->OptimizeNow();
+  isolate_->runtime_profiler()->MarkCandidatesForOptimization();
 
   return isolate_->heap()->undefined_value();
 }

@@ -78,7 +78,8 @@ void Assembler::emit_code_target(Handle<Code> target,
 void Assembler::emit_runtime_entry(Address entry, RelocInfo::Mode rmode) {
   DCHECK(RelocInfo::IsRuntimeEntry(rmode));
   RecordRelocInfo(rmode);
-  emitl(static_cast<uint32_t>(entry - isolate()->code_range()->start()));
+  emitl(static_cast<uint32_t>(
+      entry - isolate()->heap()->memory_allocator()->code_range()->start()));
 }
 
 
@@ -178,11 +179,9 @@ void Assembler::emit_optional_rex_32(Register rm_reg) {
   if (rm_reg.high_bit()) emit(0x41);
 }
 
-
 void Assembler::emit_optional_rex_32(XMMRegister rm_reg) {
   if (rm_reg.high_bit()) emit(0x41);
 }
-
 
 void Assembler::emit_optional_rex_32(const Operand& op) {
   if (op.rex_ != 0) emit(0x40 | op.rex_);
@@ -299,7 +298,8 @@ Handle<Object> Assembler::code_target_object_handle_at(Address pc) {
 
 
 Address Assembler::runtime_entry_at(Address pc) {
-  return Memory::int32_at(pc) + isolate()->code_range()->start();
+  return Memory::int32_at(pc) +
+         isolate()->heap()->memory_allocator()->code_range()->start();
 }
 
 // -----------------------------------------------------------------------------
@@ -325,7 +325,6 @@ Address RelocInfo::target_address() {
   DCHECK(IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_));
   return Assembler::target_address_at(pc_, host_);
 }
-
 
 Address RelocInfo::target_address_address() {
   DCHECK(IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_)
@@ -363,7 +362,6 @@ void RelocInfo::set_target_address(Address target,
         host(), this, HeapObject::cast(target_code));
   }
 }
-
 
 Object* RelocInfo::target_object() {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
@@ -410,8 +408,9 @@ void RelocInfo::set_target_object(Object* target,
   if (write_barrier_mode == UPDATE_WRITE_BARRIER &&
       host() != NULL &&
       target->IsHeapObject()) {
-    host()->GetHeap()->incremental_marking()->RecordWrite(
-        host(), &Memory::Object_at(pc_), HeapObject::cast(target));
+    host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(
+        host(), this, HeapObject::cast(target));
+    host()->GetHeap()->RecordWriteIntoCode(host(), this, target);
   }
 }
 
@@ -456,10 +455,8 @@ void RelocInfo::set_target_cell(Cell* cell,
   }
   if (write_barrier_mode == UPDATE_WRITE_BARRIER &&
       host() != NULL) {
-    // TODO(1550) We are passing NULL as a slot because cell can never be on
-    // evacuation candidate.
-    host()->GetHeap()->incremental_marking()->RecordWrite(
-        host(), NULL, cell);
+    host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(host(), this,
+                                                                  cell);
   }
 }
 
@@ -475,23 +472,6 @@ void RelocInfo::WipeOut() {
   } else {
     UNREACHABLE();
   }
-}
-
-
-bool RelocInfo::IsPatchedReturnSequence() {
-  // The recognized call sequence is:
-  //  movq(kScratchRegister, address); call(kScratchRegister);
-  // It only needs to be distinguished from a return sequence
-  //  movq(rsp, rbp); pop(rbp); ret(n); int3 *6
-  // The 11th byte is int3 (0xCC) in the return sequence and
-  // REX.WB (0x48+register bit) for the call sequence.
-  return pc_[Assembler::kMoveAddressIntoScratchRegisterInstructionLength] !=
-         0xCC;
-}
-
-
-bool RelocInfo::IsPatchedDebugBreakSlotSequence() {
-  return !Assembler::IsNop(pc());
 }
 
 
@@ -539,7 +519,7 @@ void RelocInfo::set_debug_call_address(Address target) {
   }
 }
 
-
+template <typename ObjectVisitor>
 void RelocInfo::Visit(Isolate* isolate, ObjectVisitor* visitor) {
   RelocInfo::Mode mode = rmode();
   if (mode == RelocInfo::EMBEDDED_OBJECT) {

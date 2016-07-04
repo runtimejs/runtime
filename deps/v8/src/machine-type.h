@@ -23,9 +23,12 @@ enum class MachineRepresentation : uint8_t {
   kWord32,
   kWord64,
   kFloat32,
-  kFloat64,
+  kFloat64,  // must follow kFloat32
+  kSimd128,  // must follow kFloat64
   kTagged
 };
+
+const char* MachineReprToString(MachineRepresentation);
 
 enum class MachineSemantic : uint8_t {
   kNone,
@@ -83,6 +86,9 @@ class MachineType {
   static MachineType Float64() {
     return MachineType(MachineRepresentation::kFloat64,
                        MachineSemantic::kNumber);
+  }
+  static MachineType Simd128() {
+    return MachineType(MachineRepresentation::kSimd128, MachineSemantic::kNone);
   }
   static MachineType Int8() {
     return MachineType(MachineRepresentation::kWord8, MachineSemantic::kInt32);
@@ -143,6 +149,9 @@ class MachineType {
   static MachineType RepFloat64() {
     return MachineType(MachineRepresentation::kFloat64, MachineSemantic::kNone);
   }
+  static MachineType RepSimd128() {
+    return MachineType(MachineRepresentation::kSimd128, MachineSemantic::kNone);
+  }
   static MachineType RepTagged() {
     return MachineType(MachineRepresentation::kTagged, MachineSemantic::kNone);
   }
@@ -170,7 +179,8 @@ std::ostream& operator<<(std::ostream& os, MachineType type);
 
 inline bool IsFloatingPoint(MachineRepresentation rep) {
   return rep == MachineRepresentation::kFloat32 ||
-         rep == MachineRepresentation::kFloat64;
+         rep == MachineRepresentation::kFloat64 ||
+         rep == MachineRepresentation::kSimd128;
 }
 
 // Gets the log2 of the element size in bytes of the machine type.
@@ -187,6 +197,8 @@ inline int ElementSizeLog2Of(MachineRepresentation rep) {
     case MachineRepresentation::kWord64:
     case MachineRepresentation::kFloat64:
       return 3;
+    case MachineRepresentation::kSimd128:
+      return 4;
     case MachineRepresentation::kTagged:
       return kPointerSizeLog2;
     default:

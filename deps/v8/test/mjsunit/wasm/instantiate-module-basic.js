@@ -5,58 +5,56 @@
 // Flags: --expose-wasm
 
 load("test/mjsunit/wasm/wasm-constants.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
-var kReturnValue = 117;
+let kReturnValue = 117;
 
-var kBodySize = 2;
-var kNameOffset = 19 + kBodySize + 1;
+let buffer = (() => {
+  let builder = new WasmModuleBuilder();
+  builder.addMemory(1, 1, true);
+  builder.addFunction("main", kSig_i)
+    .addBody([kExprI8Const, kReturnValue])
+    .exportFunc();
 
-var data = bytes(
-  // -- memory
-  kDeclMemory,
-  10, 10, 1,
-  // -- signatures
-  kDeclSignatures, 1,
-  0, kAstI32,                 // signature: void -> int
-  // -- main function
-  kDeclFunctions, 1,
-  kDeclFunctionName | kDeclFunctionExport,
-  0, 0,                       // signature index
-  kNameOffset, 0, 0, 0,       // name offset
-  kBodySize, 0,               // body size
-  // -- body
-  kExprI8Const,               // --
-  kReturnValue,               // --
-  kDeclEnd,
-  'm', 'a', 'i', 'n', 0       // name
-);
+  return builder.toBuffer();
+})()
 
-var module = _WASMEXP_.instantiateModule(data);
+function CheckInstance(instance) {
+  assertFalse(instance === undefined);
+  assertFalse(instance === null);
+  assertFalse(instance === 0);
+  assertEquals("object", typeof instance);
 
-// Check the module exists.
-assertFalse(module === undefined);
-assertFalse(module === null);
-assertFalse(module === 0);
-assertEquals("object", typeof module);
+  // Check the memory is an ArrayBuffer.
+  var mem = instance.exports.memory;
+  assertFalse(mem === undefined);
+  assertFalse(mem === null);
+  assertFalse(mem === 0);
+  assertEquals("object", typeof mem);
+  assertTrue(mem instanceof ArrayBuffer);
+  for (let i = 0; i < 4; i++) {
+    instance.exports.memory = 0;  // should be ignored
+    assertSame(mem, instance.exports.memory);
+  }
 
-// Check the memory is an ArrayBuffer.
-var mem = module.memory;
-assertFalse(mem === undefined);
-assertFalse(mem === null);
-assertFalse(mem === 0);
-assertEquals("object", typeof mem);
-assertTrue(mem instanceof ArrayBuffer);
-for (var i = 0; i < 4; i++) {
-  module.memory = 0;  // should be ignored
-  assertEquals(mem, module.memory);
+  assertEquals(65536, instance.exports.memory.byteLength);
+
+  // Check the properties of the main function.
+  let main = instance.exports.main;
+  assertFalse(main === undefined);
+  assertFalse(main === null);
+  assertFalse(main === 0);
+  assertEquals("function", typeof main);
+
+  assertEquals(kReturnValue, main());
 }
 
-assertEquals(1024, module.memory.byteLength);
+// Deprecated experimental API.
+CheckInstance(Wasm.instantiateModule(buffer));
 
-// Check the properties of the main function.
-assertFalse(module.main === undefined);
-assertFalse(module.main === null);
-assertFalse(module.main === 0);
-assertEquals("function", typeof module.main);
+// Official API
+let module = new WebAssembly.Module(buffer);
+CheckInstance(new WebAssembly.Instance(module));
 
-assertEquals(kReturnValue, module.main());
+let promise = WebAssembly.compile(buffer);
+promise.then(module => CheckInstance(new WebAssembly.Instance(module)));
