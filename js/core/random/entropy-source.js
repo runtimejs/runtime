@@ -15,23 +15,18 @@
 'use strict';
 
 class EntropySource {
-  constructor(name) {
-    this._name = name || '';
+  constructor(name = '') {
+    this._name = name;
     this.ongetbytes = null;
   }
-
   getName() {
     return this._name;
   }
-
   /**
    * Request randomness from this entropy source
    */
   getBytes(u8, cb) {
-    if (!this.ongetbytes) {
-      throw new Error('entropy source was not initialized');
-    }
-
+    if (!this.ongetbytes) throw new Error('entropy source was not initialized');
     this.ongetbytes(u8, cb);
   }
 }
