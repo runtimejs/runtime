@@ -14,16 +14,12 @@
 
 'use strict';
 
-var tasks5s = [];
+const tasks5s = [];
 
-setInterval(function() {
-  if (tasks5s.length === 0) {
-    return;
-  }
+setInterval(() => {
+  if (tasks5s.length === 0) return;
 
-  for (var i = 0, l = tasks5s.length; i < l; ++i) {
-    tasks5s[i]();
-  }
+  for (const task of tasks5s) task();
 }, 5000);
 
 /**
@@ -31,6 +27,4 @@ setInterval(function() {
  *
  * @param {function} fn Function to run
  */
-exports.scheduleTask5s = function(fn) {
-  tasks5s.push(fn);
-};
+exports.scheduleTask5s = fn => tasks5s.push(fn);

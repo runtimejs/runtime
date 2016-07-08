@@ -13,16 +13,8 @@
 // limitations under the License.
 
 'use strict';
-var resources = require('./resources');
+const resources = require('./resources');
 
-exports.physicalMemory = function(address, byteLength) {
-  return resources.memoryRange.block(address >>> 0, byteLength >>> 0);
-};
-
-exports.irq = function(number) {
-  return resources.irqRange.irq(number >>> 0);
-};
-
-exports.ioPort = function(number) {
-  return resources.ioRange.port(number >>> 0);
-};
+exports.physicalMemory = (address, byteLength) => resources.memoryRange.block(address >>> 0, byteLength >>> 0); // eslint-disable-line max-len
+exports.irq = number => resources.irqRange.irq(number >>> 0);
+exports.ioPort = number => resources.ioRange.port(number >>> 0);
