@@ -15,7 +15,7 @@ rules:
     - 2
     - 'global'
   max-len:
-    - 2
+    - 1
     -
       code: 100
       tabWidth: 2
@@ -23,6 +23,7 @@ rules:
       ignoreUrls: true
   consistent-return: 1
   no-underscore-dangle: 0
+  global-require: 0
 
 parserOptions:
   ecmaVersion: 6

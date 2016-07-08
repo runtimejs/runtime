@@ -13,6 +13,7 @@
 // limitations under the License.
 
 'use strict';
-var EventController = require('event-controller');
+
+const EventController = require('event-controller');
 exports.onKeydown = new EventController();
 exports.onKeyup = new EventController();
