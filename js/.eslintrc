@@ -1,9 +1,0 @@
-extends:
-  - runtime
-
-plugins:
-  - runtime-internal
-
-globals:
-  debug: true
-  __SYSCALL: true

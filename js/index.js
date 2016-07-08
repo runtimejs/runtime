@@ -14,18 +14,18 @@
 
 'use strict';
 
-var packagejson = require('../package.json');
+const packagejson = require('../package.json');
 require('module-singleton')(packagejson);
 require('./version');
 
 console.log(`runtime.js v${packagejson.version}`);
 console.log('loading...');
 
-var isDebug = packagejson.runtimejs.debug;
-global.debug = isDebug ? console.log : function() {};
+const isDebug = packagejson.runtimejs.debug;
+global.debug = isDebug ? console.log : () => {};
 
 // Load runtime.js core
-var runtime = require('./core');
+const runtime = require('./core');
 
 // Start services
 require('./service/dhcp-client');
@@ -36,24 +36,22 @@ runtime.dns = require('./service/dns-resolver');
 runtime.debug = isDebug;
 
 // Example shell command
-runtime.shell.setCommand('1', function(args, env, cb) {
+runtime.shell.setCommand('1', (args, env, cb) => {
   env.stdio.writeLine('OK.');
-  runtime.dns.resolve('www.google.com', {}, function(err, data) {
-    if (err) {
-      return cb(1);
-    }
+  runtime.dns.resolve('www.google.com', {}, (err, data) => {
+    if (err) return cb(1);
     console.log(JSON.stringify(data));
     cb(0);
   });
 });
 
-runtime.shell.setCommand('poweroff', function(args, env, cb) {
+runtime.shell.setCommand('poweroff', (args, env, cb) => {
   env.stdio.writeLine('Going down, now!');
   runtime.machine.shutdown();
   cb(0);
 });
 
-runtime.shell.setCommand('reboot', function(args, env, cb) {
+runtime.shell.setCommand('reboot', (args, env, cb) => {
   env.stdio.writeLine('Restarting, now!');
   runtime.machine.reboot();
   cb(0);

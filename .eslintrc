@@ -1,0 +1,38 @@
+extends:
+  - airbnb-base
+
+globals:
+  debug: true
+  __SYSCALL: true
+  runtime: true
+
+env:
+  es6: true
+  node: true
+
+rules:
+  strict:
+    - 2
+    - 'global'
+  max-len:
+    - 2
+    -
+      code: 100
+      tabWidth: 2
+      ignoreComments: true
+      ignoreUrls: true
+  consistent-return: 1
+  no-underscore-dangle: 0
+
+parserOptions:
+  ecmaVersion: 6
+  sourceType: 'script'
+  ecmaFeatures:
+    modules: false
+    defaultParams: true
+    classes: true
+    arrowFunctions: true
+    blockBindings: true
+    forOf: true
+    spread: true
+    templateStrings: true

@@ -13,32 +13,18 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var typeutils = require('typeutils');
-var domainRegex = /^[a-z0-9.-]+$/;
+const typeutils = require('typeutils');
+const domainRegex = /^[a-z0-9.-]+$/;
 
-function isDomain(domain) {
-  if (!typeutils.isString(domain)) {
-    return false;
-  }
+module.exports = (domain) => {
+  if (!typeutils.isString(domain)) return false;
 
-  if (domain.length > 255) {
-    return false;
-  }
+  if (domain.length > 255) return false;
 
-  if (!domainRegex.test(domain)) {
-    return false;
-  }
+  if (!domainRegex.test(domain)) return false;
 
-  var labels = domain.split('.');
-  for (var i = 0; i < labels.length; ++i) {
-    var label = labels[i];
-    if (label.length < 1 || label.length > 63) {
-      return false;
-    }
-  }
+  const labels = domain.split('.');
+  for (const label of labels) if (label.length < 1 || label.length > 63) return false;
 
   return true;
-}
-
-module.exports = isDomain;
+};
