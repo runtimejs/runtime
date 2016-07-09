@@ -13,42 +13,38 @@
 // limitations under the License.
 
 'use strict';
-var VirtioDevice = require('./device');
-var runtime = require('../../core');
-var MACAddress = runtime.net.MACAddress;
-var Interface = runtime.net.Interface;
+const VirtioDevice = require('./device');
+const runtime = require('../../core');
+const { MACAddress, Interface } = runtime.net;
 
-var virtioHeader = (function() {
-  var OFFSET_FLAGS = 0;
-  var OFFSET_GSO_TYPE = 1;
-  var OFFSET_HDR_LEN = 2;
-  var OFFSET_GSO_SIZE = 4;
-  var OFFSET_CSUM_START = 6;
-  var OFFSET_CSUM_OFFSET = 8;
-  var optsEmpty = {};
-  var offset = 0;
-
-  function writeVirtioHeader(view, opts) {
-    opts = opts || optsEmpty;
-    view.setUint8(offset + OFFSET_FLAGS, opts.flags >>> 0);
-    view.setUint8(offset + OFFSET_GSO_TYPE, opts.gsoType >>> 0);
-    // view.setUint16(offset + OFFSET_HDR_LEN, opts.hdrLen >>> 0, true);
-    // view.setUint16(offset + OFFSET_GSO_SIZE, opts.gsoSize >>> 0, true);
-    view.setUint16(offset + OFFSET_CSUM_START, opts.csumStart >>> 0, false);
-    view.setUint16(offset + OFFSET_CSUM_OFFSET, opts.csumOffset >>> 0, false);
-  }
+const virtioHeader = (() => {
+  const OFFSET_FLAGS = 0;
+  const OFFSET_GSO_TYPE = 1;
+  // const OFFSET_HDR_LEN = 2;
+  // const OFFSET_GSO_SIZE = 4;
+  const OFFSET_CSUM_START = 6;
+  const OFFSET_CSUM_OFFSET = 8;
+  const optsEmpty = {};
+  const offset = 0;
 
   return {
-    write: writeVirtioHeader,
-    length: 10
+    write(view, opts = optsEmpty) {
+      view.setUint8(offset + OFFSET_FLAGS, opts.flags >>> 0);
+      view.setUint8(offset + OFFSET_GSO_TYPE, opts.gsoType >>> 0);
+      // view.setUint16(offset + OFFSET_HDR_LEN, opts.hdrLen >>> 0, true);
+      // view.setUint16(offset + OFFSET_GSO_SIZE, opts.gsoSize >>> 0, true);
+      view.setUint16(offset + OFFSET_CSUM_START, opts.csumStart >>> 0, false);
+      view.setUint16(offset + OFFSET_CSUM_OFFSET, opts.csumOffset >>> 0, false);
+    },
+    length: 10,
   };
 })();
 
-function initializeNetworkDevice(pciDevice) {
-  var ioSpace = pciDevice.getBAR(0).resource;
-  var irq = pciDevice.getIRQ();
+const initializeNetworkDevice = (pciDevice) => {
+  const ioSpace = pciDevice.getBAR(0).resource;
+  const irq = pciDevice.getIRQ();
 
-  var features = {
+  const features = {
     // Device specific
     VIRTIO_NET_F_CSUM: 0,
     VIRTIO_NET_F_GUEST_CSUM: 1,
@@ -71,15 +67,15 @@ function initializeNetworkDevice(pciDevice) {
 
     // VRing
     VIRTIO_RING_F_NOTIFY_ON_EMPTY: 24,
-    VIRTIO_RING_F_EVENT_IDX: 29
+    VIRTIO_RING_F_EVENT_IDX: 29,
   };
 
-  var dev = new VirtioDevice('net', ioSpace);
+  const dev = new VirtioDevice('net', ioSpace);
   dev.setDriverAck();
 
-  var driverFeatures = {
+  const driverFeatures = {
     VIRTIO_NET_F_MAC: true,    // able to read MAC address
-    VIRTIO_NET_F_STATUS: true  // able to check network status
+    VIRTIO_NET_F_STATUS: true, // able to check network status
     // VIRTIO_RING_F_NOTIFY_ON_EMPTY: true
     // VIRTIO_NET_F_CSUM: true,   // checksum offload
     // VIRTIO_NET_F_GUEST_CSUM: true,   // ok without cksum
@@ -87,7 +83,7 @@ function initializeNetworkDevice(pciDevice) {
     // VIRTIO_RING_F_EVENT_IDX: true // using index to suppress interrupts
   };
 
-  var deviceFeatures = dev.readDeviceFeatures(features);
+  const deviceFeatures = dev.readDeviceFeatures(features);
   debug(JSON.stringify(deviceFeatures));
 
   if (deviceFeatures.VIRTIO_NET_F_GSO) {
@@ -96,60 +92,47 @@ function initializeNetworkDevice(pciDevice) {
   }
 
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
-    debug('[virtio] driver is unable to start');
-    return;
+    return debug('[virtio] driver is unable to start');
   }
 
-  var hwAddr = dev.netReadHWAddress();
-  var status = dev.netReadStatus();
+  const hwAddr = dev.netReadHWAddress();
+  const status = dev.netReadStatus();
 
-  if (!status) {
-    return;
-  }
+  if (!status) return;
 
-  var QUEUE_ID_RECV = 0;
-  var QUEUE_ID_TRANSMIT = 1;
+  const QUEUE_ID_RECV = 0;
+  const QUEUE_ID_TRANSMIT = 1;
 
-  var recvQueue = dev.queueSetup(QUEUE_ID_RECV);
-  var transmitQueue = dev.queueSetup(QUEUE_ID_TRANSMIT);
+  const recvQueue = dev.queueSetup(QUEUE_ID_RECV);
+  const transmitQueue = dev.queueSetup(QUEUE_ID_TRANSMIT);
   transmitQueue.suppressUsedBuffers();
 
-  function fillReceiveQueue() {
+  const fillReceiveQueue = () => {
     while (recvQueue.descriptorTable.descriptorsAvailable) {
-      if (!recvQueue.placeBuffers([new Uint8Array(1536)], true)) {
-        break;
-      }
+      if (!recvQueue.placeBuffers([new Uint8Array(1536)], true)) break;
     }
 
-    if (recvQueue.isNotificationNeeded()) {
-      dev.queueNotify(QUEUE_ID_RECV);
-    }
-  }
+    if (recvQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_RECV);
+  };
 
-  var mac = new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
-                           hwAddr[3], hwAddr[4], hwAddr[5]);
-  var intf = new Interface(mac);
+  const mac = new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
+                             hwAddr[3], hwAddr[4], hwAddr[5]);
+  const intf = new Interface(mac);
   intf.setBufferDataOffset(virtioHeader.length);
-  intf.ontransmit = function(u8headers, u8data) {
+  intf.ontransmit = (u8headers, u8data) => {
     if (u8data) {
       transmitQueue.placeBuffers([u8headers, u8data], false);
     } else {
       transmitQueue.placeBuffers([u8headers], false);
     }
 
-    if (transmitQueue.isNotificationNeeded()) {
-      dev.queueNotify(QUEUE_ID_TRANSMIT);
-    }
+    if (transmitQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_TRANSMIT);
   };
 
-  function recvBuffer(u8) {
-    intf.receive(u8);
-  }
+  const recvBuffer = u8 => intf.receive(u8);
 
-  irq.on(function() {
-    if (!dev.hasPendingIRQ()) {
-      return;
-    }
+  irq.on(() => {
+    if (!dev.hasPendingIRQ()) return;
 
     recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
@@ -157,7 +140,7 @@ function initializeNetworkDevice(pciDevice) {
 
   // Under high load we're missing interrupts. This needs to be fixed.
   // This setInterval hack clears pending IRQ flag and rechecks queues.
-  setInterval(function() {
+  setInterval(() => {
     dev.hasPendingIRQ();
     recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
@@ -167,6 +150,6 @@ function initializeNetworkDevice(pciDevice) {
   fillReceiveQueue();
 
   runtime.net.interfaceAdd(intf);
-}
+};
 
 module.exports = initializeNetworkDevice;

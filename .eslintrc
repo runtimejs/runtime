@@ -21,7 +21,7 @@ rules:
       tabWidth: 2
       ignoreComments: true
       ignoreUrls: true
-  consistent-return: 1
+  consistent-return: 0
   no-underscore-dangle: 0
   global-require: 0
 

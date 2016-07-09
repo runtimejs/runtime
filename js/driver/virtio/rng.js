@@ -13,62 +13,53 @@
 // limitations under the License.
 
 'use strict';
-var VirtioDevice = require('./device');
-var runtime = require('../../core');
+const VirtioDevice = require('./device');
+const runtime = require('../../core');
 
-function initializeRNGDevice(pciDevice) {
-  var ioSpace = pciDevice.getBAR(0).resource;
-  var irq = pciDevice.getIRQ();
-  var allocator = runtime.allocator;
+const initializeRNGDevice = (pciDevice) => {
+  const ioSpace = pciDevice.getBAR(0).resource;
+  const irq = pciDevice.getIRQ();
+  const allocator = runtime.allocator;
 
-  var features = {};
+  const features = {};
 
-  var dev = new VirtioDevice('rng', ioSpace, allocator);
+  const dev = new VirtioDevice('rng', ioSpace, allocator);
   dev.setDriverAck();
 
-  var driverFeatures = {};
-  var deviceFeatures = dev.readDeviceFeatures(driverFeatures);
+  const driverFeatures = {};
+  const deviceFeatures = dev.readDeviceFeatures(driverFeatures);
 
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
-    debug('[virtio] driver is unable to start');
-    return;
+    return debug('[virtio] driver is unable to start');
   }
 
-  var QUEUE_ID_REQ = 0;
+  const QUEUE_ID_REQ = 0;
 
-  var reqQueue = dev.queueSetup(QUEUE_ID_REQ);
-  var cbqueue = [];
+  const reqQueue = dev.queueSetup(QUEUE_ID_REQ);
+  const cbqueue = [];
 
-  function recvBuffer() {
-    if (cbqueue.length === 0) {
-      return;
-    }
-
+  const recvBuffer = () => {
+    if (cbqueue.length === 0) return;
     cbqueue.shift()();
-  }
+  };
 
-  irq.on(function() {
-    if (!dev.hasPendingIRQ()) {
-      return;
-    }
-
+  irq.on(() => {
+    if (!dev.hasPendingIRQ()) return;
     reqQueue.fetchBuffers(recvBuffer);
   });
 
   dev.setDriverReady();
 
-  var source = new runtime.random.EntropySource('virtio-rng');
+  const source = new runtime.random.EntropySource('virtio-rng');
 
-  source.ongetbytes = function(u8, cb) {
+  source.ongetbytes = (u8, cb) => {
     cbqueue.push(cb);
     reqQueue.placeBuffers([u8], true);
 
-    if (reqQueue.isNotificationNeeded()) {
-      dev.queueNotify(QUEUE_ID_REQ);
-    }
+    if (reqQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_REQ);
   };
 
   runtime.random.addEntropySource(source);
-}
+};
 
 module.exports = initializeRNGDevice;
