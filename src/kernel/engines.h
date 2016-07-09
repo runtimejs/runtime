@@ -69,13 +69,13 @@ public:
 
     v8::V8::SetEntropySource(EntropySource);
 
-    v8::V8::InitializePlatform(v8_platform_);
-    v8::V8::Initialize();
-
 #if 0
-    const char flags[] = "--trace-deopt --redirect_code_traces_to=deopt";
+    const char flags[] = "--expose-wasm";
     v8::V8::SetFlagsFromString(flags, sizeof(flags));
 #endif
+
+    v8::V8::InitializePlatform(v8_platform_);
+    v8::V8::Initialize();
   }
 
   void Startup() {

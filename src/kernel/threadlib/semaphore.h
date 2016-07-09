@@ -29,6 +29,12 @@ namespace threadlib {
       }
 
       bool timed_wait(uint64_t max_time_microseconds) {
+        // Special case for 0ms wait time, return the result immediately
+        // so we can avoid unexpected sched() call
+        if (max_time_microseconds == 0) {
+          return try_wait();
+        }
+
         uint64_t end_time = get_time_microseconds() + max_time_microseconds;
         while (!try_wait()) {
           if (get_time_microseconds() > end_time) {

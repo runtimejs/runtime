@@ -405,6 +405,11 @@ struct timeval Time::ToTimeval() const {
 
 #elif V8_OS_RUNTIMEJS
 
+V8_INLINE int64_t ClockNow(clockid_t clk_id) {
+  RT_ASSERT(GLOBAL_platform());
+  return GLOBAL_platform()->BootTimeMicroseconds();
+}
+
 Time Time::Now() {
   // Uncomment for snapshot generation
   // return Time(1);

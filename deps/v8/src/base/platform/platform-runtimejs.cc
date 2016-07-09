@@ -131,6 +131,9 @@ bool OS::isDirectorySeparator(const char ch) {
 }
 
 
+char OS::DirectorySeparator() { return '/'; }
+
+
 FILE* OS::OpenTemporaryFile() {
   RT_ASSERT(!"tmptile()");
   return nullptr;
@@ -407,6 +410,16 @@ bool VirtualMemory::CommitRegion(void* base, size_t size, bool is_executable) {
 
 
 bool VirtualMemory::UncommitRegion(void* base, size_t size) {
+  return true;
+}
+
+
+bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
+                                         void* free_start, size_t free_size) {
+  RT_ASSERT(reinterpret_cast<size_t>(base) + size == reinterpret_cast<size_t>(free_start) + free_size);
+  void* new_base = realloc(base, size - free_size);
+  RT_ASSERT(base == new_base); // ensure we're using the same memory
+  printf("[V8] Partial realloc\n");
   return true;
 }
 
