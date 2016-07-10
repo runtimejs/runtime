@@ -16,7 +16,7 @@ You can still use `for-in`, just be sure you know [the catch](https://developer.
 
 You *can* use 'dangling' underscores to denote a private member on an object or class.
 Some APIs were written before this style was adopted which use underscores for private members and probably won't be changed for compatability.
-However, for any new APIs, it'd be prefered to use a [`Symbol`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol) instead, like:
+However, for any new APIs, it'd be preferred to use a [`Symbol`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol) instead, like:
 
 ```js
 const somePrivateVarName = Symbol('somePrivateVarName');
@@ -30,3 +30,7 @@ class Demo {
   }
 }
 ```
+
+## Using `get` and `set`
+
+You can (and should) use ES6 `get` and `set`, it's already used in various runtime.js APIs.

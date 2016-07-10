@@ -17,11 +17,11 @@ exports.Error = Error;
 
 class SystemError {
   constructor(message, errcode, call) {
-    var msg = '';
+    let msg = '';
     if (errcode) msg += `${errcode}: `;
     if (message) msg += message;
     if (call) msg += `, ${call}`;
-    var err = new Error(msg);
+    const err = new Error(msg);
     err.code = errcode || '';
     err.syscall = call || '';
     return err;

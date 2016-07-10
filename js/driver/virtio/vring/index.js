@@ -111,14 +111,14 @@ class VRing {
     return true;
   }
   getBuffer() {
-    const hasUnprocessed = self.usedRing.hasUnprocessedBuffers();
+    const hasUnprocessed = this.usedRing.hasUnprocessedBuffers();
     if (!hasUnprocessed) return null;
 
     const used = this.usedRing.getUsedDescriptor();
     if (used === null) return null;
 
     const descriptorId = used.id;
-    const buffer = self.descriptorTable.getBuffer(descriptorId);
+    const buffer = this.descriptorTable.getBuffer(descriptorId);
     const len = used.len;
 
     this.availableRing.setEventIdx(this.usedRing.lastUsedIndex + 1);
@@ -128,7 +128,7 @@ class VRing {
       console.log('VRING ERROR: buffer is not a Uint8Array');
       console.log('used.descriptor id ', descriptorId);
       console.log('used.len ', len);
-      console.log('last used index ', self.usedRing.lastUsedIndex);
+      console.log('last used index ', this.usedRing.lastUsedIndex);
       return null;
     }
 

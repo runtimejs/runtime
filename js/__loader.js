@@ -225,7 +225,6 @@ ${content}
     constants: 'constants-browserify',
     fs: './modules/fs.js',
     os: './modules/os.js',
-    __errors__: './modules/errors.js',
     net: './modules/net.js',
     dns: './modules/dns.js',
     punycode: 'punycode',
@@ -273,6 +272,5 @@ ${content}
   process.termout = new TermoutStream();
   process.termerr = new TermerrStream();
   loader.require('console');
-  Object.assign(global, loader.require('__errors__'));
   loader.require('/');
 })();

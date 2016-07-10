@@ -14,19 +14,27 @@
 'use strict';
 
 const util = require('util');
+const stream = require('stream');
 
 class Console {
   constructor(stdout, stderr) {
-    if (!stdout) throw new Error('Console: Must provide a stdout stream to the constructor.');
+    if (!stdout || (!(stdout instanceof stream.Writable) && !(stdout instanceof stream.Duplex))) {
+      throw new TypeError('Console expects a writable stream instance');
+    }
     this._stdout = stdout;
-    if (stderr) this._stderr = stderr;
+    if (stderr) {
+      if (!(stderr instanceof stream.Writable) && !(stderr instanceof stream.Duplex)) {
+        throw new TypeError('Console expects writable stream instances');
+      }
+      this._stderr = stderr;
+    }
     this._labels = {};
   }
   assert(val, ...data) {
     if (!val) throw new Error(util.format(...data));
   }
-  dir(obj, opts) {
-    opts = opts || {};
+  dir(obj, optsOpt = {}) {
+    const opts = optsOpt;
     opts.customInspect = true;
     this._stdout.write(util.inspect(obj, opts));
   }
@@ -37,18 +45,16 @@ class Console {
   log(...data) {
     this._stdout.write(`${util.format(...data)}\n`);
   }
-  time(label) {
-    if (!label) label = 'undefined';
+  time(label = 'undefined') {
     this._labels[label] = Date.now();
   }
-  timeEnd(label) {
-    if (!label) label = 'undefined'
-    if (!this._labels[label]) throw new Error('Console.timeEnd: Label does not exist.');
-    this._stdout.write(`${label}: ${Date.now()-this._labels[label]}ms\n`);
+  timeEnd(label = 'undefined') {
+    if (!this._labels[label]) process.emitWarning(`No such label ${label} for console.timeEnd()`);
+    this._stdout.write(`${label}: ${Date.now() - this._labels[label]}ms\n`);
   }
   trace(...data) {
     let trace = (new Error()).stack;
-    let arr = trace.split('\n');
+    const arr = trace.split('\n');
     arr[0] = 'Trace';
     if (data.length > 0) arr[0] += `: ${util.format(...data)}`;
     trace = arr.join('\n');
@@ -62,5 +68,18 @@ class Console {
   }
 }
 
-module.exports = Console;
 global.console = new Console(process.stdout, process.stderr);
+
+const bound = [
+  'assert',
+  'dir',
+  'error',
+  'log',
+  'time',
+  'timeEnd',
+  'trace',
+  'info',
+  'warn',
+];
+for (const item of bound) module.exports[item] = console[item].bind(console);
+module.exports.Console = Console;

@@ -13,66 +13,35 @@
 // limitations under the License.
 'use strict';
 
-var interfaces = require('../core/net/interfaces');
+const interfaces = require('../core/net/interfaces');
+const mem = () => Math.pow(2, 32);
 
-exports.EOL = '\n';
-
-exports.arch = function() {
-  return process.arch;
-};
-
-exports.cpus = function() {
-  return [];
-};
-
-exports.endianness = function() {
-  return 'LE';
-};
-
-exports.freemem = exports.totalmem = function() {
-  return Math.pow(2, 32);
-};
-
-exports.homedir = function() {
-  return '/';
-};
-
-exports.hostname = function() {
-  return 'runtime';
-};
-
-exports.loadavg = function() {
-  return [0, 0, 0];
-};
-
-exports.networkInterfaces = function() {
-  var ret = {};
-  for (var intf of interfaces.getAll()) {
-    ret[intf.name] = [{
-      address: intf.ipAddr.toString(),
-      netmask: intf.netmask.toString(),
-      family: 'IPv4',
-      mac: intf.macAddr.toString(),
-      internal: false // since it's unknown whether it's internal, let's go with false by default
-    }];
-  }
-  return ret;
-};
-
-exports.platform = function() {
-  return process.platform;
-};
-
-exports.release = function() {
-  return __SYSCALL.version().kernel;
-};
-
-exports.tmpdir = function() {
-  return '/tmp';
-};
-
-exports.type = function() {
-  return 'runtime';
-};
-
-exports.uptime = process.uptime;
+Object.assign(exports, {
+  EOL: '\n',
+  arch: () => process.arch,
+  cpus: () => [],
+  endianness: () => 'LE',
+  freemem: mem,
+  totalmem: mem,
+  homedir: () => '/',
+  hostname: () => 'runtime',
+  loadavg: () => [0, 0, 0],
+  networkInterfaces() {
+    const ret = {};
+    for (const intf of interfaces.getAll()) {
+      ret[intf.name] = [{
+        address: intf.ipAddr.toString(),
+        netmask: intf.netmask.toString(),
+        family: 'IPv4',
+        mac: intf.macAddr.toString(),
+        internal: false, // since it's unknown whether it's internal, let's go with false by default
+      }];
+    }
+    return ret;
+  },
+  platform: () => process.platform,
+  release: () => __SYSCALL.version().kernel,
+  uptime: process.uptime,
+  tmpdir: () => '/tmp',
+  type: () => 'runtime',
+});

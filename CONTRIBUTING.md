@@ -1,12 +1,12 @@
 # Contributing to runtime.js
 
-Firstly, thanks for deciding to contribute! :+1:
+First off, thanks for deciding to contribute! :+1:
 
 ## Got an issue?
 
  * Make sure the issue isn't already reported by checking in [Issues](https://github.com/runtimejs/runtime/issues).
  * Include the version of the kernel and JavaScript library in the issue description.
- * Include a description of what happens or what the issue/bug does and what the expected behavior is.
+ * Include a description of what happens and what the expected behavior is.
 
 ## Cool feature request?
 

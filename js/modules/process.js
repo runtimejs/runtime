@@ -13,78 +13,89 @@
 // limitations under the License.
 'use strict';
 
-module.exports = {
-  abort: function() {
-    throw new Error('abort()');
-  },
-  arch: 'x64', // since runtime.js only runs in qemu-system-x86_64, it's an x64 system.
-  argv: [],
-  binding: function(name) {
-    throw new Error('no such module: ' + name);
-  },
-  chdir: function() {
-    throw new Error('chdir is not supported');
-  },
-  config: {},
-  connected: false,
-  cwd: function() {
-    return '/';
-  },
-  disconnect: function() {},
-  env: {},
-  execArgv: [],
-  execPath: '',
-  exit: function() {
-    throw new Error('exit()');
-  },
-  exitCode: 0,
-  hrtime: function(prev) {
-    var now = performance.now();
-    var time = now / 1000;
-    var seconds = Math.round(time);
-    var nanoseconds = Math.floor((time % 1) * 1e9);
+const EventEmitter = require('events');
 
-    if (prev) {
-      seconds -= prev[0];
-      nanoseconds -= prev[1];
-      if (nanoseconds < 0) {
-        seconds -= 1;
-        nanoseconds += 1e9;
-      }
-    }
+class Warning extends Error {
+  constructor(msg, name) {
+    super();
+    this.name = name;
+    this.message = msg;
+  }
+}
 
-    return [seconds, nanoseconds];
-  },
-  kill: function() {},
-  mainModule: void 0,
-  memoryUsage: function() {
-    return {
-      rss: 0,
-      heapTotal: 0,
-      heapUsed: 0
-    };
-  },
-  nextTick: function nextTick(fn, ...args) {
-    setImmediate(function() {
-      fn(...args);
+class Process extends EventEmitter {
+  constructor() {
+    super();
+    Object.assign(this, {
+      abort() {
+        throw new Error('abort()');
+      },
+      arch: 'x64', // since runtime.js only runs in qemu-system-x86_64, it's an x64 system.
+      argv: [],
+      binding(name) {
+        throw new Error(`no such module: ${name}`);
+      },
+      chdir() {
+        throw new Error('chdir is not supported');
+      },
+      config: {},
+      connected: false,
+      cwd: () => '/',
+      disconnect() {},
+      emitWarning: (msgOpt, name = 'Warning') => {
+        let msg = msgOpt;
+        if (!(msg instanceof Error)) msg = new Warning(msg, name);
+        if (this.listenerCount('warning') !== 0) return this.emit('warning', msg);
+        console.error(`(runtime) ${msg.name}${msg.message ? `: ${msg.message}` : ''}`);
+      },
+      env: {},
+      execArgv: [],
+      execPath: '',
+      exit() {
+        throw new Error('exit()');
+      },
+      exitCode: 0,
+      hrtime(prev) {
+        const now = performance.now();
+        const time = now / 1000;
+        let seconds = Math.round(time);
+        let nanoseconds = Math.floor((time % 1) * 1e9);
+
+        if (prev) {
+          seconds -= prev[0];
+          nanoseconds -= prev[1];
+          if (nanoseconds < 0) {
+            seconds -= 1;
+            nanoseconds += 1e9;
+          }
+        }
+
+        return [seconds, nanoseconds];
+      },
+      kill() {},
+      mainModule: void 0,
+      memoryUsage: () => ({
+        rss: 0,
+        heapTotal: 0,
+        heapUsed: 0,
+      }),
+      nextTick: (fn, ...args) => setImmediate(() => fn(...args)),
+      pid: 1,
+      platform: 'runtime',
+      release: {
+        name: 'runtime',
+      },
+      send: void 0,
+      stderr: null,
+      stdin: null,
+      stdout: null,
+      title: '',
+      umask: () => 0,
+      uptime: () => Math.round(performance.now() / 1000),
+      version: '0.0.0',
+      versions: {},
     });
-  },
-  pid: 1,
-  platform: 'runtime',
-  release: {
-    name: 'runtime',
-  },
-  send: void 0,
-  stderr: null,
-  stdin: null,
-  stdout: null,
-  title: '',
-  umask: function() {
-    return 0;
-  },
-  uptime: function() {
-    return Math.round(performance.now() / 1000);
-  },
-  version: '0.0.0',
-  versions: {}
-};
+  }
+}
+
+module.exports = new Process();
