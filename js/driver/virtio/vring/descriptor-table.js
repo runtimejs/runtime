@@ -14,16 +14,14 @@
 
 'use strict';
 
-var assert = require('assert');
-var u8view = require('u8-view');
-var runtime = require('../../../core');
-var OFFSET_ADDR = 0;
-var OFFSET_LEN = 8;
-var OFFSET_FLAGS = 12;
-var OFFSET_NEXT = 14;
-var SIZE = 16;
-var VRING_DESC_F_NEXT = 1;
-var VRING_DESC_F_WRITE = 2;
+const u8view = require('u8-view');
+const OFFSET_ADDR = 0;
+const OFFSET_LEN = 8;
+const OFFSET_FLAGS = 12;
+const OFFSET_NEXT = 14;
+const SIZE = 16;
+const VRING_DESC_F_NEXT = 1;
+const VRING_DESC_F_WRITE = 2;
 
 class DescriptorTable {
   constructor(buffer, byteOffset, ringSize) {
@@ -32,14 +30,9 @@ class DescriptorTable {
     this.descriptorsAvailable = ringSize;
     this.descriptorsBuffers = new Array(ringSize);
 
-    var i;
-    for (i = 0; i < ringSize; ++i) {
-      this.descriptorsBuffers[i] = null;
-    }
-
-    for (i = 0; i < ringSize - 1; ++i) {
-      this.setNext(i, i + 1);
-    }
+    let i;
+    for (i = 0; i < ringSize; ++i) this.descriptorsBuffers[i] = null;
+    for (i = 0; i < ringSize - 1; ++i) this.setNext(i, i + 1);
   }
 
   static getDescriptorSizeBytes() {
@@ -47,15 +40,15 @@ class DescriptorTable {
   }
 
   get(descriptorId) {
-    var base = SIZE * descriptorId;
-    var len = u8view.getUint32LE(this.mem, base + OFFSET_LEN);
-    var flags = u8view.getUint16LE(this.mem, base + OFFSET_FLAGS);
-    var next = u8view.getUint16LE(this.mem, base + OFFSET_NEXT);
+    const base = SIZE * descriptorId;
+    const len = u8view.getUint32LE(this.mem, base + OFFSET_LEN);
+    const flags = u8view.getUint16LE(this.mem, base + OFFSET_FLAGS);
+    const next = u8view.getUint16LE(this.mem, base + OFFSET_NEXT);
 
     return {
-      len: len,
-      flags: flags,
-      next: next
+      len,
+      flags,
+      next,
     };
   }
 
@@ -64,8 +57,8 @@ class DescriptorTable {
   }
 
   setBuffer(descriptorId, buf, len, flags) {
-    var base = SIZE * descriptorId;
-    var addr = __SYSCALL.bufferAddress(buf);
+    const base = SIZE * descriptorId;
+    const addr = __SYSCALL.bufferAddress(buf);
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 0, addr[1]); // high
     u8view.setUint32LE(this.mem, base + OFFSET_ADDR + 4, addr[2]); // low
     u8view.setUint32LE(this.mem, base + OFFSET_LEN, len >>> 0);
@@ -73,12 +66,12 @@ class DescriptorTable {
   }
 
   getNext(descriptorId) {
-    var base = SIZE * descriptorId;
+    const base = SIZE * descriptorId;
     return u8view.getUint16LE(this.mem, base + OFFSET_NEXT);
   }
 
   setNext(descriptorId, next) {
-    var base = SIZE * descriptorId;
+    const base = SIZE * descriptorId;
     u8view.setUint16LE(this.mem, base + OFFSET_NEXT, next >>> 0);
   }
 
@@ -90,22 +83,16 @@ class DescriptorTable {
    * @param isWriteOnly {bool} set writeOnly flag for each buffer
    */
   placeBuffers(buffers, lengths, isWriteOnly) {
-    var count = buffers.length;
-    if (this.descriptorsAvailable < count) {
-      return -1;
-    }
+    const count = buffers.length;
+    if (this.descriptorsAvailable < count) return -1;
 
-    var head = this.freeDescriptorHead;
-    var first = head;
-    for (var i = 0; i < count; ++i) {
-      var d = buffers[i];
-      var flags = 0;
-      if (i + 1 !== count) {
-        flags |= VRING_DESC_F_NEXT;
-      }
-      if (isWriteOnly) {
-        flags |= VRING_DESC_F_WRITE;
-      }
+    let head = this.freeDescriptorHead;
+    const first = head;
+    for (let i = 0; i < count; ++i) {
+      const d = buffers[i];
+      let flags = 0;
+      if (count !== i + 1) flags |= VRING_DESC_F_NEXT;
+      if (isWriteOnly) flags |= VRING_DESC_F_WRITE;
 
       this.setBuffer(head, d, lengths[i], flags);
       this.descriptorsBuffers[head] = d;
@@ -118,11 +105,11 @@ class DescriptorTable {
   }
 
   getBuffer(descriptorId) {
-    var nextDescriptorId = descriptorId;
-    var buffer = this.descriptorsBuffers[descriptorId];
+    let nextDescriptorId = descriptorId;
+    const buffer = this.descriptorsBuffers[descriptorId];
     this.descriptorsBuffers[descriptorId] = null;
 
-    var desc = this.get(descriptorId);
+    let desc = this.get(descriptorId);
     while (desc.flags & VRING_DESC_F_NEXT) {
       nextDescriptorId = desc.next;
       desc = this.get(nextDescriptorId);
@@ -137,11 +124,7 @@ class DescriptorTable {
 
   printDebug() {
     console.log('DESCRIPTOR TABLE:');
-    var self = this;
-    this.descriptorsBuffers.forEach(function(buf, i) {
-      var next = self.getNext(i);
-      console.log(`  ${i}: ${buf ? ('<Uint8Array:' + buf.length + '>') : '-'}, next ${next}`);
-    });
+    this.descriptorsBuffers.forEach((buf, i) => console.log(`  ${i}: ${buf ? (`<Uint8Array:${buf.length}>`) : '-'}, next ${this.getNext(i)}`));  // eslint-disable-line max-len
   }
 }
 
