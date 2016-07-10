@@ -15,20 +15,20 @@
 'use strict';
 /* eslint-disable no-alert */
 
-var typeutils = require('typeutils');
-var assert = require('assert');
-var runtime = require('../../core');
-var commands = new Map();
-var stdio = runtime.stdio.defaultStdio;
+const typeutils = require('typeutils');
+const assert = require('assert');
+const runtime = require('../../core');
+const commands = new Map();
+const stdio = runtime.stdio.defaultStdio;
 
-exports.setCommand = function(name, cb) {
+exports.setCommand = (name, cb) => {
   assert(typeutils.isString(name));
   assert(typeutils.isFunction(cb));
   commands.set(name, cb);
 };
 
-exports.runCommand = function(name, args, done) {
-  var opts = {};
+exports.runCommand = (name, args, done) => {
+  let opts = {};
 
   assert(typeutils.isString(name));
 
@@ -39,25 +39,21 @@ exports.runCommand = function(name, args, done) {
     opts.args = opts.args || [];
   }
 
-  var stringargs = opts.args.join(' ');
-
+  const stringargs = opts.args.join(' ');
   opts.stdio = opts.stdio || runtime.stdio.defaultStdio;
-
-  commands.get(name)(stringargs, {
-    stdio: opts.stdio
-  }, done);
+  commands.get(name)(stringargs, { stdio: opts.stdio }, done);
 };
 
-function prompt() {
+const prompt = () => {
   stdio.setColor('yellow');
   stdio.write('$');
   stdio.setColor('white');
   stdio.write(' ');
-  stdio.readLine(function(text) {
-    var name = '';
-    var args = '';
+  stdio.readLine((text) => {
+    let name = '';
+    let args = '';
 
-    var split = text.indexOf(' ');
+    const split = text.indexOf(' ');
     if (split >= 0) {
       name = text.slice(0, split);
       args = text.slice(split);
@@ -65,18 +61,15 @@ function prompt() {
       name = text;
     }
 
-    if (!name) {
-      return prompt();
-    }
+    if (!name) return prompt();
 
     if (commands.has(name)) {
-      return exports.runCommand(name, args.substr(1).split(' '), function(rescode) {
-        var printx = false;
+      return exports.runCommand(name, args.substr(1).split(' '), (rescode) => {
+        let printx = false;
         stdio.write('\n');
+
         // Since 0 == false and other numbers == true, just check for true.
-        if (rescode) {
-          printx = true;
-        }
+        if (rescode) printx = true;
 
         if (printx) {
           stdio.setColor('red');
@@ -88,9 +81,9 @@ function prompt() {
     }
 
     stdio.setColor('lightred');
-    stdio.writeLine('Command "' + name + '" not found.');
+    stdio.writeLine(`Command '${name}' not found.`);
     prompt();
   });
-}
+};
 
 prompt();
