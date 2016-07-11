@@ -77,12 +77,12 @@ const lookup = (hostname, optsOpt, cb) => {
       return;
     }
     const ret = [];
-    for (const i of Object.keys(data.results)) {
+    for (const i of [...data.results.keys()])) {
       const res = data.results[i];
       if (!opts.all && i === 0) {
         const addr = res.address.join('.');
         if (cb) cb(null, addr, 4);
-        break;
+        return;
       } else {
         switch (res.record) {
           case 'A':
