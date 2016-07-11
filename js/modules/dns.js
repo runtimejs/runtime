@@ -53,8 +53,7 @@ const throwIPv6Err = (cb) => {
   throw err;
 };
 
-const lookup = (hostname, optsOpt, cb) => {
-  const opts = optsOpt;
+const lookup = (hostname, opts, cb) => {
   if (opts.family && opts.family === 6) return throwIPv6Err(cb);
   opts.query = opts.query || 'A';
   if (hostname === 'localhost' && opts.query === 'A') {
@@ -77,7 +76,7 @@ const lookup = (hostname, optsOpt, cb) => {
       return;
     }
     const ret = [];
-    for (const i of [...data.results.keys()])) {
+    for (const i of [...data.results.keys()]) {
       const res = data.results[i];
       if (!opts.all && i === 0) {
         const addr = res.address.join('.');
