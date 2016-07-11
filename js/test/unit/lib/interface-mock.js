@@ -14,18 +14,17 @@
 
 'use strict';
 
-var Interface = require('../../../core/net/interface');
-var MACAddress = require('../../../core/net/mac-address');
-var IP4Address = require('../../../core/net/ip4-address');
+const Interface = require('../../../core/net/interface');
+const MACAddress = require('../../../core/net/mac-address');
+const IP4Address = require('../../../core/net/ip4-address');
 
-module.exports = function(opts) {
-  opts = opts || {};
-  var ip = opts.ip || new IP4Address(127, 0, 0, 1);
-  var mask = opts.mask || new IP4Address(255, 0, 0, 0);
-  var mac = opts.mac || new MACAddress(1, 2, 3, 4, 5, 6);
-  var intf = new Interface(mac);
+module.exports = (opts = {}) => {
+  const ip = opts.ip || new IP4Address(127, 0, 0, 1);
+  const mask = opts.mask || new IP4Address(255, 0, 0, 0);
+  const mac = opts.mac || new MACAddress(1, 2, 3, 4, 5, 6);
+  const intf = new Interface(mac);
   intf.disableArp();
   intf.configure(ip, mask);
-  intf.ontransmit = function() {};
+  intf.ontransmit = () => {};
   return intf;
 };

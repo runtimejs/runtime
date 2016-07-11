@@ -24,6 +24,9 @@ rules:
   consistent-return: 0
   no-underscore-dangle: 0
   global-require: 0
+  import/no-extraneous-dependencies: 0
+  no-param-reassign: 1
+  no-return-assign: 1
 
 parserOptions:
   ecmaVersion: 6

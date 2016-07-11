@@ -13,21 +13,18 @@
 // limitations under the License.
 
 'use strict';
-var test = require('tape');
-var runtime = require('../../../core');
-var resources = require('../../../core/resources');
+const test = require('tape');
+const resources = require('../../../core/resources');
 
-test('buffer crosses page boundary', function(t) {
+test('buffer crosses page boundary', (t) => {
   // allocate on page boundary
-  var buf = resources.memoryRange.block(0x3200000 - 12, 24).buffer();
-  var u8 = new Uint8Array(buf);
-  for (var i = 0; i < u8.length; i++) {
-    u8[i] = i;
-  }
+  const buf = resources.memoryRange.block(0x3200000 - 12, 24).buffer();
+  const u8 = new Uint8Array(buf);
+  for (let i = 0; i < u8.length; i++) u8[i] = i;
 
-  var addr = __SYSCALL.bufferAddress(u8);
-  var b1 = u8.subarray(0, addr[0]);
-  var b2 = u8.subarray(addr[0]);
+  const addr = __SYSCALL.bufferAddress(u8);
+  const b1 = u8.subarray(0, addr[0]);
+  const b2 = u8.subarray(addr[0]);
   t.equal(b1.length, 12);
   t.equal(b1[0], 0);
   t.equal(b2.length, 12);
@@ -35,15 +32,13 @@ test('buffer crosses page boundary', function(t) {
   t.end();
 });
 
-test('buffer does not cross page boundary', function(t) {
-  var buf = resources.memoryRange.block(0x3200000, 24).buffer();
-  var u8 = new Uint8Array(buf);
-  for (var i = 0; i < u8.length; i++) {
-    u8[i] = i;
-  }
+test('buffer does not cross page boundary', (t) => {
+  const buf = resources.memoryRange.block(0x3200000, 24).buffer();
+  const u8 = new Uint8Array(buf);
+  for (let i = 0; i < u8.length; i++) u8[i] = i;
 
-  var addr = __SYSCALL.bufferAddress(u8);
-  var b1 = u8.subarray(0, addr[0]);
+  const addr = __SYSCALL.bufferAddress(u8);
+  const b1 = u8.subarray(0, addr[0]);
   t.equal(b1.length, u8.length);
   t.equal(addr[3], 0);
   t.end();
