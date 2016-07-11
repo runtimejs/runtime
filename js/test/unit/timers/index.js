@@ -14,18 +14,14 @@
 
 'use strict';
 
-var test = require('tape');
+const test = require('tape');
 
-test('setTimeout', function(t) {
-  setTimeout(t.end.bind(t), 0);
-});
+test('setTimeout', t => setTimeout(t.end.bind(t), 0));
 
-test('setImmediate', function(t) {
-  setImmediate(t.end.bind(t));
-});
+test('setImmediate', t => setImmediate(t.end.bind(t)));
 
-test('clearTimeout', function(t) {
-  var timer = setTimeout(function() {
+test('clearTimeout', (t) => {
+  const timer = setTimeout(() => {
     t.fail('should not call callback');
     throw new Error('should not call callback');
   }, 0);
@@ -33,8 +29,8 @@ test('clearTimeout', function(t) {
   setTimeout(t.end.bind(t), 0);
 });
 
-test('clearInterval', function(t) {
-  var timer = setInterval(function() {
+test('clearInterval', (t) => {
+  const timer = setInterval(() => {
     t.fail('should not call callback');
     throw new Error('should not call callback');
   }, 0);

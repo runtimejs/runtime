@@ -13,49 +13,45 @@
 // limitations under the License.
 
 'use strict';
-var test = require('tape');
-var resources = require('../../../core/resources');
-var mem = __SYSCALL.allocDMA();
-var VRing = require('../../../driver/virtio/vring');
-var DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
+const test = require('tape');
+const resources = require('../../../core/resources');
+const mem = __SYSCALL.allocDMA();
+const VRing = require('../../../driver/virtio/vring');
+// const DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
 
-function clearBuffer(u8) {
-  for (var i = 0; i < u8.length; ++i) {
-    u8[i] = 0;
-  }
-}
+const clearBuffer = (u8) => {
+  for (let i = 0; i < u8.length; ++i) u8[i] = 0;
+};
 
-function bufferWriteNumbers(u8, value) {
-  for (var i = 0; i < u8.length; ++i) {
-    u8[i] = i + value;
-  }
+const bufferWriteNumbers = (u8, value) => {
+  for (let i = 0; i < u8.length; ++i) u8[i] = i + value;
   return u8;
-}
+};
 
-function getOnePageBuffer(index) {
+const getOnePageBuffer = (index) => {
   index = index | 0;
-  var b = new Uint8Array(resources.memoryRange.block(0x2000000 + index * 22, 22).buffer());
+  const b = new Uint8Array(resources.memoryRange.block(0x2000000 + (index * 22), 22).buffer());
   clearBuffer(b);
   return b;
-}
+};
 
-function getTwoPageBuffer() {
-  var b = new Uint8Array(resources.memoryRange.block(0x2000000 - 12, 22).buffer());
+const getTwoPageBuffer = () => {
+  const b = new Uint8Array(resources.memoryRange.block(0x2000000 - 12, 22).buffer());
   clearBuffer(b);
   return b;
-}
+};
 
-test('ring place one physical page buffer', function(t) {
-  var ring = new VRing(mem, 0, 16);
+test('ring place one physical page buffer', (t) => {
+  const ring = new VRing(mem, 0, 16);
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.equal(ring.availableRing.readIdx(), 0);
   ring.placeBuffers([getOnePageBuffer()], true);
   t.equal(ring.descriptorTable.descriptorsAvailable, 15);
   t.equal(ring.availableRing.readIdx(), 1);
-  var descId = ring.availableRing.readDescriptorAsDevice(0);
+  const descId = ring.availableRing.readDescriptorAsDevice(0);
   t.equal(descId, 0);
-  var firstDesc = ring.descriptorTable.get(descId);
-  var u8devWrite = ring.descriptorTable.getDescriptorBuffer(descId);
+  const firstDesc = ring.descriptorTable.get(descId);
+  const u8devWrite = ring.descriptorTable.getDescriptorBuffer(descId);
   bufferWriteNumbers(u8devWrite, 4);
   t.equal(firstDesc.flags, 2 /* no next flag, write only flag */);
   t.equal(firstDesc.len, 22);
@@ -63,7 +59,7 @@ test('ring place one physical page buffer', function(t) {
   t.equal(ring.usedRing.readIdx(), 0);
   ring.usedRing.placeDescriptorAsDevice(descId, 5 /* bytes written */);
   t.equal(ring.usedRing.readIdx(), 1);
-  var u8 = ring.getBuffer();
+  const u8 = ring.getBuffer();
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.ok(u8 instanceof Uint8Array);
   t.equal(u8.length, 5);
@@ -75,24 +71,24 @@ test('ring place one physical page buffer', function(t) {
   t.end();
 });
 
-test('ring place two physical page buffer', function(t) {
-  var ring = new VRing(mem, 0, 16);
+test('ring place two physical page buffer', (t) => {
+  const ring = new VRing(mem, 0, 16);
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.equal(ring.availableRing.readIdx(), 0);
   ring.placeBuffers([getTwoPageBuffer()], false);
   t.equal(ring.descriptorTable.descriptorsAvailable, 14);
   t.equal(ring.availableRing.readIdx(), 1);
-  var descId = ring.availableRing.readDescriptorAsDevice(0);
+  const descId = ring.availableRing.readDescriptorAsDevice(0);
   t.equal(descId, 0);
-  var firstDesc = ring.descriptorTable.get(descId);
-  var u8devWrite = ring.descriptorTable.getDescriptorBuffer(descId);
+  const firstDesc = ring.descriptorTable.get(descId);
+  const u8devWrite = ring.descriptorTable.getDescriptorBuffer(descId);
   bufferWriteNumbers(u8devWrite, 4);
   t.equal(firstDesc.flags, 1 /* next flag */);
   t.equal(firstDesc.len, 12);
   t.equal(firstDesc.next, 1);
-  var nextDescId = firstDesc.next;
-  var secondDesc = ring.descriptorTable.get(nextDescId);
-  var u8devWrite2 = ring.descriptorTable.getDescriptorBuffer(nextDescId);
+  const nextDescId = firstDesc.next;
+  const secondDesc = ring.descriptorTable.get(nextDescId);
+  const u8devWrite2 = ring.descriptorTable.getDescriptorBuffer(nextDescId);
   bufferWriteNumbers(u8devWrite2, 0);
   t.equal(secondDesc.flags, 0 /* no next flag */);
   t.equal(secondDesc.len, 10);
@@ -100,7 +96,7 @@ test('ring place two physical page buffer', function(t) {
   t.equal(ring.usedRing.readIdx(), 0);
   ring.usedRing.placeDescriptorAsDevice(descId, 15 /* bytes written */);
   t.equal(ring.usedRing.readIdx(), 1);
-  var u8 = ring.getBuffer();
+  const u8 = ring.getBuffer();
   t.equal(ring.descriptorTable.descriptorsAvailable, 16);
   t.ok(u8 instanceof Uint8Array);
   t.equal(u8.length, 15);
@@ -112,16 +108,17 @@ test('ring place two physical page buffer', function(t) {
   t.end();
 });
 
-test('ring fill all slots and process', function(t) {
-  var ring = new VRing(mem, 0, 4 /* slots */);
-  var i, descId;
+test('ring fill all slots and process', (t) => {
+  const ring = new VRing(mem, 0, 4 /* slots */);
+  let i;
+  let descId;
   t.ok(ring.placeBuffers([bufferWriteNumbers(getOnePageBuffer(0), 1)], true));
   t.ok(ring.placeBuffers([bufferWriteNumbers(getOnePageBuffer(1), 2)], true));
   t.ok(ring.placeBuffers([bufferWriteNumbers(getOnePageBuffer(2), 3)], true));
   t.ok(ring.placeBuffers([bufferWriteNumbers(getOnePageBuffer(3), 4)], true));
   t.equal(ring.placeBuffers([getOnePageBuffer(4)], true), false);
 
-  var currentIdx = ring.availableRing.readIdx();
+  const currentIdx = ring.availableRing.readIdx();
   t.equal(currentIdx, 4);
   for (i = 0; i < 3; ++i) {
     descId = ring.availableRing.readDescriptorAsDevice(i);
@@ -141,34 +138,32 @@ test('ring fill all slots and process', function(t) {
   t.end();
 });
 
-test('vring operation', function(t) {
-  var ring = new VRing(mem, 0, 4);
-  var devIndex = 0;
-  var count = 0;
+test('vring operation', (t) => {
+  const ring = new VRing(mem, 0, 4);
+  let devIndex = 0;
+  let count = 0;
 
-  function devProcessAll() {
-    var bytesWritten = 3;
-    var descId = 0;
+  const devProcessAll = () => {
+    const bytesWritten = 3;
+    let descId = 0;
     while (devIndex < ring.availableRing.readIdx()) {
       descId = ring.availableRing.readDescriptorAsDevice();
       ring.usedRing.placeDescriptorAsDevice(descId, bytesWritten);
       --count;
       ++devIndex;
     }
-  }
+  };
 
-  function driverProcessAll() {
+  const driverProcessAll = () => {
     ring.fetchBuffers(null);
     while (ring.descriptorTable.descriptorsAvailable) {
-      if (!ring.placeBuffers([getOnePageBuffer(0)], true)) {
-        break;
-      }
+      if (!ring.placeBuffers([getOnePageBuffer(0)], true)) break;
       ++count;
     }
-  }
+  };
 
   t.equal(count, 0);
-  for (var i = 0; i < 4; ++i) {
+  for (let i = 0; i < 4; ++i) {
     driverProcessAll();
     t.ok(count > 0);
     devProcessAll();

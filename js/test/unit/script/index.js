@@ -14,15 +14,15 @@
 
 'use strict';
 
-var test = require('tape');
+const test = require('tape');
 
-test('div by zero should not trigger CPU Divide Error exception', function(t) {
-  var v = 10;
+test('div by zero should not trigger CPU Divide Error exception', (t) => {
+  const v = 10;
   t.equal(v / 0, Infinity);
   t.end();
 });
 
-test('some math functions (in case they rely on embedded libc)', function(t) {
+test('some math functions (in case they rely on embedded libc)', (t) => {
   t.equal(Math.abs(-45.4), 45.4);
   t.equal(Math.acos(-0.2).toFixed(2), '1.77');
   t.equal((Math.atan2(1, 0) * 2).toFixed(2), '3.14');
@@ -33,12 +33,12 @@ test('some math functions (in case they rely on embedded libc)', function(t) {
   t.end();
 });
 
-test('Math.random', function(t) {
+test('Math.random', (t) => {
   t.equal(typeof Math.random(), 'number');
   t.end();
 });
 
-test('Date object', function(t) {
+test('Date object', (t) => {
   t.equal(typeof new Date(), 'object');
   t.end();
 });
