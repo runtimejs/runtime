@@ -14,14 +14,16 @@
 
 'use strict';
 
-var udp = require('./udp');
-var tcp = require('./tcp');
-var icmp = require('./icmp');
+const udp = require('./udp');
+const tcp = require('./tcp');
+const icmp = require('./icmp');
 
-module.exports = function(intf, srcIP, destIP, protocolId, u8, nextOffset) {
+module.exports = (intf, srcIP, destIP, protocolId, u8, nextOffset) => {
   switch (protocolId) {
-  case 0x01: return icmp.receive(intf, srcIP, destIP, u8, nextOffset);
-  case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
-  case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
+    case 0x01: return icmp.receive(intf, srcIP, destIP, u8, nextOffset);
+    case 0x06: return tcp.receive(intf, srcIP, destIP, u8, nextOffset);
+    case 0x11: return udp.receive(intf, srcIP, destIP, u8, nextOffset);
+    default:
+      break;
   }
 };

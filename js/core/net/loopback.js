@@ -13,22 +13,22 @@
 // limitations under the License.
 
 'use strict';
-var MACAddress = require('./mac-address');
-var Interface = require('./interface');
-var IP4Address = require('./ip4-address');
-var route = require('./route');
+const MACAddress = require('./mac-address');
+const Interface = require('./interface');
+const IP4Address = require('./ip4-address');
+const route = require('./route');
 
-var intf = new Interface(MACAddress.ZERO);
-var ip = new IP4Address(127, 0, 0, 1);
-var mask = new IP4Address(255, 0, 0, 0);
+const intf = new Interface(MACAddress.ZERO);
+const ip = new IP4Address(127, 0, 0, 1);
+const mask = new IP4Address(255, 0, 0, 0);
 intf.disableArp();
 intf.setName('loopback');
 intf.configure(ip, mask);
 
-intf.ontransmit = function(u8headers, u8data) {
-  setTimeout(function() {
+intf.ontransmit = (u8headers, u8data) => {
+  setTimeout(() => {
     if (u8data) {
-      var u8 = new Uint8Array(u8headers.length + u8data.length);
+      const u8 = new Uint8Array(u8headers.length + u8data.length);
       u8.set(u8headers, 0);
       u8.set(u8data, u8headers.length);
       intf.receive(u8);
@@ -38,7 +38,7 @@ intf.ontransmit = function(u8headers, u8data) {
   }, 0);
 };
 
-var subnet = ip.and(mask);
+const subnet = ip.and(mask);
 route.addSubnet(subnet, mask, null, intf);
 
 module.exports = intf;

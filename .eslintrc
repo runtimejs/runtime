@@ -27,6 +27,8 @@ rules:
   import/no-extraneous-dependencies: 0
   no-param-reassign: 1
   no-return-assign: 1
+  new-cap: 1
+  no-console: 0
 
 parserOptions:
   ecmaVersion: 6

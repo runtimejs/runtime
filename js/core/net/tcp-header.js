@@ -13,35 +13,15 @@
 // limitations under the License.
 
 'use strict';
-var u8view = require('u8-view');
+const u8view = require('u8-view');
 
-exports.getSrcPort = function(u8, headerOffset) {
-  return u8view.getUint16BE(u8, headerOffset);
-};
-
-exports.getDestPort = function(u8, headerOffset) {
-  return u8view.getUint16BE(u8, headerOffset + 2);
-};
-
-exports.getSeqNumber = function(u8, headerOffset) {
-  return u8view.getUint32BE(u8, headerOffset + 4) >>> 0;
-};
-
-exports.getAckNumber = function(u8, headerOffset) {
-  return u8view.getUint32BE(u8, headerOffset + 8);
-};
-
-exports.getDataOffset = function(u8, headerOffset) {
-  return (u8[headerOffset + 12] >>> 4) * 4;
-};
-
-exports.getFlags = function(u8, headerOffset) {
-  return u8[headerOffset + 13];
-};
-
-exports.getWindowSize = function(u8, headerOffset) {
-  return u8view.getUint16BE(u8, headerOffset + 14);
-};
+exports.getSrcPort = (u8, headerOffset) => u8view.getUint16BE(u8, headerOffset);
+exports.getDestPort = (u8, headerOffset) => u8view.getUint16BE(u8, headerOffset + 2);
+exports.getSeqNumber = (u8, headerOffset) => u8view.getUint32BE(u8, headerOffset + 4) >>> 0;
+exports.getAckNumber = (u8, headerOffset) => u8view.getUint32BE(u8, headerOffset + 8);
+exports.getDataOffset = (u8, headerOffset) => (u8[headerOffset + 12] >>> 4) * 4;
+exports.getFlags = (u8, headerOffset) => u8[headerOffset + 13];
+exports.getWindowSize = (u8, headerOffset) => u8view.getUint16BE(u8, headerOffset + 14);
 
 exports.headerLength = 20;
 
@@ -52,8 +32,8 @@ exports.FLAG_PSH = 1 << 3; // Push
 exports.FLAG_ACK = 1 << 4; // Ack
 exports.FLAG_URG = 1 << 5; // Urgent
 
-exports.write = function(u8, headerOffset, srcPort, destPort, seqNumber, ackNumber, flags, windowSize) {
-  var dataOffsetWords = 5;
+exports.write = (u8, headerOffset, srcPort, destPort, seqNumber, ackNumber, flags, windowSize) => {
+  const dataOffsetWords = 5;
   u8view.setUint16BE(u8, headerOffset, srcPort);
   u8view.setUint16BE(u8, headerOffset + 2, destPort);
   u8view.setUint32BE(u8, headerOffset + 4, seqNumber);
@@ -65,6 +45,4 @@ exports.write = function(u8, headerOffset, srcPort, destPort, seqNumber, ackNumb
   u8view.setUint16BE(u8, headerOffset + 18, 0); // urgent ptr
 };
 
-exports.writeChecksum = function(u8, headerOffset, checksum) {
-  u8view.setUint16BE(u8, headerOffset + 16, checksum);
-};
+exports.writeChecksum = (u8, headerOffset, checksum) => u8view.setUint16BE(u8, headerOffset + 16, checksum);

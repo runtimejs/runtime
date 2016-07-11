@@ -28,8 +28,8 @@ const bufferWriteNumbers = (u8, value) => {
   return u8;
 };
 
-const getOnePageBuffer = (index) => {
-  index = index | 0;
+const getOnePageBuffer = (indexOpt) => {
+  const index = indexOpt | 0;
   const b = new Uint8Array(resources.memoryRange.block(0x2000000 + (index * 22), 22).buffer());
   clearBuffer(b);
   return b;

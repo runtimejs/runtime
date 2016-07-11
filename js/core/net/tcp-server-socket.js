@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-var TCPSocket = require('./tcp-socket');
+const TCPSocket = require('./tcp-socket');
 
 class TCPServerSocket {
   constructor() {
@@ -23,39 +23,20 @@ class TCPServerSocket {
     this.onerror = null;
     this._port = 0;
 
-    var that = this;
-    this.listeningSocket._onconnect = function(socket) {
-      socket.onopen = function() {
-        if (that.onconnect) {
-          that.onconnect(socket);
-        }
-      };
+    this.listeningSocket._onconnect = (socket) => {
+      socket.onopen = () => (this.onconnect) && this.onconnect(socket);
     };
-    this.listeningSocket.onerror = function(err) {
-      if (that.onerror) {
-        that.onerror(err);
-      }
-    };
-
-    this.listeningSocket.onclose = function() {
-      if (that.onclose) {
-        that.onclose();
-      }
-    };
+    this.listeningSocket.onerror = err => (this.onerror) && this.onerror(err);
+    this.listeningSocket.onclose = () => (this.onclose) && this.onclose();
   }
-
   get localPort() {
     return this._port;
   }
-
   listen(port) {
     this.listeningSocket._listen(port);
     this._port = this.listeningSocket._port;
-    if (this.onlisten) {
-      this.onlisten(this._port);
-    }
+    if (this.onlisten) this.onlisten(this._port);
   }
-
   close() {
     this.listeningSocket.close();
   }

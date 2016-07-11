@@ -13,31 +13,31 @@
 // limitations under the License.
 
 'use strict';
-var checksum = require('./checksum');
-var ethernet = require('./ethernet');
-var ip4header = require('./ip4-header');
-var udpHeader = require('./udp-header');
-var route = require('./route');
+const checksum = require('./checksum');
+const ethernet = require('./ethernet');
+const ip4header = require('./ip4-header');
+const udpHeader = require('./udp-header');
+// const route = require('./route');
 
-module.exports = function(intf, destIP, viaIP, srcPort, destPort, u8data) {
-  var ipOffset = intf.bufferDataOffset + ethernet.headerLength;
-  var udpOffset = ipOffset + ip4header.minHeaderLength;
-  var headerLength = udpOffset + udpHeader.headerLength;
-  var u8headers = new Uint8Array(headerLength);
-  var datagramLength = u8data.length + udpHeader.headerLength;
+module.exports = (intf, destIP, viaIP, srcPort, destPort, u8data) => {
+  const ipOffset = intf.bufferDataOffset + ethernet.headerLength;
+  const udpOffset = ipOffset + ip4header.minHeaderLength;
+  const headerLength = udpOffset + udpHeader.headerLength;
+  const u8headers = new Uint8Array(headerLength);
+  const datagramLength = u8data.length + udpHeader.headerLength;
 
-  var srcIP = intf.ipAddr;
+  const srcIP = intf.ipAddr;
 
   ip4header.write(u8headers, ipOffset, ip4header.PROTOCOL_UDP, srcIP, destIP,
     ip4header.minHeaderLength + udpHeader.headerLength + u8data.length);
   udpHeader.write(u8headers, udpOffset, srcPort, destPort, datagramLength);
 
-  var sum = ((destIP.a << 8) | destIP.b) + ((destIP.c << 8) | destIP.d) +
+  const sum = ((destIP.a << 8) | destIP.b) + ((destIP.c << 8) | destIP.d) +
       ((srcIP.a << 8) | srcIP.b) + ((srcIP.c << 8) | srcIP.d) +
       datagramLength + ip4header.PROTOCOL_UDP +
       srcPort + destPort + datagramLength;
 
-  var ck = checksum(u8data, 0, u8data.length, sum);
+  const ck = checksum(u8data, 0, u8data.length, sum);
   udpHeader.writeChecksum(u8headers, udpOffset, ck);
 
   intf.sendIP4(viaIP || destIP, u8headers, u8data);

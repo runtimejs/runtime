@@ -13,36 +13,30 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var MACAddress = require('./mac-address');
-var u8view = require('u8-view');
+// const assert = require('assert');
+const MACAddress = require('./mac-address');
+const u8view = require('u8-view');
 
 exports.ETHERTYPE_IP4 = 0x0800;
 exports.ETHERTYPE_ARP = 0x0806;
 
-exports.getDestMAC = function(u8, headerOffset) {
-  return new MACAddress(u8[headerOffset + 0],
-                        u8[headerOffset + 1],
-                        u8[headerOffset + 2],
-                        u8[headerOffset + 3],
-                        u8[headerOffset + 4],
-                        u8[headerOffset + 5]);
-};
+exports.getDestMAC = (u8, headerOffset) => (new MACAddress(u8[headerOffset + 0],
+                                                           u8[headerOffset + 1],
+                                                           u8[headerOffset + 2],
+                                                           u8[headerOffset + 3],
+                                                           u8[headerOffset + 4],
+                                                           u8[headerOffset + 5]));
 
-exports.getSrcMAC = function(u8, headerOffset) {
-  return new MACAddress(u8[headerOffset + 6],
-                        u8[headerOffset + 7],
-                        u8[headerOffset + 8],
-                        u8[headerOffset + 9],
-                        u8[headerOffset + 10],
-                        u8[headerOffset + 11]);
-};
+exports.getSrcMAC = (u8, headerOffset) => (new MACAddress(u8[headerOffset + 6],
+                                                          u8[headerOffset + 7],
+                                                          u8[headerOffset + 8],
+                                                          u8[headerOffset + 9],
+                                                          u8[headerOffset + 10],
+                                                          u8[headerOffset + 11]));
 
-exports.getEtherType = function(u8, headerOffset) {
-  return ((u8[headerOffset + 12] << 8) + u8[headerOffset + 13]) >>> 0;
-};
+exports.getEtherType = (u8, headerOffset) => ((u8[headerOffset + 12] << 8) + u8[headerOffset + 13]) >>> 0;
 
-exports.write = function(u8, headerOffset, destMAC, srcMAC, etherType) {
+exports.write = (u8, headerOffset, destMAC, srcMAC, etherType) => {
   u8[headerOffset + 0] = destMAC.a;
   u8[headerOffset + 1] = destMAC.b;
   u8[headerOffset + 2] = destMAC.c;

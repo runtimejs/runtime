@@ -13,8 +13,7 @@
 // limitations under the License.
 
 'use strict';
-var isint = require('isint');
 
-exports.isPort = function(port) {
-  return isint.uint16(port) && port !== 0;
-};
+const isint = require('isint');
+
+exports.isPort = (port) => isint.uint16(port) && port !== 0;

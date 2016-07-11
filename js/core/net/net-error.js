@@ -14,12 +14,16 @@
 
 'use strict';
 
-exports.E_NO_INTERFACE = new Error('E_NO_INTERFACE');
-exports.E_INVALID_PORT = new Error('E_INVALID_PORT');
-exports.E_NO_FREE_PORT = new Error('E_NO_FREE_PORT');
-exports.E_ADDRESS_IN_USE = new Error('E_ADDRESS_IN_USE');
-exports.E_NO_ROUTE_TO_HOST = new Error('E_NO_ROUTE_TO_HOST');
-exports.E_TYPEDARRAY_EXPECTED = new Error('E_BUFFER_EXPECTED');
-exports.E_IPADDRESS_EXPECTED = new Error('E_IPADDRESS_EXPECTED');
-exports.E_INTERFACE_EXPECTED = new Error('E_INTERFACE_EXPECTED');
-exports.E_CANNOT_CLOSE = new Error('E_CANNOT_CLOSE');
+const errs = [
+  'E_NO_INTERFACE',
+  'E_INVALID_PORT',
+  'E_NO_FREE_PORT',
+  'E_ADDRESS_IN_USE',
+  'E_NO_ROUTE_TO_HOST',
+  'E_TYPEDARRAY_EXPECTED',
+  'E_IPADDRESS_EXPECTED',
+  'E_INTERFACE_EXPECTED',
+  'E_CANNOT_CLOSE',
+];
+
+for (const err of errs) exports[err] = new Error(err);

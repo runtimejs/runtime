@@ -14,24 +14,22 @@
 
 'use strict';
 
-var assertError = require('assert-error');
-var IP4Address = require('./ip4-address');
-var icmpTransmit = require('./icmp-transmit');
-var icmpHeader = require('./icmp-header');
-var route = require('./route');
-var netError = require('./net-error');
-var pingListeners = new Map();
+const assertError = require('assert-error');
+const IP4Address = require('./ip4-address');
+const icmpTransmit = require('./icmp-transmit');
+const icmpHeader = require('./icmp-header');
+const route = require('./route');
+const netError = require('./net-error');
+const pingListeners = new Map();
 
-function createPingBuffer(size) {
-  var u8 = new Uint8Array(size);
-  for (var i = 0; i < size; ++i) {
-    u8[i] = 0x61 + (i % 26); // ASCII a-z
-  }
+const createPingBuffer = (size) => {
+  const u8 = new Uint8Array(size);
+  for (let i = 0; i < size; ++i) u8[i] = 0x61 + (i % 26); // ASCII a-z
   return u8;
-}
+};
 
-var nextPingId = 1;
-var defaultPingData = createPingBuffer(56);
+let nextPingId = 1;
+const defaultPingData = createPingBuffer(56);
 
 class Ping {
   constructor() {
@@ -46,26 +44,22 @@ class Ping {
    * sequence number.
    */
   send(ip) {
-    var destIP = IP4Address.parse(ip);
+    const destIP = IP4Address.parse(ip);
     assertError(destIP instanceof IP4Address, netError.E_IPADDRESS_EXPECTED);
 
-    var seq = this._nextSeq++;
-    if (this._nextSeq > 0xffff) {
-      this._nextSeq = 0;
-    }
+    const seq = this._nextSeq++;
+    if (this._nextSeq > 0xffff) this._nextSeq = 0;
 
-    var routingEntry = route.lookup(destIP);
+    const routingEntry = route.lookup(destIP);
     if (!routingEntry) {
-      debug('[ICMP] no route to send ICMP request to ' + destIP);
+      debug(`[ICMP] no route to send ICMP request to ${destIP}`);
       return seq;
     }
 
-    if (!pingListeners.has(this._pingId)) {
-      pingListeners.set(this._pingId, this);
-    }
+    if (!pingListeners.has(this._pingId)) pingListeners.set(this._pingId, this);
 
-    var intf = routingEntry.intf;
-    var viaIP = routingEntry.gateway;
+    const intf = routingEntry.intf;
+    const viaIP = routingEntry.gateway;
     icmpTransmit(intf, destIP, viaIP, icmpHeader.ICMP_TYPE_ECHO_REQUEST, 0,
       icmpHeader.headerValueEcho(this._pingId, seq), this._data);
 
@@ -73,29 +67,21 @@ class Ping {
   }
 
   _receive(srcIP, seq, u8, dataOffset) {
-    var dataLength = u8.length - dataOffset;
-    if (dataLength !== this._data.length) {
-      return;
+    const dataLength = u8.length - dataOffset;
+    if (dataLength !== this._data.length) return;
+
+    for (let i = 0, l = dataLength; i < l; ++i) {
+      if (u8[dataOffset + i] !== this._data[i]) return;
     }
 
-    for (var i = 0, l = dataLength; i < l; ++i) {
-      if (u8[dataOffset + i] !== this._data[i]) {
-        return;
-      }
-    }
-
-    if (this.onreply) {
-      this.onreply(srcIP, seq);
-    }
+    if (this.onreply) this.onreply(srcIP, seq);
   }
 
   /**
    * Stop listening to echo replies.
    */
   close() {
-    if (pingListeners.has(this._pingId)) {
-      pingListeners.delete(this._pingId);
-    }
+    if (pingListeners.has(this._pingId)) pingListeners.delete(this._pingId);
   }
 
   static _receiveLookup(pingId) {

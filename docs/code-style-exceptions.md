@@ -15,7 +15,7 @@ You can still use `for-in`, just be sure you know [the catch](https://developer.
 ## Using 'dangling' underscores
 
 You *can* use 'dangling' underscores to denote a private member on an object or class.
-Some APIs were written before this style was adopted which use underscores for private members and probably won't be changed for compatability.
+Some APIs were written before this style was adopted which use underscores for private members and probably won't be changed for compatibility.
 However, for any new APIs, it'd be preferred to use a [`Symbol`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol) instead, like:
 
 ```js
@@ -33,4 +33,31 @@ class Demo {
 
 ## Using `get` and `set`
 
-You can (and should) use ES6 `get` and `set`, it's already used in various runtime.js APIs.
+You can (and should) use ES6 `get` and `set` in new APIs, it's already used in various runtime.js APIs.
+
+## Assigning to functions parameters
+
+You cannot *reassign* functions parameters, but you can assign to *properties of* function parameters.
+```js
+// yes
+const demo = (myObject) => {
+  myObject.someProperty = 'my value';
+  // ...
+}
+
+// no
+const demo = (myUint8Array) => {
+  myUint8Array = {
+    someProperty: 'my value'
+  };
+  // ...
+}
+```
+
+If you get this warning, it's ok:
+
+> Assignment to **property of** function parameter 'parameter-name'
+
+But this is not:
+
+> Assignment to function parameter 'parameter-name'

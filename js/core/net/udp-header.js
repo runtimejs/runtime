@@ -13,29 +13,19 @@
 // limitations under the License.
 
 'use strict';
-var u8view = require('u8-view');
+const u8view = require('u8-view');
 
-exports.getSrcPort = function(u8, headerOffset) {
-  return ((u8[headerOffset] << 8) + u8[headerOffset + 1]) >>> 0;
-};
-
-exports.getDestPort = function(u8, headerOffset) {
-  return ((u8[headerOffset + 2] << 8) + u8[headerOffset + 3]) >>> 0;
-};
-
-exports.getDataLength = function(u8, headerOffset) {
-  return ((u8[headerOffset + 4] << 8) + u8[headerOffset + 5]) >>> 0;
-};
+exports.getSrcPort = (u8, headerOffset) => ((u8[headerOffset] << 8) + u8[headerOffset + 1]) >>> 0;
+exports.getDestPort = (u8, headerOffset) => ((u8[headerOffset + 2] << 8) + u8[headerOffset + 3]) >>> 0;
+exports.getDataLength = (u8, headerOffset) => ((u8[headerOffset + 4] << 8) + u8[headerOffset + 5]) >>> 0;
 
 exports.headerLength = 8;
 
-exports.write = function(u8, headerOffset, srcPort, destPort, dataLength) {
+exports.write = (u8, headerOffset, srcPort, destPort, dataLength) => {
   u8view.setUint16BE(u8, headerOffset, srcPort);
   u8view.setUint16BE(u8, headerOffset + 2, destPort);
   u8view.setUint16BE(u8, headerOffset + 4, dataLength);
   u8view.setUint16BE(u8, headerOffset + 6, 0);
 };
 
-exports.writeChecksum = function(u8, headerOffset, checksum) {
-  u8view.setUint16BE(u8, headerOffset + 6, checksum);
-};
+exports.writeChecksum = (u8, headerOffset, checksum) => u8view.setUint16BE(u8, headerOffset + 6, checksum);
