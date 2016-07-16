@@ -17,7 +17,11 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kIA32Add:
     case kIA32And:
     case kIA32Cmp:
+    case kIA32Cmp16:
+    case kIA32Cmp8:
     case kIA32Test:
+    case kIA32Test16:
+    case kIA32Test8:
     case kIA32Or:
     case kIA32Xor:
     case kIA32Sub:
@@ -31,6 +35,12 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kIA32Shl:
     case kIA32Shr:
     case kIA32Sar:
+    case kIA32AddPair:
+    case kIA32SubPair:
+    case kIA32MulPair:
+    case kIA32ShlPair:
+    case kIA32ShrPair:
+    case kIA32SarPair:
     case kIA32Ror:
     case kIA32Lzcnt:
     case kIA32Tzcnt:
@@ -61,8 +71,12 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kSSEFloat64Round:
     case kSSEFloat32ToFloat64:
     case kSSEFloat64ToFloat32:
+    case kSSEFloat32ToInt32:
+    case kSSEFloat32ToUint32:
     case kSSEFloat64ToInt32:
     case kSSEFloat64ToUint32:
+    case kSSEInt32ToFloat32:
+    case kSSEUint32ToFloat32:
     case kSSEInt32ToFloat64:
     case kSSEUint32ToFloat64:
     case kSSEFloat64ExtractLowWord32:
@@ -70,6 +84,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kSSEFloat64InsertLowWord32:
     case kSSEFloat64InsertHighWord32:
     case kSSEFloat64LoadLowWord32:
+    case kSSEFloat64SilenceNaN:
     case kAVXFloat32Add:
     case kAVXFloat32Sub:
     case kAVXFloat32Mul:
@@ -112,6 +127,11 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kIA32PushFloat64:
     case kIA32Poke:
       return kHasSideEffect;
+
+    case kIA32Xchgb:
+    case kIA32Xchgw:
+    case kIA32Xchgl:
+      return kIsLoadOperation | kHasSideEffect;
 
 #define CASE(Name) case k##Name:
     COMMON_ARCH_OPCODE_LIST(CASE)

@@ -39,7 +39,11 @@ from testrunner.local import testsuite
 from testrunner.local import utils
 from testrunner.objects import testcase
 
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+ARCHIVE = DATA + ".tar"
+
 TEST_262_HARNESS_FILES = ["sta.js", "assert.js"]
+TEST_262_NATIVE_FILES = ["detachArrayBuffer.js"]
 
 TEST_262_SUITE_PATH = ["data", "test"]
 TEST_262_HARNESS_PATH = ["data", "harness"]
@@ -126,7 +130,14 @@ class Test262TestSuite(testsuite.TestSuite):
   def GetFlagsForTestCase(self, testcase, context):
     return (testcase.flags + context.mode_flags + self.harness +
             self.GetIncludesForTest(testcase) + ["--harmony"] +
-            [os.path.join(self.testroot, testcase.path + ".js")])
+            (["--module"] if "module" in self.GetTestRecord(testcase) else []) +
+            [os.path.join(self.testroot, testcase.path + ".js")] +
+            (["--throws"] if "negative" in self.GetTestRecord(testcase)
+                          else []) +
+            (["--allow-natives-syntax"]
+             if "detachArrayBuffer.js" in
+                self.GetTestRecord(testcase).get("includes", [])
+             else []))
 
   def _VariantGeneratorFactory(self):
     return Test262VariantGenerator
@@ -141,7 +152,7 @@ class Test262TestSuite(testsuite.TestSuite):
         self.ParseTestRecord = module.parseTestRecord
       except:
         raise ImportError("Cannot load parseTestRecord; you may need to "
-                          "--download-data for test262")
+                          "gclient sync for test262")
       finally:
         if f:
           f.close()
@@ -154,11 +165,14 @@ class Test262TestSuite(testsuite.TestSuite):
                                              testcase.path)
     return testcase.test_record
 
+  def BasePath(self, filename):
+    return self.root if filename in TEST_262_NATIVE_FILES else self.harnesspath
+
   def GetIncludesForTest(self, testcase):
     test_record = self.GetTestRecord(testcase)
     if "includes" in test_record:
-      includes = [os.path.join(self.harnesspath, f)
-                  for f in test_record["includes"]]
+      return [os.path.join(self.BasePath(filename), filename)
+              for filename in test_record.get("includes", [])]
     else:
       includes = []
     return includes
@@ -168,13 +182,20 @@ class Test262TestSuite(testsuite.TestSuite):
     with open(filename) as f:
       return f.read()
 
-  def IsNegativeTest(self, testcase):
-    test_record = self.GetTestRecord(testcase)
-    return "negative" in test_record
+  def _ParseException(self, str):
+    for line in str.split("\n")[::-1]:
+      if line and not line[0].isspace() and ":" in line:
+        return line.split(":")[0]
 
-  def IsFailureOutput(self, output, testpath):
+
+  def IsFailureOutput(self, testcase):
+    output = testcase.output
+    test_record = self.GetTestRecord(testcase)
     if output.exit_code != 0:
       return True
+    if "negative" in test_record:
+      if self._ParseException(output.stdout) != test_record["negative"]:
+        return True
     return "FAILED!" in output.stdout
 
   def HasUnexpectedOutput(self, testcase):
@@ -198,6 +219,14 @@ class Test262TestSuite(testsuite.TestSuite):
       print "Clobber outdated test archives ..."
       for f in archive_files:
         os.remove(os.path.join(self.root, f))
+
+    # The archive is created only on swarming. Local checkouts have the
+    # data folder.
+    if os.path.exists(ARCHIVE) and not os.path.exists(DATA):
+      print "Extracting archive..."
+      tar = tarfile.open(ARCHIVE)
+      tar.extractall(path=os.path.dirname(ARCHIVE))
+      tar.close()
 
 
 def GetSuite(name, root):

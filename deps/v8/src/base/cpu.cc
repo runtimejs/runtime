@@ -312,6 +312,8 @@ CPU::CPU()
       architecture_(0),
       variant_(-1),
       part_(0),
+      icache_line_size_(UNKNOWN_CACHE_LINE_SIZE),
+      dcache_line_size_(UNKNOWN_CACHE_LINE_SIZE),
       has_fpu_(false),
       has_cmov_(false),
       has_sahf_(false),
@@ -336,7 +338,8 @@ CPU::CPU()
       has_vfp_(false),
       has_vfp3_(false),
       has_vfp3_d32_(false),
-      is_fp64_mode_(false) {
+      is_fp64_mode_(false),
+      has_non_stop_time_stamp_counter_(false) {
   memcpy(vendor_, "Unknown", 8);
 #if V8_OS_NACL
 // Portable host shouldn't do feature detection.
@@ -417,6 +420,13 @@ CPU::CPU()
     has_sahf_ = (cpu_info[2] & 0x00000001) != 0;
   }
 
+  // Check if CPU has non stoppable time stamp counter.
+  const int parameter_containing_non_stop_time_stamp_counter = 0x80000007;
+  if (num_ext_ids >= parameter_containing_non_stop_time_stamp_counter) {
+    __cpuid(cpu_info, parameter_containing_non_stop_time_stamp_counter);
+    has_non_stop_time_stamp_counter_ = (cpu_info[3] & (1 << 8)) != 0;
+  }
+
 #elif V8_HOST_ARCH_ARM
 
 #if V8_OS_LINUX
@@ -466,7 +476,12 @@ CPU::CPU()
     char* end;
     architecture_ = strtol(architecture, &end, 10);
     if (end == architecture) {
-      architecture_ = 0;
+      // Kernels older than 3.18 report "CPU architecture: AArch64" on ARMv8.
+      if (strcmp(architecture, "AArch64") == 0) {
+        architecture_ = 8;
+      } else {
+        architecture_ = 0;
+      }
     }
     delete[] architecture;
 
@@ -644,9 +659,16 @@ CPU::CPU()
       if (n == 0 || entry.a_type == AT_NULL) {
         break;
       }
-      if (entry.a_type == AT_PLATFORM) {
-        auxv_cpu_type = reinterpret_cast<char*>(entry.a_un.a_val);
-        break;
+      switch (entry.a_type) {
+        case AT_PLATFORM:
+          auxv_cpu_type = reinterpret_cast<char*>(entry.a_un.a_val);
+          break;
+        case AT_ICACHEBSIZE:
+          icache_line_size_ = entry.a_un.a_val;
+          break;
+        case AT_DCACHEBSIZE:
+          dcache_line_size_ = entry.a_un.a_val;
+          break;
       }
     }
     fclose(fp);

@@ -70,10 +70,8 @@ RUNTIME_FUNCTION(Runtime_LiveEditGatherCompileInfo) {
   RUNTIME_ASSERT(script->value()->IsScript());
   Handle<Script> script_handle = Handle<Script>(Script::cast(script->value()));
 
-  Handle<JSArray> result;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, result, LiveEdit::GatherCompileInfo(script_handle, source));
-  return *result;
+  RETURN_RESULT_OR_FAILURE(isolate,
+                           LiveEdit::GatherCompileInfo(script_handle, source));
 }
 
 
@@ -186,7 +184,7 @@ RUNTIME_FUNCTION(Runtime_LiveEditPatchFunctionPositions) {
   DCHECK(args.length() == 2);
   CONVERT_ARG_HANDLE_CHECKED(JSArray, shared_array, 0);
   CONVERT_ARG_HANDLE_CHECKED(JSArray, position_change_array, 1);
-  RUNTIME_ASSERT(SharedInfoWrapper::IsInstance(shared_array))
+  RUNTIME_ASSERT(SharedInfoWrapper::IsInstance(shared_array));
 
   LiveEdit::PatchFunctionPositions(shared_array, position_change_array);
   return isolate->heap()->undefined_value();
@@ -207,21 +205,23 @@ RUNTIME_FUNCTION(Runtime_LiveEditCheckAndDropActivations) {
   USE(new_shared_array);
   RUNTIME_ASSERT(old_shared_array->length()->IsSmi());
   RUNTIME_ASSERT(new_shared_array->length() == old_shared_array->length());
-  RUNTIME_ASSERT(old_shared_array->HasFastElements())
-  RUNTIME_ASSERT(new_shared_array->HasFastElements())
+  RUNTIME_ASSERT(old_shared_array->HasFastElements());
+  RUNTIME_ASSERT(new_shared_array->HasFastElements());
   int array_length = Smi::cast(old_shared_array->length())->value();
   for (int i = 0; i < array_length; i++) {
     Handle<Object> old_element;
     Handle<Object> new_element;
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-        isolate, old_element, Object::GetElement(isolate, old_shared_array, i));
+        isolate, old_element,
+        JSReceiver::GetElement(isolate, old_shared_array, i));
     RUNTIME_ASSERT(
         old_element->IsJSValue() &&
         Handle<JSValue>::cast(old_element)->value()->IsSharedFunctionInfo());
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-        isolate, new_element, Object::GetElement(isolate, new_shared_array, i));
+        isolate, new_element,
+        JSReceiver::GetElement(isolate, new_shared_array, i));
     RUNTIME_ASSERT(
-        new_element->IsUndefined() ||
+        new_element->IsUndefined(isolate) ||
         (new_element->IsJSValue() &&
          Handle<JSValue>::cast(new_element)->value()->IsSharedFunctionInfo()));
   }
@@ -242,7 +242,7 @@ RUNTIME_FUNCTION(Runtime_LiveEditCompareStrings) {
   CONVERT_ARG_HANDLE_CHECKED(String, s2, 1);
 
   Handle<JSArray> result = LiveEdit::CompareStrings(s1, s2);
-  uint32_t array_length;
+  uint32_t array_length = 0;
   CHECK(result->length()->ToArrayLength(&array_length));
   if (array_length > 0) {
     isolate->debug()->feature_tracker()->Track(DebugFeatureTracker::kLiveEdit);
@@ -271,13 +271,16 @@ RUNTIME_FUNCTION(Runtime_LiveEditRestartFrame) {
     return heap->undefined_value();
   }
 
-  JavaScriptFrameIterator it(isolate, id);
+  StackTraceFrameIterator it(isolate, id);
   int inlined_jsframe_index =
       DebugFrameHelper::FindIndexedNonNativeFrame(&it, index);
-  if (inlined_jsframe_index == -1) return heap->undefined_value();
+  // Liveedit is not supported on Wasm.
+  if (inlined_jsframe_index == -1 || it.is_wasm()) {
+    return heap->undefined_value();
+  }
   // We don't really care what the inlined frame index is, since we are
   // throwing away the entire frame anyways.
-  const char* error_message = LiveEdit::RestartFrame(it.frame());
+  const char* error_message = LiveEdit::RestartFrame(it.javascript_frame());
   if (error_message) {
     return *(isolate->factory()->InternalizeUtf8String(error_message));
   }

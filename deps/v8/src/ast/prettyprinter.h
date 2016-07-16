@@ -7,6 +7,7 @@
 
 #include "src/allocation.h"
 #include "src/ast/ast.h"
+#include "src/base/compiler-specific.h"
 
 namespace v8 {
 namespace internal {
@@ -20,7 +21,7 @@ class CallPrinter : public AstVisitor {
   // string. The result string is alive as long as the CallPrinter is alive.
   const char* Print(FunctionLiteral* program, int position);
 
-  void Print(const char* format, ...);
+  void PRINTF_FORMAT(2, 3) Print(const char* format, ...);
 
   void Find(AstNode* node, bool print = false);
 
@@ -31,6 +32,7 @@ class CallPrinter : public AstVisitor {
 
  private:
   void Init();
+  Isolate* isolate_;
   char* output_;  // output string buffer
   int size_;      // output_ size
   int pos_;       // current printing position
@@ -62,7 +64,7 @@ class PrettyPrinter: public AstVisitor {
   const char* PrintExpression(FunctionLiteral* program);
   const char* PrintProgram(FunctionLiteral* program);
 
-  void Print(const char* format, ...);
+  void PRINTF_FORMAT(2, 3) Print(const char* format, ...);
 
   // Print a node to stdout.
   static void PrintOut(Isolate* isolate, AstNode* node);
@@ -73,6 +75,7 @@ class PrettyPrinter: public AstVisitor {
 #undef DECLARE_VISIT
 
  private:
+  Isolate* isolate_;
   char* output_;  // output string buffer
   int size_;  // output_ size
   int pos_;  // current printing position
@@ -103,6 +106,9 @@ class AstPrinter: public PrettyPrinter {
   virtual ~AstPrinter();
 
   const char* PrintProgram(FunctionLiteral* program);
+
+  // Print a node to stdout.
+  static void PrintOut(Isolate* isolate, AstNode* node);
 
   // Individual nodes
 #define DECLARE_VISIT(type) virtual void Visit##type(type* node);

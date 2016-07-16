@@ -172,6 +172,8 @@ void AstValue::Internalize(Isolate* isolate) {
       if (symbol_name_[0] == 'i') {
         DCHECK_EQ(0, strcmp(symbol_name_, "iterator_symbol"));
         value_ = isolate->factory()->iterator_symbol();
+      } else if (strcmp(symbol_name_, "hasInstance_symbol") == 0) {
+        value_ = isolate->factory()->has_instance_symbol();
       } else {
         DCHECK_EQ(0, strcmp(symbol_name_, "home_object_symbol"));
         value_ = isolate->factory()->home_object_symbol();
@@ -358,7 +360,7 @@ AstRawString* AstValueFactory::GetString(uint32_t hash, bool is_one_byte,
   // against the AstRawStrings which are in the string_table_. We should not
   // return this AstRawString.
   AstRawString key(is_one_byte, literal_bytes, hash);
-  HashMap::Entry* entry = string_table_.LookupOrInsert(&key, hash);
+  base::HashMap::Entry* entry = string_table_.LookupOrInsert(&key, hash);
   if (entry->value == NULL) {
     // Copy literal contents for later comparison.
     int length = literal_bytes.length();

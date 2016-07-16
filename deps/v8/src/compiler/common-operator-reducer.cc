@@ -19,16 +19,10 @@ namespace compiler {
 
 namespace {
 
-enum class Decision { kUnknown, kTrue, kFalse };
-
 Decision DecideCondition(Node* const cond) {
   switch (cond->opcode()) {
     case IrOpcode::kInt32Constant: {
       Int32Matcher mcond(cond);
-      return mcond.Value() ? Decision::kTrue : Decision::kFalse;
-    }
-    case IrOpcode::kInt64Constant: {
-      Int64Matcher mcond(cond);
       return mcond.Value() ? Decision::kTrue : Decision::kFalse;
     }
     case IrOpcode::kHeapConstant: {
@@ -57,6 +51,9 @@ Reduction CommonOperatorReducer::Reduce(Node* node) {
   switch (node->opcode()) {
     case IrOpcode::kBranch:
       return ReduceBranch(node);
+    case IrOpcode::kDeoptimizeIf:
+    case IrOpcode::kDeoptimizeUnless:
+      return ReduceDeoptimizeConditional(node);
     case IrOpcode::kMerge:
       return ReduceMerge(node);
     case IrOpcode::kEffectPhi:
@@ -67,8 +64,6 @@ Reduction CommonOperatorReducer::Reduce(Node* node) {
       return ReduceReturn(node);
     case IrOpcode::kSelect:
       return ReduceSelect(node);
-    case IrOpcode::kGuard:
-      return ReduceGuard(node);
     default:
       break;
   }
@@ -123,6 +118,38 @@ Reduction CommonOperatorReducer::ReduceBranch(Node* node) {
   return Replace(dead());
 }
 
+Reduction CommonOperatorReducer::ReduceDeoptimizeConditional(Node* node) {
+  DCHECK(node->opcode() == IrOpcode::kDeoptimizeIf ||
+         node->opcode() == IrOpcode::kDeoptimizeUnless);
+  bool condition_is_true = node->opcode() == IrOpcode::kDeoptimizeUnless;
+  Node* condition = NodeProperties::GetValueInput(node, 0);
+  Node* frame_state = NodeProperties::GetValueInput(node, 1);
+  Node* effect = NodeProperties::GetEffectInput(node);
+  Node* control = NodeProperties::GetControlInput(node);
+  // Swap DeoptimizeIf/DeoptimizeUnless on {node} if {cond} is a BooleaNot
+  // and use the input to BooleanNot as new condition for {node}.  Note we
+  // assume that {cond} was already properly optimized before we get here
+  // (as guaranteed by the graph reduction logic).
+  if (condition->opcode() == IrOpcode::kBooleanNot) {
+    NodeProperties::ReplaceValueInput(node, condition->InputAt(0), 0);
+    NodeProperties::ChangeOp(node, condition_is_true
+                                       ? common()->DeoptimizeIf()
+                                       : common()->DeoptimizeUnless());
+    return Changed(node);
+  }
+  Decision const decision = DecideCondition(condition);
+  if (decision == Decision::kUnknown) return NoChange();
+  if (condition_is_true == (decision == Decision::kTrue)) {
+    ReplaceWithValue(node, dead(), effect, control);
+  } else {
+    control = graph()->NewNode(common()->Deoptimize(DeoptimizeKind::kEager),
+                               frame_state, effect, control);
+    // TODO(bmeurer): This should be on the AdvancedReducer somehow.
+    NodeProperties::MergeControlToEnd(graph(), common(), control);
+    Revisit(graph()->end());
+  }
+  return Replace(dead());
+}
 
 Reduction CommonOperatorReducer::ReduceMerge(Node* node) {
   DCHECK_EQ(IrOpcode::kMerge, node->opcode());
@@ -358,16 +385,6 @@ Reduction CommonOperatorReducer::ReduceSelect(Node* node) {
     default:
       break;
   }
-  return NoChange();
-}
-
-
-Reduction CommonOperatorReducer::ReduceGuard(Node* node) {
-  DCHECK_EQ(IrOpcode::kGuard, node->opcode());
-  Node* const input = NodeProperties::GetValueInput(node, 0);
-  Type* const input_type = NodeProperties::GetTypeOrAny(input);
-  Type* const guard_type = OpParameter<Type*>(node);
-  if (input_type->Is(guard_type)) return Replace(input);
   return NoChange();
 }
 

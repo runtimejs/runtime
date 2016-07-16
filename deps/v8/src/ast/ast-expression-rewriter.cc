@@ -70,12 +70,6 @@ void AstExpressionRewriter::VisitImportDeclaration(ImportDeclaration* node) {
 }
 
 
-void AstExpressionRewriter::VisitExportDeclaration(ExportDeclaration* node) {
-  // Not visiting `proxy_`.
-  NOTHING();
-}
-
-
 void AstExpressionRewriter::VisitBlock(Block* node) {
   VisitStatements(node->statements());
 }
@@ -169,12 +163,10 @@ void AstExpressionRewriter::VisitForInStatement(ForInStatement* node) {
 
 
 void AstExpressionRewriter::VisitForOfStatement(ForOfStatement* node) {
-  AST_REWRITE_PROPERTY(Expression, node, each);
   AST_REWRITE_PROPERTY(Expression, node, assign_iterator);
   AST_REWRITE_PROPERTY(Expression, node, next_result);
   AST_REWRITE_PROPERTY(Expression, node, result_done);
   AST_REWRITE_PROPERTY(Expression, node, assign_each);
-  AST_REWRITE_PROPERTY(Expression, node, subject);
   AST_REWRITE_PROPERTY(Statement, node, body);
 }
 
@@ -398,10 +390,10 @@ void AstExpressionRewriter::VisitDoExpression(DoExpression* node) {
 }
 
 
-void AstExpressionRewriter::VisitRewritableAssignmentExpression(
-    RewritableAssignmentExpression* node) {
+void AstExpressionRewriter::VisitRewritableExpression(
+    RewritableExpression* node) {
   REWRITE_THIS(node);
-  AST_REWRITE_PROPERTY(Expression, node, expression);
+  AST_REWRITE(Expression, node->expression(), node->Rewrite(replacement));
 }
 
 

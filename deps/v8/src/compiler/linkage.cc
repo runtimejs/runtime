@@ -63,9 +63,6 @@ std::ostream& operator<<(std::ostream& os, const CallDescriptor::Kind& k) {
     case CallDescriptor::kCallAddress:
       os << "Addr";
       break;
-    case CallDescriptor::kLazyBailout:
-      os << "LazyBail";
-      break;
   }
   return os;
 }
@@ -91,7 +88,7 @@ bool CallDescriptor::HasSameReturnLocationsAs(
 
 bool CallDescriptor::CanTailCall(const Node* node,
                                  int* stack_param_delta) const {
-  CallDescriptor const* other = OpParameter<CallDescriptor const*>(node);
+  CallDescriptor const* other = CallDescriptorOf(node->op());
   size_t current_input = 0;
   size_t other_input = 0;
   *stack_param_delta = 0;
@@ -100,14 +97,14 @@ bool CallDescriptor::CanTailCall(const Node* node,
   while (more_other || more_this) {
     if (other_input < other->InputCount()) {
       if (!other->GetInputLocation(other_input).IsRegister()) {
-        (*stack_param_delta)--;
+        (*stack_param_delta)++;
       }
     } else {
       more_other = false;
     }
     if (current_input < InputCount()) {
       if (!GetInputLocation(current_input).IsRegister()) {
-        (*stack_param_delta)++;
+        (*stack_param_delta)--;
       }
     } else {
       more_this = false;
@@ -115,26 +112,12 @@ bool CallDescriptor::CanTailCall(const Node* node,
     ++current_input;
     ++other_input;
   }
-  return HasSameReturnLocationsAs(OpParameter<CallDescriptor const*>(node));
+  return HasSameReturnLocationsAs(CallDescriptorOf(node->op()));
 }
 
 
 CallDescriptor* Linkage::ComputeIncoming(Zone* zone, CompilationInfo* info) {
-  if (info->code_stub() != nullptr) {
-    // Use the code stub interface descriptor.
-    CodeStub* stub = info->code_stub();
-    CallInterfaceDescriptor descriptor = stub->GetCallInterfaceDescriptor();
-    return GetStubCallDescriptor(
-        info->isolate(), zone, descriptor, stub->GetStackParameterCount(),
-        CallDescriptor::kNoFlags, Operator::kNoProperties);
-  }
-  if (info->has_literal()) {
-    // If we already have the function literal, use the number of parameters
-    // plus the receiver.
-    return GetJSCallDescriptor(zone, info->is_osr(),
-                               1 + info->literal()->parameter_count(),
-                               CallDescriptor::kNoFlags);
-  }
+  DCHECK(!info->IsStub());
   if (!info->closure().is_null()) {
     // If we are compiling a JS function, use a JS call descriptor,
     // plus the receiver.
@@ -148,20 +131,21 @@ CallDescriptor* Linkage::ComputeIncoming(Zone* zone, CompilationInfo* info) {
 
 
 // static
-int Linkage::FrameStateInputCount(Runtime::FunctionId function) {
+bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
   // Most runtime functions need a FrameState. A few chosen ones that we know
   // not to call into arbitrary JavaScript, not to throw, and not to deoptimize
   // are blacklisted here and can be called without a FrameState.
   switch (function) {
+    case Runtime::kAbort:
     case Runtime::kAllocateInTargetSpace:
     case Runtime::kCreateIterResultObject:
-    case Runtime::kDefineClassMethod:              // TODO(jarin): Is it safe?
     case Runtime::kDefineGetterPropertyUnchecked:  // TODO(jarin): Is it safe?
     case Runtime::kDefineSetterPropertyUnchecked:  // TODO(jarin): Is it safe?
-    case Runtime::kFinalizeClassDefinition:        // TODO(conradw): Is it safe?
     case Runtime::kForInDone:
     case Runtime::kForInStep:
+    case Runtime::kGeneratorGetContinuation:
     case Runtime::kGetSuperConstructor:
+    case Runtime::kIsFunction:
     case Runtime::kNewClosure:
     case Runtime::kNewClosure_Tenured:
     case Runtime::kNewFunctionContext:
@@ -169,32 +153,34 @@ int Linkage::FrameStateInputCount(Runtime::FunctionId function) {
     case Runtime::kPushCatchContext:
     case Runtime::kReThrow:
     case Runtime::kStringCompare:
-    case Runtime::kStringEquals:
-    case Runtime::kToFastProperties:  // TODO(jarin): Is it safe?
+    case Runtime::kStringEqual:
+    case Runtime::kStringNotEqual:
+    case Runtime::kStringLessThan:
+    case Runtime::kStringLessThanOrEqual:
+    case Runtime::kStringGreaterThan:
+    case Runtime::kStringGreaterThanOrEqual:
+    case Runtime::kToFastProperties:  // TODO(conradw): Is it safe?
     case Runtime::kTraceEnter:
     case Runtime::kTraceExit:
-      return 0;
-    case Runtime::kInlineArguments:
-    case Runtime::kInlineArgumentsLength:
+      return false;
+    case Runtime::kInlineCall:
+    case Runtime::kInlineDeoptimizeNow:
     case Runtime::kInlineGetPrototype:
+    case Runtime::kInlineNewObject:
     case Runtime::kInlineRegExpConstructResult:
     case Runtime::kInlineRegExpExec:
     case Runtime::kInlineSubString:
+    case Runtime::kInlineThrowNotDateError:
     case Runtime::kInlineToInteger:
     case Runtime::kInlineToLength:
     case Runtime::kInlineToName:
     case Runtime::kInlineToNumber:
     case Runtime::kInlineToObject:
+    case Runtime::kInlineToPrimitive:
     case Runtime::kInlineToPrimitive_Number:
     case Runtime::kInlineToPrimitive_String:
-    case Runtime::kInlineToPrimitive:
     case Runtime::kInlineToString:
-      return 1;
-    case Runtime::kInlineCall:
-    case Runtime::kInlineTailCall:
-    case Runtime::kInlineDeoptimizeNow:
-    case Runtime::kInlineThrowNotDateError:
-      return 2;
+      return true;
     default:
       break;
   }
@@ -202,9 +188,9 @@ int Linkage::FrameStateInputCount(Runtime::FunctionId function) {
   // Most inlined runtime functions (except the ones listed above) can be called
   // without a FrameState or will be lowered by JSIntrinsicLowering internally.
   const Runtime::Function* const f = Runtime::FunctionForId(function);
-  if (f->intrinsic_type == Runtime::IntrinsicType::INLINE) return 0;
+  if (f->intrinsic_type == Runtime::IntrinsicType::INLINE) return false;
 
-  return 1;
+  return true;
 }
 
 
@@ -242,6 +228,9 @@ CallDescriptor* Linkage::GetRuntimeCallDescriptor(
   if (locations.return_count_ > 1) {
     locations.AddReturn(regloc(kReturnRegister1));
   }
+  if (locations.return_count_ > 2) {
+    locations.AddReturn(regloc(kReturnRegister2));
+  }
   for (size_t i = 0; i < return_count; i++) {
     types.AddReturn(MachineType::AnyTagged());
   }
@@ -264,7 +253,7 @@ CallDescriptor* Linkage::GetRuntimeCallDescriptor(
   locations.AddParam(regloc(kContextRegister));
   types.AddParam(MachineType::AnyTagged());
 
-  if (Linkage::FrameStateInputCount(function_id) == 0) {
+  if (!Linkage::NeedsFrameStateInput(function_id)) {
     flags = static_cast<CallDescriptor::Flags>(
         flags & ~CallDescriptor::kNeedsFrameState);
   }
@@ -284,31 +273,6 @@ CallDescriptor* Linkage::GetRuntimeCallDescriptor(
       kNoCalleeSaved,                   // callee-saved fp
       flags,                            // flags
       function->name);                  // debug name
-}
-
-
-CallDescriptor* Linkage::GetLazyBailoutDescriptor(Zone* zone) {
-  const size_t return_count = 0;
-  const size_t parameter_count = 0;
-
-  LocationSignature::Builder locations(zone, return_count, parameter_count);
-  MachineSignature::Builder types(zone, return_count, parameter_count);
-
-  // The target is ignored, but we need to give some values here.
-  MachineType target_type = MachineType::AnyTagged();
-  LinkageLocation target_loc = regloc(kJSFunctionRegister);
-  return new (zone) CallDescriptor(      // --
-      CallDescriptor::kLazyBailout,      // kind
-      target_type,                       // target MachineType
-      target_loc,                        // target location
-      types.Build(),                     // machine_sig
-      locations.Build(),                 // location_sig
-      0,                                 // stack_parameter_count
-      Operator::kNoThrow,                // properties
-      kNoCalleeSaved,                    // callee-saved
-      kNoCalleeSaved,                    // callee-saved fp
-      CallDescriptor::kNeedsFrameState,  // flags
-      "lazy-bailout");
 }
 
 
@@ -350,10 +314,11 @@ CallDescriptor* Linkage::GetJSCallDescriptor(Zone* zone, bool is_osr,
 
   // The target for JS function calls is the JSFunction object.
   MachineType target_type = MachineType::AnyTagged();
-  // TODO(titzer): When entering into an OSR function from unoptimized code,
-  // the JSFunction is not in a register, but it is on the stack in an
-  // unaddressable spill slot. We hack this in the OSR prologue. Fix.
-  LinkageLocation target_loc = regloc(kJSFunctionRegister);
+  // When entering into an OSR function from unoptimized code the JSFunction
+  // is not in a register, but it is on the stack in the marker spill slot.
+  LinkageLocation target_loc = is_osr
+                                   ? LinkageLocation::ForSavedCallerFunction()
+                                   : regloc(kJSFunctionRegister);
   return new (zone) CallDescriptor(     // --
       CallDescriptor::kCallJSFunction,  // kind
       target_type,                      // target MachineType
@@ -368,60 +333,6 @@ CallDescriptor* Linkage::GetJSCallDescriptor(Zone* zone, bool is_osr,
           flags,                        // flags
       "js-call");
 }
-
-
-CallDescriptor* Linkage::GetInterpreterDispatchDescriptor(Zone* zone) {
-  MachineSignature::Builder types(zone, 0, 6);
-  LocationSignature::Builder locations(zone, 0, 6);
-
-  // Add registers for fixed parameters passed via interpreter dispatch.
-  STATIC_ASSERT(0 == Linkage::kInterpreterAccumulatorParameter);
-  types.AddParam(MachineType::AnyTagged());
-  locations.AddParam(regloc(kInterpreterAccumulatorRegister));
-
-  STATIC_ASSERT(1 == Linkage::kInterpreterRegisterFileParameter);
-  types.AddParam(MachineType::Pointer());
-  locations.AddParam(regloc(kInterpreterRegisterFileRegister));
-
-  STATIC_ASSERT(2 == Linkage::kInterpreterBytecodeOffsetParameter);
-  types.AddParam(MachineType::IntPtr());
-  locations.AddParam(regloc(kInterpreterBytecodeOffsetRegister));
-
-  STATIC_ASSERT(3 == Linkage::kInterpreterBytecodeArrayParameter);
-  types.AddParam(MachineType::AnyTagged());
-  locations.AddParam(regloc(kInterpreterBytecodeArrayRegister));
-
-  STATIC_ASSERT(4 == Linkage::kInterpreterDispatchTableParameter);
-  types.AddParam(MachineType::Pointer());
-#if defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_X87)
-  // TODO(rmcilroy): Make the context param the one spilled to the stack once
-  // Turbofan supports modified stack arguments in tail calls.
-  locations.AddParam(
-      LinkageLocation::ForCallerFrameSlot(kInterpreterDispatchTableSpillSlot));
-#else
-  locations.AddParam(regloc(kInterpreterDispatchTableRegister));
-#endif
-
-  STATIC_ASSERT(5 == Linkage::kInterpreterContextParameter);
-  types.AddParam(MachineType::AnyTagged());
-  locations.AddParam(regloc(kContextRegister));
-
-  LinkageLocation target_loc = LinkageLocation::ForAnyRegister();
-  return new (zone) CallDescriptor(         // --
-      CallDescriptor::kCallCodeObject,      // kind
-      MachineType::None(),                  // target MachineType
-      target_loc,                           // target location
-      types.Build(),                        // machine_sig
-      locations.Build(),                    // location_sig
-      0,                                    // stack_parameter_count
-      Operator::kNoProperties,              // properties
-      kNoCalleeSaved,                       // callee-saved registers
-      kNoCalleeSaved,                       // callee-saved fp regs
-      CallDescriptor::kSupportsTailCalls |  // flags
-          CallDescriptor::kCanUseRoots,     // flags
-      "interpreter-dispatch");
-}
-
 
 // TODO(all): Add support for return representations/locations to
 // CallInterfaceDescriptor.
@@ -447,6 +358,9 @@ CallDescriptor* Linkage::GetStubCallDescriptor(
   }
   if (locations.return_count_ > 1) {
     locations.AddReturn(regloc(kReturnRegister1));
+  }
+  if (locations.return_count_ > 2) {
+    locations.AddReturn(regloc(kReturnRegister2));
   }
   for (size_t i = 0; i < return_count; i++) {
     types.AddReturn(return_type);
@@ -485,10 +399,83 @@ CallDescriptor* Linkage::GetStubCallDescriptor(
       properties,                       // properties
       kNoCalleeSaved,                   // callee-saved registers
       kNoCalleeSaved,                   // callee-saved fp
-      flags,                            // flags
+      CallDescriptor::kCanUseRoots |    // flags
+          flags,                        // flags
       descriptor.DebugName(isolate));
 }
 
+// static
+CallDescriptor* Linkage::GetAllocateCallDescriptor(Zone* zone) {
+  LocationSignature::Builder locations(zone, 1, 1);
+  MachineSignature::Builder types(zone, 1, 1);
+
+  locations.AddParam(regloc(kAllocateSizeRegister));
+  types.AddParam(MachineType::Int32());
+
+  locations.AddReturn(regloc(kReturnRegister0));
+  types.AddReturn(MachineType::AnyTagged());
+
+  // The target for allocate calls is a code object.
+  MachineType target_type = MachineType::AnyTagged();
+  LinkageLocation target_loc = LinkageLocation::ForAnyRegister();
+  return new (zone) CallDescriptor(     // --
+      CallDescriptor::kCallCodeObject,  // kind
+      target_type,                      // target MachineType
+      target_loc,                       // target location
+      types.Build(),                    // machine_sig
+      locations.Build(),                // location_sig
+      0,                                // stack_parameter_count
+      Operator::kNoThrow,               // properties
+      kNoCalleeSaved,                   // callee-saved registers
+      kNoCalleeSaved,                   // callee-saved fp
+      CallDescriptor::kCanUseRoots,     // flags
+      "Allocate");
+}
+
+// static
+CallDescriptor* Linkage::GetBytecodeDispatchCallDescriptor(
+    Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
+    int stack_parameter_count) {
+  const int register_parameter_count = descriptor.GetRegisterParameterCount();
+  const int parameter_count = register_parameter_count + stack_parameter_count;
+
+  LocationSignature::Builder locations(zone, 0, parameter_count);
+  MachineSignature::Builder types(zone, 0, parameter_count);
+
+  // Add parameters in registers and on the stack.
+  for (int i = 0; i < parameter_count; i++) {
+    if (i < register_parameter_count) {
+      // The first parameters go in registers.
+      Register reg = descriptor.GetRegisterParameter(i);
+      Representation rep =
+          RepresentationFromType(descriptor.GetParameterType(i));
+      locations.AddParam(regloc(reg));
+      types.AddParam(reptyp(rep));
+    } else {
+      // The rest of the parameters go on the stack.
+      int stack_slot = i - register_parameter_count - stack_parameter_count;
+      locations.AddParam(LinkageLocation::ForCallerFrameSlot(stack_slot));
+      types.AddParam(MachineType::AnyTagged());
+    }
+  }
+
+  // The target for interpreter dispatches is a code entry address.
+  MachineType target_type = MachineType::Pointer();
+  LinkageLocation target_loc = LinkageLocation::ForAnyRegister();
+  return new (zone) CallDescriptor(            // --
+      CallDescriptor::kCallAddress,            // kind
+      target_type,                             // target MachineType
+      target_loc,                              // target location
+      types.Build(),                           // machine_sig
+      locations.Build(),                       // location_sig
+      stack_parameter_count,                   // stack_parameter_count
+      Operator::kNoProperties,                 // properties
+      kNoCalleeSaved,                          // callee-saved registers
+      kNoCalleeSaved,                          // callee-saved fp
+      CallDescriptor::kCanUseRoots |           // flags
+          CallDescriptor::kSupportsTailCalls,  // flags
+      descriptor.DebugName(isolate));
+}
 
 LinkageLocation Linkage::GetOsrValueLocation(int index) const {
   CHECK(incoming_->IsJSFunctionCall());
@@ -515,7 +502,7 @@ LinkageLocation Linkage::GetOsrValueLocation(int index) const {
 
 
 bool Linkage::ParameterHasSecondaryLocation(int index) const {
-  if (incoming_->kind() != CallDescriptor::kCallJSFunction) return false;
+  if (!incoming_->IsJSFunctionCall()) return false;
   LinkageLocation loc = GetParameterLocation(index);
   return (loc == regloc(kJSFunctionRegister) ||
           loc == regloc(kContextRegister));

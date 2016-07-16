@@ -281,7 +281,9 @@ OPEN_HANDLE_LIST(DECLARE_OPEN_HANDLE)
 
   template<class From, class To>
   static inline Local<To> Convert(v8::internal::Handle<From> obj) {
-    DCHECK(obj.is_null() || !obj->IsTheHole());
+    DCHECK(obj.is_null() ||
+           (obj->IsSmi() ||
+            !obj->IsTheHole(i::HeapObject::cast(*obj)->GetIsolate())));
     return Local<To>(reinterpret_cast<To*>(obj.location()));
   }
 
@@ -452,6 +454,12 @@ class HandleScopeImplementer {
         saved_contexts_(0),
         spare_(NULL),
         call_depth_(0),
+        microtasks_depth_(0),
+        microtasks_suppressions_(0),
+#ifdef DEBUG
+        debug_microtasks_depth_(0),
+#endif
+        microtasks_policy_(v8::MicrotasksPolicy::kAuto),
         last_handle_before_deferred_block_(NULL) { }
 
   ~HandleScopeImplementer() {
@@ -472,9 +480,35 @@ class HandleScopeImplementer {
   inline internal::Object** GetSpareOrNewBlock();
   inline void DeleteExtensions(internal::Object** prev_limit);
 
+  // Call depth represents nested v8 api calls.
   inline void IncrementCallDepth() {call_depth_++;}
   inline void DecrementCallDepth() {call_depth_--;}
   inline bool CallDepthIsZero() { return call_depth_ == 0; }
+
+  // Microtasks scope depth represents nested scopes controlling microtasks
+  // invocation, which happens when depth reaches zero.
+  inline void IncrementMicrotasksScopeDepth() {microtasks_depth_++;}
+  inline void DecrementMicrotasksScopeDepth() {microtasks_depth_--;}
+  inline int GetMicrotasksScopeDepth() { return microtasks_depth_; }
+
+  // Possibly nested microtasks suppression scopes prevent microtasks
+  // from running.
+  inline void IncrementMicrotasksSuppressions() {microtasks_suppressions_++;}
+  inline void DecrementMicrotasksSuppressions() {microtasks_suppressions_--;}
+  inline bool HasMicrotasksSuppressions() { return !!microtasks_suppressions_; }
+
+#ifdef DEBUG
+  // In debug we check that calls not intended to invoke microtasks are
+  // still correctly wrapped with microtask scopes.
+  inline void IncrementDebugMicrotasksScopeDepth() {debug_microtasks_depth_++;}
+  inline void DecrementDebugMicrotasksScopeDepth() {debug_microtasks_depth_--;}
+  inline bool DebugMicrotasksScopeDepthIsZero() {
+    return debug_microtasks_depth_ == 0;
+  }
+#endif
+
+  inline void set_microtasks_policy(v8::MicrotasksPolicy policy);
+  inline v8::MicrotasksPolicy microtasks_policy() const;
 
   inline void EnterContext(Handle<Context> context);
   inline void LeaveContext();
@@ -532,6 +566,12 @@ class HandleScopeImplementer {
   List<Context*> saved_contexts_;
   Object** spare_;
   int call_depth_;
+  int microtasks_depth_;
+  int microtasks_suppressions_;
+#ifdef DEBUG
+  int debug_microtasks_depth_;
+#endif
+  v8::MicrotasksPolicy microtasks_policy_;
   Object** last_handle_before_deferred_block_;
   // This is only used for threading support.
   HandleScopeData handle_scope_data_;
@@ -548,6 +588,17 @@ class HandleScopeImplementer {
 
 
 const int kHandleBlockSize = v8::internal::KB - 2;  // fit in one page
+
+
+void HandleScopeImplementer::set_microtasks_policy(
+    v8::MicrotasksPolicy policy) {
+  microtasks_policy_ = policy;
+}
+
+
+v8::MicrotasksPolicy HandleScopeImplementer::microtasks_policy() const {
+  return microtasks_policy_;
+}
 
 
 void HandleScopeImplementer::SaveContext(Context* context) {

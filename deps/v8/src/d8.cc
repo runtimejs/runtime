@@ -19,6 +19,7 @@
 
 #ifndef V8_SHARED
 #include <algorithm>
+#include <fstream>
 #include <vector>
 #endif  // !V8_SHARED
 
@@ -26,15 +27,12 @@
 #include "include/v8-testing.h"
 #endif  // V8_SHARED
 
-#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
-#include "src/gdb-jit.h"
-#endif
-
 #ifdef ENABLE_VTUNE_JIT_INTERFACE
 #include "src/third_party/vtune/v8-vtune.h"
 #endif
 
 #include "src/d8.h"
+#include "src/ostreams.h"
 
 #include "include/libplatform/libplatform.h"
 #ifndef V8_SHARED
@@ -44,6 +42,7 @@
 #include "src/base/platform/platform.h"
 #include "src/base/sys-info.h"
 #include "src/basic-block-profiler.h"
+#include "src/interpreter/interpreter.h"
 #include "src/snapshot/natives.h"
 #include "src/utils.h"
 #include "src/v8.h"
@@ -136,8 +135,8 @@ class PredictablePlatform : public Platform {
   }
 
   uint64_t AddTraceEvent(char phase, const uint8_t* categoryEnabledFlag,
-                         const char* name, uint64_t id, uint64_t bind_id,
-                         int numArgs, const char** argNames,
+                         const char* name, const char* scope, uint64_t id,
+                         uint64_t bind_id, int numArgs, const char** argNames,
                          const uint8_t* argTypes, const uint64_t* argValues,
                          unsigned int flags) override {
     return 0;
@@ -254,7 +253,7 @@ CounterCollection* Shell::counters_ = &local_counters_;
 base::LazyMutex Shell::context_mutex_;
 const base::TimeTicks Shell::kInitialTicks =
     base::TimeTicks::HighResolutionNow();
-Global<Context> Shell::utility_context_;
+Global<Function> Shell::stringify_function_;
 base::LazyMutex Shell::workers_mutex_;
 bool Shell::allow_new_workers_ = true;
 i::List<Worker*> Shell::workers_;
@@ -339,7 +338,9 @@ MaybeLocal<Script> Shell::CompileString(
     ScriptCompiler::CompileOptions compile_options, SourceType source_type) {
   Local<Context> context(isolate->GetCurrentContext());
   ScriptOrigin origin(name);
-  if (compile_options == ScriptCompiler::kNoCompileOptions) {
+  // TODO(adamk): Make use of compile options for Modules.
+  if (compile_options == ScriptCompiler::kNoCompileOptions ||
+      source_type == MODULE) {
     ScriptCompiler::Source script_source(source, origin);
     return source_type == SCRIPT
                ? ScriptCompiler::Compile(context, &script_source,
@@ -359,11 +360,9 @@ MaybeLocal<Script> Shell::CompileString(
     DCHECK(false);  // A new compile option?
   }
   if (data == NULL) compile_options = ScriptCompiler::kNoCompileOptions;
+  DCHECK_EQ(SCRIPT, source_type);
   MaybeLocal<Script> result =
-      source_type == SCRIPT
-          ? ScriptCompiler::Compile(context, &cached_source, compile_options)
-          : ScriptCompiler::CompileModule(context, &cached_source,
-                                          compile_options);
+      ScriptCompiler::Compile(context, &cached_source, compile_options);
   CHECK(data == NULL || !data->rejected);
   return result;
 }
@@ -375,6 +374,7 @@ bool Shell::ExecuteString(Isolate* isolate, Local<String> source,
                           bool report_exceptions, SourceType source_type) {
   HandleScope handle_scope(isolate);
   TryCatch try_catch(isolate);
+  try_catch.SetVerbose(true);
 
   MaybeLocal<Value> maybe_result;
   {
@@ -414,24 +414,7 @@ bool Shell::ExecuteString(Isolate* isolate, Local<String> source,
       }
 #if !defined(V8_SHARED)
     } else {
-      v8::TryCatch try_catch(isolate);
-      v8::Local<v8::Context> context =
-          v8::Local<v8::Context>::New(isolate, utility_context_);
-      v8::Context::Scope context_scope(context);
-      Local<Object> global = context->Global();
-      Local<Value> fun =
-          global->Get(context, String::NewFromUtf8(isolate, "Stringify",
-                                                   v8::NewStringType::kNormal)
-                                   .ToLocalChecked()).ToLocalChecked();
-      Local<Value> argv[1] = {result};
-      Local<Value> s;
-      if (!Local<Function>::Cast(fun)
-               ->Call(context, global, 1, argv)
-               .ToLocal(&s)) {
-        return true;
-      }
-      DCHECK(!try_catch.HasCaught());
-      v8::String::Utf8Value str(s);
+      v8::String::Utf8Value str(Stringify(isolate, result));
       fwrite(*str, sizeof(**str), str.length(), stdout);
       printf("\n");
     }
@@ -540,9 +523,8 @@ void Shell::RealmGlobal(const v8::FunctionCallbackInfo<v8::Value>& args) {
       Local<Context>::New(args.GetIsolate(), data->realms_[index])->Global());
 }
 
-
-// Realm.create() creates a new realm and returns its index.
-void Shell::RealmCreate(const v8::FunctionCallbackInfo<v8::Value>& args) {
+MaybeLocal<Context> Shell::CreateRealm(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
   Isolate* isolate = args.GetIsolate();
   TryCatch try_catch(isolate);
   PerIsolateData* data = PerIsolateData::Get(isolate);
@@ -559,12 +541,29 @@ void Shell::RealmCreate(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (context.IsEmpty()) {
     DCHECK(try_catch.HasCaught());
     try_catch.ReThrow();
-    return;
+    return MaybeLocal<Context>();
   }
   data->realms_[index].Reset(isolate, context);
   args.GetReturnValue().Set(index);
+  return context;
 }
 
+// Realm.create() creates a new realm with a distinct security token
+// and returns its index.
+void Shell::RealmCreate(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CreateRealm(args);
+}
+
+// Realm.createAllowCrossRealmAccess() creates a new realm with the same
+// security token as the current realm.
+void Shell::RealmCreateAllowCrossRealmAccess(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  Local<Context> context;
+  if (CreateRealm(args).ToLocal(&context)) {
+    context->SetSecurityToken(
+        args.GetIsolate()->GetEnteredContext()->GetSecurityToken());
+  }
+}
 
 // Realm.dispose(i) disposes the reference to the realm i.
 void Shell::RealmDispose(const v8::FunctionCallbackInfo<v8::Value>& args) {
@@ -908,11 +907,11 @@ void Shell::Version(const v8::FunctionCallbackInfo<v8::Value>& args) {
 void Shell::ReportException(Isolate* isolate, v8::TryCatch* try_catch) {
   HandleScope handle_scope(isolate);
 #ifndef V8_SHARED
-  Local<Context> utility_context;
+  Local<Context> context;
   bool enter_context = !isolate->InContext();
   if (enter_context) {
-    utility_context = Local<Context>::New(isolate, utility_context_);
-    utility_context->Enter();
+    context = Local<Context>::New(isolate, evaluation_context_);
+    context->Enter();
   }
 #endif  // !V8_SHARED
   v8::String::Utf8Value exception(try_catch->Exception());
@@ -926,25 +925,28 @@ void Shell::ReportException(Isolate* isolate, v8::TryCatch* try_catch) {
     // Print (filename):(line number): (message).
     v8::String::Utf8Value filename(message->GetScriptOrigin().ResourceName());
     const char* filename_string = ToCString(filename);
-    int linenum =
-        message->GetLineNumber(isolate->GetCurrentContext()).FromJust();
+    Maybe<int> maybeline = message->GetLineNumber(isolate->GetCurrentContext());
+    int linenum = maybeline.IsJust() ? maybeline.FromJust() : -1;
     printf("%s:%i: %s\n", filename_string, linenum, exception_string);
-    // Print line of source code.
-    v8::String::Utf8Value sourceline(
-        message->GetSourceLine(isolate->GetCurrentContext()).ToLocalChecked());
-    const char* sourceline_string = ToCString(sourceline);
-    printf("%s\n", sourceline_string);
-    // Print wavy underline (GetUnderline is deprecated).
-    int start =
-        message->GetStartColumn(isolate->GetCurrentContext()).FromJust();
-    for (int i = 0; i < start; i++) {
-      printf(" ");
+    Local<String> sourceline;
+    if (message->GetSourceLine(isolate->GetCurrentContext())
+            .ToLocal(&sourceline)) {
+      // Print line of source code.
+      v8::String::Utf8Value sourcelinevalue(sourceline);
+      const char* sourceline_string = ToCString(sourcelinevalue);
+      printf("%s\n", sourceline_string);
+      // Print wavy underline (GetUnderline is deprecated).
+      int start =
+          message->GetStartColumn(isolate->GetCurrentContext()).FromJust();
+      for (int i = 0; i < start; i++) {
+        printf(" ");
+      }
+      int end = message->GetEndColumn(isolate->GetCurrentContext()).FromJust();
+      for (int i = start; i < end; i++) {
+        printf("^");
+      }
+      printf("\n");
     }
-    int end = message->GetEndColumn(isolate->GetCurrentContext()).FromJust();
-    for (int i = start; i < end; i++) {
-      printf("^");
-    }
-    printf("\n");
     Local<Value> stack_trace_string;
     if (try_catch->StackTrace(isolate->GetCurrentContext())
             .ToLocal(&stack_trace_string) &&
@@ -956,7 +958,7 @@ void Shell::ReportException(Isolate* isolate, v8::TryCatch* try_catch) {
   }
   printf("\n");
 #ifndef V8_SHARED
-  if (enter_context) utility_context->Exit();
+  if (enter_context) context->Exit();
 #endif  // !V8_SHARED
 }
 
@@ -1059,60 +1061,37 @@ void Shell::AddHistogramSample(void* histogram, int sample) {
   counter->AddSample(sample);
 }
 
-
-class NoUseStrongForUtilityScriptScope {
- public:
-  NoUseStrongForUtilityScriptScope() : flag_(i::FLAG_use_strong) {
-    i::FLAG_use_strong = false;
-  }
-  ~NoUseStrongForUtilityScriptScope() { i::FLAG_use_strong = flag_; }
-
- private:
-  bool flag_;
-};
-
-
-void Shell::InstallUtilityScript(Isolate* isolate) {
-  NoUseStrongForUtilityScriptScope no_use_strong;
-  HandleScope scope(isolate);
-  // If we use the utility context, we have to set the security tokens so that
-  // utility, evaluation and debug context can all access each other.
-  Local<ObjectTemplate> global_template = CreateGlobalTemplate(isolate);
-  utility_context_.Reset(isolate, Context::New(isolate, NULL, global_template));
-  v8::Local<v8::Context> utility_context =
-      v8::Local<v8::Context>::New(isolate, utility_context_);
-  v8::Local<v8::Context> evaluation_context =
+// Turn a value into a human-readable string.
+Local<String> Shell::Stringify(Isolate* isolate, Local<Value> value) {
+  v8::Local<v8::Context> context =
       v8::Local<v8::Context>::New(isolate, evaluation_context_);
-  utility_context->SetSecurityToken(Undefined(isolate));
-  evaluation_context->SetSecurityToken(Undefined(isolate));
-  v8::Context::Scope context_scope(utility_context);
-
-  // Run the d8 shell utility script in the utility context
-  int source_index = i::NativesCollection<i::D8>::GetIndex("d8");
-  i::Vector<const char> shell_source =
-      i::NativesCollection<i::D8>::GetScriptSource(source_index);
-  i::Vector<const char> shell_source_name =
-      i::NativesCollection<i::D8>::GetScriptName(source_index);
-  Local<String> source =
-      String::NewFromUtf8(isolate, shell_source.start(), NewStringType::kNormal,
-                          shell_source.length()).ToLocalChecked();
-  Local<String> name =
-      String::NewFromUtf8(isolate, shell_source_name.start(),
-                          NewStringType::kNormal,
-                          shell_source_name.length()).ToLocalChecked();
-  ScriptOrigin origin(name);
-  Local<Script> script =
-      Script::Compile(utility_context, source, &origin).ToLocalChecked();
-  script->Run(utility_context).ToLocalChecked();
-  // Mark the d8 shell script as native to avoid it showing up as normal source
-  // in the debugger.
-  i::Handle<i::Object> compiled_script = Utils::OpenHandle(*script);
-  i::Handle<i::Script> script_object = compiled_script->IsJSFunction()
-      ? i::Handle<i::Script>(i::Script::cast(
-          i::JSFunction::cast(*compiled_script)->shared()->script()))
-      : i::Handle<i::Script>(i::Script::cast(
-          i::SharedFunctionInfo::cast(*compiled_script)->script()));
-  script_object->set_type(i::Script::TYPE_EXTENSION);
+  if (stringify_function_.IsEmpty()) {
+    int source_index = i::NativesCollection<i::D8>::GetIndex("d8");
+    i::Vector<const char> source_string =
+        i::NativesCollection<i::D8>::GetScriptSource(source_index);
+    i::Vector<const char> source_name =
+        i::NativesCollection<i::D8>::GetScriptName(source_index);
+    Local<String> source =
+        String::NewFromUtf8(isolate, source_string.start(),
+                            NewStringType::kNormal, source_string.length())
+            .ToLocalChecked();
+    Local<String> name =
+        String::NewFromUtf8(isolate, source_name.start(),
+                            NewStringType::kNormal, source_name.length())
+            .ToLocalChecked();
+    ScriptOrigin origin(name);
+    Local<Script> script =
+        Script::Compile(context, source, &origin).ToLocalChecked();
+    stringify_function_.Reset(
+        isolate, script->Run(context).ToLocalChecked().As<Function>());
+  }
+  Local<Function> fun = Local<Function>::New(isolate, stringify_function_);
+  Local<Value> argv[1] = {value};
+  v8::TryCatch try_catch(isolate);
+  MaybeLocal<Value> result =
+      fun->Call(context, Undefined(isolate), 1, argv).ToLocalChecked();
+  if (result.IsEmpty()) return String::Empty(isolate);
+  return result.ToLocalChecked().As<String>();
 }
 #endif  // !V8_SHARED
 
@@ -1156,6 +1135,10 @@ Local<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
       String::NewFromUtf8(isolate, "version", NewStringType::kNormal)
           .ToLocalChecked(),
       FunctionTemplate::New(isolate, Version));
+  global_template->Set(
+      Symbol::GetToStringTag(isolate),
+      String::NewFromUtf8(isolate, "global", NewStringType::kNormal)
+          .ToLocalChecked());
 
   // Bind the Realm object.
   Local<ObjectTemplate> realm_template = ObjectTemplate::New(isolate);
@@ -1175,6 +1158,11 @@ Local<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
       String::NewFromUtf8(isolate, "create", NewStringType::kNormal)
           .ToLocalChecked(),
       FunctionTemplate::New(isolate, RealmCreate));
+  realm_template->Set(
+      String::NewFromUtf8(isolate, "createAllowCrossRealmAccess",
+                          NewStringType::kNormal)
+          .ToLocalChecked(),
+      FunctionTemplate::New(isolate, RealmCreateAllowCrossRealmAccess));
   realm_template->Set(
       String::NewFromUtf8(isolate, "dispose", NewStringType::kNormal)
           .ToLocalChecked(),
@@ -1247,6 +1235,10 @@ Local<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
   return global_template;
 }
 
+static void EmptyMessageCallback(Local<Message> message, Local<Value> error) {
+  // Nothing to be done here, exceptions thrown up to the shell will be reported
+  // separately by {Shell::ReportException} after they are caught.
+}
 
 void Shell::Initialize(Isolate* isolate) {
 #ifndef V8_SHARED
@@ -1254,6 +1246,8 @@ void Shell::Initialize(Isolate* isolate) {
   if (i::StrLength(i::FLAG_map_counters) != 0)
     MapCounters(isolate, i::FLAG_map_counters);
 #endif  // !V8_SHARED
+  // Disable default message reporting.
+  isolate->AddMessageListener(EmptyMessageCallback);
 }
 
 
@@ -1311,12 +1305,26 @@ struct CounterAndKey {
 inline bool operator<(const CounterAndKey& lhs, const CounterAndKey& rhs) {
   return strcmp(lhs.key, rhs.key) < 0;
 }
+
+void Shell::WriteIgnitionDispatchCountersFile(v8::Isolate* isolate) {
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<Object> dispatch_counters = reinterpret_cast<i::Isolate*>(isolate)
+                                        ->interpreter()
+                                        ->GetDispatchCountersObject();
+  std::ofstream dispatch_counters_stream(
+      i::FLAG_trace_ignition_dispatches_output_file);
+  dispatch_counters_stream << *String::Utf8Value(
+      JSON::Stringify(context, dispatch_counters).ToLocalChecked());
+}
+
 #endif  // !V8_SHARED
 
 
 void Shell::OnExit(v8::Isolate* isolate) {
 #ifndef V8_SHARED
-  reinterpret_cast<i::Isolate*>(isolate)->DumpAndResetCompilationStats();
   if (i::FLAG_dump_counters) {
     int number_of_counters = 0;
     for (CounterMap::Iterator i(counter_map_); i.More(); i.Next()) {
@@ -1349,6 +1357,7 @@ void Shell::OnExit(v8::Isolate* isolate) {
            "-------------+\n");
     delete [] counters;
   }
+
   delete counters_file_;
   delete counter_map_;
 #endif  // !V8_SHARED
@@ -1993,8 +2002,6 @@ bool Shell::SetOptions(int argc, char* argv[]) {
 
   v8::V8::SetFlagsFromCommandLine(&argc, argv, true);
 
-  bool enable_harmony_modules = false;
-
   // Set up isolated source groups.
   options.isolate_sources = new SourceGroup[options.num_isolates];
   SourceGroup* current = options.isolate_sources;
@@ -2007,7 +2014,6 @@ bool Shell::SetOptions(int argc, char* argv[]) {
       current->Begin(argv, i + 1);
     } else if (strcmp(str, "--module") == 0) {
       // Pass on to SourceGroup, which understands this option.
-      enable_harmony_modules = true;
     } else if (strncmp(argv[i], "--", 2) == 0) {
       printf("Warning: unknown flag %s.\nTry --help for options\n", argv[i]);
     } else if (strcmp(str, "-e") == 0 && i + 1 < argc) {
@@ -2021,10 +2027,6 @@ bool Shell::SetOptions(int argc, char* argv[]) {
 
   if (!logfile_per_isolate && options.num_isolates) {
     SetFlagsFromString("--nologfile_per_isolate");
-  }
-
-  if (enable_harmony_modules) {
-    SetFlagsFromString("--harmony-modules");
   }
 
   return true;
@@ -2237,8 +2239,6 @@ MaybeLocal<Value> Shell::DeserializeValue(Isolate* isolate,
                                           int* offset) {
   DCHECK(offset);
   EscapableHandleScope scope(isolate);
-  // This function should not use utility_context_ because it is running on a
-  // different thread.
   Local<Value> result;
   SerializationTag tag = data.ReadTag(offset);
 
@@ -2429,7 +2429,7 @@ int Shell::Main(int argc, char* argv[]) {
 #endif  // defined(_MSC_VER)
 #endif  // defined(_WIN32) || defined(_WIN64)
   if (!SetOptions(argc, argv)) return 1;
-  v8::V8::InitializeICU(options.icu_data_file);
+  v8::V8::InitializeICUDefaultLocation(argv[0], options.icu_data_file);
 #ifndef V8_SHARED
   g_platform = i::FLAG_verify_predictable
                    ? new PredictablePlatform()
@@ -2459,11 +2459,6 @@ int Shell::Main(int argc, char* argv[]) {
     Shell::array_buffer_allocator = &shell_array_buffer_allocator;
   }
   create_params.array_buffer_allocator = Shell::array_buffer_allocator;
-#if !defined(V8_SHARED) && defined(ENABLE_GDB_JIT_INTERFACE)
-  if (i::FLAG_gdbjit) {
-    create_params.code_event_handler = i::GDBJITInterface::EventHandler;
-  }
-#endif
 #ifdef ENABLE_VTUNE_JIT_INTERFACE
   create_params.code_event_handler = vTune::GetVtuneCodeEventHandler();
 #endif
@@ -2524,16 +2519,20 @@ int Shell::Main(int argc, char* argv[]) {
     // Run interactive shell if explicitly requested or if no script has been
     // executed, but never on --test
     if (options.use_interactive_shell()) {
-#ifndef V8_SHARED
-      InstallUtilityScript(isolate);
-#endif  // !V8_SHARED
       RunShell(isolate);
     }
+
+#ifndef V8_SHARED
+    if (i::FLAG_ignition && i::FLAG_trace_ignition_dispatches &&
+        i::FLAG_trace_ignition_dispatches_output_file != nullptr) {
+      WriteIgnitionDispatchCountersFile(isolate);
+    }
+#endif
 
     // Shut down contexts and collect garbage.
     evaluation_context_.Reset();
 #ifndef V8_SHARED
-    utility_context_.Reset();
+    stringify_function_.Reset();
 #endif  // !V8_SHARED
     CollectGarbage(isolate);
   }

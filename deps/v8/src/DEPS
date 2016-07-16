@@ -3,7 +3,7 @@ include_rules = [
   "+src",
   "-src/compiler",
   "+src/compiler/pipeline.h",
-  "+src/compiler/code-stub-assembler.h",
+  "+src/compiler/code-assembler.h",
   "+src/compiler/wasm-compiler.h",
   "-src/heap",
   "+src/heap/heap.h",
@@ -17,17 +17,7 @@ include_rules = [
 ]
 
 specific_include_rules = {
-  ".*\.h": [
-    # Note that src/v8.h by now is a regular header file, it doesn't provide
-    # any special declarations besides the V8 class. There should be no need
-    # for including it in any .h files though. This rule is just a reminder,
-    # and can be removed once the dust has settled.
-    "-src/v8.h",
-  ],
   "d8\.cc": [
     "+include/libplatform/libplatform.h",
-  ],
-  "api-experimental\.cc": [
-    "+src/compiler/fast-accessor-assembler.h",
   ],
 }

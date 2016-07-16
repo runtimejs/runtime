@@ -16,8 +16,8 @@ var MakeError;
 var MapEntries;
 var MapIteratorNext;
 var MathMin = global.Math.min;
-var promiseStatusSymbol = utils.ImportNow("promise_status_symbol");
-var promiseValueSymbol = utils.ImportNow("promise_value_symbol");
+var promiseStateSymbol = utils.ImportNow("promise_state_symbol");
+var promiseResultSymbol = utils.ImportNow("promise_result_symbol");
 var SetIteratorNext;
 var SetValues;
 var SymbolToString;
@@ -115,7 +115,7 @@ function ClearMirrorCache(value) {
 
 function ObjectIsPromise(value) {
   return IS_RECEIVER(value) &&
-         !IS_UNDEFINED(%DebugGetProperty(value, promiseStatusSymbol));
+         !IS_UNDEFINED(%DebugGetProperty(value, promiseStateSymbol));
 }
 
 
@@ -256,13 +256,15 @@ PropertyAttribute.DontDelete = DONT_DELETE;
 // A copy of the scope types from runtime-debug.cc.
 // NOTE: these constants should be backward-compatible, so
 // add new ones to the end of this list.
-var ScopeType = { Global: 0,
-                  Local: 1,
-                  With: 2,
+var ScopeType = { Global:  0,
+                  Local:   1,
+                  With:    2,
                   Closure: 3,
-                  Catch: 4,
-                  Block: 5,
-                  Script: 6 };
+                  Catch:   4,
+                  Block:   5,
+                  Script:  6,
+                  Eval:    7,
+                };
 
 /**
  * Base class for all mirror objects.
@@ -812,7 +814,7 @@ ObjectMirror.prototype.lookupProperty = function(value) {
     // Skip properties which are defined through accessors.
     var property = properties[i];
     if (property.propertyType() != PropertyType.AccessorConstant) {
-      if (%_ObjectEquals(property.value_, value.value_)) {
+      if (property.value_ === value.value_) {
         return property;
       }
     }
@@ -1037,6 +1039,15 @@ FunctionMirror.prototype.toText = function() {
 };
 
 
+FunctionMirror.prototype.context = function() {
+  if (this.resolved()) {
+    if (!this._context)
+      this._context = new ContextMirror(%FunctionGetContextData(this.value_));
+    return this._context;
+  }
+};
+
+
 /**
  * Mirror object for unresolved functions.
  * @param {string} value The name for the unresolved function reflected by this
@@ -1076,6 +1087,11 @@ UnresolvedFunctionMirror.prototype.protoObject = function() {
 
 
 UnresolvedFunctionMirror.prototype.name = function() {
+  return this.value_;
+};
+
+
+UnresolvedFunctionMirror.prototype.debugName = function() {
   return this.value_;
 };
 
@@ -1263,7 +1279,7 @@ inherits(PromiseMirror, ObjectMirror);
 
 
 function PromiseGetStatus_(value) {
-  var status = %DebugGetProperty(value, promiseStatusSymbol);
+  var status = %DebugGetProperty(value, promiseStateSymbol);
   if (status == 0) return "pending";
   if (status == 1) return "resolved";
   return "rejected";
@@ -1271,7 +1287,7 @@ function PromiseGetStatus_(value) {
 
 
 function PromiseGetValue_(value) {
-  return %DebugGetProperty(value, promiseValueSymbol);
+  return %DebugGetProperty(value, promiseResultSymbol);
 }
 
 
@@ -1399,8 +1415,8 @@ inherits(GeneratorMirror, ObjectMirror);
 
 function GeneratorGetStatus_(value) {
   var continuation = %GeneratorGetContinuation(value);
-  if (continuation < 0) return "running";
-  if (continuation == 0) return "closed";
+  if (continuation < -1) return "running";
+  if (continuation == -1) return "closed";
   return "suspended";
 }
 
@@ -1431,14 +1447,6 @@ GeneratorMirror.prototype.func = function() {
     this.func_ = MakeMirror(%GeneratorGetFunction(this.value_));
   }
   return this.func_;
-};
-
-
-GeneratorMirror.prototype.context = function() {
-  if (!this.context_) {
-    this.context_ = new ContextMirror(%GeneratorGetContext(this.value_));
-  }
-  return this.context_;
 };
 
 
@@ -1525,11 +1533,6 @@ PropertyMirror.prototype.attributes = function() {
 
 PropertyMirror.prototype.propertyType = function() {
   return %DebugPropertyTypeFromDetails(this.details_);
-};
-
-
-PropertyMirror.prototype.insertionIndex = function() {
-  return %DebugPropertyIndexFromDetails(this.details_);
 };
 
 
@@ -1622,13 +1625,14 @@ InternalPropertyMirror.prototype.value = function() {
 var kFrameDetailsFrameIdIndex = 0;
 var kFrameDetailsReceiverIndex = 1;
 var kFrameDetailsFunctionIndex = 2;
-var kFrameDetailsArgumentCountIndex = 3;
-var kFrameDetailsLocalCountIndex = 4;
-var kFrameDetailsSourcePositionIndex = 5;
-var kFrameDetailsConstructCallIndex = 6;
-var kFrameDetailsAtReturnIndex = 7;
-var kFrameDetailsFlagsIndex = 8;
-var kFrameDetailsFirstDynamicIndex = 9;
+var kFrameDetailsScriptIndex = 3;
+var kFrameDetailsArgumentCountIndex = 4;
+var kFrameDetailsLocalCountIndex = 5;
+var kFrameDetailsSourcePositionIndex = 6;
+var kFrameDetailsConstructCallIndex = 7;
+var kFrameDetailsAtReturnIndex = 8;
+var kFrameDetailsFlagsIndex = 9;
+var kFrameDetailsFirstDynamicIndex = 10;
 
 var kFrameDetailsNameIndex = 0;
 var kFrameDetailsValueIndex = 1;
@@ -1645,12 +1649,13 @@ var kFrameDetailsFlagInlinedFrameIndexMask = 7 << 2;
  *     0: Id
  *     1: Receiver
  *     2: Function
- *     3: Argument count
- *     4: Local count
- *     5: Source position
- *     6: Construct call
- *     7: Is at return
- *     8: Flags (debugger frame, optimized frame, inlined frame index)
+ *     3: Script
+ *     4: Argument count
+ *     5: Local count
+ *     6: Source position
+ *     7: Construct call
+ *     8: Is at return
+ *     9: Flags (debugger frame, optimized frame, inlined frame index)
  *     Arguments name, value
  *     Locals name, value
  *     Return value if any
@@ -1679,6 +1684,12 @@ FrameDetails.prototype.receiver = function() {
 FrameDetails.prototype.func = function() {
   %CheckExecutionState(this.break_id_);
   return this.details_[kFrameDetailsFunctionIndex];
+};
+
+
+FrameDetails.prototype.script = function() {
+  %CheckExecutionState(this.break_id_);
+  return this.details_[kFrameDetailsScriptIndex];
 };
 
 
@@ -1798,11 +1809,6 @@ FrameDetails.prototype.scopeCount = function() {
     this.scopeCount_ = %GetScopeCount(this.break_id_, this.frameId());
   }
   return this.scopeCount_;
-};
-
-
-FrameDetails.prototype.stepInPositionsImpl = function() {
-  return %GetStepInPositions(this.break_id_, this.frameId());
 };
 
 
@@ -1957,7 +1963,7 @@ FrameMirror.prototype.sourceColumn = function() {
 FrameMirror.prototype.sourceLineText = function() {
   var location = this.sourceLocation();
   if (location) {
-    return location.sourceText();
+    return location.sourceText;
   }
 };
 
@@ -1981,29 +1987,6 @@ FrameMirror.prototype.allScopes = function(opt_ignore_nested_scopes) {
   for (var i = 0; i < scopeDetails.length; ++i) {
     result.push(new ScopeMirror(this, UNDEFINED, i, scopeDetails[i]));
   }
-  return result;
-};
-
-
-FrameMirror.prototype.stepInPositions = function() {
-  var script = this.func().script();
-  var funcOffset = this.func().sourcePosition_();
-
-  var stepInRaw = this.details_.stepInPositionsImpl();
-  var result = [];
-  if (stepInRaw) {
-    for (var i = 0; i < stepInRaw.length; i++) {
-      var posStruct = {};
-      var offset = script.locationFromPosition(funcOffset + stepInRaw[i],
-                                               true);
-      serializeLocationFields(offset, posStruct);
-      var item = {
-        position: posStruct
-      };
-      result.push(item);
-    }
-  }
-
   return result;
 };
 
@@ -2177,6 +2160,9 @@ FrameMirror.prototype.toText = function(opt_locals) {
 var kScopeDetailsTypeIndex = 0;
 var kScopeDetailsObjectIndex = 1;
 var kScopeDetailsNameIndex = 2;
+var kScopeDetailsStartPositionIndex = 3;
+var kScopeDetailsEndPositionIndex = 4;
+var kScopeDetailsFunctionIndex = 5;
 
 function ScopeDetails(frame, fun, index, opt_details) {
   if (frame) {
@@ -2219,6 +2205,29 @@ ScopeDetails.prototype.name = function() {
   }
   return this.details_[kScopeDetailsNameIndex];
 };
+
+
+ScopeDetails.prototype.startPosition = function() {
+  if (!IS_UNDEFINED(this.break_id_)) {
+    %CheckExecutionState(this.break_id_);
+  }
+  return this.details_[kScopeDetailsStartPositionIndex];
+}
+
+
+ScopeDetails.prototype.endPosition = function() {
+  if (!IS_UNDEFINED(this.break_id_)) {
+    %CheckExecutionState(this.break_id_);
+  }
+  return this.details_[kScopeDetailsEndPositionIndex];
+}
+
+ScopeDetails.prototype.func = function() {
+  if (!IS_UNDEFINED(this.break_id_)) {
+    %CheckExecutionState(this.break_id_);
+  }
+  return this.details_[kScopeDetailsFunctionIndex];
+}
 
 
 ScopeDetails.prototype.setVariableValueImpl = function(name, new_value) {
@@ -2360,18 +2369,13 @@ ScriptMirror.prototype.compilationType = function() {
 
 
 ScriptMirror.prototype.lineCount = function() {
-  return this.script_.lineCount();
+  return %ScriptLineCount(this.script_);
 };
 
 
 ScriptMirror.prototype.locationFromPosition = function(
     position, include_resource_offset) {
   return this.script_.locationFromPosition(position, include_resource_offset);
-};
-
-
-ScriptMirror.prototype.sourceSlice = function (opt_from_line, opt_to_line) {
-  return this.script_.sourceSlice(opt_from_line, opt_to_line);
 };
 
 

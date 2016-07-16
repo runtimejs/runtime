@@ -79,11 +79,20 @@ Context* Context::declaration_context() {
   return current;
 }
 
+Context* Context::closure_context() {
+  Context* current = this;
+  while (!current->IsFunctionContext() && !current->IsScriptContext() &&
+         !current->IsNativeContext()) {
+    current = current->previous();
+    DCHECK(current->closure() == closure());
+  }
+  return current;
+}
 
 JSObject* Context::extension_object() {
   DCHECK(IsNativeContext() || IsFunctionContext() || IsBlockContext());
   HeapObject* object = extension();
-  if (object->IsTheHole()) return nullptr;
+  if (object->IsTheHole(GetIsolate())) return nullptr;
   if (IsBlockContext()) {
     if (!object->IsSloppyBlockWithEvalContextExtension()) return nullptr;
     object = SloppyBlockWithEvalContextExtension::cast(object)->extension();
@@ -155,14 +164,16 @@ static Maybe<bool> UnscopableLookup(LookupIterator* it) {
   Handle<Object> unscopables;
   ASSIGN_RETURN_ON_EXCEPTION_VALUE(
       isolate, unscopables,
-      Object::GetProperty(it->GetReceiver(),
-                          isolate->factory()->unscopables_symbol()),
+      JSReceiver::GetProperty(Handle<JSReceiver>::cast(it->GetReceiver()),
+                              isolate->factory()->unscopables_symbol()),
       Nothing<bool>());
   if (!unscopables->IsJSReceiver()) return Just(true);
   Handle<Object> blacklist;
-  ASSIGN_RETURN_ON_EXCEPTION_VALUE(isolate, blacklist,
-                                   Object::GetProperty(unscopables, it->name()),
-                                   Nothing<bool>());
+  ASSIGN_RETURN_ON_EXCEPTION_VALUE(
+      isolate, blacklist,
+      JSReceiver::GetProperty(Handle<JSReceiver>::cast(unscopables),
+                              it->name()),
+      Nothing<bool>());
   return Just(!blacklist->BooleanValue());
 }
 
@@ -173,29 +184,24 @@ static void GetAttributesAndBindingFlags(VariableMode mode,
   switch (mode) {
     case VAR:
       *attributes = NONE;
-      *binding_flags = MUTABLE_IS_INITIALIZED;
+      *binding_flags = BINDING_IS_INITIALIZED;
       break;
     case LET:
       *attributes = NONE;
       *binding_flags = (init_flag == kNeedsInitialization)
-                           ? MUTABLE_CHECK_INITIALIZED
-                           : MUTABLE_IS_INITIALIZED;
+                           ? BINDING_CHECK_INITIALIZED
+                           : BINDING_IS_INITIALIZED;
       break;
     case CONST_LEGACY:
+      DCHECK_EQ(kCreatedInitialized, init_flag);
       *attributes = READ_ONLY;
-      *binding_flags = (init_flag == kNeedsInitialization)
-                           ? IMMUTABLE_CHECK_INITIALIZED
-                           : IMMUTABLE_IS_INITIALIZED;
+      *binding_flags = BINDING_IS_INITIALIZED;
       break;
     case CONST:
       *attributes = READ_ONLY;
       *binding_flags = (init_flag == kNeedsInitialization)
-                           ? IMMUTABLE_CHECK_INITIALIZED_HARMONY
-                           : IMMUTABLE_IS_INITIALIZED_HARMONY;
-      break;
-    case IMPORT:
-      // TODO(ES6)
-      UNREACHABLE();
+                           ? BINDING_CHECK_INITIALIZED
+                           : BINDING_IS_INITIALIZED;
       break;
     case DYNAMIC:
     case DYNAMIC_GLOBAL:
@@ -222,6 +228,7 @@ Handle<Object> Context::Lookup(Handle<String> name,
   Handle<Context> context(this, isolate);
 
   bool follow_context_chain = (flags & FOLLOW_CONTEXT_CHAIN) != 0;
+  bool failed_whitelist = false;
   *index = kNotFound;
   *attributes = ABSENT;
   *binding_flags = MISSING_BINDING;
@@ -282,7 +289,7 @@ Handle<Object> Context::Lookup(Handle<String> name,
         if (name->Equals(*isolate->factory()->this_string())) {
           maybe = Just(ABSENT);
         } else {
-          LookupIterator it(object, name);
+          LookupIterator it(object, name, object);
           Maybe<bool> found = UnscopableLookup(&it);
           if (found.IsNothing()) {
             maybe = Nothing<PropertyAttributes>();
@@ -350,8 +357,7 @@ Handle<Object> Context::Lookup(Handle<String> name,
           *index = function_index;
           *attributes = READ_ONLY;
           DCHECK(mode == CONST_LEGACY || mode == CONST);
-          *binding_flags = (mode == CONST_LEGACY)
-              ? IMMUTABLE_IS_INITIALIZED : IMMUTABLE_IS_INITIALIZED_HARMONY;
+          *binding_flags = BINDING_IS_INITIALIZED;
           return context;
         }
       }
@@ -364,8 +370,33 @@ Handle<Object> Context::Lookup(Handle<String> name,
         }
         *index = Context::THROWN_OBJECT_INDEX;
         *attributes = NONE;
-        *binding_flags = MUTABLE_IS_INITIALIZED;
+        *binding_flags = BINDING_IS_INITIALIZED;
         return context;
+      }
+    } else if (context->IsDebugEvaluateContext()) {
+      // Check materialized locals.
+      Object* obj = context->get(EXTENSION_INDEX);
+      if (obj->IsJSReceiver()) {
+        Handle<JSReceiver> extension(JSReceiver::cast(obj));
+        LookupIterator it(extension, name, extension);
+        Maybe<bool> found = JSReceiver::HasProperty(&it);
+        if (found.FromMaybe(false)) {
+          *attributes = NONE;
+          return extension;
+        }
+      }
+      // Check the original context, but do not follow its context chain.
+      obj = context->get(WRAPPED_CONTEXT_INDEX);
+      if (obj->IsContext()) {
+        Handle<Object> result = Context::cast(obj)->Lookup(
+            name, DONT_FOLLOW_CHAINS, index, attributes, binding_flags);
+        if (!result.is_null()) return result;
+      }
+      // Check whitelist. Names that do not pass whitelist shall only resolve
+      // to with, script or native contexts up the context chain.
+      obj = context->get(WHITE_LIST_INDEX);
+      if (obj->IsStringSet()) {
+        failed_whitelist = failed_whitelist || !StringSet::cast(obj)->Has(name);
       }
     }
 
@@ -375,7 +406,12 @@ Handle<Object> Context::Lookup(Handle<String> name,
          context->is_declaration_context())) {
       follow_context_chain = false;
     } else {
-      context = Handle<Context>(context->previous(), isolate);
+      do {
+        context = Handle<Context>(context->previous(), isolate);
+        // If we come across a whitelist context, and the name is not
+        // whitelisted, then only consider with, script or native contexts.
+      } while (failed_whitelist && !context->IsScriptContext() &&
+               !context->IsNativeContext() && !context->IsWithContext());
     }
   } while (follow_context_chain);
 
@@ -407,10 +443,11 @@ void Context::InitializeGlobalSlots() {
 
 void Context::AddOptimizedFunction(JSFunction* function) {
   DCHECK(IsNativeContext());
+  Isolate* isolate = GetIsolate();
 #ifdef ENABLE_SLOW_DCHECKS
   if (FLAG_enable_slow_asserts) {
     Object* element = get(OPTIMIZED_FUNCTIONS_LIST);
-    while (!element->IsUndefined()) {
+    while (!element->IsUndefined(isolate)) {
       CHECK(element != function);
       element = JSFunction::cast(element)->next_function_link();
     }
@@ -418,25 +455,25 @@ void Context::AddOptimizedFunction(JSFunction* function) {
 
   // Check that the context belongs to the weak native contexts list.
   bool found = false;
-  Object* context = GetHeap()->native_contexts_list();
-  while (!context->IsUndefined()) {
+  Object* context = isolate->heap()->native_contexts_list();
+  while (!context->IsUndefined(isolate)) {
     if (context == this) {
       found = true;
       break;
     }
-    context = Context::cast(context)->get(Context::NEXT_CONTEXT_LINK);
+    context = Context::cast(context)->next_context_link();
   }
   CHECK(found);
 #endif
 
   // If the function link field is already used then the function was
   // enqueued as a code flushing candidate and we remove it now.
-  if (!function->next_function_link()->IsUndefined()) {
+  if (!function->next_function_link()->IsUndefined(isolate)) {
     CodeFlusher* flusher = GetHeap()->mark_compact_collector()->code_flusher();
     flusher->EvictCandidate(function);
   }
 
-  DCHECK(function->next_function_link()->IsUndefined());
+  DCHECK(function->next_function_link()->IsUndefined(isolate));
 
   function->set_next_function_link(get(OPTIMIZED_FUNCTIONS_LIST),
                                    UPDATE_WEAK_WRITE_BARRIER);
@@ -448,9 +485,10 @@ void Context::RemoveOptimizedFunction(JSFunction* function) {
   DCHECK(IsNativeContext());
   Object* element = get(OPTIMIZED_FUNCTIONS_LIST);
   JSFunction* prev = NULL;
-  while (!element->IsUndefined()) {
+  Isolate* isolate = function->GetIsolate();
+  while (!element->IsUndefined(isolate)) {
     JSFunction* element_function = JSFunction::cast(element);
-    DCHECK(element_function->next_function_link()->IsUndefined() ||
+    DCHECK(element_function->next_function_link()->IsUndefined(isolate) ||
            element_function->next_function_link()->IsJSFunction());
     if (element_function == function) {
       if (prev == NULL) {
@@ -486,7 +524,7 @@ Object* Context::OptimizedFunctionsListHead() {
 void Context::AddOptimizedCode(Code* code) {
   DCHECK(IsNativeContext());
   DCHECK(code->kind() == Code::OPTIMIZED_FUNCTION);
-  DCHECK(code->next_code_link()->IsUndefined());
+  DCHECK(code->next_code_link()->IsUndefined(GetIsolate()));
   code->set_next_code_link(get(OPTIMIZED_CODE_LIST));
   set(OPTIMIZED_CODE_LIST, code, UPDATE_WEAK_WRITE_BARRIER);
 }
@@ -519,7 +557,7 @@ Object* Context::DeoptimizedCodeListHead() {
 Handle<Object> Context::ErrorMessageForCodeGenerationFromStrings() {
   Isolate* isolate = GetIsolate();
   Handle<Object> result(error_message_for_code_gen_from_strings(), isolate);
-  if (!result->IsUndefined()) return result;
+  if (!result->IsUndefined(isolate)) return result;
   return isolate->factory()->NewStringFromStaticChars(
       "Code generation from strings disallowed for this context");
 }
@@ -540,16 +578,6 @@ int Context::IntrinsicIndexForName(Handle<String> string) {
 }
 
 #undef COMPARE_NAME
-
-
-bool Context::IsJSBuiltin(Handle<Context> native_context,
-                          Handle<JSFunction> function) {
-#define COMPARE_FUNCTION(index, type, name) \
-  if (*function == native_context->get(index)) return true;
-  NATIVE_CONTEXT_JS_BUILTINS(COMPARE_FUNCTION);
-#undef COMPARE_FUNCTION
-  return false;
-}
 
 
 #ifdef DEBUG

@@ -29,7 +29,7 @@
 #define V8_AST_AST_VALUE_FACTORY_H_
 
 #include "src/api.h"
-#include "src/hashmap.h"
+#include "src/base/hashmap.h"
 #include "src/utils.h"
 
 // AstString, AstValue and AstValueFactory are for storing strings and values
@@ -242,6 +242,8 @@ class AstValue : public ZoneObject {
 #define STRING_CONSTANTS(F)                     \
   F(anonymous_function, "(anonymous function)") \
   F(arguments, "arguments")                     \
+  F(async, "async")                             \
+  F(await, "await")                             \
   F(constructor, "constructor")                 \
   F(default, "default")                         \
   F(done, "done")                               \
@@ -255,6 +257,7 @@ class AstValue : public ZoneObject {
   F(dot_catch, ".catch")                        \
   F(empty, "")                                  \
   F(eval, "eval")                               \
+  F(function, "function")                       \
   F(get_space, "get ")                          \
   F(let, "let")                                 \
   F(native, "native")                           \
@@ -262,13 +265,14 @@ class AstValue : public ZoneObject {
   F(next, "next")                               \
   F(proto, "__proto__")                         \
   F(prototype, "prototype")                     \
-  F(rest_parameter, ".rest_parameter")          \
+  F(return, "return")                           \
   F(set_space, "set ")                          \
+  F(star_default_star, "*default*")             \
   F(this, "this")                               \
   F(this_function, ".this_function")            \
+  F(throw, "throw")                             \
   F(undefined, "undefined")                     \
   F(use_asm, "use asm")                         \
-  F(use_strong, "use strong")                   \
   F(use_strict, "use strict")                   \
   F(value, "value")
 
@@ -348,7 +352,7 @@ class AstValueFactory {
   static bool AstRawStringCompare(void* a, void* b);
 
   // All strings are copied here, one after another (no NULLs inbetween).
-  HashMap string_table_;
+  base::HashMap string_table_;
   // For keeping track of all AstValues and AstRawStrings we've created (so that
   // they can be internalized later).
   List<AstValue*> values_;

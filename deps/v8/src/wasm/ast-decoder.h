@@ -6,11 +6,14 @@
 #define V8_WASM_AST_DECODER_H_
 
 #include "src/signature.h"
+#include "src/wasm/decoder.h"
 #include "src/wasm/wasm-opcodes.h"
 #include "src/wasm/wasm-result.h"
 
 namespace v8 {
 namespace internal {
+
+class BitVector;  // forward declaration
 
 namespace compiler {  // external declarations from compiler.
 class WasmGraphBuilder;
@@ -18,97 +21,266 @@ class WasmGraphBuilder;
 
 namespace wasm {
 
-typedef compiler::WasmGraphBuilder TFBuilder;
-struct ModuleEnv;  // forward declaration of module interface.
+// Helpers for decoding different kinds of operands which follow bytecodes.
+struct LocalIndexOperand {
+  uint32_t index;
+  LocalType type;
+  unsigned length;
 
-// Interface the function environment during decoding, include the signature
-// and number of locals.
-struct FunctionEnv {
-  ModuleEnv* module;             // module environment
-  FunctionSig* sig;              // signature of this function
-  uint32_t local_int32_count;    // number of int32 locals
-  uint32_t local_int64_count;    // number of int64 locals
-  uint32_t local_float32_count;  // number of float32 locals
-  uint32_t local_float64_count;  // number of float64 locals
-  uint32_t total_locals;         // sum of parameters and all locals
-
-  bool IsValidLocal(uint32_t index) { return index < total_locals; }
-  uint32_t GetLocalCount() { return total_locals; }
-  LocalType GetLocalType(uint32_t index) {
-    if (index < static_cast<uint32_t>(sig->parameter_count())) {
-      return sig->GetParam(index);
-    }
-    index -= static_cast<uint32_t>(sig->parameter_count());
-    if (index < local_int32_count) return kAstI32;
-    index -= local_int32_count;
-    if (index < local_int64_count) return kAstI64;
-    index -= local_int64_count;
-    if (index < local_float32_count) return kAstF32;
-    index -= local_float32_count;
-    if (index < local_float64_count) return kAstF64;
-    return kAstStmt;
-  }
-
-  void AddLocals(LocalType type, uint32_t count) {
-    switch (type) {
-      case kAstI32:
-        local_int32_count += count;
-        break;
-      case kAstI64:
-        local_int64_count += count;
-        break;
-      case kAstF32:
-        local_float32_count += count;
-        break;
-      case kAstF64:
-        local_float64_count += count;
-        break;
-      default:
-        UNREACHABLE();
-    }
-    total_locals += count;
-    DCHECK(total_locals ==
-           (sig->parameter_count() + local_int32_count + local_int64_count +
-            local_float32_count + local_float64_count));
-  }
-
-  void SumLocals() {
-    total_locals = static_cast<uint32_t>(sig->parameter_count()) +
-                   local_int32_count + local_int64_count + local_float32_count +
-                   local_float64_count;
+  inline LocalIndexOperand(Decoder* decoder, const byte* pc) {
+    index = decoder->checked_read_u32v(pc, 1, &length, "local index");
+    type = kAstStmt;
   }
 };
 
-struct Tree;
-typedef Result<Tree*> TreeResult;
+struct ImmI8Operand {
+  int8_t value;
+  unsigned length;
+  inline ImmI8Operand(Decoder* decoder, const byte* pc) {
+    value = bit_cast<int8_t>(decoder->checked_read_u8(pc, 1, "immi8"));
+    length = 1;
+  }
+};
 
-std::ostream& operator<<(std::ostream& os, const Tree& tree);
+struct ImmI32Operand {
+  int32_t value;
+  unsigned length;
+  inline ImmI32Operand(Decoder* decoder, const byte* pc) {
+    value = decoder->checked_read_i32v(pc, 1, &length, "immi32");
+  }
+};
 
-TreeResult VerifyWasmCode(FunctionEnv* env, const byte* base, const byte* start,
-                          const byte* end);
-TreeResult BuildTFGraph(TFBuilder* builder, FunctionEnv* env, const byte* base,
-                        const byte* start, const byte* end);
+struct ImmI64Operand {
+  int64_t value;
+  unsigned length;
+  inline ImmI64Operand(Decoder* decoder, const byte* pc) {
+    value = decoder->checked_read_i64v(pc, 1, &length, "immi64");
+  }
+};
 
-inline TreeResult VerifyWasmCode(FunctionEnv* env, const byte* start,
+struct ImmF32Operand {
+  float value;
+  unsigned length;
+  inline ImmF32Operand(Decoder* decoder, const byte* pc) {
+    value = bit_cast<float>(decoder->checked_read_u32(pc, 1, "immf32"));
+    length = 4;
+  }
+};
+
+struct ImmF64Operand {
+  double value;
+  unsigned length;
+  inline ImmF64Operand(Decoder* decoder, const byte* pc) {
+    value = bit_cast<double>(decoder->checked_read_u64(pc, 1, "immf64"));
+    length = 8;
+  }
+};
+
+struct GlobalIndexOperand {
+  uint32_t index;
+  LocalType type;
+  MachineType machine_type;
+  unsigned length;
+
+  inline GlobalIndexOperand(Decoder* decoder, const byte* pc) {
+    index = decoder->checked_read_u32v(pc, 1, &length, "global index");
+    type = kAstStmt;
+    machine_type = MachineType::None();
+  }
+};
+
+struct Control;
+struct BreakDepthOperand {
+  uint32_t arity;
+  uint32_t depth;
+  Control* target;
+  unsigned length;
+  inline BreakDepthOperand(Decoder* decoder, const byte* pc) {
+    unsigned len1 = 0;
+    unsigned len2 = 0;
+    arity = decoder->checked_read_u32v(pc, 1, &len1, "argument count");
+    depth = decoder->checked_read_u32v(pc, 1 + len1, &len2, "break depth");
+    length = len1 + len2;
+    target = nullptr;
+  }
+};
+
+struct CallIndirectOperand {
+  uint32_t arity;
+  uint32_t index;
+  FunctionSig* sig;
+  unsigned length;
+  inline CallIndirectOperand(Decoder* decoder, const byte* pc) {
+    unsigned len1 = 0;
+    unsigned len2 = 0;
+    arity = decoder->checked_read_u32v(pc, 1, &len1, "argument count");
+    index = decoder->checked_read_u32v(pc, 1 + len1, &len2, "signature index");
+    length = len1 + len2;
+    sig = nullptr;
+  }
+};
+
+struct CallFunctionOperand {
+  uint32_t arity;
+  uint32_t index;
+  FunctionSig* sig;
+  unsigned length;
+  inline CallFunctionOperand(Decoder* decoder, const byte* pc) {
+    unsigned len1 = 0;
+    unsigned len2 = 0;
+    arity = decoder->checked_read_u32v(pc, 1, &len1, "argument count");
+    index = decoder->checked_read_u32v(pc, 1 + len1, &len2, "function index");
+    length = len1 + len2;
+    sig = nullptr;
+  }
+};
+
+struct CallImportOperand {
+  uint32_t arity;
+  uint32_t index;
+  FunctionSig* sig;
+  unsigned length;
+  inline CallImportOperand(Decoder* decoder, const byte* pc) {
+    unsigned len1 = 0;
+    unsigned len2 = 0;
+    arity = decoder->checked_read_u32v(pc, 1, &len1, "argument count");
+    index = decoder->checked_read_u32v(pc, 1 + len1, &len2, "import index");
+    length = len1 + len2;
+    sig = nullptr;
+  }
+};
+
+struct BranchTableOperand {
+  uint32_t arity;
+  uint32_t table_count;
+  const byte* table;
+  unsigned length;
+  inline BranchTableOperand(Decoder* decoder, const byte* pc) {
+    unsigned len1 = 0;
+    unsigned len2 = 0;
+    arity = decoder->checked_read_u32v(pc, 1, &len1, "argument count");
+    table_count =
+        decoder->checked_read_u32v(pc, 1 + len1, &len2, "table count");
+    if (table_count > (UINT_MAX / sizeof(uint32_t)) - 1 ||
+        len1 + len2 > UINT_MAX - (table_count + 1) * sizeof(uint32_t)) {
+      decoder->error(pc, "branch table size overflow");
+    }
+    length = len1 + len2 + (table_count + 1) * sizeof(uint32_t);
+
+    uint32_t table_start = 1 + len1 + len2;
+    if (decoder->check(pc, table_start, (table_count + 1) * sizeof(uint32_t),
+                       "expected <table entries>")) {
+      table = pc + table_start;
+    } else {
+      table = nullptr;
+    }
+  }
+  inline uint32_t read_entry(Decoder* decoder, unsigned i) {
+    DCHECK(i <= table_count);
+    return table ? decoder->read_u32(table + i * sizeof(uint32_t)) : 0;
+  }
+};
+
+struct MemoryAccessOperand {
+  uint32_t alignment;
+  uint32_t offset;
+  unsigned length;
+  inline MemoryAccessOperand(Decoder* decoder, const byte* pc) {
+    unsigned alignment_length;
+    alignment =
+        decoder->checked_read_u32v(pc, 1, &alignment_length, "alignment");
+    unsigned offset_length;
+    offset = decoder->checked_read_u32v(pc, 1 + alignment_length,
+                                        &offset_length, "offset");
+    length = alignment_length + offset_length;
+  }
+};
+
+struct ReturnArityOperand {
+  uint32_t arity;
+  unsigned length;
+
+  inline ReturnArityOperand(Decoder* decoder, const byte* pc) {
+    arity = decoder->checked_read_u32v(pc, 1, &length, "return count");
+  }
+};
+
+typedef compiler::WasmGraphBuilder TFBuilder;
+struct ModuleEnv;  // forward declaration of module interface.
+
+// All of the various data structures necessary to decode a function body.
+struct FunctionBody {
+  ModuleEnv* module;  // module environment
+  FunctionSig* sig;   // function signature
+  const byte* base;   // base of the module bytes, for error reporting
+  const byte* start;  // start of the function body
+  const byte* end;    // end of the function body
+};
+
+static inline FunctionBody FunctionBodyForTesting(const byte* start,
+                                                  const byte* end) {
+  return {nullptr, nullptr, start, start, end};
+}
+
+struct DecodeStruct {
+  int unused;
+};
+typedef Result<DecodeStruct*> DecodeResult;
+inline std::ostream& operator<<(std::ostream& os, const DecodeStruct& tree) {
+  return os;
+}
+
+DecodeResult VerifyWasmCode(base::AccountingAllocator* allocator,
+                            FunctionBody& body);
+DecodeResult BuildTFGraph(base::AccountingAllocator* allocator,
+                          TFBuilder* builder, FunctionBody& body);
+bool PrintAst(base::AccountingAllocator* allocator, const FunctionBody& body,
+              std::ostream& os,
+              std::vector<std::tuple<uint32_t, int, int>>* offset_table);
+
+// A simplified form of AST printing, e.g. from a debugger.
+void PrintAstForDebugging(const byte* start, const byte* end);
+
+inline DecodeResult VerifyWasmCode(base::AccountingAllocator* allocator,
+                                   ModuleEnv* module, FunctionSig* sig,
+                                   const byte* start, const byte* end) {
+  FunctionBody body = {module, sig, nullptr, start, end};
+  return VerifyWasmCode(allocator, body);
+}
+
+inline DecodeResult BuildTFGraph(base::AccountingAllocator* allocator,
+                                 TFBuilder* builder, ModuleEnv* module,
+                                 FunctionSig* sig, const byte* start,
                                  const byte* end) {
-  return VerifyWasmCode(env, nullptr, start, end);
+  FunctionBody body = {module, sig, nullptr, start, end};
+  return BuildTFGraph(allocator, builder, body);
 }
 
-inline TreeResult BuildTFGraph(TFBuilder* builder, FunctionEnv* env,
-                               const byte* start, const byte* end) {
-  return BuildTFGraph(builder, env, nullptr, start, end);
-}
+struct AstLocalDecls {
+  // The size of the encoded declarations.
+  uint32_t decls_encoded_size;  // size of encoded declarations
 
-enum ReadUnsignedLEB128ErrorCode { kNoError, kInvalidLEB128, kMissingLEB128 };
+  // Total number of locals.
+  uint32_t total_local_count;
 
-ReadUnsignedLEB128ErrorCode ReadUnsignedLEB128Operand(const byte*, const byte*,
-                                                      int*, uint32_t*);
+  // List of {local type, count} pairs.
+  ZoneVector<std::pair<LocalType, uint32_t>> local_types;
+
+  // Constructor initializes the vector.
+  explicit AstLocalDecls(Zone* zone)
+      : decls_encoded_size(0), total_local_count(0), local_types(zone) {}
+};
+
+bool DecodeLocalDecls(AstLocalDecls& decls, const byte* start, const byte* end);
+BitVector* AnalyzeLoopAssignmentForTesting(Zone* zone, size_t num_locals,
+                                           const byte* start, const byte* end);
 
 // Computes the length of the opcode at the given address.
-int OpcodeLength(const byte* pc);
+unsigned OpcodeLength(const byte* pc, const byte* end);
 
 // Computes the arity (number of sub-nodes) of the opcode at the given address.
-int OpcodeArity(FunctionEnv* env, const byte* pc);
+unsigned OpcodeArity(const byte* pc, const byte* end);
+
 }  // namespace wasm
 }  // namespace internal
 }  // namespace v8

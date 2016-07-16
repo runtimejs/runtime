@@ -76,20 +76,10 @@
   'unicode-test': [PASS, NO_VARIANTS],
   'whitespaces': [PASS, NO_VARIANTS],
   'compiler/osr-assert': [PASS, NO_VARIANTS],
+  'ignition/regress-599001-verifyheap': [PASS, NO_VARIANTS],
   'es6/string-fromcodepoint': [PASS, NO_VARIANTS],
   'regress/regress-2185-2': [PASS, NO_VARIANTS],
   'regress/regress-2612': [PASS, NO_VARIANTS],
-
-  # Modules are busted
-  'harmony/module-linking': [SKIP],
-  'harmony/module-recompile': [SKIP],
-  'harmony/module-resolution': [SKIP],
-  'harmony/regress/regress-343928': [SKIP],
-
-  # Proxy tests rely on non ES6 version of Proxies
-  # TODO(neis,cbruni): figure out which Proxy tests can be reused
-  'harmony/proxies-example-membrane': [SKIP],
-  'strong/load-proxy': [SKIP],
 
   # Issue 3660: Replacing activated TurboFan frames by unoptimized code does
   # not work, but we expect it to not crash.
@@ -104,22 +94,17 @@
   'debug-evaluate-locals-optimized': [PASS, NO_VARIANTS],
   'debug-evaluate-locals-optimized-double': [PASS, NO_VARIANTS],
   'debug-evaluate-recursive': [PASS, NO_VARIANTS],  # only in no-snap debug.
-  'debug-ignore-breakpoints': [PASS, NO_VARIANTS],  # only in no-snap debug.
   'debug-setbreakpoint': [PASS, NO_VARIANTS],  # only in no-snap debug.
   'debug-step': [PASS, NO_VARIANTS],  # windows only.
   'debug-step-2': [PASS, NO_VARIANTS],  # flaky in no-snap mode.
   'debug-step-3': [PASS, NO_VARIANTS],  # flaky in no-snap mode.
   'debug-stepframe-clearing': [PASS, NO_VARIANTS],  # only in no-snap debug.
   'debug-stepin-call-function-stub': [PASS, NO_VARIANTS],  # only in no-snap debug.
-  'debug-stepin-positions': [PASS, NO_VARIANTS],  # only due to inlining.
   'regress/regress-3717': [PASS, NO_VARIANTS],  # only in no-snap mode.
   'regress/regress-2451': [PASS, NO_VARIANTS],  # with custom snapshot and gc-stress.
   'debug-multiple-breakpoints': [PASS, NO_VARIANTS],  # with custom snapshot and gc-stress.
   'debug-listbreakpoints': [PASS, NO_VARIANTS],  # arm64 nosnap with turbofan
   'debug-enable-disable-breakpoints': [PASS, NO_VARIANTS],  #arm64 nosnap with turbofan.
-
-  # TODO(rossberg)
-  'strong/literals': [SKIP], # Rest arguments do not respect strongness in Turbofan.
 
   # Issue 4035: unexpected frame->context() in debugger
   'regress/regress-crbug-107996': [PASS, NO_VARIANTS],
@@ -137,7 +122,6 @@
   'mirror-script': [PASS, NO_VARIANTS],  # on ARM64 only.
 
   # TODO(jarin/mstarzinger): Investigate debugger issues with TurboFan.
-  'debug-evaluate-const': [PASS, NO_VARIANTS],
   'debug-evaluate-locals': [PASS, NO_VARIANTS],
   'debug-evaluate-locals-capturing': [PASS, NO_VARIANTS],
   'debug-liveedit-check-stack': [PASS, NO_VARIANTS],  # only in no-snap mode.
@@ -193,7 +177,8 @@
   'regress/regress-crbug-491062': [PASS, NO_VARIANTS],
 
   # Issue 488: this test sometimes times out.
-  'array-constructor': [PASS, TIMEOUT],
+  # TODO(arm): This seems to flush out a bug on arm with simulator.
+  'array-constructor': [PASS, TIMEOUT, ['arch == arm and simulator == True', SKIP]],
 
   # Issue 4413: this test sometimes times out with TSAN because we trigger
   # the slow path in C++ with holey arrays in Function.prototype.apply.
@@ -204,11 +189,6 @@
   'unicode-case-overoptimization': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips64 or arch == mips', TIMEOUT]],
   'regress/regress-3976': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips64 or arch == mips', SKIP]],
   'regress/regress-crbug-482998': [PASS, NO_VARIANTS, ['arch == arm or arch == arm64 or arch == android_arm or arch == android_arm64 or arch == mipsel or arch == mips64el or arch == mips', SKIP]],
-
-  ##############################################################################
-  # This test expects to reach a certain recursion depth, which may not work
-  # for debug mode.
-  'json-recursive': [PASS, ['mode == debug', PASS, FAIL]],
 
   ##############################################################################
   # Skip long running tests that time out in debug mode.
@@ -226,6 +206,7 @@
   # that, it doesn't make sense to run several variants of d8-os anyways.
   'd8-os': [PASS, NO_VARIANTS, ['isolates or arch == android_arm or arch == android_arm64 or arch == android_ia32', SKIP]],
   'tools/tickprocessor': [PASS, NO_VARIANTS, ['arch == android_arm or arch == android_arm64 or arch == android_ia32', SKIP]],
+  'tools/dumpcpp': [PASS, NO_VARIANTS, ['arch == android_arm or arch == android_arm64 or arch == android_ia32', SKIP]],
 
   ##############################################################################
   # Long running test that reproduces memory leak and should be run manually.
@@ -240,7 +221,6 @@
   # Tests with different versions for release and debug.
   'compiler/alloc-number': [PASS, ['mode == debug', SKIP]],
   'compiler/alloc-number-debug': [PASS, ['mode == release', SKIP]],
-  'regress/regress-634': [PASS, ['mode == debug', SKIP]],
   'regress/regress-634-debug': [PASS, ['mode == release', SKIP]],
 
   # BUG(336820). TODO(bmeurer): Investigate.
@@ -262,30 +242,94 @@
   'asm/poppler/*': [PASS, SLOW, FAST_VARIANTS],
   'asm/sqlite3/*': [PASS, SLOW, FAST_VARIANTS],
 
-  # BUG(v8:3838).
-  'regress/regress-3116': [PASS, ['isolates', FLAKY]],
-
   # BUG(v8:4458). TODO(mvstanton): reenable the test once --vector-stores is
   # prermanently enabled.
   'call-counts': [SKIP],
 
-  # BUG(chromium:508074). Remove this once the issue is fixed.
-  'harmony/arrow-rest-params': [PASS, NO_VARIANTS],
-  'harmony/rest-params': [PASS, ['no_snap == True', NO_VARIANTS]],
-
   # Slow tests.
   'copy-on-write-assert': [PASS, SLOW],
   'debug-scopes': [PASS, SLOW],
-  'es7/object-observe': [PASS, ['mode == debug', SLOW]],
   'numops-fuzz-part*': [PASS, ['mode == debug', SLOW]],
   'readonly': [PASS, SLOW],
-  'regress/regress-1200351': [PASS, ['mode == debug', SLOW]],
+  'regress/regress-1200351': [PASS, SLOW],
   'regress/regress-crbug-474297': [PASS, ['mode == debug', SLOW]],
-  'strong/implicit-conversions': [PASS, SLOW],
-  'strong/load-element-mutate-backing-store': [PASS, SLOW],
+  'es6/tail-call-megatest*': [PASS, SLOW, FAST_VARIANTS, ['tsan', SKIP]],
 
-  # TODO(bradnelson): Enable tests in a separate change.
-  'wasm/*': [SKIP],
+  # TODO(titzer): ASM->WASM tests on these platforms
+  'wasm/asm-wasm': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el]', SKIP]],
+  # TODO(branelson): Figure out why ignition + asm-wasm-stdlib fails.
+  'wasm/asm-wasm-stdlib': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el] or ignition == True', SKIP]],
+  'wasm/asm-wasm-literals': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el] or ignition == True', SKIP]],
+  'wasm/asm-wasm-copy': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el]', SKIP]],
+  'wasm/asm-wasm-deopt': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el]', SKIP]],
+  'wasm/asm-wasm-switch': [PASS, ['arch in [arm, arm64, mips, mipsel, mips64, mips64el]', SKIP]],
+
+  # TODO(branelson): Figure out why ignition + asm->wasm fails embenchen.
+  'wasm/embenchen/*': [PASS, ['arch == arm64', SKIP], ['ignition == True', SKIP]],
+
+  # case-insensitive unicode regexp relies on case mapping provided by ICU.
+  'es6/unicode-regexp-ignore-case': [PASS, ['no_i18n == True', FAIL]],
+  'es6/unicode-regexp-ignore-case-noi18n': [FAIL, ['no_i18n == True', PASS]],
+  'regress/regress-5036': [PASS, ['no_i18n == True', FAIL]],
+  # desugaring regexp property class relies on ICU.
+  'harmony/regexp-property-*': [PASS, ['no_i18n == True', FAIL]],
+
+  # TODO(bmeurer): Flaky timeouts (sometimes <1s, sometimes >3m).
+  'unicodelctest': [PASS, NO_VARIANTS],
+  'unicodelctest-no-optimization': [PASS, NO_VARIANTS],
+
+  ############################################################################
+  # Ignition
+
+  # TODO(mythria, 4780): Related to type feedback for calls in interpreter.
+  'array-literal-feedback': [PASS, NO_IGNITION],
+  'regress/regress-4121': [PASS, NO_IGNITION],
+
+  # TODO(mythria, 4764): lack of osr support.
+  'regress/regress-2618': [PASS, NO_IGNITION],
+
+  # TODO(mythria, 4764): lack of osr support. The tests waits in a loop
+  # till it is optimized. So test timeouts.
+  'array-literal-transitions': [PASS, NO_IGNITION],
+
+  # TODO(4680): Test doesn't know about three tier compiler pipeline.
+  'assert-opt-and-deopt': [PASS, NO_IGNITION],
+
+  # BUG(rmcilroy,4989): Function is optimized without type feedback and so immediately deopts again, causing check failure in the test.
+  'compiler/deopt-inlined-from-call': [PASS, NO_IGNITION],
+  'compiler/increment-typefeedback': [PASS, NO_IGNITION],
+  'compiler/manual-concurrent-recompile': [PASS, NO_IGNITION],
+  'constant-folding-2': [PASS, NO_IGNITION],
+  'debug-is-active': [PASS, NO_IGNITION],
+  'deopt-with-fp-regs': [PASS, NO_IGNITION],
+  'deserialize-optimize-inner': [PASS, NO_IGNITION],
+  'div-mul-minus-one': [PASS, NO_IGNITION],
+  'double-intrinsics': [PASS, NO_IGNITION],
+  'elements-transition-hoisting': [PASS, NO_IGNITION],
+  'es6/block-let-crankshaft': [PASS, NO_IGNITION],
+  'es6/block-let-crankshaft-sloppy': [PASS, NO_IGNITION],
+  'getters-on-elements': [PASS, NO_IGNITION],
+  'harmony/do-expressions': [PASS, NO_IGNITION],
+  'math-floor-of-div-minus-zero': [PASS, NO_IGNITION],
+  'regress/regress-2132': [PASS, NO_IGNITION],
+  'regress/regress-2339': [PASS, NO_IGNITION],
+  'regress/regress-3176': [PASS, NO_IGNITION],
+  'regress/regress-3709': [PASS, NO_IGNITION],
+  'regress/regress-385565': [PASS, NO_IGNITION],
+  'regress/regress-crbug-594183': [PASS, NO_IGNITION],
+  'regress/regress-embedded-cons-string': [PASS, NO_IGNITION],
+  'regress/regress-map-invalidation-2': [PASS, NO_IGNITION],
+  'regress/regress-param-local-type': [PASS, NO_IGNITION],
+  'regress/regress-prepare-break-while-recompile': [PASS, NO_IGNITION],
+  'shift-for-integer-div': [PASS, NO_IGNITION],
+  'sin-cos': [PASS, NO_IGNITION],
+  'smi-mul-const': [PASS, NO_IGNITION],
+  'smi-mul': [PASS, NO_IGNITION],
+  'unary-minus-deopt': [PASS, NO_IGNITION],
+
+  # TODO(rmcilroy,5038): Crashes in Deoptimizer::PatchCodeForDeoptimization on
+  # nosnap builds when --stress-opt and --turbo-from-bytecode is enabled.
+  'harmony/generators-turbo': [PASS, FAST_VARIANTS],
 }],  # ALWAYS
 
 ['novfp3 == True', {
@@ -332,7 +376,6 @@
   # TODO(mstarzinger): Takes too long with TF.
   'array-sort': [PASS, NO_VARIANTS],
   'regress/regress-91008': [PASS, NO_VARIANTS],
-  'regress/regress-417709a': [PASS, ['arch == arm64', NO_VARIANTS]],
   'regress/regress-transcendental': [PASS, ['arch == arm64', NO_VARIANTS]],
   'compiler/osr-regress-max-locals': [PASS, NO_VARIANTS],
   'math-floor-of-div': [PASS, NO_VARIANTS],
@@ -351,9 +394,6 @@
   # BUG(v8:4237)
   'regress/regress-3976': [SKIP],
 
-  # BUG(v8:4359)
-  'strong/load-proxy': [SKIP],
-
   # Slow tests.
   'array-constructor': [PASS, SLOW],
   'json': [PASS, SLOW],
@@ -362,13 +402,16 @@
 
   # BUG(v8:3097)
   'debug-references': [SKIP],
-}],  # 'gc_stress == True'
 
-##############################################################################
-['no_i18n == True and mode == debug', {
-  # Tests too slow for no18n debug.
-  'regress/regress-1200351': [SKIP],
-}],  # 'no_i18n == True and mode == debug'
+  # BUG(v8:4754).
+  'debug-referenced-by': [PASS, NO_VARIANTS],
+
+  # BUG(v8:4779): Crashes flakily with stress mode on arm64.
+  'array-splice': [PASS, SLOW, ['arch == arm64', FAST_VARIANTS]],
+
+  # BUG(v8:5053).
+  'wasm/embenchen/fasta': [PASS, FAST_VARIANTS],
+}],  # 'gc_stress == True'
 
 ##############################################################################
 ['byteorder == big', {
@@ -376,6 +419,8 @@
   'asm/embenchen/*': [SKIP],
   'asm/poppler/*': [SKIP],
   'asm/sqlite3/*': [SKIP],
+  # TODO(mips-team): Fix Wasm for big-endian.
+  'wasm/*': [SKIP],
 }],  # 'byteorder == big'
 
 ##############################################################################
@@ -397,15 +442,12 @@
   'big-object-literal': [SKIP],
   'compiler/regress-arguments': [SKIP],
   'compiler/regress-gvn': [SKIP],
-  'compiler/regress-max-locals-for-osr': [SKIP],
   'compiler/regress-4': [SKIP],
   'compiler/regress-or': [SKIP],
   'compiler/regress-rep-change': [SKIP],
   'regress/regress-1117': [SKIP],
-  'regress/regress-1145': [SKIP],
   'regress/regress-1849': [SKIP],
   'regress/regress-3247124': [SKIP],
-  'regress/regress-634': [SKIP],
   'regress/regress-91008': [SKIP],
   'regress/regress-91010': [SKIP],
   'regress/regress-91013': [SKIP],
@@ -449,23 +491,31 @@
   'unicodelctest': [PASS, SLOW],
   'unicode-test': [PASS, SLOW],
   'whitespaces': [PASS, TIMEOUT, SLOW],
+
+  # TODO(rmcilroy,4680): Arm64 specific timeouts.
+  'asm/construct-double': [PASS, NO_IGNITION],
+  'compiler/osr-one': [PASS, NO_IGNITION],
+  'compiler/osr-two': [PASS, NO_IGNITION],
+  'wasm/asm-wasm-i32': [PASS, NO_IGNITION],
+  'wasm/asm-wasm-u32': [PASS, NO_IGNITION],
 }],  # 'arch == arm64'
 
 ['arch == arm64 and mode == debug and simulator_run == True', {
 
   # Pass but take too long with the simulator in debug mode.
-  'array-iterate-backwards': [PASS, TIMEOUT],
   'array-sort': [PASS, TIMEOUT],
   'packed-elements': [SKIP],
   'regexp-global': [SKIP],
-  'compiler/alloc-numbers': [SKIP],
-  'harmony/symbols': [SKIP],
   'math-floor-of-div': [PASS, TIMEOUT],
   'math-floor-of-div-nosudiv': [PASS, TIMEOUT],
   'unicodelctest': [PASS, TIMEOUT],
   'unicodelctest-no-optimization': [PASS, TIMEOUT],
   # Issue 3219:
   'getters-on-elements': [PASS, ['gc_stress == True', FAIL]],
+
+  # Ignition.
+  'es6/templates': [PASS, ['no_snap and mode == debug', NO_IGNITION]],
+  'regress/regress-crbug-364374': [PASS, ['no_snap and mode == debug', NO_IGNITION]],
 }],  # 'arch == arm64 and mode == debug and simulator_run == True'
 
 ##############################################################################
@@ -488,6 +538,20 @@
   'deep-recursion': [SKIP],
   'regress/regress-builtinbust-7': [SKIP],
   'string-localecompare': [SKIP],
+
+  # TODO(mythria,4680): All of these tests have large loops and hence slow
+  # and timeout.
+  'compiler/osr-big': [PASS, NO_IGNITION],
+  'compiler/osr-nested': [PASS, NO_IGNITION],
+  'regress/regress-298269': [PASS, NO_IGNITION],
+  'regress/regress-crbug-319860': [PASS, NO_IGNITION],
+  'regress/regress-deep-proto': [PASS, NO_IGNITION],
+  'try': [PASS, NO_IGNITION],
+  # Too slow for interpreter and msan.
+  'es6/tail-call-megatest*': [PASS, NO_IGNITION],
+
+  # Too slow.
+  'harmony/regexp-property-lu-ui': [SKIP],
 }],  # 'msan == True'
 
 ##############################################################################
@@ -511,7 +575,6 @@
   'big-object-literal': [SKIP],
   'compiler/alloc-number': [SKIP],
   'regress/regress-490': [SKIP],
-  'regress/regress-634': [SKIP],
   'regress/regress-create-exception': [SKIP],
   'regress/regress-3247124': [SKIP],
 
@@ -533,6 +596,11 @@
   'regress/regress-91008': [PASS, SLOW],
   'regress/regress-json-stringify-gc': [PASS, SLOW],
   'string-indexof-2': [PASS, TIMEOUT],
+
+  # TODO(rmcilroy,4680): Arm specific timeouts.
+  'compiler/osr-one': [PASS, NO_IGNITION],
+  'compiler/osr-two': [PASS, NO_IGNITION],
+  'regress/regress-1257': [PASS, NO_IGNITION],
 }],  # 'arch == arm or arch == android_arm'
 
 ##############################################################################
@@ -555,7 +623,6 @@
   # the buildbot.
   'compiler/alloc-number': [SKIP],
   'regress/regress-490': [SKIP],
-  'regress/regress-634': [SKIP],
   'regress/regress-create-exception': [SKIP],
   'regress/regress-3247124': [SKIP],
 
@@ -575,12 +642,7 @@
 }],  # 'arch == mips'
 
 ##############################################################################
-['arch == x87', {
-  # Turbofan will hit the known issue that x87 changes sNaN to qNaN by default.
-  'regress/regress-undefined-nan': [SKIP],
-}],  # 'arch == x87'
 
-##############################################################################
 ['arch == mips64el or arch == mips64', {
 
   # Slow tests which times out in debug mode.
@@ -617,7 +679,6 @@
   'compiler/regress-3249650': [PASS, SLOW],
   'compiler/simple-deopt': [PASS, SLOW],
   'regress/regress-490': [PASS, SLOW],
-  'regress/regress-634': [PASS, SLOW],
   'regress/regress-create-exception': [PASS, SLOW],
   'regress/regress-3218915': [PASS, SLOW],
   'regress/regress-3247124': [PASS, SLOW],
@@ -637,7 +698,6 @@
   'big-object-literal': [PASS, ['mode == debug', SKIP]],
   'math-floor-of-div': [PASS, ['mode == debug', SKIP]],
   'math-floor-of-div-nosudiv': [PASS, ['mode == debug', SKIP]],
-  'osr-regress-max-locals': [PASS, ['mode == debug', SKIP]],
   'unicodelctest': [PASS, ['mode == debug', SKIP]],
 
   # BUG(v8:3435)
@@ -662,7 +722,6 @@
   'debug-liveedit-stack-padding': [SKIP],
   'debug-liveedit-restart-frame': [SKIP],
   'debug-liveedit-double-call': [SKIP],
-  'harmony/generators-debug-liveedit': [SKIP],
 
   # NaCl builds have problems with this test since Pepper_28.
   # V8 Issue 2786
@@ -683,7 +742,6 @@
   'regress/regress-1257': [PASS, NO_VARIANTS],
   'regress/regress-2618': [PASS, NO_VARIANTS],
   'regress/regress-298269': [PASS, NO_VARIANTS],
-  'regress/regress-634': [PASS, NO_VARIANTS],
   'regress/regress-91008': [PASS, NO_VARIANTS],
   'compiler/osr-alignment': [PASS, NO_VARIANTS],
   'compiler/osr-one': [PASS, NO_VARIANTS],
@@ -699,8 +757,17 @@
 
   # Crashes.
   'harmony/private': [SKIP],
-  'harmony/symbols': [SKIP],
 }],  # 'arch == nacl_ia32 or arch == nacl_x64'
+
+##############################################################################
+['arch == s390 or arch == s390x', {
+
+  # Stack manipulations in LiveEdit is not implemented for this arch.
+  'debug-liveedit-check-stack': [SKIP],
+  'debug-liveedit-stack-padding': [SKIP],
+  'debug-liveedit-restart-frame': [SKIP],
+  'debug-liveedit-double-call': [SKIP],
+}],  # 'arch == s390 or arch == s390x'
 
 ##############################################################################
 ['deopt_fuzzer == True', {
@@ -720,6 +787,9 @@
 
   # Deopt every n garbage collections collides with deopt every n times.
   'regress/regress-2653': [SKIP],
+
+  # Too slow.
+  'es6/tail-call-megatest*': [SKIP],
 }],  # 'deopt_fuzzer == True'
 
 ##############################################################################
@@ -727,6 +797,7 @@
 
   # Skip tests that are known to be non-deterministic.
   'd8-worker-sharedarraybuffer': [SKIP],
+  'd8-os': [SKIP],
 }],  # 'predictable == True'
 
 ##############################################################################
@@ -736,387 +807,80 @@
   'regress/regress-1132': [SKIP],
 }],  # 'arch == ppc and simulator_run == True'
 
-['ignition == True', {
-  'const*': [SKIP],
-  'debug-*': [SKIP],
-  'es6/*': [SKIP],
-  'es7/*': [SKIP],
-  'strong/*': [SKIP],
-  'harmony/*': [SKIP],
-  'regress/debug*': [SKIP],
-  'regress/regress-debug*': [SKIP],
+##############################################################################
+['arch == ppc64', {
 
-  # TODO(bradnelson): Figure out why these tests fail with ignition.
-  'wasm/*': [SKIP],
+  # stack overflow
+  'big-array-literal': [SKIP],
+}],  # 'arch == ppc64'
 
-  'allocation-folding': [SKIP],
-  'api-call-after-bypassed-exception': [SKIP],
-  'apply-arguments-gc-safepoint': [SKIP],
-  'arguments-load-across-eval': [SKIP],
-  'arguments-read-and-assignment': [SKIP],
-  'array-bounds-check-removal': [SKIP],
-  'array-elements-from-array-prototype-chain': [SKIP],
-  'array-functions-prototype-misc': [SKIP],
-  'array-join': [SKIP],
-  'array-literal-feedback': [SKIP],
+##############################################################################
+['ignition or ignition_turbofan', {
+  # TODO(mythria, 4780): Related to type feedback for calls in interpreter.
+  'array-literal-feedback': [FAIL],
+  'regress/regress-4121': [FAIL],
+
+  # TODO(mythria, 4764): lack of osr support.
+  'regress/regress-2618': [FAIL],
+  # TODO(mythria, 4764): lack of osr support. The tests waits in a loop
+  # till it is optimized. So test timeouts.
   'array-literal-transitions': [SKIP],
-  'array-tostring': [SKIP],
-  'break': [SKIP],
-  'call-runtime-tail': [SKIP],
-  'compiler/compare-map-elim2': [SKIP],
-  'compiler/deopt-inlined-smi': [SKIP],
-  'compiler/deopt-tonumber-compare': [SKIP],
-  'compiler/escape-analysis-arguments': [SKIP],
-  'compiler/escape-analysis': [SKIP],
-  'compiler/expression-trees': [SKIP],
-  'compiler/inline-arguments': [SKIP],
-  'compiler/inline-arity-mismatch': [SKIP],
-  'compiler/inline-construct': [SKIP],
-  'compiler/lazy-deopt-in-literal': [SKIP],
-  'compiler/manual-concurrent-recompile': [SKIP],
-  'compiler/optimized-for-in': [SKIP],
-  'compiler/optimized-function-calls': [SKIP],
-  'compiler/optimize_max': [SKIP],
-  'compiler/optimize_min': [SKIP],
-  'compiler/opt-next-call-turbo': [SKIP],
-  'compiler/osr-forof': [SKIP],
-  'compiler/property-refs': [SKIP],
-  'compiler/regress-3786': [SKIP],
-  'compiler/regress-446647': [SKIP],
-  'compiler/regress-447567': [SKIP],
-  'compiler/regress-469089': [SKIP],
-  'compiler/regress-96989': [SKIP],
-  'compiler/regress-const': [SKIP],
-  'compiler/regress-funarguments': [SKIP],
-  'compiler/regress-stacktrace-methods': [SKIP],
-  'compiler/regress-variable-liveness': [SKIP],
-  'compiler/rotate': [SKIP],
-  'compiler/safepoint': [SKIP],
-  'compiler/try-deopt': [SKIP],
-  'compiler/try-osr': [SKIP],
-  'compiler/uint32': [SKIP],
-  'compiler/variables': [SKIP],
-  'context-calls-maintained': [SKIP],
-  'contextual-calls': [SKIP],
-  'cross-realm-filtering': [SKIP],
-  'cyclic-array-to-string': [SKIP],
-  'd8-worker-sharedarraybuffer': [SKIP],
-  'delete-in-with': [SKIP],
-  'deopt-minus-zero': [SKIP],
-  'deserialize-optimize-inner': [SKIP],
-  'double-equals': [SKIP],
-  'eval-enclosing-function-name': [SKIP],
-  'eval-stack-trace': [SKIP],
-  'fast-prototype': [SKIP],
-  'field-type-tracking': [SKIP],
-  'for-in-opt': [SKIP],
-  'for-in-special-cases': [SKIP],
-  'function-call': [SKIP],
-  'get-caller-js-function': [SKIP],
-  'get-prototype-of': [SKIP],
-  'getter-in-prototype': [SKIP],
-  'global-hash': [SKIP],
-  'global-load-from-eval-in-with': [SKIP],
-  'global-vars-with': [SKIP],
-  'instanceof-2': [SKIP],
-  'json-replacer-number-wrapper-tostring': [SKIP],
-  'json-replacer-order': [SKIP],
-  'json': [SKIP],
-  'keyed-load-with-symbol-key': [SKIP],
-  'local-load-from-eval': [SKIP],
-  'math-min-max': [SKIP],
-  'messages': [SKIP],
-  'mirror-object': [SKIP],
-  'object-literal-gc': [SKIP],
-  'osr-elements-kind': [SKIP],
-  'property-load-across-eval': [SKIP],
-  'proto-accessor': [SKIP],
-  'readonly': [SKIP],
-  'receiver-in-with-calls': [SKIP],
-  'regress-3225': [SKIP],
-  'regress/clear-keyed-call': [SKIP],
-  'regress/poly_count_operation': [SKIP],
-  'regress/regress-102153': [SKIP],
-  'regress/regress-1030466': [SKIP],
-  'regress/regress-1079': [SKIP],
-  'regress/regress-109195': [SKIP],
-  'regress/regress-1114040': [SKIP],
-  'regress/regress-1125': [SKIP],
-  'regress/regress-1129': [SKIP],
-  'regress/regress-1170187': [SKIP],
-  'regress/regress-117409': [SKIP],
-  'regress/regress-1177809': [SKIP],
-  'regress/regress-119609': [SKIP],
-  'regress/regress-123919': [SKIP],
-  'regress/regress-124594': [SKIP],
-  'regress/regress-125515': [SKIP],
-  'regress/regress-128018': [SKIP],
-  'regress/regress-131994': [SKIP],
-  'regress/regress-133211b': [SKIP],
-  'regress/regress-1365': [SKIP],
-  'regress/regress-1369': [SKIP],
-  'regress/regress-1403': [SKIP],
-  'regress/regress-1412': [SKIP],
-  'regress/regress-1436': [SKIP],
-  'regress/regress-1493017': [SKIP],
-  'regress/regress-1523': [SKIP],
-  'regress/regress-1560': [SKIP],
-  'regress/regress-1586': [SKIP],
-  'regress/regress-1639-2': [SKIP],
-  'regress/regress-1639': [SKIP],
-  'regress/regress-166553': [SKIP],
-  'regress/regress-1708': [SKIP],
-  'regress/regress-1757': [SKIP],
-  'regress/regress-1790': [SKIP],
-  'regress/regress-1853': [SKIP],
-  'regress/regress-1980': [SKIP],
-  'regress/regress-2054': [SKIP],
-  'regress/regress-2071': [SKIP],
-  'regress/regress-2163': [SKIP],
-  'regress/regress-220': [SKIP],
-  'regress/regress-2318': [SKIP],
-  'regress/regress-2339': [SKIP],
-  'regress/regress-2374': [SKIP],
-  'regress/regress-2593': [SKIP],
-  'regress/regress-2618': [SKIP],
-  'regress/regress-263': [SKIP],
-  'regress/regress-265': [SKIP],
-  'regress/regress-269': [SKIP],
-  'regress/regress-2790': [SKIP],
-  'regress/regress-2825': [SKIP],
-  'regress/regress-3135': [SKIP],
-  'regress/regress-3138': [SKIP],
-  'regress/regress-318420': [SKIP],
-  'regress/regress-320532': [SKIP],
-  'regress/regress-3281': [SKIP],
-  'regress/regress-331444': [SKIP],
-  'regress/regress-343609': [SKIP],
-  'regress/regress-347530': [SKIP],
-  'regress/regress-347914': [SKIP],
-  'regress/regress-351261': [SKIP],
-  'regress/regress-352982': [SKIP],
-  'regress/regress-353551': [SKIP],
-  'regress/regress-354357': [SKIP],
-  'regress/regress-356053': [SKIP],
-  'regress/regress-357105': [SKIP],
-  'regress/regress-359441': [SKIP],
-  'regress/regress-361025': [SKIP],
-  'regress/regress-3621': [SKIP],
-  'regress/regress-365172-3': [SKIP],
-  'regress/regress-370827': [SKIP],
-  'regress/regress-377290': [SKIP],
-  'regress/regress-3859': [SKIP],
-  'regress/regress-3884': [SKIP],
-  'regress/regress-3926': [SKIP],
-  'regress/regress-3960': [SKIP],
-  'regress/regress-3969': [SKIP],
-  'regress/regress-3985': [SKIP],
-  'regress/regress-4023': [SKIP],
-  'regress/regress-4027': [SKIP],
-  'regress/regress-403292': [SKIP],
-  'regress/regress-410912': [SKIP],
-  'regress/regress-4121': [SKIP],
-  'regress/regress-419663': [SKIP],
-  'regress/regress-4255-4': [SKIP],
-  'regress/regress-430201b': [SKIP],
-  'regress/regress-430201': [SKIP],
-  'regress/regress-4309-3': [SKIP],
-  'regress/regress-4320': [SKIP],
-  'regress/regress-4325': [SKIP],
-  'regress/regress-436893': [SKIP],
-  'regress/regress-4374': [SKIP],
-  'regress/regress-4388': [SKIP],
-  'regress/regress-444805': [SKIP],
-  'regress/regress-446389': [SKIP],
-  'regress/regress-447756': [SKIP],
-  'regress/regress-4515': [SKIP],
-  'regress/regress-4521': [SKIP],
-  'regress/regress-4525': [SKIP],
-  'regress/regress-453481': [SKIP],
-  'regress/regress-4534': [SKIP],
-  'regress/regress-454725': [SKIP],
-  'regress/regress-457935': [SKIP],
-  'regress/regress-470804': [SKIP],
-  'regress/regress-476488': [SKIP],
-  'regress/regress-503565': [SKIP],
-  'regress/regress-514362': [SKIP],
-  'regress/regress-520029': [SKIP],
-  'regress/regress-542100': [SKIP],
-  'regress/regress-544991': [SKIP],
-  'regress/regress-568765': [SKIP],
-  'regress/regress-580': [SKIP],
-  'regress/regress-618': [SKIP],
-  'regress/regress-69': [SKIP],
-  'regress/regress-70066': [SKIP],
-  'regress/regress-747': [SKIP],
-  'regress/regress-753': [SKIP],
-  'regress/regress-799761': [SKIP],
-  'regress/regress-806473': [SKIP],
-  'regress/regress-842017': [SKIP],
-  'regress/regress-84234': [SKIP],
-  'regress/regress-88858': [SKIP],
-  'regress/regress-94425': [SKIP],
-  'regress/regress-94873': [SKIP],
-  'regress/regress-95485': [SKIP],
-  'regress/regress-97116b': [SKIP],
-  'regress/regress-97116': [SKIP],
-  'regress/regress-974': [SKIP],
-  'regress/regress-99167': [SKIP],
-  'regress/regress-998565': [SKIP],
-  'regress/regress-arg-materialize-store': [SKIP],
-  'regress/regress-arguments-gc': [SKIP],
-  'regress/regress-assignment-in-test-context': [SKIP],
-  'regress/regress-bce-underflow': [SKIP],
-  'regress/regress-cnlt-elements': [SKIP],
-  'regress/regress-cnlt-enum-indices': [SKIP],
-  'regress/regress-cntl-descriptors-enum': [SKIP],
-  'regress/regress-conditional-position': [SKIP],
-  'regress/regress-convert-enum': [SKIP],
-  'regress/regress-crbug-109362': [SKIP],
-  'regress/regress-crbug-119800': [SKIP],
-  'regress/regress-crbug-163530': [SKIP],
-  'regress/regress-crbug-229923': [SKIP],
-  'regress/regress-crbug-242502': [SKIP],
-  'regress/regress-crbug-242924': [SKIP],
-  'regress/regress-crbug-245480': [SKIP],
-  'regress/regress-crbug-350864': [SKIP],
-  'regress/regress-crbug-351262': [SKIP],
-  'regress/regress-crbug-352058': [SKIP],
-  'regress/regress-crbug-357137': [SKIP],
-  'regress/regress-crbug-385002': [SKIP],
-  'regress/regress-crbug-387599': [SKIP],
-  'regress/regress-crbug-405517': [SKIP],
-  'regress/regress-crbug-405922': [SKIP],
-  'regress/regress-crbug-409614': [SKIP],
-  'regress/regress-crbug-410033': [SKIP],
-  'regress/regress-crbug-412208': [SKIP],
-  'regress/regress-crbug-416558': [SKIP],
-  'regress/regress-crbug-424142': [SKIP],
-  'regress/regress-crbug-429159': [SKIP],
-  'regress/regress-crbug-431602': [SKIP],
-  'regress/regress-crbug-432493': [SKIP],
-  'regress/regress-crbug-450642': [SKIP],
-  'regress/regress-crbug-455644': [SKIP],
-  'regress/regress-crbug-465298': [SKIP],
-  'regress/regress-crbug-467180': [SKIP],
-  'regress/regress-crbug-467531': [SKIP],
-  'regress/regress-crbug-474297': [SKIP],
-  'regress/regress-crbug-480819': [SKIP],
-  'regress/regress-crbug-481896': [SKIP],
-  'regress/regress-crbug-485548-1': [SKIP],
-  'regress/regress-crbug-485548-2': [SKIP],
-  'regress/regress-crbug-487289': [SKIP],
-  'regress/regress-crbug-489293': [SKIP],
-  'regress/regress-crbug-489597': [SKIP],
-  'regress/regress-crbug-498142': [SKIP],
-  'regress/regress-crbug-501809': [SKIP],
-  'regress/regress-crbug-506443': [SKIP],
-  'regress/regress-crbug-507070': [SKIP],
-  'regress/regress-crbug-517592': [SKIP],
-  'regress/regress-crbug-522895': [SKIP],
-  'regress/regress-crbug-527364': [SKIP],
-  'regress/regress-crbug-546968': [SKIP],
-  'regress/regress-crbug-568477-1': [SKIP],
-  'regress/regress-crbug-568477-2': [SKIP],
-  'regress/regress-crbug-568477-3': [SKIP],
-  'regress/regress-crbug-568477-4': [SKIP],
-  'regress/regress-crbug-572590': [SKIP],
-  'regress/regress-crbug-573857': [SKIP],
-  'regress/regress-crbug-575080': [SKIP],
-  'regress/regress-deopt-gcb': [SKIP],
-  'regress/regress-deopt-gc': [SKIP],
-  'regress/regress-deopt-in-array-literal-spread': [SKIP],
-  'regress/regress-embedded-cons-string': [SKIP],
-  'regress/regress-existing-shared-function-info': [SKIP],
-  'regress/regress-fast-literal-transition': [SKIP],
-  'regress/regress-function-constructor-receiver': [SKIP],
-  'regress/regress-handle-illegal-redeclaration': [SKIP],
-  'regress/regress-inline-class-constructor': [SKIP],
-  'regress/regress-inlining-function-literal-context': [SKIP],
-  'regress/regress-latin-1': [SKIP],
-  'regress/regress-lazy-deopt-reloc': [SKIP],
-  'regress/regress-opt-after-debug-deopt': [SKIP],
-  'regress/regress-osr-in-case-label': [SKIP],
-  'regress/regress-osr-in-literal': [SKIP],
-  'regress/regress-prepare-break-while-recompile': [SKIP],
-  'regress/regress-put-prototype-transition': [SKIP],
-  'regress/regress-sliced-external-cons-regexp': [SKIP],
-  'regress/regress-store-heapobject': [SKIP],
-  'regress/regress-transcendental': [SKIP],
-  'regress/regress-typedarray-length': [SKIP],
-  'regress/splice-missing-wb': [SKIP],
-  'setter-on-constructor-prototype': [SKIP],
-  'shift-for-integer-div': [SKIP],
-  'simple-constructor': [SKIP],
-  'sparse-array-reverse': [SKIP],
-  'stack-traces': [SKIP],
-  'strict-mode': [SKIP],
-  'string-case': [SKIP],
-  'string-external-cached': [SKIP],
-  'string-externalize': [SKIP],
-  'string-natives': [SKIP],
-  'string-replace-with-empty': [SKIP],
-  'string-slices': [SKIP],
-  'tools/profile': [SKIP],
-  'tools/profviz': [SKIP],
-  'try-finally-continue': [SKIP],
-  'try': [SKIP],
-  'undetectable-compare': [SKIP],
-  'unused-context-in-with': [SKIP],
-  'value-wrapper': [SKIP],
-  'with-function-expression': [SKIP],
-  'with-parameter-access': [SKIP],
-  'with-prototype': [SKIP],
-  'with-readonly': [SKIP],
-  'with-value': [SKIP],
-  'regress/regress-builtinbust-7': [SKIP],
-  'regress/regress-crbug-451770': [SKIP],
-  'regress/regress-crbug-503968': [SKIP],
-  'regress/regress-crbug-504729': [SKIP],
-}],  # ignition == True
 
-['ignition == True and (arch == arm or arch == arm64)', {
-  'array-constructor': [SKIP],
-  'array-sort': [SKIP],
-  'array-store-and-grow': [SKIP],
-  'compiler/division-by-constant': [SKIP],
-  'compiler/osr-big': [SKIP],
-  'compiler/osr-nested': [SKIP],
+  'wasm/asm-wasm-f32': [PASS, ['arch in [arm64]', SKIP]],
+  'wasm/asm-wasm-f64': [PASS, ['arch in [arm64]', SKIP]],
+
+  # TODO(rmcilroy,titzer): Times out after
+  # https://codereview.chromium.org/1951013002 .
+  'regress/regress-599717': [PASS, ['tsan', SKIP]],
+
+  # TODO(rmcilroy,5038): Crashes in Deoptimizer::PatchCodeForDeoptimization on
+  # nosnap builds when --stress-opt and --turbo-from-bytecode is enabled.
+  'harmony/generators-turbo': [PASS, FAST_VARIANTS],
+  'regress/regress-crbug-352058': [SKIP],
+
+  # TODO(jarin): No truncations on CheckFloat64Hole.
+  'getters-on-elements': [SKIP],
+
+  # TODO(rmcilroy): Flaky OOM.
+  'unicodelctest-no-optimization': [SKIP],
+}],  # ignition or ignition_turbofan
+
+['(ignition or ignition_turbofan) and arch == arm64', {
+  # TODO(rmcilroy,4680): Arm64 specific timeouts.
+  'asm/construct-double': [SKIP],
   'compiler/osr-one': [SKIP],
   'compiler/osr-two': [SKIP],
-  'mul-exhaustive-part*': [SKIP],
+  'wasm/asm-wasm-i32': [SKIP],
+  'wasm/asm-wasm-u32': [SKIP],
+}],  # (ignition or ignition_turbofan) and arch == arm64
+
+['(ignition or ignition_turbofan) and arch == arm', {
+  # TODO(rmcilroy,4680): Arm specific timeouts.
+  'compiler/osr-one': [SKIP],
+  'compiler/osr-two': [SKIP],
   'regress/regress-1257': [SKIP],
-  'regress/regress-165637': [SKIP],
-  'regress/regress-319722-ArrayBuffer': [SKIP],
-  'regress/regress-411210': [SKIP],
-  'regress/regress-91008': [SKIP],
-  'regress/regress-crbug-347903': [SKIP],
-  'regress/regress-crbug-500497': [SKIP],
-  'regress/regress-crbug-505007-1': [SKIP],
-  'regress/regress-crbug-505007-2': [SKIP],
-  'regress/regress-2193': [SKIP],
-  'regress/regress-3158': [SKIP],
-  'regress/regress-347904': [SKIP],
-  'regress/regress-380092': [SKIP],
-  'regress/regress-4173': [SKIP],
-  'regress/regress-copy-hole-to-field': [SKIP],
-  'regress/regress-crbug-315252': [SKIP],
-  'regress/regress-crbug-412215': [SKIP],
-  'regress/regress-crbug-513507': [SKIP],
+}],  # (ignition or ignition_turbofan) and arch == arm
+
+['(ignition or ignition_turbofan) and msan', {
+  # TODO(mythria,4680): All of these tests have large loops and hence slow
+  # and timeout.
+  'compiler/osr-big': [SKIP],
+  'compiler/osr-nested': [SKIP],
+  'regress/regress-298269': [SKIP],
+  'regress/regress-crbug-319860': [SKIP],
   'regress/regress-deep-proto': [SKIP],
-  'regress/regress-deopt-store-effect': [SKIP],
-  'regress/regress-undefined-store-keyed-fast-element': [SKIP],
-  'stack-traces-overflow': [SKIP],
-  'unicodelctest': [SKIP],
-  'unicodelctest-no-optimization': [SKIP],
-}],  # ignition == True and (arch == arm or arch == arm64)
+  'try': [SKIP],
+  # Too slow for interpreter and msan.
+  'es6/tail-call-megatest*': [SKIP],
+}],  # (ignition or ignition_turbofan) and msan
 
 ##############################################################################
 ['gcov_coverage', {
   # Tests taking too long.
   'array-functions-prototype-misc': [SKIP],
-  'strong/implicit-conversions': [SKIP],
-  'strong/load-element-mutate-backing-store': [SKIP],
+
+  # Stack overflow.
+  'big-array-literal': [SKIP],
 }],  # 'gcov_coverage'
 
 ]

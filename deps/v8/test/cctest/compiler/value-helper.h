@@ -82,6 +82,8 @@ class ValueHelper {
         -4.66622e+11f,
         -2.22581e+11f,
         -1.45381e+10f,
+        -2147483649.0f,  // INT32_MIN - 1
+        -2147483648.0f,  // INT32_MIN
         -1.3956e+09f,
         -1.32951e+09f,
         -1.30721e+09f,
@@ -110,7 +112,9 @@ class ValueHelper {
         -3.63759e-10f,
         -4.30175e-14f,
         -5.27385e-15f,
+        -1.5707963267948966f,
         -1.48084e-15f,
+        -2.220446049250313e-16f,
         -1.05755e-19f,
         -3.2995e-21f,
         -1.67354e-23f,
@@ -129,6 +133,7 @@ class ValueHelper {
         6.25073e-22f,
         4.1723e-13f,
         1.44343e-09f,
+        1.5707963267948966f,
         5.27004e-08f,
         9.48298e-08f,
         5.57888e-07f,
@@ -148,6 +153,8 @@ class ValueHelper {
         20309.0f,
         797056.0f,
         1.77219e+09f,
+        2147483648.0f,  // INT32_MAX + 1
+        4294967296.0f,  // UINT32_MAX + 1
         1.51116e+11f,
         4.18193e+13f,
         3.59167e+16f,
@@ -177,6 +184,7 @@ class ValueHelper {
   static std::vector<double> float64_vector() {
     static const double nan = std::numeric_limits<double>::quiet_NaN();
     static const double values[] = {-2e66,
+                                    -2.220446049250313e-16,
                                     -9223373136366403584.0,
                                     -9223372036854775808.0,  // INT64_MIN
                                     -2147483649.5,
@@ -188,6 +196,7 @@ class ValueHelper {
                                     -999.75,
                                     -2e66,
                                     -1.75,
+                                    -1.5707963267948966,
                                     -1.0,
                                     -0.5,
                                     -0.0,
@@ -198,7 +207,11 @@ class ValueHelper {
                                     0.375,
                                     0.5,
                                     1.0,
+                                    1.17549e-38,
+                                    1.56657e-37,
+                                    1.0000001,
                                     1.25,
+                                    1.5707963267948966,
                                     2,
                                     3.1e7,
                                     5.125,
@@ -274,7 +287,7 @@ class ValueHelper {
         0x00003fffffffffff, 0x00001fffffffffff, 0x00000fffffffffff,
         0x000007ffffffffff, 0x000003ffffffffff, 0x000001ffffffffff,
         0x8000008000000000, 0x8000008000000001, 0x8000000000000400,
-        0x8000000000000401};
+        0x8000000000000401, 0x0000000000000020};
     return std::vector<uint64_t>(&kValues[0], &kValues[arraysize(kValues)]);
   }
 
@@ -311,6 +324,35 @@ class ValueHelper {
 #define FOR_INT32_SHIFTS(var) for (int32_t var = 0; var < 32; var++)
 
 #define FOR_UINT32_SHIFTS(var) for (uint32_t var = 0; var < 32; var++)
+
+// TODO(bmeurer): Drop this crap once we switch to GTest/Gmock.
+static inline void CheckFloatEq(volatile float x, volatile float y) {
+  if (std::isnan(x)) {
+    CHECK(std::isnan(y));
+  } else {
+    CHECK_EQ(x, y);
+  }
+}
+
+#define CHECK_FLOAT_EQ(lhs, rhs) \
+  do {                           \
+    volatile float tmp = lhs;    \
+    CheckFloatEq(tmp, rhs);      \
+  } while (0)
+
+static inline void CheckDoubleEq(volatile double x, volatile double y) {
+  if (std::isnan(x)) {
+    CHECK(std::isnan(y));
+  } else {
+    CHECK_EQ(x, y);
+  }
+}
+
+#define CHECK_DOUBLE_EQ(lhs, rhs) \
+  do {                            \
+    volatile double tmp = lhs;    \
+    CheckDoubleEq(tmp, rhs);      \
+  } while (0)
 
 }  // namespace compiler
 }  // namespace internal

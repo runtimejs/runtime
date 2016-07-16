@@ -63,6 +63,7 @@ namespace internal {
   T(ASSIGN_MUL, "*=", 2)                                             \
   T(ASSIGN_DIV, "/=", 2)                                             \
   T(ASSIGN_MOD, "%=", 2)                                             \
+  T(ASSIGN_EXP, "**=", 2)                                            \
                                                                      \
   /* Binary operators sorted by precedence. */                       \
   /* IsBinaryOp() relies on this block of enum values */             \
@@ -82,6 +83,7 @@ namespace internal {
   T(MUL, "*", 13)                                                    \
   T(DIV, "/", 13)                                                    \
   T(MOD, "%", 13)                                                    \
+  T(EXP, "**", 14)                                                   \
                                                                      \
   /* Compare operators sorted by precedence. */                      \
   /* IsCompareOp() relies on this block of enum values */            \
@@ -146,10 +148,13 @@ namespace internal {
   T(IDENTIFIER, NULL, 0)                                             \
                                                                      \
   /* Future reserved words (ECMA-262, section 7.6.1.2). */           \
-  T(FUTURE_RESERVED_WORD, NULL, 0)                                   \
   T(FUTURE_STRICT_RESERVED_WORD, NULL, 0)                            \
+  K(ASYNC, "async", 0)                                               \
+  /* `await` is a reserved word in module code only */               \
+  K(AWAIT, "await", 0)                                               \
   K(CLASS, "class", 0)                                               \
   K(CONST, "const", 0)                                               \
+  K(ENUM, "enum", 0)                                                 \
   K(EXPORT, "export", 0)                                             \
   K(EXTENDS, "extends", 0)                                           \
   K(IMPORT, "import", 0)                                             \
@@ -170,7 +175,6 @@ namespace internal {
   /* ES6 Template Literals */                                        \
   T(TEMPLATE_SPAN, NULL, 0)                                          \
   T(TEMPLATE_TAIL, NULL, 0)
-
 
 class Token {
  public:
@@ -195,9 +199,10 @@ class Token {
   }
 
   static bool IsIdentifier(Value tok, LanguageMode language_mode,
-                           bool is_generator) {
+                           bool is_generator, bool is_module) {
     switch (tok) {
       case IDENTIFIER:
+      case ASYNC:
         return true;
       case ESCAPED_STRICT_RESERVED_WORD:
       case FUTURE_STRICT_RESERVED_WORD:
@@ -206,6 +211,8 @@ class Token {
         return is_sloppy(language_mode);
       case YIELD:
         return !is_generator && is_sloppy(language_mode);
+      case AWAIT:
+        return !is_module;
       default:
         return false;
     }
@@ -214,12 +221,10 @@ class Token {
   }
 
   static bool IsAssignmentOp(Value tok) {
-    return INIT <= tok && tok <= ASSIGN_MOD;
+    return INIT <= tok && tok <= ASSIGN_EXP;
   }
 
-  static bool IsBinaryOp(Value op) {
-    return COMMA <= op && op <= MOD;
-  }
+  static bool IsBinaryOp(Value op) { return COMMA <= op && op <= EXP; }
 
   static bool IsTruncatingBinaryOp(Value op) {
     return BIT_OR <= op && op <= ROR;
@@ -277,6 +282,22 @@ class Token {
       default:
         UNREACHABLE();
         return op;
+    }
+  }
+
+  static bool EvalComparison(Value op, double op1, double op2) {
+    DCHECK(IsArithmeticCompareOp(op));
+    switch (op) {
+      case Token::EQ:
+      case Token::EQ_STRICT: return (op1 == op2);
+      case Token::NE: return (op1 != op2);
+      case Token::LT: return (op1 < op2);
+      case Token::GT: return (op1 > op2);
+      case Token::LTE: return (op1 <= op2);
+      case Token::GTE: return (op1 >= op2);
+      default:
+        UNREACHABLE();
+        return false;
     }
   }
 
