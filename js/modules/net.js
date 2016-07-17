@@ -23,7 +23,7 @@ function rmFromArrayByVal(array, val) {
 }
 
 class Server extends EventEmitter {
-  constructor(runtimeServer) {
+  constructor(opts, connectionListener, runtimeServer) {
     super();
     this._handle = runtimeServer || new runtime.net.TCPServerSocket();
     this._connections = [];
@@ -39,6 +39,7 @@ class Server extends EventEmitter {
       this.close();
     }
     this._handle.onlisten = () => this.emit('listening');
+    if (connectionListener) this.on('connection', connectionListener);
   }
   address() {
     return {
@@ -48,7 +49,7 @@ class Server extends EventEmitter {
     }
   }
   close(cb) {
-    this.once('close', cb);
+    if (cb) this.once('close', cb);
     this._handle.close();
   }
   get connections() {
@@ -76,7 +77,7 @@ class Server extends EventEmitter {
       port = null;
     }
     options.port = port;
-    this.once('listening', callback);
+    if (callback) this.once('listening', callback);
     this._handle.listen(options.port);
   }
 
