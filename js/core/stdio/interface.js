@@ -46,6 +46,16 @@ class StdioInterface {
   }
 
   readLine(cb) {
+    let text = '';
+    function addinput(char) {
+      if (char !== '\n') {
+        text += char;
+        this.onread(addinput);
+      } else {
+        cb(text);
+      }
+    }
+
     // If there's onreadline, use it.
     if (this.onreadline) {
       this.onreadline(cb);
@@ -53,15 +63,6 @@ class StdioInterface {
       // Else, use onread.
       // Downside: no cusor moving or backspace.
       // TODO: Fix downside.
-      let text = '';
-      const addinput = (char) => {
-        if (char !== '\n') {
-          text += char;
-          this.onread(addinput);
-        } else {
-          cb(text);
-        }
-      };
       this.onread(addinput);
     }
   }

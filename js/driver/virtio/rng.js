@@ -16,7 +16,7 @@
 const VirtioDevice = require('./device');
 const runtime = require('../../core');
 
-const initializeRNGDevice = (pciDevice) => {
+function initializeRNGDevice(pciDevice) {
   const ioSpace = pciDevice.getBAR(0).resource;
   const irq = pciDevice.getIRQ();
   const allocator = runtime.allocator;
@@ -38,13 +38,17 @@ const initializeRNGDevice = (pciDevice) => {
   const reqQueue = dev.queueSetup(QUEUE_ID_REQ);
   const cbqueue = [];
 
-  const recvBuffer = () => {
-    if (cbqueue.length === 0) return;
+  function recvBuffer() {
+    if (cbqueue.length === 0) {
+      return;
+    }
     cbqueue.shift()();
-  };
+  }
 
   irq.on(() => {
-    if (!dev.hasPendingIRQ()) return;
+    if (!dev.hasPendingIRQ()) {
+      return;
+    }
     reqQueue.fetchBuffers(recvBuffer);
   });
 
@@ -56,10 +60,12 @@ const initializeRNGDevice = (pciDevice) => {
     cbqueue.push(cb);
     reqQueue.placeBuffers([u8], true);
 
-    if (reqQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_REQ);
+    if (reqQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_REQ);
+    }
   };
 
   runtime.random.addEntropySource(source);
-};
+}
 
 module.exports = initializeRNGDevice;

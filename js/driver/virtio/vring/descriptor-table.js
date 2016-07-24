@@ -30,9 +30,12 @@ class DescriptorTable {
     this.descriptorsAvailable = ringSize;
     this.descriptorsBuffers = new Array(ringSize);
 
-    let i;
-    for (i = 0; i < ringSize; ++i) this.descriptorsBuffers[i] = null;
-    for (i = 0; i < ringSize - 1; ++i) this.setNext(i, i + 1);
+    for (let i = 0; i < ringSize; ++i) {
+      this.descriptorsBuffers[i] = null;
+    }
+    for (let i = 0; i < ringSize - 1; ++i) {
+      this.setNext(i, i + 1);
+    }
   }
 
   static getDescriptorSizeBytes() {
@@ -84,15 +87,21 @@ class DescriptorTable {
    */
   placeBuffers(buffers, lengths, isWriteOnly) {
     const count = buffers.length;
-    if (this.descriptorsAvailable < count) return -1;
+    if (this.descriptorsAvailable < count) {
+      return -1;
+    }
 
     let head = this.freeDescriptorHead;
     const first = head;
     for (let i = 0; i < count; ++i) {
       const d = buffers[i];
       let flags = 0;
-      if (count !== i + 1) flags |= VRING_DESC_F_NEXT;
-      if (isWriteOnly) flags |= VRING_DESC_F_WRITE;
+      if (count !== i + 1) {
+        flags |= VRING_DESC_F_NEXT;
+      }
+      if (isWriteOnly) {
+        flags |= VRING_DESC_F_WRITE;
+      }
 
       this.setBuffer(head, d, lengths[i], flags);
       this.descriptorsBuffers[head] = d;

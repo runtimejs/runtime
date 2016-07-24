@@ -47,23 +47,36 @@ const servers = [
   '8.8.8.8',
 ];
 
-const throwIPv6Err = (cb) => {
+function throwIPv6Err(cb) {
   const err = new SystemError('runtime doesn\'t support IPv6', exports.BADFAMILY);
-  if (cb) return cb(err);
+  if (cb) {
+    return cb(err);
+  }
   throw err;
-};
+}
 
-const lookup = (hostname, opts, cb) => {
-  if (opts.family && opts.family === 6) return throwIPv6Err(cb);
+function lookup(hostname, opts, cb) {
+  if (opts.family && opts.family === 6) {
+    return throwIPv6Err(cb);
+  }
   opts.query = opts.query || 'A';
   if (hostname === 'localhost' && opts.query === 'A') {
     if (!opts.all) {
-      if (cb) cb(null, '127.0.0.1', 4);
+      if (cb) {
+        cb(null, '127.0.0.1', 4);
+      }
     } else {
       if (opts.addrOnly) {
-        if (cb) cb(null, ['127.0.0.1']);
+        if (cb) {
+          cb(null, ['127.0.0.1']);
+        }
       } else {
-        if (cb) cb(null, [{ address: '127.0.0.1', family: 4 }]);
+        if (cb) {
+          cb(null, [{
+            address: '127.0.0.1',
+            family: 4,
+          }]);
+        }
       }
     }
     return;
@@ -72,7 +85,9 @@ const lookup = (hostname, opts, cb) => {
     query: opts.query,
   }, (err, data) => {
     if (err) {
-      if (cb) cb(err, null, null);
+      if (cb) {
+        cb(err, null, null);
+      }
       return;
     }
     const ret = [];
@@ -80,32 +95,37 @@ const lookup = (hostname, opts, cb) => {
       const res = data.results[i];
       if (!opts.all && i === 0) {
         const addr = res.address.join('.');
-        if (cb) cb(null, addr, 4);
-        return;
-      } else {
-        switch (res.record) {
-          case 'A':
-            if (opts.addrOnly) {
-              ret.push(res.address.join('.'));
-            } else {
-              ret.push({
-                address: res.address.join('.'),
-                family: 4,
-              });
-            }
-            break;
-          default:
-            break;
+        if (cb) {
+          cb(null, addr, 4);
         }
+        return;
+      }
+      switch (res.record) {
+        case 'A':
+          if (opts.addrOnly) {
+            ret.push(res.address.join('.'));
+          } else {
+            ret.push({
+              address: res.address.join('.'),
+              family: 4,
+            });
+          }
+          break;
+        default:
+          break;
       }
     }
     if (ret.length === 0) {
-      if (cb) cb(new SystemError('dns query failed', exports.NODATA, 'runtime.dns.resolve'), null);
+      if (cb) {
+        cb(new SystemError('dns query failed', exports.NODATA, 'runtime.dns.resolve'), null);
+      }
       return;
     }
-    if (cb) cb(null, ret);
+    if (cb) {
+      cb(null, ret);
+    }
   });
-};
+}
 
 exports.getServers = () => servers;
 
@@ -140,7 +160,9 @@ exports.resolve = (hostname, rrtypeOpt, cbOpt) => {
     cb = rrtype;
     rrtype = null;
   }
-  if (typeof rrtype === 'undefined' || rrtype === null) rrtype = 'A';
+  if (typeof rrtype === 'undefined' || rrtype === null) {
+    rrtype = 'A';
+  }
   if (rrtype === 'A') {
     return exports.resolve4(hostname, cb);
   } else if (rrtype === 'AAAA') {

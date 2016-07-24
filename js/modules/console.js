@@ -31,7 +31,9 @@ class Console {
     this._labels = {};
   }
   assert(val, ...data) {
-    if (!val) throw new Error(util.format(...data));
+    if (!val) {
+      throw new Error(util.format(...data));
+    }
   }
   dir(obj, optsOpt = {}) {
     const opts = optsOpt;
@@ -81,5 +83,7 @@ const bound = [
   'info',
   'warn',
 ];
-for (const item of bound) module.exports[item] = console[item].bind(console);
+for (const item of bound) {
+  module.exports[item] = console[item].bind(console);
+}
 module.exports.Console = Console;

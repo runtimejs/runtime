@@ -23,8 +23,12 @@ const { IP4Address, UDPSocket } = runtime.net;
 class DNSClient {
   constructor(serverIP, serverPort) {
     assert(this instanceof DNSClient);
-    if (serverIP) assert(serverIP instanceof IP4Address);
-    if (serverPort) assert(isint.uint16(serverPort));
+    if (serverIP) {
+      assert(serverIP instanceof IP4Address);
+    }
+    if (serverPort) {
+      assert(isint.uint16(serverPort));
+    }
 
     this._socket = new UDPSocket();
     this._serverIP = serverIP || new IP4Address(8, 8, 8, 8);
@@ -34,7 +38,9 @@ class DNSClient {
 
     this._socket.onmessage = (ip, port, u8) => {
       const data = dnsPacket.parseResponse(u8);
-      if (!data) return;
+      if (!data) {
+        return;
+      }
 
       debug('DNS recv', ip, port, JSON.stringify(data));
 
@@ -42,7 +48,9 @@ class DNSClient {
       const domain = data.hostname;
       for (let i = 0; i < requests.length; i++) {
         const req = requests[i];
-        if (!req) continue;
+        if (!req) {
+          continue;
+        }
 
         if (req.domain === domain) {
           req.cb(null, data);
@@ -57,7 +65,9 @@ class DNSClient {
 
       for (let i = 0; i < requests.length; i++) {
         const req = requests[i];
-        if (!req) continue;
+        if (!req) {
+          continue;
+        }
 
         if (req.retry > 0) {
           this._sendQuery(req.domain, req.opts.query || 'A');

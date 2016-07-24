@@ -19,27 +19,31 @@ const mem = __SYSCALL.allocDMA();
 const VRing = require('../../../driver/virtio/vring');
 // const DescriptorTable = require('../../../driver/virtio/vring/descriptor-table');
 
-const clearBuffer = (u8) => {
-  for (let i = 0; i < u8.length; ++i) u8[i] = 0;
-};
+function clearBuffer(u8) {
+  for (let i = 0; i < u8.length; ++i) {
+    u8[i] = 0;
+  }
+}
 
-const bufferWriteNumbers = (u8, value) => {
-  for (let i = 0; i < u8.length; ++i) u8[i] = i + value;
+function bufferWriteNumbers(u8, value) {
+  for (let i = 0; i < u8.length; ++i) {
+    u8[i] = i + value;
+  }
   return u8;
-};
+}
 
-const getOnePageBuffer = (indexOpt) => {
+function getOnePageBuffer(indexOpt) {
   const index = indexOpt | 0;
   const b = new Uint8Array(resources.memoryRange.block(0x2000000 + (index * 22), 22).buffer());
   clearBuffer(b);
   return b;
-};
+}
 
-const getTwoPageBuffer = () => {
+function getTwoPageBuffer() {
   const b = new Uint8Array(resources.memoryRange.block(0x2000000 - 12, 22).buffer());
   clearBuffer(b);
   return b;
-};
+}
 
 test('ring place one physical page buffer', (t) => {
   const ring = new VRing(mem, 0, 16);
@@ -143,7 +147,7 @@ test('vring operation', (t) => {
   let devIndex = 0;
   let count = 0;
 
-  const devProcessAll = () => {
+  function devProcessAll() {
     const bytesWritten = 3;
     let descId = 0;
     while (devIndex < ring.availableRing.readIdx()) {
@@ -152,15 +156,17 @@ test('vring operation', (t) => {
       --count;
       ++devIndex;
     }
-  };
+  }
 
-  const driverProcessAll = () => {
+  function driverProcessAll() {
     ring.fetchBuffers(null);
     while (ring.descriptorTable.descriptorsAvailable) {
-      if (!ring.placeBuffers([getOnePageBuffer(0)], true)) break;
+      if (!ring.placeBuffers([getOnePageBuffer(0)], true)) {
+        break;
+      }
       ++count;
     }
-  };
+  }
 
   t.equal(count, 0);
   for (let i = 0; i < 4; ++i) {

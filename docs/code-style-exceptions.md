@@ -37,7 +37,7 @@ You can (and should) use ES6 `get` and `set` in new APIs, it's already used in v
 
 ## Assigning to functions parameters
 
-You cannot *reassign* functions parameters, but you can assign to *properties of* function parameters.
+You cannot reassign *functions parameters*, but you can assign to *properties of* function parameters.
 ```js
 // yes
 const demo = (myObject) => {
@@ -46,8 +46,8 @@ const demo = (myObject) => {
 }
 
 // no
-const demo = (myUint8Array) => {
-  myUint8Array = {
+const demo = (myObject) => {
+  myObject = {
     someProperty: 'my value'
   };
   // ...
@@ -61,3 +61,19 @@ If you get this warning, it's ok:
 But this is not:
 
 > Assignment to function parameter 'parameter-name'
+
+## Wrapping an IIFE
+
+The invocation should be *outside* the parentheses, not inside.
+
+```js
+// yes
+(function() {
+  // ...
+})();
+
+// no
+(function() {
+
+}());
+```

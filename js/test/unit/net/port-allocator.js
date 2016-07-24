@@ -24,7 +24,9 @@ test('ephemeral only: simple allocation', (t) => {
   const socket = {};
 
   // alloc 10 ports
-  for (let i = 0; i < 10; ++i) t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST + i);
+  for (let i = 0; i < 10; ++i) {
+    t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST + i);
+  }
 
   // free first 3 ports
   allocator.free(EPHEMERAL_PORT_FIRST + 0);
@@ -54,22 +56,30 @@ test('ephemeral only: allocate and free all ports', (t) => {
   let next = 0;
   for (;;) {
     const port = allocator.allocEphemeral(socket);
-    if (port === 0) break;
+    if (port === 0) {
+      break;
+    }
 
-    if (port !== EPHEMERAL_PORT_FIRST + next++) t.equal(port, EPHEMERAL_PORT_FIRST + next++);
+    if (port !== EPHEMERAL_PORT_FIRST + next++) {
+      t.equal(port, EPHEMERAL_PORT_FIRST + next++);
+    }
   }
 
   t.equal(next, 16000);
   t.equal(allocator.allocatedCount, 16000);
 
-  while (next-- > 0) allocator.free(((16000 - next) - 1) + EPHEMERAL_PORT_FIRST);
+  while (next-- > 0) {
+    allocator.free(((16000 - next) - 1) + EPHEMERAL_PORT_FIRST);
+  }
 
   t.equal(allocator.allocatedCount, 0);
   t.equal(allocator._sockets.length, 0);
 
   for (;;) {
     const port = allocator.allocEphemeral(socket);
-    if (port === 0) break;
+    if (port === 0) {
+      break;
+    }
   }
 
   t.equal(allocator.allocatedCount, 16000);
@@ -109,11 +119,15 @@ test('directly alloc and free all ports', (t) => {
   const allocator = new PortAllocator();
   const socket = {};
 
-  for (let i = 1; i < 65536; ++i) allocator.allocPort(i, socket);
+  for (let i = 1; i < 65536; ++i) {
+    allocator.allocPort(i, socket);
+  }
 
   t.equal(allocator.allocatedCount, 65535);
 
-  for (let i = 1; i < 65536; ++i) allocator.free(i);
+  for (let i = 1; i < 65536; ++i) {
+    allocator.free(i);
+  }
 
   t.equal(allocator.allocatedCount, 0);
   t.end();
@@ -123,7 +137,9 @@ test('directly alloc all ports and try to get ephemeral', (t) => {
   const allocator = new PortAllocator();
   const socket = {};
 
-  for (let i = 1; i < 65536; ++i) allocator.allocPort(i, socket);
+  for (let i = 1; i < 65536; ++i) {
+    allocator.allocPort(i, socket);
+  }
 
   t.equal(allocator.allocatedCount, 65535);
   t.equal(allocator.allocEphemeral(socket), 0);
@@ -142,7 +158,9 @@ test('directly alloc all ports and try to get ephemeral', (t) => {
   t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST);
   t.equal(allocator.allocatedCount, 65534);
 
-  for (let i = 1; i < 65536; ++i) allocator.free(i);
+  for (let i = 1; i < 65536; ++i) {
+    allocator.free(i);
+  }
 
   t.equal(allocator.allocatedCount, 0);
   t.end();

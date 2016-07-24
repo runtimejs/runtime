@@ -20,8 +20,13 @@ const { timeNow } = require('../../utils');
 const FRAGMENT_QUEUE_MAX_AGE_MS = 30000;
 const FRAGMENT_QUEUE_MAX_COUNT = 100;
 
-const fragmentHash = (srcIP, destIP, protocolId, packetId) => `${srcIP.toInteger()}-${destIP.toInteger()}-${(packetId + (protocolId << 16))}`;
-const dropFragmentQueue = (intf, hash) => intf.fragments.delete(hash);
+function fragmentHash(srcIP, destIP, protocolId, packetId) {
+  return `${srcIP.toInteger()}-${destIP.toInteger()}-${(packetId + (protocolId << 16))}`;
+}
+
+function dropFragmentQueue(intf, hash) {
+  return intf.fragments.delete(hash);
+}
 
 exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) => {
   const headerLength = ip4header.getHeaderLength(u8, headerOffset);
@@ -36,7 +41,9 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
   let firstFragment = false;
   let fragmentQueue = intf.fragments.get(hash);
   if (!fragmentQueue) {
-    if (intf.fragments.size >= FRAGMENT_QUEUE_MAX_COUNT) return; // too many fragment queues
+    if (intf.fragments.size >= FRAGMENT_QUEUE_MAX_COUNT) {
+      return;
+    } // too many fragment queues
 
     firstFragment = true;
     fragmentQueue = {
@@ -48,17 +55,23 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
   }
 
   const fragmentLength = u8.length - nextOffset;
-  if (fragmentLength <= 0) return;
+  if (fragmentLength <= 0) {
+    return;
+  }
 
   const fragmentEnd = fragmentOffset + fragmentLength;
-  if (fragmentEnd > 0xffff) return;
+  if (fragmentEnd > 0xffff) {
+    return;
+  }
 
   // Locate non overlapping portion of new fragment
   let newOffset = fragmentOffset;
   let newEnd = fragmentEnd;
   let newNextOffset = nextOffset;
   for (const fragment of fragmentQueue.fragments) {
-    if (!fragment) continue;
+    if (!fragment) {
+      continue;
+    }
 
     const fragBegin = fragment[0];
     const fragEnd = fragBegin + fragment[1];
@@ -68,7 +81,9 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
 
     // New fragment is fully contained within another fragment,
     // just ignore it
-    if (overlapOffset && overlapEnd) return;
+    if (overlapOffset && overlapEnd) {
+      return;
+    }
 
     // First fragment byte is somewhere withing existing fragment
     if (overlapOffset && newOffset < fragEnd) {
@@ -77,7 +92,9 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
     }
 
     // Last fragment byte is somewhere withing existing fragment
-    if (overlapEnd && newEnd > fragBegin) newEnd = fragBegin;
+    if (overlapEnd && newEnd > fragBegin) {
+      newEnd = fragBegin;
+    }
   }
 
   // Remove old fragments fully contained within the new one
@@ -86,7 +103,9 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
   let removedIndex = -1;
   for (let i = 0, l = fragmentQueue.fragments.length; i < l; ++i) {
     const fragment = fragmentQueue.fragments[i];
-    if (!fragment) continue;
+    if (!fragment) {
+      continue;
+    }
 
     const fragBegin = fragment[0];
     const fragEnd = fragBegin + fragment[1];
@@ -115,16 +134,22 @@ exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) 
   // Last fragment?
   if (!isMoreFragments) {
     // Another last fragment?
-    if (fragmentQueue.totalLength > fragmentEnd) return; // Wrong len
+    if (fragmentQueue.totalLength > fragmentEnd) {
+      return;
+    } // Wrong len
     fragmentQueue.totalLength = fragmentEnd;
   }
 
-  if (firstFragment) intf.fragments.set(hash, fragmentQueue);
+  if (firstFragment) {
+    intf.fragments.set(hash, fragmentQueue);
+  }
 
   if (fragmentQueue.totalLength === fragmentQueue.receivedLength) {
     const u8asm = new Uint8Array(fragmentQueue.totalLength);
     for (const fragment of fragmentQueue.fragments) {
-      if (!fragment) continue;
+      if (!fragment) {
+        continue;
+      }
 
       const itemOffset = fragment[0];
       const itemLength = fragment[1];
@@ -150,6 +175,8 @@ exports.tick = (intf) => {
   for (const pair of intf.fragments) {
     const hash = pair[0];
     const fragmentQueue = pair[1];
-    if (fragmentQueue.createdAt + FRAGMENT_QUEUE_MAX_AGE_MS <= time) dropFragmentQueue(intf, hash);
+    if (fragmentQueue.createdAt + FRAGMENT_QUEUE_MAX_AGE_MS <= time) {
+      dropFragmentQueue(intf, hash);
+    }
   }
 };

@@ -43,7 +43,9 @@ class Interface {
   }
   setNetworkEnabled(value) {
     assert(typeutils.isBoolean(value));
-    if (this.isNetworkEnabled === value) return;
+    if (this.isNetworkEnabled === value) {
+      return;
+    }
 
     this.isNetworkEnabled = value;
     if (value) {
@@ -77,10 +79,12 @@ class Interface {
     const nextOffset = this.bufferDataOffset + ethernet.headerLength;
 
     switch (etherType) {
-      case 0x0800: return ip4.receive(this, u8, nextOffset);
-      case 0x0806: return this.arp ? this.arp.receive(u8, nextOffset) : void 0;
-      // case 0x8100: // 802.1Q
-      // case 0x86dd: // ipv6
+      case 0x0800:
+        return ip4.receive(this, u8, nextOffset);
+      case 0x0806:
+        return this.arp ? this.arp.receive(u8, nextOffset) : void 0;
+        // case 0x8100: // 802.1Q
+        // case 0x86dd: // ipv6
       default:
         break;
     }
@@ -89,7 +93,9 @@ class Interface {
   }
   sendRaw(u8) {
     ++stat.transmitCount;
-    if (this.ontransmit) this.ontransmit(u8, null);
+    if (this.ontransmit) {
+      this.ontransmit(u8, null);
+    }
   }
   sendIP4(viaIP, u8headers, u8data) {
     ++stat.transmitCount;

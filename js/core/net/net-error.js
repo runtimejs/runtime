@@ -26,4 +26,6 @@ const errs = [
   'E_CANNOT_CLOSE',
 ];
 
-for (const err of errs) exports[err] = new Error(err);
+for (const err of errs) {
+  exports[err] = new Error(err);
+}

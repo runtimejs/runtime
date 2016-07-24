@@ -44,8 +44,12 @@ class Process extends EventEmitter {
       disconnect() {},
       emitWarning: (msgOpt, name = 'Warning') => {
         let msg = msgOpt;
-        if (!(msg instanceof Error)) msg = new Warning(msg, name);
-        if (this.listenerCount('warning') !== 0) return this.emit('warning', msg);
+        if (!(msg instanceof Error)) {
+          msg = new Warning(msg, name);
+        }
+        if (this.listenerCount('warning') !== 0) {
+          return this.emit('warning', msg);
+        }
         console.error(`(runtime) ${msg.name}${msg.message ? `: ${msg.message}` : ''}`);
       },
       env: {},

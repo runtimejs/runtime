@@ -17,7 +17,7 @@ const VirtioDevice = require('./device');
 const runtime = require('../../core');
 const { MACAddress, Interface } = runtime.net;
 
-const virtioHeader = (() => {
+const virtioHeader = (function () { // eslint-disable-line wrap-iife
   const OFFSET_FLAGS = 0;
   const OFFSET_GSO_TYPE = 1;
   // const OFFSET_HDR_LEN = 2;
@@ -40,7 +40,7 @@ const virtioHeader = (() => {
   };
 })();
 
-const initializeNetworkDevice = (pciDevice) => {
+function initializeNetworkDevice(pciDevice) {
   const ioSpace = pciDevice.getBAR(0).resource;
   const irq = pciDevice.getIRQ();
 
@@ -74,7 +74,7 @@ const initializeNetworkDevice = (pciDevice) => {
   dev.setDriverAck();
 
   const driverFeatures = {
-    VIRTIO_NET_F_MAC: true,    // able to read MAC address
+    VIRTIO_NET_F_MAC: true, // able to read MAC address
     VIRTIO_NET_F_STATUS: true, // able to check network status
     // VIRTIO_RING_F_NOTIFY_ON_EMPTY: true
     // VIRTIO_NET_F_CSUM: true,   // checksum offload
@@ -92,13 +92,16 @@ const initializeNetworkDevice = (pciDevice) => {
   }
 
   if (!dev.writeGuestFeatures(features, driverFeatures, deviceFeatures)) {
-    return debug('[virtio] driver is unable to start');
+    debug('[virtio] driver is unable to start');
+    return;
   }
 
   const hwAddr = dev.netReadHWAddress();
   const status = dev.netReadStatus();
 
-  if (!status) return;
+  if (!status) {
+    return;
+  }
 
   const QUEUE_ID_RECV = 0;
   const QUEUE_ID_TRANSMIT = 1;
@@ -107,16 +110,20 @@ const initializeNetworkDevice = (pciDevice) => {
   const transmitQueue = dev.queueSetup(QUEUE_ID_TRANSMIT);
   transmitQueue.suppressUsedBuffers();
 
-  const fillReceiveQueue = () => {
+  function fillReceiveQueue() {
     while (recvQueue.descriptorTable.descriptorsAvailable) {
-      if (!recvQueue.placeBuffers([new Uint8Array(1536)], true)) break;
+      if (!recvQueue.placeBuffers([new Uint8Array(1536)], true)) {
+        break;
+      }
     }
 
-    if (recvQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_RECV);
-  };
+    if (recvQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_RECV);
+    }
+  }
 
   const mac = new MACAddress(hwAddr[0], hwAddr[1], hwAddr[2],
-                             hwAddr[3], hwAddr[4], hwAddr[5]);
+  hwAddr[3], hwAddr[4], hwAddr[5]);
   const intf = new Interface(mac);
   intf.setBufferDataOffset(virtioHeader.length);
   intf.ontransmit = (u8headers, u8data) => {
@@ -126,20 +133,26 @@ const initializeNetworkDevice = (pciDevice) => {
       transmitQueue.placeBuffers([u8headers], false);
     }
 
-    if (transmitQueue.isNotificationNeeded()) dev.queueNotify(QUEUE_ID_TRANSMIT);
+    if (transmitQueue.isNotificationNeeded()) {
+      dev.queueNotify(QUEUE_ID_TRANSMIT);
+    }
   };
 
-  const recvBuffer = u8 => intf.receive(u8);
+  function recvBuffer(u8) {
+    intf.receive(u8);
+  }
 
   irq.on(() => {
-    if (!dev.hasPendingIRQ()) return;
+    if (!dev.hasPendingIRQ()) {
+      return;
+    }
 
     recvQueue.fetchBuffers(recvBuffer);
     fillReceiveQueue();
   });
 
-  // Under high load we're missing interrupts. This needs to be fixed.
-  // This setInterval hack clears pending IRQ flag and rechecks queues.
+// Under high load we're missing interrupts. This needs to be fixed.
+// This setInterval hack clears pending IRQ flag and rechecks queues.
   setInterval(() => {
     dev.hasPendingIRQ();
     recvQueue.fetchBuffers(recvBuffer);
@@ -150,6 +163,6 @@ const initializeNetworkDevice = (pciDevice) => {
   fillReceiveQueue();
 
   runtime.net.interfaceAdd(intf);
-};
+}
 
 module.exports = initializeNetworkDevice;

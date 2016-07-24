@@ -23,14 +23,20 @@ const driver = {
   init(pciDevice) {
     const subsystemId = pciDevice.subsystem.subsystemId;
 
-    if (subsystemId === VIRTIO_SUBSYSTEM_NETWORK) return virtioNet(pciDevice);
-    if (subsystemId === VIRTIO_SUBSYSTEM_RNG) return virtioRNG(pciDevice);
+    if (subsystemId === VIRTIO_SUBSYSTEM_NETWORK) {
+      return virtioNet(pciDevice);
+    }
+    if (subsystemId === VIRTIO_SUBSYSTEM_RNG) {
+      return virtioRNG(pciDevice);
+    }
 
     debug(`[virtio] unknown virtio device (subsystem id ${subsystemId})`);
   },
   reset() {},
 };
 
-const testDeviceId = deviceId => deviceId >= 0x1000 && deviceId <= 0x103f;
+function testDeviceId(deviceId) {
+  return deviceId >= 0x1000 && deviceId <= 0x103f;
+}
 
 runtime.pci.addDriver(0x1af4, testDeviceId, driver);

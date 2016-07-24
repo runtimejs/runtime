@@ -33,7 +33,9 @@ class LineEditor {
 
   drawCursor() {
     let char = ' ';
-    if (this.inputPosition < this.inputText.length) char = this.inputText[this.inputPosition];
+    if (this.inputPosition < this.inputText.length) {
+      char = this.inputText[this.inputPosition];
+    }
 
     printer.print(char, 1, printer.color.WHITE, printer.color.LIGHTGREEN);
     printer.moveOffset(-1);
@@ -41,7 +43,9 @@ class LineEditor {
 
   removeCursor() {
     let char = ' ';
-    if (this.inputPosition < this.inputText.length) char = this.inputText[this.inputPosition];
+    if (this.inputPosition < this.inputText.length) {
+      char = this.inputText[this.inputPosition];
+    }
 
     printer.print(char, 1, printer.color.WHITE, printer.color.BLACK);
     printer.moveOffset(-1);
@@ -56,7 +60,9 @@ class LineEditor {
       const rightSide = this.inputText.slice(this.inputPosition);
       this.inputText = this.inputText.slice(0, this.inputPosition) + char + rightSide;
       printer.print(char);
-      for (const item of rightSide) printer.print(item);
+      for (const item of rightSide) {
+        printer.print(item);
+      }
       printer.moveOffset(-rightSide.length);
     }
     ++this.inputPosition;
@@ -73,7 +79,9 @@ class LineEditor {
         const rightSide = this.inputText.slice(this.inputPosition);
         this.inputText = this.inputText.slice(0, this.inputPosition - 1) + rightSide;
         printer.moveOffset(-1);
-        for (const item of rightSide) printer.print(item);
+        for (const item of rightSide) {
+          printer.print(item);
+        }
         printer.print(' ');
         printer.moveOffset(-rightSide.length - 1);
       }

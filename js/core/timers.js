@@ -17,9 +17,13 @@
 const tasks5s = [];
 
 setInterval(() => {
-  if (tasks5s.length === 0) return;
+  if (tasks5s.length === 0) {
+    return;
+  }
 
-  for (const task of tasks5s) task();
+  for (const task of tasks5s) {
+    task();
+  }
 }, 5000);
 
 /**

@@ -41,10 +41,12 @@ exports.runCommand = (name, args, done) => {
 
   const stringargs = opts.args.join(' ');
   opts.stdio = opts.stdio || runtime.stdio.defaultStdio;
-  commands.get(name)(stringargs, { stdio: opts.stdio }, done);
+  commands.get(name)(stringargs, {
+    stdio: opts.stdio,
+  }, done);
 };
 
-const prompt = () => {
+function prompt() {
   stdio.setColor('yellow');
   stdio.write('$');
   stdio.setColor('white');
@@ -61,7 +63,9 @@ const prompt = () => {
       name = text;
     }
 
-    if (!name) return prompt();
+    if (!name) {
+      return prompt();
+    }
 
     if (commands.has(name)) {
       return exports.runCommand(name, args.substr(1).split(' '), (rescode) => {
@@ -69,7 +73,9 @@ const prompt = () => {
         stdio.write('\n');
 
         // Since 0 == false and other numbers == true, just check for true.
-        if (rescode) printx = true;
+        if (rescode) {
+          printx = true;
+        }
 
         if (printx) {
           stdio.setColor('red');
@@ -84,6 +90,6 @@ const prompt = () => {
     stdio.writeLine(`Command '${name}' not found.`);
     prompt();
   });
-};
+}
 
 prompt();

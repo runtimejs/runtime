@@ -67,8 +67,12 @@ class PortAllocator {
 
   allocPort(port, socket) {
     assert(portUtils.isPort(port));
-    if (this.lookup(port)) return false;
-    if (this._map === null) this._map = new Map();
+    if (this.lookup(port)) {
+      return false;
+    }
+    if (this._map === null) {
+      this._map = new Map();
+    }
 
     this._map.set(port, socket);
     ++this._allocated;
@@ -91,12 +95,18 @@ class PortAllocator {
 
     if (this.isEphemeralRange(port)) {
       const index = port - EPHEMERAL_PORT_FIRST;
-      if (index >= this._sockets.length) return;
+      if (index >= this._sockets.length) {
+        return;
+      }
 
-      if (this._sockets[index] === null) return;
+      if (this._sockets[index] === null) {
+        return;
+      }
 
       this._sockets[index] = null;
-      if (index < this._searchStart) this._searchStart = index;
+      if (index < this._searchStart) {
+        this._searchStart = index;
+      }
       --this._allocated;
       if (this._allocated === 0) {
         this._sockets = [];
@@ -106,11 +116,15 @@ class PortAllocator {
   }
 
   lookup(port) {
-    if ((this._map !== null) && this._map.has(port)) return this._map.get(port);
+    if ((this._map !== null) && this._map.has(port)) {
+      return this._map.get(port);
+    }
 
     if (this.isEphemeralRange(port)) {
       const index = port - EPHEMERAL_PORT_FIRST;
-      if (index >= this._sockets.length) return null;
+      if (index >= this._sockets.length) {
+        return null;
+      }
       return this._sockets[index];
     }
 

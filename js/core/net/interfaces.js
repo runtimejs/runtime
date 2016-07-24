@@ -21,7 +21,9 @@ exports.count = () => intfs.length;
 
 exports.getByName = (intfName) => {
   for (const intf of intfs) {
-    if (intfName === intf.name) return intf;
+    if (intfName === intf.name) {
+      return intf;
+    }
   }
 
   return null;

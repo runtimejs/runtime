@@ -34,7 +34,9 @@ class UDPSocket {
 
   send(ipOpt, port, u8) {
     let ip = ipOpt;
-    if (typeutils.isString(ip)) ip = IP4Address.parse(ip);
+    if (typeutils.isString(ip)) {
+      ip = IP4Address.parse(ip);
+    }
 
     assertError(ip instanceof IP4Address, netError.E_IPADDRESS_EXPECTED);
     assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
@@ -50,12 +52,16 @@ class UDPSocket {
       if (!routingEntry) return console.log(`[UDP] no route to ${ip}`);
 
       viaIP = routingEntry.gateway;
-      if (!intf) intf = routingEntry.intf;
+      if (!intf) {
+        intf = routingEntry.intf;
+      }
     }
 
     if (!this._port) {
       this._port = ports.allocEphemeral(this);
-      if (!this._port) throw netError.E_NO_FREE_PORT;
+      if (!this._port) {
+        throw netError.E_NO_FREE_PORT;
+      }
     }
 
     udpTransmit(intf, ip, viaIP, this._port, port, u8);
@@ -64,7 +70,9 @@ class UDPSocket {
   bind(port) {
     assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
 
-    if (!ports.allocPort(port, this)) throw netError.E_ADDRESS_IN_USE;
+    if (!ports.allocPort(port, this)) {
+      throw netError.E_ADDRESS_IN_USE;
+    }
 
     this._port = port;
   }
@@ -75,11 +83,15 @@ class UDPSocket {
     }
 
     this._intf = intf;
-    if (port) this.bind(port);
+    if (port) {
+      this.bind(port);
+    }
   }
 
   close() {
-    if (this._port) ports.free(this._port);
+    if (this._port) {
+      ports.free(this._port);
+    }
   }
 
   static lookupReceive(destPort) {

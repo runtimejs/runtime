@@ -22,11 +22,13 @@ const route = require('./route');
 const netError = require('./net-error');
 const pingListeners = new Map();
 
-const createPingBuffer = (size) => {
+function createPingBuffer(size) {
   const u8 = new Uint8Array(size);
-  for (let i = 0; i < size; ++i) u8[i] = 0x61 + (i % 26); // ASCII a-z
+  for (let i = 0; i < size; ++i) {
+    u8[i] = 0x61 + (i % 26);
+  } // ASCII a-z
   return u8;
-};
+}
 
 let nextPingId = 1;
 const defaultPingData = createPingBuffer(56);
@@ -48,7 +50,9 @@ class Ping {
     assertError(destIP instanceof IP4Address, netError.E_IPADDRESS_EXPECTED);
 
     const seq = this._nextSeq++;
-    if (this._nextSeq > 0xffff) this._nextSeq = 0;
+    if (this._nextSeq > 0xffff) {
+      this._nextSeq = 0;
+    }
 
     const routingEntry = route.lookup(destIP);
     if (!routingEntry) {
@@ -56,7 +60,9 @@ class Ping {
       return seq;
     }
 
-    if (!pingListeners.has(this._pingId)) pingListeners.set(this._pingId, this);
+    if (!pingListeners.has(this._pingId)) {
+      pingListeners.set(this._pingId, this);
+    }
 
     const intf = routingEntry.intf;
     const viaIP = routingEntry.gateway;
@@ -68,20 +74,28 @@ class Ping {
 
   _receive(srcIP, seq, u8, dataOffset) {
     const dataLength = u8.length - dataOffset;
-    if (dataLength !== this._data.length) return;
-
-    for (let i = 0, l = dataLength; i < l; ++i) {
-      if (u8[dataOffset + i] !== this._data[i]) return;
+    if (dataLength !== this._data.length) {
+      return;
     }
 
-    if (this.onreply) this.onreply(srcIP, seq);
+    for (let i = 0, l = dataLength; i < l; ++i) {
+      if (u8[dataOffset + i] !== this._data[i]) {
+        return;
+      }
+    }
+
+    if (this.onreply) {
+      this.onreply(srcIP, seq);
+    }
   }
 
   /**
    * Stop listening to echo replies.
    */
   close() {
-    if (pingListeners.has(this._pingId)) pingListeners.delete(this._pingId);
+    if (pingListeners.has(this._pingId)) {
+      pingListeners.delete(this._pingId);
+    }
   }
 
   static _receiveLookup(pingId) {

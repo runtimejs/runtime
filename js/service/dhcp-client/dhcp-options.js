@@ -22,7 +22,9 @@ exports.OPTION_SERVER_ID = 54;
 
 exports.find = (options, id, minLength = 0) => {
   for (const opt of options) {
-    if (opt.id === id && opt.bytes.length >= minLength) return opt.bytes;
+    if (opt.id === id && opt.bytes.length >= minLength) {
+      return opt.bytes;
+    }
   }
   return null;
 };

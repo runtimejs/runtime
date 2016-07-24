@@ -33,15 +33,15 @@ const cmosData = 0x71;
 const port = ports.port(cmosAddress);
 const dataPort = ports.port(cmosData);
 
-const getUpdateInProgressFlag = () => {
+function getUpdateInProgressFlag() {
   port.write8(0x0A);
   return (dataPort.read8() & 0x80);
-};
+}
 
-const getRTCRegister = (reg) => {
+function getRTCRegister(reg) {
   port.write8(reg);
   return dataPort.read8();
-};
+}
 
 // set the time:
 
@@ -78,7 +78,7 @@ do {
   month = getRTCRegister(0x08);
   year = getRTCRegister(0x09);
 } while ((lastSecond !== second) || (lastMinute !== minute) || (lastHour !== hour) ||
-         (lastDay !== day) || (lastMonth !== month) || (lastYear !== year));
+  (lastDay !== day) || (lastMonth !== month) || (lastYear !== year));
 
 registerB = getRTCRegister(0x0B);
 

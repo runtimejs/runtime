@@ -39,7 +39,9 @@ runtime.debug = isDebug;
 runtime.shell.setCommand('1', (args, env, cb) => {
   env.stdio.writeLine('OK.');
   runtime.dns.resolve('www.google.com', {}, (err, data) => {
-    if (err) return cb(1);
+    if (err) {
+      return cb(1);
+    }
     console.log(JSON.stringify(data));
     cb(0);
   });

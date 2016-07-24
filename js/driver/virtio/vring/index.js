@@ -24,7 +24,10 @@ const SIZEOF_UINT16 = 2;
 class VRing {
   constructor(mem, byteOffset, ringSize) {
     assert(ringSize !== 0 && (ringSize & (ringSize - 1)) === 0, `invalid ringSize = ${ringSize}`);
-    const align = value => ((value + 4095) & ~4095) >>> 0;
+
+    function align(value) {
+      return ((value + 4095) & ~4095) >>> 0;
+    }
 
     const baseAddress = mem.address + byteOffset;
     const offsetAvailableRing = DescriptorTable.getDescriptorSizeBytes() * ringSize;
@@ -44,11 +47,15 @@ class VRing {
     let count = 0;
 
     for (;;) {
-      if (!this.suppressInterrupts) this.availableRing.disableInterrupts();
+      if (!this.suppressInterrupts) {
+        this.availableRing.disableInterrupts();
+      }
 
       for (;;) {
         const u8 = this.getBuffer();
-        if (u8 === null) break;
+        if (u8 === null) {
+          break;
+        }
 
         count++;
         if (fn) setImmediate(() => fn(u8));
@@ -62,7 +69,9 @@ class VRing {
         memoryBarrier();
       }
 
-      if (!this.usedRing.hasUnprocessedBuffers()) break;
+      if (!this.usedRing.hasUnprocessedBuffers()) {
+        break;
+      }
     }
 
     return count;
@@ -74,7 +83,9 @@ class VRing {
    * @param isWriteOnly {bool} R/W buffers flag
    */
   placeBuffers(buffers, isWriteOnly) {
-    if (this.suppressInterrupts) this.fetchBuffers(null);
+    if (this.suppressInterrupts) {
+      this.fetchBuffers(null);
+    }
 
     // Single Uint8Array could use multiple physical pages
     // as its backing store
@@ -112,10 +123,14 @@ class VRing {
   }
   getBuffer() {
     const hasUnprocessed = this.usedRing.hasUnprocessedBuffers();
-    if (!hasUnprocessed) return null;
+    if (!hasUnprocessed) {
+      return null;
+    }
 
     const used = this.usedRing.getUsedDescriptor();
-    if (used === null) return null;
+    if (used === null) {
+      return null;
+    }
 
     const descriptorId = used.id;
     const buffer = this.descriptorTable.getBuffer(descriptorId);

@@ -19,7 +19,9 @@ const tcpSocketState = require('./tcp-socket-state');
 const connHash = require('./tcp-hash');
 const STATE_LISTEN = tcpSocketState.STATE_LISTEN;
 
-const connectionSocket = (socket, srcIP, srcPort) => socket._connections.get(connHash(srcIP, srcPort)) || socket;
+function connectionSocket(socket, srcIP, srcPort) {
+  return socket._connections.get(connHash(srcIP, srcPort)) || socket;
+}
 
 exports.receive = (intf, srcIP, destIP, u8, headerOffset) => {
   const srcPort = tcpHeader.getSrcPort(u8, headerOffset);
@@ -28,9 +30,15 @@ exports.receive = (intf, srcIP, destIP, u8, headerOffset) => {
 
   let socket = TCPSocket.lookupReceive(destPort);
 
-  if (!socket) return;
-  if (socket._state === STATE_LISTEN) socket = connectionSocket(socket, srcIP, srcPort);
-  if (!socket._intf) socket._intf = intf;
+  if (!socket) {
+    return;
+  }
+  if (socket._state === STATE_LISTEN) {
+    socket = connectionSocket(socket, srcIP, srcPort);
+  }
+  if (!socket._intf) {
+    socket._intf = intf;
+  }
 
   socket._receive(u8, srcIP, srcPort, headerOffset);
 };

@@ -21,7 +21,9 @@ const sources = require('./sources');
 // and isaac CSPRNG
 const source = new EntropySource('js-random');
 source.ongetbytes = (u8, cb) => {
-  for (let i = 0; i < u8.length; i++) u8[i] = isaac.getByte(); // eslint-disable-line no-param-reassign
+  for (let i = 0; i < u8.length; i++) {
+    u8[i] = isaac.getByte();
+  } // eslint-disable-line no-param-reassign
   cb();
 };
 

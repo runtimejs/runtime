@@ -14,26 +14,34 @@
 
 'use strict';
 
-const checksum = (u8, offset, len, extraSum) => {
+function checksum(u8, offset, len, extraSum) {
   const count = len >>> 1;
   let acc = (extraSum >>> 0);
-  for (let i = 0; i < count; ++i) acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
+  for (let i = 0; i < count; ++i) {
+    acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
+  }
 
-  if (count * 2 !== len) acc += u8[offset + (count * 2)] << 8;
+  if (count * 2 !== len) {
+    acc += u8[offset + (count * 2)] << 8;
+  }
 
   acc = (acc & 0xffff) + (acc >>> 16);
   acc += (acc >>> 16);
   return ((~acc) & 0xffff) >>> 0;
-};
+}
 
 module.exports = checksum;
 
 module.exports.buffer = (u8, offset, len) => {
   const count = len >>> 1;
   let acc = 0;
-  for (let i = 0; i < count; ++i) acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
+  for (let i = 0; i < count; ++i) {
+    acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
+  }
 
-  if (count * 2 !== len) acc += u8[offset + (count * 2)] << 8;
+  if (count * 2 !== len) {
+    acc += u8[offset + (count * 2)] << 8;
+  }
 
   return acc;
 };

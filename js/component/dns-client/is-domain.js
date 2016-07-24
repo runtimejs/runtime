@@ -17,14 +17,24 @@ const typeutils = require('typeutils');
 const domainRegex = /^[a-z0-9.-]+$/;
 
 module.exports = (domain) => {
-  if (!typeutils.isString(domain)) return false;
+  if (!typeutils.isString(domain)) {
+    return false;
+  }
 
-  if (domain.length > 255) return false;
+  if (domain.length > 255) {
+    return false;
+  }
 
-  if (!domainRegex.test(domain)) return false;
+  if (!domainRegex.test(domain)) {
+    return false;
+  }
 
   const labels = domain.split('.');
-  for (const label of labels) if (label.length < 1 || label.length > 63) return false;
+  for (const label of labels) {
+    if (label.length < 1 || label.length > 63) {
+      return false;
+    }
 
-  return true;
+    return true;
+  }
 };

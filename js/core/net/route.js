@@ -43,7 +43,9 @@ exports.lookup = (destIP, intf) => {
   let result = null;
   let maxMaskBits = 0;
   for (const entry of table) {
-    if (intf && entry.intf !== intf) continue;
+    if (intf && entry.intf !== intf) {
+      continue;
+    }
 
     if (destIP.and(entry.mask).equals(entry.ip) && entry.maskBits >= maxMaskBits) {
       result = entry;

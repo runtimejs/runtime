@@ -20,7 +20,9 @@ const { shutdown } = require('../../').machine;
 
 stream.on('data', (vOpt) => {
   let v = vOpt;
-  if (v[v.length - 1] === '\n') v = v.slice(0, -1);
+  if (v[v.length - 1] === '\n') {
+    v = v.slice(0, -1);
+  }
   console.log(v);
 });
 

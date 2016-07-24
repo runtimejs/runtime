@@ -19,7 +19,9 @@ const IP4Address = require('../../../core/net/ip4-address');
 const MACAddress = require('../../../core/net/mac-address');
 const checksum = require('../../../core/net/checksum');
 
-const cksum = u8 => checksum(u8, 0, u8.length, 0);
+function cksum(u8) {
+  return checksum(u8, 0, u8.length, 0);
+}
 
 exports.createEthernetIP4 = (protocol, payload, opts = {}) => {
   const srcIP = IP4Address.parse(opts.srcIP) || new IP4Address(127, 0, 0, 1);
@@ -40,48 +42,59 @@ exports.createEthernetIP4 = (protocol, payload, opts = {}) => {
     throw new Error(`invalid fragment offset ${fragmentOffsetBytes} byte(s)`);
   }
 
-  if (dontFragment) fragmentData |= (1 << 14);
-  if (moreFragments) fragmentData |= (1 << 13);
+  if (dontFragment) {
+    fragmentData |= (1 << 14);
+  }
+  if (moreFragments) {
+    fragmentData |= (1 << 13);
+  }
 
   let protocolId = 0;
   switch (protocol) {
-    case 'icmp': protocolId = 0x01; break;
-    case 'tcp': protocolId = 0x06; break;
-    case 'udp': protocolId = 0x11; break;
-    default: throw new Error('unknown protocol');
+    case 'icmp':
+      protocolId = 0x01;
+      break;
+    case 'tcp':
+      protocolId = 0x06;
+      break;
+    case 'udp':
+      protocolId = 0x11;
+      break;
+    default:
+      throw new Error('unknown protocol');
   }
 
   return new BufferBuilder()
-    .uint8(destMAC.a)               // ethernet destMAC
-    .uint8(destMAC.b)               // ethernet destMAC
-    .uint8(destMAC.c)               // ethernet destMAC
-    .uint8(destMAC.d)               // ethernet destMAC
-    .uint8(destMAC.e)               // ethernet destMAC
-    .uint8(destMAC.f)               // ethernet destMAC
-    .uint8(srcMAC.a)                // ethernet srcMAC
-    .uint8(srcMAC.b)                // ethernet srcMAC
-    .uint8(srcMAC.c)                // ethernet srcMAC
-    .uint8(srcMAC.d)                // ethernet srcMAC
-    .uint8(srcMAC.e)                // ethernet srcMAC
-    .uint8(srcMAC.f)                // ethernet srcMAC
-    .uint16(etherType)              // ethernet etherType
+    .uint8(destMAC.a) // ethernet destMAC
+    .uint8(destMAC.b) // ethernet destMAC
+    .uint8(destMAC.c) // ethernet destMAC
+    .uint8(destMAC.d) // ethernet destMAC
+    .uint8(destMAC.e) // ethernet destMAC
+    .uint8(destMAC.f) // ethernet destMAC
+    .uint8(srcMAC.a) // ethernet srcMAC
+    .uint8(srcMAC.b) // ethernet srcMAC
+    .uint8(srcMAC.c) // ethernet srcMAC
+    .uint8(srcMAC.d) // ethernet srcMAC
+    .uint8(srcMAC.e) // ethernet srcMAC
+    .uint8(srcMAC.f) // ethernet srcMAC
+    .uint16(etherType) // ethernet etherType
     .beginChecksum()
-    .uint8((4 << 4) | (20 >>> 2))   // ip4 version & header length
-    .uint8(tos)                     // ip4 ToS
-    .uint16(payload.length)         // ip4 length
-    .uint16(id)                     // ip4 ID
-    .uint16(fragmentData)           // ip4 fragmentation
-    .uint8(ttl)                     // ip4 TTL
-    .uint8(protocolId)              // ip4 protocol ID
-    .checksum(cksum)                // ip4 checksum
-    .uint8(srcIP.a)                 // ip4 src ip
-    .uint8(srcIP.b)                 // ip4 src ip
-    .uint8(srcIP.c)                 // ip4 src ip
-    .uint8(srcIP.d)                 // ip4 src ip
-    .uint8(destIP.a)                // ip4 dest ip
-    .uint8(destIP.b)                // ip4 dest ip
-    .uint8(destIP.c)                // ip4 dest ip
-    .uint8(destIP.d)                // ip4 dest ip
+    .uint8((4 << 4) | (20 >>> 2)) // ip4 version & header length
+    .uint8(tos) // ip4 ToS
+    .uint16(payload.length) // ip4 length
+    .uint16(id) // ip4 ID
+    .uint16(fragmentData) // ip4 fragmentation
+    .uint8(ttl) // ip4 TTL
+    .uint8(protocolId) // ip4 protocol ID
+    .checksum(cksum) // ip4 checksum
+    .uint8(srcIP.a) // ip4 src ip
+    .uint8(srcIP.b) // ip4 src ip
+    .uint8(srcIP.c) // ip4 src ip
+    .uint8(srcIP.d) // ip4 src ip
+    .uint8(destIP.a) // ip4 dest ip
+    .uint8(destIP.b) // ip4 dest ip
+    .uint8(destIP.c) // ip4 dest ip
+    .uint8(destIP.d) // ip4 dest ip
     .endChecksum()
     .array(payload)
     .buffer();
@@ -95,7 +108,7 @@ exports.createUDP = (payload, opts = {}) => {
     .uint16(srcPort)
     .uint16(destPort)
     .uint16(payload.length)
-    .uint16(0)    // skip checksum
+    .uint16(0) // skip checksum
     .array(payload)
     .buffer();
 };
@@ -111,7 +124,9 @@ exports.splitBuffer = (u8Opt, chunks) => {
     u8 = u8.subarray(chunkLength);
   }
 
-  if (u8.length > 0) results.push(u8);
+  if (u8.length > 0) {
+    results.push(u8);
+  }
 
   return results;
 };
@@ -119,28 +134,42 @@ exports.splitBuffer = (u8Opt, chunks) => {
 exports.makeBuffer = (length, firstValueOpt = 0) => {
   let firstValue = firstValueOpt;
   const u8 = new Uint8Array(length);
-  for (let i = 0; i < u8.length; ++i) u8[i] = firstValue++;
+  for (let i = 0; i < u8.length; ++i) {
+    u8[i] = firstValue++;
+  }
   return u8;
 };
 
 exports.buffersEqual = (a, b) => {
-  if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
-  if (a.length !== b.length) return false;
+  if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
 
-  for (let i = 0; i < a.length; ++i) if (a[i] !== b[i]) return false;
+  for (let i = 0; i < a.length; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
 
-  return true;
+    return true;
+  }
 };
 
 exports.makeBufferSlices = (u8, slices) => {
   const results = [];
-  for (const slice of slices) results.push(u8.subarray(slice.offset, slice.offset + slice.len));
+  for (const slice of slices) {
+    results.push(u8.subarray(slice.offset, slice.offset + slice.len));
+  }
   return results;
 };
 
 exports.createFragmentedIP4 = (optsOpt, payloadLength, slices) => {
   const opts = optsOpt;
-  if (payloadLength < 8) throw new Error('no space for udp header in fragmented buffers');
+  if (payloadLength < 8) {
+    throw new Error('no space for udp header in fragmented buffers');
+  }
 
   const dataBuffer = exports.makeBuffer(payloadLength - 8);
   const udp = exports.createUDP(dataBuffer, opts);

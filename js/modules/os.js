@@ -14,7 +14,10 @@
 'use strict';
 
 const interfaces = require('../core/net/interfaces');
-const mem = () => Math.pow(2, 32);
+
+function mem() {
+  return Math.pow(2, 32);
+}
 
 Object.assign(exports, {
   EOL: '\n',

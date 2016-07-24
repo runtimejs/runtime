@@ -24,6 +24,7 @@
     "eslint": "^3.0.1",
     "eslint-config-airbnb-base": "^4.0.0",
     "eslint-plugin-import": "^1.10.2",
+    "eslint-plugin-runtime-internal": "^1.0.0",
     "tape": "^4.0.0"
   },
   "runtimejs": {

@@ -70,12 +70,16 @@ class BufferBuilder {
   }
 
   align(alignment = 0, value = 0) {
-    while ((this._p.length % alignment) !== 0) this.uint8(value);
+    while ((this._p.length % alignment) !== 0) {
+      this.uint8(value);
+    }
     return this;
   }
 
   array(u8) {
-    for (const item of u8) this.uint8(item & 0xff);
+    for (const item of u8) {
+      this.uint8(item & 0xff);
+    }
     this._repeatFirst = this._p.length - u8.length;
     this._repeatLast = this._p.length;
     return this;
@@ -93,7 +97,9 @@ class BufferBuilder {
   buffer() {
     const buf = new Uint8Array(this._p);
     if (this._ck) {
-      if (this._checksumLast === 0) this._checksumLast = this._p.length;
+      if (this._checksumLast === 0) {
+        this._checksumLast = this._p.length;
+      }
       const sub = buf.subarray(this._checksumFirst, this._checksumLast);
       const cksum = this._ck(sub);
       buf[this._checksumOffset] = (cksum >>> 8) & 0xff;

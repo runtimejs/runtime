@@ -14,18 +14,14 @@
 
 'use strict';
 
-const states = [
-  'STATE_CLOSED',
-  'STATE_LISTEN',
-  'STATE_SYN_SENT',
-  'STATE_SYN_RECEIVED',
-  'STATE_ESTABLISHED',
-  'STATE_FIN_WAIT_1',
-  'STATE_FIN_WAIT_2',
-  'STATE_CLOSE_WAIT',
-  'STATE_CLOSING',
-  'STATE_LAST_ACK',
-  'STATE_TIME_WAIT',
-];
-
-for (const num of Object.keys(states)) exports[states[num]] = num;
+exports.STATE_CLOSED = 0;
+exports.STATE_LISTEN = 1;
+exports.STATE_SYN_SENT = 2;
+exports.STATE_SYN_RECEIVED = 3;
+exports.STATE_ESTABLISHED = 4;
+exports.STATE_FIN_WAIT_1 = 5;
+exports.STATE_FIN_WAIT_2 = 6;
+exports.STATE_CLOSE_WAIT = 7;
+exports.STATE_CLOSING = 8;
+exports.STATE_LAST_ACK = 9;
+exports.STATE_TIME_WAIT = 10;

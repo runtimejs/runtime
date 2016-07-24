@@ -35,16 +35,28 @@ exports.addEntropySource = sources.addEntropySource;
  */
 exports.getTrueRandomValues = (value, cb) => {
   let u8 = null;
-  if (typeutils.isNumber(value)) u8 = new Uint8Array(value);
-  if (value instanceof Uint8Array) u8 = value;
+  if (typeutils.isNumber(value)) {
+    u8 = new Uint8Array(value);
+  }
+  if (value instanceof Uint8Array) {
+    u8 = value;
+  }
 
-  if (!u8) throw new Error('getTrueRandomValues: argument 0 is not a number or Uint8Array');
-  if (u8.length === 0) throw new Error('getTrueRandomValues: buffer length must be greater than 0');
+  if (!u8) {
+    throw new Error('getTrueRandomValues: argument 0 is not a number or Uint8Array');
+  }
+  if (u8.length === 0) {
+    throw new Error('getTrueRandomValues: buffer length must be greater than 0');
+  }
 
-  if (!typeutils.isFunction(cb)) throw new Error('getTrueRandomValues: argument 1 is not a function'); // eslint-disable-line max-len
+  if (!typeutils.isFunction(cb)) {
+    throw new Error('getTrueRandomValues: argument 1 is not a function');
+  } // eslint-disable-line max-len
 
   const defaultSource = getDefaultSource();
-  if (!defaultSource) throw new Error('getTrueRandomValues: no entropy source available');
+  if (!defaultSource) {
+    throw new Error('getTrueRandomValues: no entropy source available');
+  }
 
   defaultSource.getBytes(u8, () => {
     isaac.seed(u8);
@@ -60,13 +72,23 @@ exports.getTrueRandomValues = (value, cb) => {
  */
 exports.getRandomValues = (value) => {
   let u8 = null;
-  if (typeutils.isNumber(value)) u8 = new Uint8Array(value);
-  if (value instanceof Uint8Array) u8 = value;
+  if (typeutils.isNumber(value)) {
+    u8 = new Uint8Array(value);
+  }
+  if (value instanceof Uint8Array) {
+    u8 = value;
+  }
 
-  if (!u8) throw new Error('getRandomValues: argument 0 is not a number or Uint8Array');
-  if (u8.length === 0) throw new Error('getRandomValues: buffer length must be greater than 0');
+  if (!u8) {
+    throw new Error('getRandomValues: argument 0 is not a number or Uint8Array');
+  }
+  if (u8.length === 0) {
+    throw new Error('getRandomValues: buffer length must be greater than 0');
+  }
 
-  for (let i = 0; i < u8.length; i++) u8[i] = isaac.getByte();
+  for (let i = 0; i < u8.length; i++) {
+    u8[i] = isaac.getByte();
+  }
 
   return u8;
 };

@@ -35,7 +35,9 @@ class TCPServerSocket {
   listen(port) {
     this.listeningSocket._listen(port);
     this._port = this.listeningSocket._port;
-    if (this.onlisten) this.onlisten(this._port);
+    if (this.onlisten) {
+      this.onlisten(this._port);
+    }
   }
   close() {
     this.listeningSocket.close();

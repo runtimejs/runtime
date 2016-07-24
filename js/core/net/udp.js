@@ -20,7 +20,7 @@ const UDPSocket = require('./udp-socket');
 // const interfaces = require('./interfaces');
 // const netError = require('./net-error');
 
-const receive = (intf, srcIP, destIP, u8, headerOffset) => {
+function receive(intf, srcIP, destIP, u8, headerOffset) {
   const srcPort = udpHeader.getSrcPort(u8, headerOffset);
   const destPort = udpHeader.getDestPort(u8, headerOffset);
   const dataLength = udpHeader.getDataLength(u8, headerOffset) - udpHeader.headerLength;
@@ -28,10 +28,12 @@ const receive = (intf, srcIP, destIP, u8, headerOffset) => {
   debug('recv UDP over IP4', srcPort, destPort, dataLength);
 
   const socket = UDPSocket.lookupReceive(destPort);
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   const u8data = u8.subarray(dataOffset);
   if (socket.onmessage) setImmediate(() => socket.onmessage(srcIP, srcPort, u8data));
-};
+}
 
 exports.receive = receive;

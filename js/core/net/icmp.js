@@ -19,8 +19,10 @@ const icmpTransmit = require('./icmp-transmit');
 const route = require('./route');
 const Ping = require('./ping');
 
-const handleEchoRequest = (intf, srcIP, u8, headerOffset) => {
-  if (srcIP.isBroadcast() || srcIP.isAny()) return;
+function handleEchoRequest(intf, srcIP, u8, headerOffset) {
+  if (srcIP.isBroadcast() || srcIP.isAny()) {
+    return;
+  }
 
   const routingEntry = route.lookup(srcIP);
   if (!routingEntry) {
@@ -33,16 +35,18 @@ const handleEchoRequest = (intf, srcIP, u8, headerOffset) => {
   const seq = icmpHeader.getEchoRequestSequence(u8, headerOffset);
 
   icmpTransmit(intf, srcIP, viaIP, icmpHeader.ICMP_TYPE_ECHO_REPLY, 0,
-               icmpHeader.headerValueEcho(id, seq),
-               u8.subarray(headerOffset + icmpHeader.headerLength));
-};
+    icmpHeader.headerValueEcho(id, seq),
+    u8.subarray(headerOffset + icmpHeader.headerLength));
+}
 
-const handleEchoReply = (intf, srcIP, u8, headerOffset) => {
+function handleEchoReply(intf, srcIP, u8, headerOffset) {
   const id = icmpHeader.getEchoRequestIdentifier(u8, headerOffset);
   const seq = icmpHeader.getEchoRequestSequence(u8, headerOffset);
   const ping = Ping._receiveLookup(id);
-  if (ping) ping._receive(srcIP, seq, u8, headerOffset + icmpHeader.headerLength);
-};
+  if (ping) {
+    ping._receive(srcIP, seq, u8, headerOffset + icmpHeader.headerLength);
+  }
+}
 
 exports.receive = (intf, srcIP, destIP, u8, headerOffset) => {
   debug('recv ICMP over IP4');

@@ -17,10 +17,12 @@ const EventEmitter = require('events');
 const Duplex = require('stream').Duplex;
 const dns = require('dns');
 
-const rmFromArrayByVal = (array, val) => {
+function rmFromArrayByVal(array, val) {
   const i = array.indexOf(val);
-  if (i !== -1) array.splice(i, 1);
-};
+  if (i !== -1) {
+    array.splice(i, 1);
+  }
+}
 
 class Socket extends Duplex {
   constructor(optsOpt, runtimeSocketOpt) {
@@ -63,17 +65,23 @@ class Socket extends Duplex {
     }
     if (!port || typeof port === 'function' || port === null) {
       const err = new Error('Socket.connect: Must provide a port.');
-      if (cb) cb(err);
+      if (cb) {
+        cb(err);
+      }
       return;
     }
     host = host || 'localhost';
-    if (cb) this.once('connect', cb);
+    if (cb) {
+      this.once('connect', cb);
+    }
     if (exports.isIP(host) !== 0) {
       this.emit('lookup', null, host, exports.isIP(host));
       this._handle.open(host, parseInt(port, 10));
     } else {
       dns.lookup(host, (err, addr, family) => {
-        if (err) return this.emit('lookup', err, null, null);
+        if (err) {
+          return this.emit('lookup', err, null, null);
+        }
         this.emit('lookup', null, addr, family);
         this._handle.open(addr, parseInt(port, 10));
       });
@@ -111,7 +119,9 @@ class Socket extends Duplex {
   _read() {} // can't force a read. do nothing.
   _write(chunkOpt, encoding, callback) {
     let chunk = chunkOpt;
-    if (!(chunk instanceof Buffer)) chunk = new Buffer(chunk);
+    if (!(chunk instanceof Buffer)) {
+      chunk = new Buffer(chunk);
+    }
     this._handle.send(new Uint8Array(chunk));
     callback(null);
   }
@@ -150,7 +160,9 @@ class Server extends EventEmitter {
     return this._connections.length;
   }
   getConnections(cb) {
-    if (cb) cb(null, this._connections.length);
+    if (cb) {
+      cb(null, this._connections.length);
+    }
   }
   listen(portOpt, hostnameOpt, backlogOpt, callbackOpt) {
     let options = {};
@@ -201,30 +213,50 @@ exports.createServer = (optsOpt = {}, cbOpt) => {
     opts = {};
   }
   const server = new Server();
-  if (cb) server.on('connection', cb);
+  if (cb) {
+    server.on('connection', cb);
+  }
   return server;
 };
 
 exports.isIPv4 = (ip) => {
   const arr = ip.split('.');
-  if (arr.length !== 4) return false;
+  if (arr.length !== 4) {
+    return false;
+  }
   // check if it contains non-number characters or exceeds the maximum length:
-  for (const item of arr) if (isNaN(parseInt(item, 10)) || item.length > 3) return false;
-  return true;
+  for (const item of arr) {
+    if (isNaN(parseInt(item, 10)) || item.length > 3) {
+      return false;
+    }
+    return true;
+  }
 };
 
 exports.isIPv6 = (ip) => {
-  if (ip.length > 45) return false;
+  if (ip.length > 45) {
+    return false;
+  }
   const arr = ip.split(':');
-  if (arr.length !== 6) return false;
+  if (arr.length !== 6) {
+    return false;
+  }
   // check if it contains only letters and numbers (or is empty):
-  for (const item of arr) if (item.search(/[a-zA-Z0-9]*/) === -1) return false;
-  return true;
+  for (const item of arr) {
+    if (item.search(/[a-zA-Z0-9]*/) === -1) {
+      return false;
+    }
+    return true;
+  }
 };
 
 exports.isIP = (ip) => {
-  if (exports.isIPv4(ip)) return 4;
-  if (exports.isIPv6(ip)) return 6;
+  if (exports.isIPv4(ip)) {
+    return 4;
+  }
+  if (exports.isIPv6(ip)) {
+    return 6;
+  }
   return 0;
 };
 

@@ -23,7 +23,9 @@ test('EntropySource', (t) => {
 
   const source = new EntropySource('test-source');
   source.ongetbytes = (u8, cb) => {
-    for (let i = 0; i < u8.length; ++i) u8[i] = 0x33 + i;
+    for (let i = 0; i < u8.length; ++i) {
+      u8[i] = 0x33 + i;
+    }
     cb();
   };
 

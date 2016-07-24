@@ -20,7 +20,9 @@ test('buffer crosses page boundary', (t) => {
   // allocate on page boundary
   const buf = resources.memoryRange.block(0x3200000 - 12, 24).buffer();
   const u8 = new Uint8Array(buf);
-  for (let i = 0; i < u8.length; i++) u8[i] = i;
+  for (let i = 0; i < u8.length; i++) {
+    u8[i] = i;
+  }
 
   const addr = __SYSCALL.bufferAddress(u8);
   const b1 = u8.subarray(0, addr[0]);
@@ -35,7 +37,9 @@ test('buffer crosses page boundary', (t) => {
 test('buffer does not cross page boundary', (t) => {
   const buf = resources.memoryRange.block(0x3200000, 24).buffer();
   const u8 = new Uint8Array(buf);
-  for (let i = 0; i < u8.length; i++) u8[i] = i;
+  for (let i = 0; i < u8.length; i++) {
+    u8[i] = i;
+  }
 
   const addr = __SYSCALL.bufferAddress(u8);
   const b1 = u8.subarray(0, addr[0]);

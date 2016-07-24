@@ -21,18 +21,27 @@
       const cache = {};
       const builtinsResolveFromComponents = builtinsResolveFrom.split('/');
 
-      const throwError = (err) => { throw err; };
-      const endsWith = (str, suffix) => str.indexOf(suffix, str.length - suffix.length) !== -1;
+      function throwError(err) {
+        throw err;
+      }
 
-      const normalizePath = (components) => {
+      function endsWith(str, suffix) {
+        return str.indexOf(suffix, str.length - suffix.length) !== -1;
+      }
+
+      function normalizePath(components) {
         const r = [];
         for (const p of components) {
           if (p === '') {
-            if (r.length === 0) r.push(p);
+            if (r.length === 0) {
+              r.push(p);
+            }
             continue;
           }
 
-          if (p === '.') continue;
+          if (p === '.') {
+            continue;
+          }
 
           if (p === '..') {
             if (r.length > 0) {
@@ -46,18 +55,18 @@
         }
 
         return r;
-      };
+      }
 
-      const loadAsFile = (path) => {
+      function loadAsFile(path) {
         if (existsFileFn(path)) return path;
         if (existsFileFn(`${path}.js`)) return `${path}.js`;
         if (existsFileFn(`${path}.json`)) return `${path}.json`;
         if (existsFileFn(`${path}.node`)) return `${path}.node`;
 
         return null;
-      };
+      }
 
-      const getPackageMain = (packageJsonFile) => {
+      function getPackageMain(packageJsonFile) {
         const json = readFileFn(packageJsonFile);
         let parsed = null;
         try {
@@ -74,9 +83,9 @@
         }
 
         return parsed.main || 'index.js';
-      };
+      }
 
-      const loadAsDirectory = (path, ignoreJson) => {
+      function loadAsDirectory(path, ignoreJson) {
         let mainFile = 'index';
         let dir = false;
         if (!ignoreJson && existsFileFn(`${path}/package.json`)) {
@@ -85,41 +94,55 @@
         }
 
         const normalizedPath = normalizePath(path.split('/').concat(mainFile.split('/')));
-        if (!normalizedPath) return null;
+        if (!normalizedPath) {
+          return null;
+        }
 
         const s = normalizedPath.join('/');
         const res = loadAsFile(s);
-        if (res) return res;
+        if (res) {
+          return res;
+        }
 
-        if (dir) return loadAsDirectory(s, true);
+        if (dir) {
+          return loadAsDirectory(s, true);
+        }
 
         return null;
-      };
+      }
 
-      const loadNodeModules = (dirComponents, parts) => {
+      function loadNodeModules(dirComponents, parts) {
         let count = dirComponents.length;
 
         while (count-- > 0) {
           let p = dirComponents.slice(0, count + 1);
-          if (p.length === 0) continue;
+          if (p.length === 0) {
+            continue;
+          }
 
-          if (p[p.length - 1] === 'node_modules') continue;
+          if (p[p.length - 1] === 'node_modules') {
+            continue;
+          }
 
           p.push('node_modules');
           p = p.concat(parts);
 
           const normalizedPath = normalizePath(p);
-          if (!normalizedPath) continue;
+          if (!normalizedPath) {
+            continue;
+          }
 
           const s = normalizedPath.join('/');
           const loadedPath = loadAsFile(s) || loadAsDirectory(s, false) || null;
-          if (loadedPath) return loadedPath;
+          if (loadedPath) {
+            return loadedPath;
+          }
         }
 
         return null;
-      };
+      }
 
-      const resolve = (module, pathOpt = '') => {
+      function resolve(module, pathOpt = '') {
         let path = String(pathOpt);
 
         let resolveFrom = module.dirComponents;
@@ -134,14 +157,16 @@
 
         // starts with ./ ../  or /
         if (firstPathComponent === '.' ||
-            firstPathComponent === '..' ||
-            firstPathComponent === '') {
-          const combinedPathComponents = (firstPathComponent === '')
-            ? pathComponents
-            : resolveFrom.concat(pathComponents);
+          firstPathComponent === '..' ||
+          firstPathComponent === '') {
+          const combinedPathComponents = (firstPathComponent === '') ?
+            pathComponents :
+            resolveFrom.concat(pathComponents);
 
           const normalizedPath = normalizePath(combinedPathComponents);
-          if (!normalizedPath) return null;
+          if (!normalizedPath) {
+            return null;
+          }
 
           const pathStr = normalizedPath.join('/');
           const loadedPath = loadAsFile(pathStr) || loadAsDirectory(pathStr, false) || null;
@@ -149,7 +174,7 @@
         }
 
         return loadNodeModules(resolveFrom, pathComponents);
-      };
+      }
 
       class Module {
         constructor(pathComponents) {
@@ -170,7 +195,9 @@
           const pathComponents = resolvedPath.split('/');
           const displayPath = resolvedPath;
           const cacheKey = pathComponents.join('/');
-          if (cache[cacheKey]) return cache[cacheKey].exports;
+          if (cache[cacheKey]) {
+            return cache[cacheKey].exports;
+          }
 
           const currentModule = global.module;
           module = new Module(pathComponents);
@@ -189,10 +216,8 @@
           } else {
             /* eslint-disable max-len */
             evalScriptFn(
-              `(function(require,exports,module,__filename,__dirname){
-${content}
-})((function(m){return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
-            displayPath);
+              `(function(require,exports,module,__filename,__dirname){${content}})((function(m){return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
+              displayPath);
             /* eslint-enable max-len */
           }
 
@@ -211,9 +236,13 @@ ${content}
   // end
 
   const files = {};
-  for (const file of __SYSCALL.initrdListFiles()) files[file] = true;
+  for (const file of __SYSCALL.initrdListFiles()) {
+    files[file] = true;
+  }
 
-  const fileExists = path => !!files[path];
+  function fileExists(path) {
+    return !!files[path];
+  }
 
   const runtimePackagePath = __SYSCALL.initrdGetKernelIndex().split('/').slice(0, -1).join('/');
   const loader = new Loader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, {

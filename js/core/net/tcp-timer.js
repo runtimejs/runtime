@@ -16,14 +16,16 @@
 // const tcpSocketState = require('./tcp-socket-state');
 const connections = new Set();
 
-let initTimeout;
-
-const timeoutHandler = () => {
-  for (const connSocket of connections) connSocket._timerTick();
+function timeoutHandler() {
+  for (const connSocket of connections) {
+    connSocket._timerTick();
+  }
   initTimeout();
-};
+}
 
-initTimeout = () => setTimeout(timeoutHandler, 500);
+function initTimeout() {
+  setTimeout(timeoutHandler, 500);
+}
 
 initTimeout();
 

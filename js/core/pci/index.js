@@ -21,26 +21,36 @@ const isint = require('isint');
 
 const deviceList = [];
 
-const init = () => {
-  for (const pciData of scan()) deviceList.push(new PciDevice(pciData));
-};
+function init() {
+  for (const pciData of scan()) {
+    deviceList.push(new PciDevice(pciData));
+  }
+}
 
-const setupDeviceDriver = (vendorId, deviceId, driver) => {
+function setupDeviceDriver(vendorId, deviceId, driver) {
   assert(isint.uint16(vendorId));
   assert(isint.uint16(deviceId) || typeutils.isFunction(deviceId));
 
   for (const device of deviceList) {
-    if (device.hasDriver()) continue;
-    if (device.vendorId !== vendorId) continue;
+    if (device.hasDriver()) {
+      continue;
+    }
+    if (device.vendorId !== vendorId) {
+      continue;
+    }
     if (typeutils.isFunction(deviceId)) {
-      if (!deviceId(device.deviceId)) continue;
+      if (!deviceId(device.deviceId)) {
+        continue;
+      }
     } else {
-      if (device.deviceId !== deviceId) continue;
+      if (device.deviceId !== deviceId) {
+        continue;
+      }
     }
 
     device.setDriver(driver);
   }
-};
+}
 
 init();
 

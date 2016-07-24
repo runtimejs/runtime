@@ -27,23 +27,23 @@ class VirtioDevice {
       const ioPorts = {
         // Common
         DEVICE_FEATURES: 0x00, // 32 bit r
-        GUEST_FEATURES: 0x04,  // 32 bit r+w
-        QUEUE_ADDRESS: 0x08,   // 32 bit r+w
-        QUEUE_SIZE: 0x0c,      // 16 bit r
-        QUEUE_SELECT: 0x0e,    // 16 bit r+w
-        QUEUE_NOTIFY: 0x10,    // 16 bit r+w
-        DEVICE_STATUS: 0x12,   //  8 bit r+w
-        ISR_STATUS: 0x13,      //  8 bit r
+        GUEST_FEATURES: 0x04, // 32 bit r+w
+        QUEUE_ADDRESS: 0x08, // 32 bit r+w
+        QUEUE_SIZE: 0x0c, // 16 bit r
+        QUEUE_SELECT: 0x0e, // 16 bit r+w
+        QUEUE_NOTIFY: 0x10, // 16 bit r+w
+        DEVICE_STATUS: 0x12, //  8 bit r+w
+        ISR_STATUS: 0x13, //  8 bit r
       };
 
       if (deviceType === 'net') {
         // Network card
-        ioPorts.NETWORK_DEVICE_MAC0 = 0x14;   // 8  bit r
-        ioPorts.NETWORK_DEVICE_MAC1 = 0x15;   // 8  bit r
-        ioPorts.NETWORK_DEVICE_MAC2 = 0x16;   // 8  bit r
-        ioPorts.NETWORK_DEVICE_MAC3 = 0x17;   // 8  bit r
-        ioPorts.NETWORK_DEVICE_MAC4 = 0x18;   // 8  bit r
-        ioPorts.NETWORK_DEVICE_MAC5 = 0x19;   // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC0 = 0x14; // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC1 = 0x15; // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC2 = 0x16; // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC3 = 0x17; // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC4 = 0x18; // 8  bit r
+        ioPorts.NETWORK_DEVICE_MAC5 = 0x19; // 8  bit r
         ioPorts.NETWORK_DEVICE_STATUS = 0x1A; // 16 bit r
       }
 
@@ -63,7 +63,9 @@ class VirtioDevice {
 
     for (const feature of Object.keys(features)) {
       const mask = 1 << features[feature];
-      if (deviceFeatures & mask) result[feature] = true;
+      if (deviceFeatures & mask) {
+        result[feature] = true;
+      }
     }
 
     return result;
@@ -72,8 +74,12 @@ class VirtioDevice {
     let value = 0;
 
     for (const feature of Object.keys(features)) {
-      if (!driverFeatures[feature]) continue;
-      if (!deviceFeatures[feature]) return false; // Device doesn't support required feature
+      if (!driverFeatures[feature]) {
+        continue;
+      }
+      if (!deviceFeatures[feature]) {
+        return false;
+      } // Device doesn't support required feature
 
       const mask = 1 << features[feature];
       value |= mask;
@@ -107,7 +113,7 @@ class VirtioDevice {
   hasPendingIRQ() {
     return !!(1 & this.io.ISR_STATUS.read8());
   }
-  // [network device]
+    // [network device]
   netReadHWAddress() {
     return [
       this.io.NETWORK_DEVICE_MAC0.read8(),
@@ -118,7 +124,7 @@ class VirtioDevice {
       this.io.NETWORK_DEVICE_MAC5.read8(),
     ];
   }
-  // [network device]
+    // [network device]
   netReadStatus() {
     return !!(1 & this.io.NETWORK_DEVICE_STATUS.read16());
   }

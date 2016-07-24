@@ -48,32 +48,39 @@ const color = {
 
 exports.color = color;
 
-const getColor = (fg, bg) => (((bg & 0xF) << 4) + (fg & 0xF)) >>> 0;
+function getColor(fg, bg) {
+  return (((bg & 0xF) << 4) + (fg & 0xF)) >>> 0;
+}
 
-const setCharOffset = (u8, offset, char, fg, bg) => {
-  if (offset < 0 || offset >= w * h) throw new Error('vga error: offset is out of bounds');
+function setCharOffset(u8, offset, char, fg, bg) {
+  if (offset < 0 || offset >= w * h) {
+    throw new Error('vga error: offset is out of bounds');
+  }
 
   /* eslint-disable no-param-reassign */
   u8[offset * 2] = char.charCodeAt(0);
   u8[(offset * 2) + 1] = getColor(fg, bg);
   /* eslint-enable no-param-reassign */
-};
+}
 
-const setCharXY = (u8, x, y, char, fg, bg) => {
-  if (x < 0 || x >= w) throw new Error('vga error: x is out of bounds');
+function setCharXY(u8, x, y, char, fg, bg) {
+  if (x < 0 || x >= w) {
+    throw new Error('vga error: x is out of bounds');
+  }
 
-  if (y < 0 || y >= h) throw new Error('vga error: y is out of bounds');
+  if (y < 0 || y >= h) {
+    throw new Error('vga error: y is out of bounds');
+  }
 
   const offset = (y * w) + x;
   setCharOffset(u8, offset, char, fg >>> 0, bg >>> 0);
-};
+}
 
-// declare it up here, and define it below VGABuffer, a workaround for no-use-before-define
-let testInstance;
-
-const testColor = (value) => {
-  if ((value >>> 0) !== value) throw new Error('invalid color value');
-};
+function testColor(value) {
+  if ((value >>> 0) !== value) {
+    throw new Error('invalid color value');
+  }
+}
 
 class VGABuffer {
   constructor() {
@@ -94,19 +101,25 @@ class VGABuffer {
   clear(bg) {
     testInstance(this);
     testColor(bg);
-    for (let i = 0; i < w * h; ++i) setCharOffset(this.b, i, ' ', bg, bg);
+    for (let i = 0; i < w * h; ++i) {
+      setCharOffset(this.b, i, ' ', bg, bg);
+    }
   }
   scrollUp(bg) {
     testInstance(this);
     testColor(bg);
     this.b.set(this.b.subarray(w * 2, w * h * 2));
-    for (let t = 0; t < w; ++t) setCharXY(this.b, t, h - 1, ' ', bg, bg);
+    for (let t = 0; t < w; ++t) {
+      setCharXY(this.b, t, h - 1, ' ', bg, bg);
+    }
   }
 }
 
-testInstance = (obj) => {
-  if (!(obj instanceof VGABuffer)) throw new Error('VGABuffer instance required');
-};
+function testInstance(obj) {
+  if (!(obj instanceof VGABuffer)) {
+    throw new Error('VGABuffer instance required');
+  }
+}
 
 exports.draw = (drawbuf) => {
   testInstance(drawbuf);

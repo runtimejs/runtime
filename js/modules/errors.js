@@ -19,7 +19,9 @@ class SystemError {
   constructor(message, errcode, call) {
     let msg = '';
     if (errcode) msg += `${errcode}: `;
-    if (message) msg += message;
+    if (message) {
+      msg += message;
+    }
     if (call) msg += `, ${call}`;
     const err = new Error(msg);
     err.code = errcode || '';

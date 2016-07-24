@@ -14,7 +14,9 @@
 
 'use strict';
 
-if (!global.__SYSCALL) throw new Error('error: this program requires runtime.js environment');
+if (!global.__SYSCALL) {
+  throw new Error('error: this program requires runtime.js environment');
+}
 
 const requiredKernelVersion = require('../runtimecorelib.json').kernelVersion;
 const currentKernelVersion = __SYSCALL.version().kernel;

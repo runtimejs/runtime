@@ -35,7 +35,9 @@ exports.packetType = {
 
 exports.create = (type, srcMAC, options = []) => {
   let optionsLength = 8; // cookie (4b), type (3b) and 0xff (1b)
-  for (const opt of options) optionsLength += opt.bytes.length + 2; // id (1b) and len (1b)
+  for (const opt of options) {
+    optionsLength += opt.bytes.length + 2;
+  } // id (1b) and len (1b)
 
   const u8 = new Uint8Array(OPTIONS_OFFSET + optionsLength);
   u8[0] = OPERATION_REQUEST; // request
@@ -61,14 +63,16 @@ exports.create = (type, srcMAC, options = []) => {
 
   // Option: DHCP Message
   u8[optionsOffset++] = 53; // id
-  u8[optionsOffset++] = 1;  // len
+  u8[optionsOffset++] = 1; // len
   u8[optionsOffset++] = type;
 
   // Other options
   for (const option of options) {
     u8[optionsOffset++] = option.id; // id
-    u8[optionsOffset++] = option.bytes.length & 0xff;  // len
-    for (const byte of option.bytes) u8[optionsOffset++] = byte >>> 0;
+    u8[optionsOffset++] = option.bytes.length & 0xff; // len
+    for (const byte of option.bytes) {
+      u8[optionsOffset++] = byte >>> 0;
+    }
   }
 
   u8[optionsOffset] = 255; // end of option list
@@ -82,18 +86,22 @@ exports.getServerIP = u8 => new IP4Address(u8[20], u8[21], u8[22], u8[23]);
 exports.isValidMagicCookie = u8 => magicCookie === u8view.getUint32BE(u8, OPTIONS_OFFSET);
 
 exports.getOptions = (u8) => {
-  let i;
-  let j;
   const options = [];
-  for (i = OPTIONS_OFFSET + 4; i < u8.length; ++i) {
+  for (let i = OPTIONS_OFFSET + 4; i < u8.length; ++i) {
     const optId = u8[i++];
     const optLen = u8[i++];
 
-    if (optId === 0xff) break;
-    if (optId === 0x00) continue;
+    if (optId === 0xff) {
+      break;
+    }
+    if (optId === 0x00) {
+      continue;
+    }
 
     const bytes = [];
-    for (j = 0; j < optLen; ++j) bytes.push(u8[i++]);
+    for (let j = 0; j < optLen; ++j) {
+      bytes.push(u8[i++]);
+    }
 
     options.push({
       id: optId,

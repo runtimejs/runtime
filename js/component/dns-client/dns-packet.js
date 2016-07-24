@@ -36,7 +36,9 @@ exports.getQuery = (domain, query) => {
   let bufferLength = 17;
 
   const labels = domain.split('.');
-  for (const label of labels) bufferLength += label.length + 1;
+  for (const label of labels) {
+    bufferLength += label.length + 1;
+  }
 
   const u8 = new Uint8Array(bufferLength);
   const view = new DataView(u8.buffer);
@@ -54,7 +56,9 @@ exports.getQuery = (domain, query) => {
 
   for (const label of labels) {
     view.setUint8(offset++, label.length);
-    for (let j = 0; j < label.length; ++j) view.setUint8(offset++, label.charCodeAt(j));
+    for (let j = 0; j < label.length; ++j) {
+      view.setUint8(offset++, label.charCodeAt(j));
+    }
   }
   view.setUint8(offset++, 0); // null terminator
 
@@ -64,14 +68,19 @@ exports.getQuery = (domain, query) => {
 };
 
 const POINTER_VALUE = 0xc0;
-const isPointer = value => (value & POINTER_VALUE) === POINTER_VALUE;
 
-const readHostname = (reader) => {
+function isPointer(value) {
+  return (value & POINTER_VALUE) === POINTER_VALUE;
+}
+
+function readHostname(reader) {
   let labels = [];
 
   for (let z = reader.getOffset(); z < reader.len; ++z) {
     const len = reader.readUint8();
-    if (len === 0) break;
+    if (len === 0) {
+      break;
+    }
 
     if (isPointer(len)) {
       const ptrOffset = ((len - POINTER_VALUE) << 8) + reader.readUint8();
@@ -82,20 +91,24 @@ const readHostname = (reader) => {
       break;
     } else {
       let label = '';
-      for (let i = 0; i < len; ++i) label += String.fromCharCode(reader.readUint8());
+      for (let i = 0; i < len; ++i) {
+        label += String.fromCharCode(reader.readUint8());
+      }
 
       labels.push(label);
     }
   }
 
   return labels;
-};
+}
 
 exports.parseResponse = (u8) => {
   const reader = new PacketReader(u8.buffer, u8.byteLength, u8.byteOffset);
   const responseRandomId = reader.readUint16();
 
-  if (responseRandomId !== randomId) return null;
+  if (responseRandomId !== randomId) {
+    return null;
+  }
 
   /* eslint-disable no-unused-vars */
   const flags = reader.readUint16();
@@ -105,7 +118,9 @@ exports.parseResponse = (u8) => {
   const additionalCount = reader.readUint16();
   /* eslint-enable no-unused-vars */
 
-  if (questionsCount !== 1) return null;
+  if (questionsCount !== 1) {
+    return null;
+  }
 
   // Read question
   const hostname = readHostname(reader).join('.');
@@ -127,7 +142,9 @@ exports.parseResponse = (u8) => {
 
     switch (recordType) {
       case queries.A: // A record
-        if (rdLen !== 4) return null;
+        if (rdLen !== 4) {
+          return null;
+        }
 
         results.push({
           hostname: host,
@@ -149,7 +166,9 @@ exports.parseResponse = (u8) => {
         });
         break;
       default:
-        for (let b = 0; b < rdLen; ++b) reader.readUint8();
+        for (let b = 0; b < rdLen; ++b) {
+          reader.readUint8();
+        }
         break;
     }
   }

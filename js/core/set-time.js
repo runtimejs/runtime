@@ -15,14 +15,18 @@
 'use strict';
 
 runtime.dns.resolve('pool.ntp.org', {}, (err, res) => {
-  if (err) return runtime.stdio.defaultStdio.writeError(err);
+  if (err) {
+    return runtime.stdio.defaultStdio.writeError(err);
+  }
 
   const rawip = res.results[0].address;
 
   const data = new Uint8Array(48);
   data[0] = 0x1B;
   let i;
-  for (i = 1; i < 48; i++) data[i] = 0;
+  for (i = 1; i < 48; i++) {
+    data[i] = 0;
+  }
 
   const socket = new runtime.net.UDPSocket();
   socket.onmessage = (ip, port, u8) => {
@@ -30,8 +34,12 @@ runtime.dns.resolve('pool.ntp.org', {}, (err, res) => {
     let intpart = 0;
     let fractpart = 0;
 
-    for (i = 0; i <= 3; i++) intpart = (256 * intpart) + u8[offset + i];
-    for (i = 4; i <= 7; i++) fractpart = (256 * fractpart) + u8[offset + i];
+    for (i = 0; i <= 3; i++) {
+      intpart = (256 * intpart) + u8[offset + i];
+    }
+    for (i = 4; i <= 7; i++) {
+      fractpart = (256 * fractpart) + u8[offset + i];
+    }
 
     const milli = ((intpart * 1000) + ((fractpart * 1000) / 0x100000000));
 

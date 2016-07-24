@@ -21,12 +21,14 @@ let posCurrent = 0;
 const w = vga.WIDTH;
 const h = vga.HEIGHT;
 
-const refresh = () => vga.draw(buffer);
+function refresh() {
+  vga.draw(buffer);
+}
 
-const scrollUp = () => {
+function scrollUp() {
   buffer.scrollUp(vga.color.BLACK);
   posCurrent -= w;
-};
+}
 
 refresh();
 
@@ -40,9 +42,13 @@ exports.print = (textOpt = '', repeat = 1, fg = vga.color.WHITE, bg = vga.color.
     for (const c of text) {
       if (c === '\n') {
         posCurrent -= (posCurrent % w) - w;
-        if (posCurrent >= w * h) scrollUp();
+        if (posCurrent >= w * h) {
+          scrollUp();
+        }
       } else {
-        if (posCurrent >= w * h) scrollUp();
+        if (posCurrent >= w * h) {
+          scrollUp();
+        }
         buffer.setOffset(posCurrent++, c, fg, bg);
       }
     }
@@ -54,9 +60,13 @@ exports.print = (textOpt = '', repeat = 1, fg = vga.color.WHITE, bg = vga.color.
 exports.moveOffset = (offsetOpt) => {
   const offset = offsetOpt | 0;
   let newPos = posCurrent + offset;
-  if (newPos < 0) newPos = 0;
+  if (newPos < 0) {
+    newPos = 0;
+  }
 
-  if (newPos >= w * h) newPos = (w * h) - 1;
+  if (newPos >= w * h) {
+    newPos = (w * h) - 1;
+  }
 
   posCurrent = newPos;
 };
@@ -64,9 +74,17 @@ exports.moveOffset = (offsetOpt) => {
 exports.moveTo = (xOpt, yOpt) => {
   let x = xOpt;
   let y = yOpt;
-  if (x < 0) x = 0;
-  if (x >= w) x = w - 1;
-  if (y < 0) y = 0;
-  if (y >= h) y = h - 1;
+  if (x < 0) {
+    x = 0;
+  }
+  if (x >= w) {
+    x = w - 1;
+  }
+  if (y < 0) {
+    y = 0;
+  }
+  if (y >= h) {
+    y = h - 1;
+  }
   posCurrent = (y * w) + x;
 };

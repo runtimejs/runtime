@@ -25,12 +25,14 @@ exports.moveTo = printer.moveTo;
 let isReading = false;
 
 exports.read = (cb) => {
-  if (isReading) throw new Error('nested terminal read is not allowed');
+  if (isReading) {
+    throw new Error('nested terminal read is not allowed');
+  }
 
   const editor = new LineEditor();
   isReading = true;
 
-  const addinput = (keyinfo) => {
+  function addinput(keyinfo) {
     switch (keyinfo.type) {
       case 'character':
         printer.print(keyinfo.character);
@@ -48,19 +50,21 @@ exports.read = (cb) => {
       default:
         break;
     }
-  };
+  }
 
   keyboard.onKeydown.add(addinput);
   editor.drawCursor();
 };
 
 exports.readLine = (cb) => {
-  if (isReading) throw new Error('nested terminal read is not allowed');
+  if (isReading) {
+    throw new Error('nested terminal read is not allowed');
+  }
 
   const editor = new LineEditor();
   isReading = true;
 
-  const addinput = (keyinfo) => {
+  function addinput(keyinfo) {
     switch (keyinfo.type) {
       case 'kpleft':
         editor.moveCursorLeft();
@@ -84,7 +88,7 @@ exports.readLine = (cb) => {
       default:
         break;
     }
-  };
+  }
 
   keyboard.onKeydown.add(addinput);
   editor.drawCursor();

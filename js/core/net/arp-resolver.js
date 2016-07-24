@@ -37,7 +37,9 @@ class ARPResolver {
     switch (operation) {
       case arpHeader.OPERATION_REQEUST:
         // Somebody requested this machine IP
-        if (!selfIP.equals(IP4Address.ANY) && selfIP.equals(targetIP)) this.reply(srcMAC, targetIP);
+        if (!selfIP.equals(IP4Address.ANY) && selfIP.equals(targetIP)) {
+          this.reply(srcMAC, targetIP);
+        }
         break;
       case arpHeader.OPERATION_REPLY:
         this.table.set(srcIP.hash(), srcMAC);

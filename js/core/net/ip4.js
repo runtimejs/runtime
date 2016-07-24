@@ -22,14 +22,14 @@ const interfaces = require('./interfaces');
 
 timers.scheduleTask5s(() => interfaces.forEach(ip4fragments.tick));
 
-const handleReceive = (intf, u8, headerOffset) => {
+function handleReceive(intf, u8, headerOffset) {
   const headerLength = ip4header.getHeaderLength(u8, headerOffset);
   const protocolId = ip4header.getProtocolId(u8, headerOffset);
   const srcIP = ip4header.getSrcIP(u8, headerOffset);
   const destIP = ip4header.getDestIP(u8, headerOffset);
   const nextOffset = headerOffset + headerLength;
   ip4receive(intf, srcIP, destIP, protocolId, u8, nextOffset);
-};
+}
 
 exports.receive = (intf, u8, headerOffset) => {
   const fragmentData = ip4header.getFragmentationData(u8, headerOffset);

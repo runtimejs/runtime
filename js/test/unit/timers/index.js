@@ -30,10 +30,12 @@ test('clearTimeout', (t) => {
 });
 
 test('clearInterval', (t) => {
-  const timer = setInterval(() => {
-    t.fail('should not call callback');
-    throw new Error('should not call callback');
-  }, 0);
+  function timer() {
+    setInterval(() => {
+      t.fail('should not call callback');
+      throw new Error('should not call callback');
+    }, 0);
+  }
   clearInterval(timer);
   setTimeout(t.end.bind(t), 0);
 });
