@@ -290,7 +290,9 @@ test('tcp send FIN', (t) => {
       t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
     }
 
-    socket._transmit = recvACKFIN; socket.close(); t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
+    socket._transmit = recvACKFIN;
+    socket.close();
+    t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
   });
 });
 
@@ -335,8 +337,16 @@ test('tcp receive FIN, then send more data', (t) => {
       socket._receive(packet, IP4Address.ANY, 45001, 0);
     }
 
-    socket._transmit = () => {}; socket.send(new Uint8Array([1, 2, 3]));
-    const packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK); socket._receive(packet, IP4Address.ANY, 45001, 0); t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT); socket.send(new Uint8Array([4, 5, 6])); socket.send(new Uint8Array([7, 8, 9])); socket._transmit = handleLastAck; socket.close(); t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+    socket._transmit = () => {};
+    socket.send(new Uint8Array([1, 2, 3]));
+    const packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK);
+    socket._receive(packet, IP4Address.ANY, 45001, 0);
+    t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
+    socket.send(new Uint8Array([4, 5, 6]));
+    socket.send(new Uint8Array([7, 8, 9]));
+    socket._transmit = handleLastAck;
+    socket.close();
+    t.equal(socket._state, tcpSocketState.STATE_CLOSED);
   });
 });
 
