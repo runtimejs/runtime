@@ -54,14 +54,6 @@ const demo = (myObject) => {
 }
 ```
 
-If you get this warning, it's ok:
-
-> Assignment to **property of** function parameter 'parameter-name'
-
-But this is not:
-
-> Assignment to function parameter 'parameter-name'
-
 ## Wrapping an IIFE
 
 The invocation should be *outside* the parentheses, not inside.
