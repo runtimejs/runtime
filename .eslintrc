@@ -25,7 +25,6 @@ rules:
   no-underscore-dangle: 0
   global-require: 0
   import/no-extraneous-dependencies: 0
-  no-param-reassign: 1
   no-return-assign: 1
   new-cap: 1
   no-console: 0
@@ -37,6 +36,10 @@ rules:
     -
       functions: false
       classes: true
+  no-paran-reassign:
+    - 2
+    -
+      props: false
 
 parserOptions:
   ecmaVersion: 6
