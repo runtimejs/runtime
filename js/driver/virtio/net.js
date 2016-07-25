@@ -17,7 +17,7 @@ const VirtioDevice = require('./device');
 const runtime = require('../../core');
 const { MACAddress, Interface } = runtime.net;
 
-const virtioHeader = (function () { // eslint-disable-line wrap-iife
+const virtioHeader = (() => {
   const OFFSET_FLAGS = 0;
   const OFFSET_GSO_TYPE = 1;
   // const OFFSET_HDR_LEN = 2;

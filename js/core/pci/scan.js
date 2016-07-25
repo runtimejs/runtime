@@ -32,7 +32,7 @@ const sizeof = {
   UINT64: 8,
 };
 
-const pciAccessorFactory = (function (addressPort, dataPort) {
+const pciAccessorFactory = ((addressPort, dataPort) => {
   const accessorCache = new Map();
 
   /**
@@ -391,7 +391,7 @@ function locateAcpiDevice(dev) {
 /**
  * Provides enumeration services for the whole PCI configuration space
  */
-const pciSpace = (function (pciAccessorFactoryArg) {
+const pciSpace = ((pciAccessorFactoryArg) => {
   function checkDevice(bus, slot, func, fn) {
     const addr = {
       bus,
@@ -443,7 +443,7 @@ const pciSpace = (function (pciAccessorFactoryArg) {
 /**
  * Service for converting PCI data codes to readable names
  */
-const codeNameResolver = (function () {
+const codeNameResolver = (() => {
   const classCodes = [
     'Unclassified',
     'Mass Storage Controller',
@@ -699,7 +699,7 @@ class PciDevice {
 /**
  * Manages PCI devices
  */
-const pciManager = (function () {
+const pciManager = (() => {
   const devicesMap = new Map();
 
   function addressHash(address) {
@@ -882,7 +882,7 @@ pciManager.each((pciDevice) => {
     path: '/driver/' + driverData.driver,
     data: driverArgs,
     env: {}
-  }).then(function() {}, function(err) {
+  }).then(() => {}, function(err) {
     isolate.log(err);
   });
   */

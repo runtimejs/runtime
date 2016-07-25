@@ -216,7 +216,7 @@
           } else {
             /* eslint-disable max-len */
             evalScriptFn(
-              `(function(require,exports,module,__filename,__dirname){${content}})((function(m){return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
+              `((require,exports,module,__filename,__dirname) => {${content}})(((m) => {return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
               displayPath);
             /* eslint-enable max-len */
           }

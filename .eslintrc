@@ -36,7 +36,7 @@ rules:
     -
       functions: false
       classes: true
-  no-paran-reassign:
+  no-param-reassign:
     - 2
     -
       props: false
