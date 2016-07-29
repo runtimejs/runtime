@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "postinstall": "node scripts/update-versions.js",
-    "lint": "eslint .",
+    "lint": "eslint js",
     "test": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd",
     "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
   },
@@ -21,8 +21,9 @@
   },
   "homepage": "http://runtimejs.org",
   "devDependencies": {
-    "eslint": "^1.8.0",
-    "eslint-config-runtime": "^1.0.0",
+    "eslint": "^3.0.1",
+    "eslint-config-airbnb-base": "^4.0.0",
+    "eslint-plugin-import": "^1.10.2",
     "eslint-plugin-runtime-internal": "^1.0.0",
     "tape": "^4.0.0"
   },

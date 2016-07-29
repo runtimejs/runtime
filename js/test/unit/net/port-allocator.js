@@ -14,14 +14,14 @@
 
 'use strict';
 
-var test = require('tape');
-var assert = require('assert');
-var PortAllocator = require('../../../core/net/port-allocator');
-var EPHEMERAL_PORT_FIRST = 49152;
+const test = require('tape');
+// const assert = require('assert');
+const PortAllocator = require('../../../core/net/port-allocator');
+const EPHEMERAL_PORT_FIRST = 49152;
 
-test('ephemeral only: simple allocation', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('ephemeral only: simple allocation', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
 
   // alloc 10 ports
   for (let i = 0; i < 10; ++i) {
@@ -49,14 +49,13 @@ test('ephemeral only: simple allocation', function(t) {
   t.end();
 });
 
-test('ephemeral only: allocate and free all ports', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('ephemeral only: allocate and free all ports', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
 
-  var next = 0;
+  let next = 0;
   for (;;) {
-    let port = allocator.allocEphemeral(socket);
-
+    const port = allocator.allocEphemeral(socket);
     if (port === 0) {
       break;
     }
@@ -70,15 +69,14 @@ test('ephemeral only: allocate and free all ports', function(t) {
   t.equal(allocator.allocatedCount, 16000);
 
   while (next-- > 0) {
-    allocator.free(16000 - next - 1 + EPHEMERAL_PORT_FIRST);
+    allocator.free(((16000 - next) - 1) + EPHEMERAL_PORT_FIRST);
   }
 
   t.equal(allocator.allocatedCount, 0);
   t.equal(allocator._sockets.length, 0);
 
   for (;;) {
-    let port = allocator.allocEphemeral(socket);
-
+    const port = allocator.allocEphemeral(socket);
     if (port === 0) {
       break;
     }
@@ -88,9 +86,9 @@ test('ephemeral only: allocate and free all ports', function(t) {
   t.end();
 });
 
-test('ephemeral only: handle double free', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('ephemeral only: handle double free', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
   t.equal(allocator.allocatedCount, 0);
   t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST + 0);
   t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST + 1);
@@ -103,9 +101,9 @@ test('ephemeral only: handle double free', function(t) {
   t.end();
 });
 
-test('alloc port', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('alloc port', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
   t.equal(allocator.allocPort(80, socket), true);
   t.equal(allocator.allocatedCount, 1);
   t.equal(allocator.allocPort(8080, socket), true);
@@ -117,9 +115,9 @@ test('alloc port', function(t) {
   t.end();
 });
 
-test('directly alloc and free all ports', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('directly alloc and free all ports', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
 
   for (let i = 1; i < 65536; ++i) {
     allocator.allocPort(i, socket);
@@ -135,9 +133,9 @@ test('directly alloc and free all ports', function(t) {
   t.end();
 });
 
-test('directly alloc all ports and try to get ephemeral', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('directly alloc all ports and try to get ephemeral', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
 
   for (let i = 1; i < 65536; ++i) {
     allocator.allocPort(i, socket);
@@ -168,9 +166,9 @@ test('directly alloc all ports and try to get ephemeral', function(t) {
   t.end();
 });
 
-test('cannot allocate port twice', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('cannot allocate port twice', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
   t.equal(allocator.allocatedCount, 0);
   t.equal(allocator.allocPort(EPHEMERAL_PORT_FIRST + 2, socket), true);
   t.equal(allocator.allocPort(EPHEMERAL_PORT_FIRST + 2, socket), false);
@@ -185,9 +183,9 @@ test('cannot allocate port twice', function(t) {
   t.end();
 });
 
-test('skip directly allocated ephemeral port', function(t) {
-  var allocator = new PortAllocator();
-  var socket = {};
+test('skip directly allocated ephemeral port', (t) => {
+  const allocator = new PortAllocator();
+  const socket = {};
   t.equal(allocator.allocatedCount, 0);
   t.equal(allocator.allocPort(EPHEMERAL_PORT_FIRST, socket), true);
   t.equal(allocator.allocEphemeral(socket), EPHEMERAL_PORT_FIRST + 1);
@@ -222,15 +220,15 @@ test('skip directly allocated ephemeral port', function(t) {
   t.end();
 });
 
-test('lookups', function(t) {
-  var allocator = new PortAllocator();
-  var socket1 = 'socket1';
-  var socket2 = 'socket2';
-  var socket3 = 'socket3';
+test('lookups', (t) => {
+  const allocator = new PortAllocator();
+  const socket1 = 'socket1';
+  const socket2 = 'socket2';
+  const socket3 = 'socket3';
   allocator.allocPort(EPHEMERAL_PORT_FIRST + 1, socket1);
   t.equal(allocator.lookup(EPHEMERAL_PORT_FIRST + 1), socket1);
-  var port1 = allocator.allocEphemeral(socket2);
-  var port2 = allocator.allocEphemeral(socket3);
+  const port1 = allocator.allocEphemeral(socket2);
+  const port2 = allocator.allocEphemeral(socket3);
   t.equal(port1, EPHEMERAL_PORT_FIRST + 0);
   t.equal(port2, EPHEMERAL_PORT_FIRST + 2);
   t.equal(allocator.lookup(port1), socket2);

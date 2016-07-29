@@ -17,21 +17,21 @@
 
 'use strict';
 
-var resources = require('./resources');
-var ports = resources.ioRange;
+const resources = require('./resources');
+const ports = resources.ioRange;
 
-var second = 0;
-var minute = 0;
-var hour = 0;
-var day = 0;
-var month = 0;
-var year = 0;
+let second = 0;
+let minute = 0;
+let hour = 0;
+let day = 0;
+let month = 0;
+let year = 0;
 
-var cmosAddress = 0x70;
-var cmosData = 0x71;
+const cmosAddress = 0x70;
+const cmosData = 0x71;
 
-var port = ports.port(cmosAddress);
-var dataPort = ports.port(cmosData);
+const port = ports.port(cmosAddress);
+const dataPort = ports.port(cmosData);
 
 function getUpdateInProgressFlag() {
   port.write8(0x0A);
@@ -45,13 +45,13 @@ function getRTCRegister(reg) {
 
 // set the time:
 
-var lastSecond = 0;
-var lastMinute = 0;
-var lastHour = 0;
-var lastDay = 0;
-var lastMonth = 0;
-var lastYear = 0;
-var registerB = 0;
+let lastSecond = 0;
+let lastMinute = 0;
+let lastHour = 0;
+let lastDay = 0;
+let lastMonth = 0;
+let lastYear = 0;
+let registerB = 0;
 
 while (getUpdateInProgressFlag()) {
   second = getRTCRegister(0x00);
@@ -78,7 +78,7 @@ do {
   month = getRTCRegister(0x08);
   year = getRTCRegister(0x09);
 } while ((lastSecond !== second) || (lastMinute !== minute) || (lastHour !== hour) ||
-         (lastDay !== day) || (lastMonth !== month) || (lastYear !== year));
+  (lastDay !== day) || (lastMonth !== month) || (lastYear !== year));
 
 registerB = getRTCRegister(0x0B);
 
@@ -93,5 +93,5 @@ if (!(registerB & 0x04)) {
 
 year = year + 2000;
 
-var utc = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+const utc = Date.UTC(year, month - 1, day, hour, minute, second, 0);
 __SYSCALL.setTime(utc * 1000);

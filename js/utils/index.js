@@ -14,22 +14,12 @@
 
 'use strict';
 
-exports.getRandomUint32 = function() {
-  return Math.floor(Math.random() * 0x100000000) >>> 0;
-};
-
-exports.getRandomUint16 = function() {
-  return Math.floor(Math.random() * 0x10000) >>> 0;
-};
-
-exports.getRandomUint8 = function() {
-  return Math.floor(Math.random() * 0x100) >>> 0;
-};
+exports.getRandomUint32 = () => Math.floor(Math.random() * 0x100000000) >>> 0;
+exports.getRandomUint16 = () => Math.floor(Math.random() * 0x10000) >>> 0;
+exports.getRandomUint8 = () => Math.floor(Math.random() * 0x100) >>> 0;
 
 /**
  * Get linearly increasing counter value in ms
  * (monotonic clock)
  */
-exports.timeNow = function() {
-  return Math.floor(performance.now());
-};
+exports.timeNow = () => Math.floor(performance.now());

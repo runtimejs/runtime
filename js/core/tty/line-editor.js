@@ -14,7 +14,7 @@
 
 'use strict';
 
-var printer = require('./printer');
+const printer = require('./printer');
 
 class LineEditor {
   constructor() {
@@ -29,27 +29,27 @@ class LineEditor {
   drawPrompt() {
     printer.print('$', 1, printer.color.YELLOW, printer.color.BLACK);
     printer.print(' ', 1, printer.color.WHITE, printer.color.BLACK);
-  };
+  }
 
   drawCursor() {
-    var char = ' ';
+    let char = ' ';
     if (this.inputPosition < this.inputText.length) {
       char = this.inputText[this.inputPosition];
     }
 
     printer.print(char, 1, printer.color.WHITE, printer.color.LIGHTGREEN);
     printer.moveOffset(-1);
-  };
+  }
 
   removeCursor() {
-    var char = ' ';
+    let char = ' ';
     if (this.inputPosition < this.inputText.length) {
       char = this.inputText[this.inputPosition];
     }
 
     printer.print(char, 1, printer.color.WHITE, printer.color.BLACK);
     printer.moveOffset(-1);
-  };
+  }
 
   putChar(char) {
     this.removeCursor();
@@ -57,17 +57,17 @@ class LineEditor {
       this.inputText += char;
       printer.print(char);
     } else {
-      var rightSide = this.inputText.slice(this.inputPosition);
+      const rightSide = this.inputText.slice(this.inputPosition);
       this.inputText = this.inputText.slice(0, this.inputPosition) + char + rightSide;
       printer.print(char);
-      for (var i = 0; i < rightSide.length; ++i) {
-        printer.print(rightSide[i]);
+      for (const item of rightSide) {
+        printer.print(item);
       }
       printer.moveOffset(-rightSide.length);
     }
     ++this.inputPosition;
     this.drawCursor();
-  };
+  }
 
   removeChar() {
     if (this.inputPosition > 0) {
@@ -76,11 +76,11 @@ class LineEditor {
         this.inputText = this.inputText.slice(0, -1);
         printer.moveOffset(-1);
       } else {
-        var rightSide = this.inputText.slice(this.inputPosition);
+        const rightSide = this.inputText.slice(this.inputPosition);
         this.inputText = this.inputText.slice(0, this.inputPosition - 1) + rightSide;
         printer.moveOffset(-1);
-        for (var i = 0; i < rightSide.length; ++i) {
-          printer.print(rightSide[i]);
+        for (const item of rightSide) {
+          printer.print(item);
         }
         printer.print(' ');
         printer.moveOffset(-rightSide.length - 1);
@@ -88,7 +88,7 @@ class LineEditor {
       --this.inputPosition;
       this.drawCursor();
     }
-  };
+  }
 
   moveCursorLeft() {
     if (this.inputPosition > 0) {
@@ -97,7 +97,7 @@ class LineEditor {
       printer.moveOffset(-1);
       this.drawCursor();
     }
-  };
+  }
 
   moveCursorRight() {
     if (this.inputPosition < this.inputText.length) {
@@ -106,7 +106,7 @@ class LineEditor {
       printer.moveOffset(1);
       this.drawCursor();
     }
-  };
+  }
 
   clearInputBox() {
     while (this.inputPosition < this.inputText.length) {
@@ -115,18 +115,18 @@ class LineEditor {
     while (this.inputPosition > 0) {
       this.removeChar();
     }
-  };
+  }
 
   setInputBox(text) {
     this.removeCursor();
     this.clearInputBox();
-    for (var i = 0; i < text.length; ++i) {
-      this.inputText += text[i];
-      printer.print(text[i]);
+    for (const char of text) {
+      this.inputText += char;
+      printer.print(char);
       ++this.inputPosition;
     }
     this.drawCursor();
-  };
+  }
 }
 
 module.exports = LineEditor;

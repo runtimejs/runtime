@@ -16,17 +16,17 @@
 
  /* eslint-disable camelcase, no-new-func, new-cap */
 // V8 specific code
-var NATIVE_GetOptimizationStatus = new Function('f', 'return %GetOptimizationStatus(f)');
-var NATIVE_OptimizeFunctionOnNextCall = new Function('f', '%OptimizeFunctionOnNextCall(f)');
+const NATIVE_GetOptimizationStatus = new Function('f', 'return %GetOptimizationStatus(f)');
+const NATIVE_OptimizeFunctionOnNextCall = new Function('f', '%OptimizeFunctionOnNextCall(f)');
 
-exports.getOptimizationStatus = function(fn) {
+exports.getOptimizationStatus = (fn) => {
   switch (NATIVE_GetOptimizationStatus(fn)) {
-  case 1: return 'optimized';
-  case 2: return 'not optimized';
-  case 3: return 'always optimized';
-  case 4: return 'never optimized';
-  case 6: return 'maybe deoptimized';
-  default: return 'unknown';
+    case 1: return 'optimized';
+    case 2: return 'not optimized';
+    case 3: return 'always optimized';
+    case 4: return 'never optimized';
+    case 6: return 'maybe deoptimized';
+    default: return 'unknown';
   }
 };
 

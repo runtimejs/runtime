@@ -15,14 +15,14 @@
 'use strict';
 
 function checksum(u8, offset, len, extraSum) {
-  var count = len >>> 1;
-  var acc = (extraSum >>> 0);
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
+  const count = len >>> 1;
+  let acc = (extraSum >>> 0);
+  for (let i = 0; i < count; ++i) {
+    acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
   }
 
   if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
+    acc += u8[offset + (count * 2)] << 8;
   }
 
   acc = (acc & 0xffff) + (acc >>> 16);
@@ -32,22 +32,22 @@ function checksum(u8, offset, len, extraSum) {
 
 module.exports = checksum;
 
-module.exports.buffer = function(u8, offset, len) {
-  var count = len >>> 1;
-  var acc = 0;
-  for (var i = 0; i < count; ++i) {
-    acc += (u8[offset + i * 2] << 8) + u8[offset + i * 2 + 1];
+module.exports.buffer = (u8, offset, len) => {
+  const count = len >>> 1;
+  let acc = 0;
+  for (let i = 0; i < count; ++i) {
+    acc += (u8[offset + (i * 2)] << 8) + u8[(offset + (i * 2)) + 1];
   }
 
   if (count * 2 !== len) {
-    acc += u8[offset + count * 2] << 8;
+    acc += u8[offset + (count * 2)] << 8;
   }
 
   return acc;
 };
 
-module.exports.result = function(acc) {
-  acc = (acc & 0xffff) + (acc >>> 16);
+module.exports.result = (accOpt) => {
+  let acc = (accOpt & 0xffff) + (accOpt >>> 16);
   acc += (acc >>> 16);
   return ((~acc) & 0xffff) >>> 0;
 };

@@ -13,19 +13,16 @@
 // limitations under the License.
 
 'use strict';
-var driverUtils = require('../driver-utils');
-var assert = require('assert');
-var typeutils = require('typeutils');
+const driverUtils = require('../driver-utils');
+const assert = require('assert');
+const typeutils = require('typeutils');
 
-exports.setKeyboardDriver = function(driver) {
+exports.setKeyboardDriver = (driver) => {
   assert(typeutils.isFunction(driver.init));
   assert(typeutils.isFunction(driver.reset));
 
-  var irq = driverUtils.irq(1);
-  var ioPort = driverUtils.ioPort(0x60);
-
   driver.init({
-    irq: irq,
-    ioPort: ioPort
+    irq: driverUtils.irq(1),
+    ioPort: driverUtils.ioPort(0x60),
   });
 };

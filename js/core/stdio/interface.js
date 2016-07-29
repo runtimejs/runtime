@@ -16,28 +16,20 @@
 
 class StdioInterface {
   constructor() {
-    this.onread = function() {};
-    this.onwrite = function() {};
-    this.onwriteerror = function() {};
-    this.onsetcolor = function() {};
-    this.onsetbackgroundcolor = function() {};
+    this.onread = () => {};
+    this.onwrite = () => {};
+    this.onwriteerror = () => {};
+    this.onsetcolor = () => {};
+    this.onsetbackgroundcolor = () => {};
   }
 
   // stdout
-  write() {
-    var text = [];
-    for (var i = 0; i < arguments.length; i++) {
-      text[i] = String(arguments[i]);
-    }
+  write(...text) {
     this.onwrite(text.join(' '));
   }
 
-  writeLine() {
-    var text = [];
-    for (var i = 0; i < arguments.length; i++) {
-      text[i] = String(arguments[i]);
-    }
-    this.onwrite(text.join(' ') + '\n');
+  writeLine(...text) {
+    this.onwrite(`${text.join(' ')}\n`);
   }
 
   setColor(fg) {
@@ -54,6 +46,16 @@ class StdioInterface {
   }
 
   readLine(cb) {
+    let text = '';
+    function addinput(char) {
+      if (char !== '\n') {
+        text += char;
+        this.onread(addinput);
+      } else {
+        cb(text);
+      }
+    }
+
     // If there's onreadline, use it.
     if (this.onreadline) {
       this.onreadline(cb);
@@ -61,28 +63,16 @@ class StdioInterface {
       // Else, use onread.
       // Downside: no cusor moving or backspace.
       // TODO: Fix downside.
-      var text = '';
-      this.onread(function addinput(char) {
-        if (char !== '\n') {
-          text += char;
-          this.onread(addinput);
-        } else {
-          cb(text);
-        }
-      });
+      this.onread(addinput);
     }
   }
 
   // stderr
-  writeError() {
-    if (typeof arguments[0] === 'string') {
-      var text = [];
-      for (var i = 0; i < arguments.length; i++) {
-        text[i] = arguments[i];
-      }
+  writeError(...text) {
+    if (typeof text[0] === 'string') {
       this.onwriteerror(text.join(' '));
     } else {
-      this.onwriteerror(arguments[0].stack);
+      this.onwriteerror(text[0].stack);
     }
   }
 }

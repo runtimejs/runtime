@@ -13,40 +13,36 @@
 // limitations under the License.
 
 'use strict';
-var IP4Address = require('./ip4-address');
-var interfaces = require('./interfaces');
-var assert = require('assert');
-var bitTwiddle = require('bit-twiddle');
-var table = [];
+const IP4Address = require('./ip4-address');
+// const interfaces = require('./interfaces');
+const assert = require('assert');
+const bitTwiddle = require('bit-twiddle');
+const table = [];
 
-function Entry(ip, mask, gateway, intf) {
-  assert(ip instanceof IP4Address);
-  assert(mask instanceof IP4Address);
-  assert(null === gateway || (gateway instanceof IP4Address));
+class Entry {
+  constructor(ip, mask, gateway, intf) {
+    assert(ip instanceof IP4Address);
+    assert(mask instanceof IP4Address);
+    assert(gateway === null || (gateway instanceof IP4Address));
 
-  this.ip = ip;
-  this.mask = mask;
-  this.maskBits = bitTwiddle.popCount(mask.toInteger());
-  this.gateway = gateway;
-  this.intf = intf;
+    this.ip = ip;
+    this.mask = mask;
+    this.maskBits = bitTwiddle.popCount(mask.toInteger());
+    this.gateway = gateway;
+    this.intf = intf;
 
-  debug('[ ADD ROUTE', ip.toString() + '/' + this.maskBits, 'via', gateway, intf.name, ']');
+    debug(`[ ADD ROUTE ${ip.toString()}/${this.maskBits} via ${gateway} ${intf.name} ]`);
+  }
 }
 
-exports.addSubnet = function(ip, mask, gateway, intf) {
-  table.push(new Entry(ip, mask, gateway, intf));
-};
+exports.addSubnet = (ip, mask, gateway, intf) => table.push(new Entry(ip, mask, gateway, intf));
 
-exports.addDefault = function(gateway, intf) {
-  table.push(new Entry(IP4Address.ANY, IP4Address.ANY, gateway, intf));
-};
+exports.addDefault = (gateway, intf) => table.push(new Entry(IP4Address.ANY, IP4Address.ANY, gateway, intf));
 
-exports.lookup = function(destIP, intf) {
-  var result = null;
-  var maxMaskBits = 0;
-  for (var i = 0, l = table.length; i < l; ++i) {
-    var entry = table[i];
-
+exports.lookup = (destIP, intf) => {
+  let result = null;
+  let maxMaskBits = 0;
+  for (const entry of table) {
     if (intf && entry.intf !== intf) {
       continue;
     }

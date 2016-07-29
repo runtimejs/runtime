@@ -14,7 +14,7 @@
 
 'use strict';
 
-var isaac = require('../../deps/isaac/isaac');
+const isaac = require('../../deps/isaac/isaac');
 
 // isaac.js returns crazy numbers, both positive and negative.
 // This function is called on an isaac.rand() call,
@@ -29,6 +29,4 @@ function isaacToUint8(n) {
 }
 
 exports.seed = isaac.seed;
-exports.getByte = function() {
-  return isaacToUint8(isaac.rand());
-};
+exports.getByte = () => isaacToUint8(isaac.rand());

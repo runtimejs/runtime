@@ -13,18 +13,16 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var scan = require('./scan');
-var PciDevice = require('./pci-device');
-var typeutils = require('typeutils');
-var isint = require('isint');
+const assert = require('assert');
+const scan = require('./scan');
+const PciDevice = require('./pci-device');
+const typeutils = require('typeutils');
+const isint = require('isint');
 
-var deviceList = [];
+const deviceList = [];
 
 function init() {
-  var pciDataList = scan();
-  for (var i = 0, l = pciDataList.length; i < l; ++i) {
-    var pciData = pciDataList[i];
+  for (const pciData of scan()) {
     deviceList.push(new PciDevice(pciData));
   }
 }
@@ -33,16 +31,13 @@ function setupDeviceDriver(vendorId, deviceId, driver) {
   assert(isint.uint16(vendorId));
   assert(isint.uint16(deviceId) || typeutils.isFunction(deviceId));
 
-  for (var i = 0, l = deviceList.length; i < l; ++i) {
-    var device = deviceList[i];
+  for (const device of deviceList) {
     if (device.hasDriver()) {
       continue;
     }
-
     if (device.vendorId !== vendorId) {
       continue;
     }
-
     if (typeutils.isFunction(deviceId)) {
       if (!deviceId(device.deviceId)) {
         continue;
@@ -59,6 +54,4 @@ function setupDeviceDriver(vendorId, deviceId, driver) {
 
 init();
 
-exports.addDriver = function(vendorId, deviceId, opts) {
-  setupDeviceDriver(vendorId, deviceId, opts);
-};
+exports.addDriver = (vendorId, deviceId, opts) => setupDeviceDriver(vendorId, deviceId, opts);

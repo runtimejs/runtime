@@ -13,14 +13,13 @@
 // limitations under the License.
 
 'use strict';
-var tcpSocketState = require('./tcp-socket-state');
-var connections = new Set();
+// const tcpSocketState = require('./tcp-socket-state');
+const connections = new Set();
 
 function timeoutHandler() {
-  for (var connSocket of connections) {
+  for (const connSocket of connections) {
     connSocket._timerTick();
   }
-
   initTimeout();
 }
 
@@ -30,10 +29,5 @@ function initTimeout() {
 
 initTimeout();
 
-exports.addConnectionSocket = function(connSocket) {
-  connections.add(connSocket);
-};
-
-exports.removeConnectionSocket = function(connSocket) {
-  connections.delete(connSocket);
-};
+exports.addConnectionSocket = (connSocket) => connections.add(connSocket);
+exports.removeConnectionSocket = (connSocket) => connections.delete(connSocket);

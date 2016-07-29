@@ -13,31 +13,21 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var intfs = [];
+// const assert = require('assert');
+const intfs = [];
 
-exports.add = function(intf) {
-  intfs.push(intf);
-};
+exports.add = (intf) => intfs.push(intf);
+exports.count = () => intfs.length;
 
-exports.count = function() {
-  return intfs.length;
-};
-
-exports.getByName = function(intfName) {
-  for (var i = 0, l = intfs.length; i < l; ++i) {
-    if (intfName === intfs[i].name) {
-      return intfs[i];
+exports.getByName = (intfName) => {
+  for (const intf of intfs) {
+    if (intfName === intf.name) {
+      return intf;
     }
   }
 
   return null;
 };
 
-exports.forEach = function(fn) {
-  intfs.forEach(fn);
-};
-
-exports.getAll = function() {
-  return intfs;
-}
+exports.forEach = (fn) => intfs.forEach(fn);
+exports.getAll = () => intfs;

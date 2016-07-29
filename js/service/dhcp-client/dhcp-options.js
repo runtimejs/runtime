@@ -20,27 +20,21 @@ exports.OPTION_ADDRESS_TIME = 51;
 exports.OPTION_MESSAGE_TYPE = 53;
 exports.OPTION_SERVER_ID = 54;
 
-exports.find = function(options, id, minLength) {
-  minLength = minLength || 0;
-
-  for (var i = 0; i < options.length; ++i) {
-    if (options[i].id === id && options[i].bytes.length >= minLength) {
-      return options[i].bytes;
+exports.find = (options, id, minLength = 0) => {
+  for (const opt of options) {
+    if (opt.id === id && opt.bytes.length >= minLength) {
+      return opt.bytes;
     }
   }
-
   return null;
 };
 
-exports.findAll = function(options, id, minLength) {
-  minLength = minLength || 0;
-  var result = [];
-
-  for (var i = 0; i < options.length; ++i) {
-    if (options[i].id === id && options[i].bytes.length >= minLength) {
-      result.push(options[i].bytes);
+exports.findAll = (options, id, minLength = 0) => {
+  const result = [];
+  for (const opt of options) {
+    if (opt.id === id && opt.bytes.length >= minLength) {
+      result.push(opt.bytes);
     }
   }
-
   return result;
 };

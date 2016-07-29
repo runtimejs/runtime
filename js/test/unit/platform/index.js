@@ -13,19 +13,19 @@
 // limitations under the License.
 
 'use strict';
-var test = require('tape');
+const test = require('tape');
 
 /* global TextEncoder */
 /* global TextDecoder */
 
-test('__SYSCALL.eval valid code', function(t) {
+test('__SYSCALL.eval valid code', (t) => {
   global.a = 10;
   __SYSCALL.eval('a++');
   t.equal(global.a, 11);
   t.end();
 });
 
-test('__SYSCALL.eval invalid code', function(t) {
+test('__SYSCALL.eval invalid code', (t) => {
   t.plan(1);
 
   try {
@@ -35,7 +35,7 @@ test('__SYSCALL.eval invalid code', function(t) {
   }
 });
 
-test('__SYSCALL.eval throws', function(t) {
+test('__SYSCALL.eval throws', (t) => {
   t.plan(2);
 
   try {
@@ -46,23 +46,17 @@ test('__SYSCALL.eval throws', function(t) {
   }
 });
 
-test('TextEncoder and TextDecoder', function(t) {
-  var encoder = new TextEncoder('utf-8');
-  var decoder = new TextDecoder('utf-8');
-  var u8 = encoder.encode('test string');
+test('TextEncoder and TextDecoder', (t) => {
+  const encoder = new TextEncoder('utf-8');
+  const decoder = new TextDecoder('utf-8');
+  const u8 = encoder.encode('test string');
   t.ok(u8 instanceof Uint8Array);
   t.equal(decoder.decode(u8), 'test string');
   t.end();
 });
 
-test('TextEncoder and TextDecoder call as a function', function(t) {
-  t.throws(function() {
-    TextEncoder('utf-8');
-  });
-
-  t.throws(function() {
-    TextDecoder('utf-8');
-  });
-
+test('TextEncoder and TextDecoder call as a function', (t) => {
+  t.throws(() => TextEncoder('utf-8')); // eslint-disable-line new-cap
+  t.throws(() => TextDecoder('utf-8')); // eslint-disable-line new-cap
   t.end();
 });

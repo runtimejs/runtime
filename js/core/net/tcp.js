@@ -13,31 +13,29 @@
 // limitations under the License.
 
 'use strict';
-var tcpHeader = require('./tcp-header');
-var TCPSocket = require('./tcp-socket');
-var tcpSocketState = require('./tcp-socket-state');
-var connHash = require('./tcp-hash');
-var STATE_LISTEN = tcpSocketState.STATE_LISTEN;
+const tcpHeader = require('./tcp-header');
+const TCPSocket = require('./tcp-socket');
+const tcpSocketState = require('./tcp-socket-state');
+const connHash = require('./tcp-hash');
+const STATE_LISTEN = tcpSocketState.STATE_LISTEN;
 
 function connectionSocket(socket, srcIP, srcPort) {
-  var hash = connHash(srcIP, srcPort);
-  return socket._connections.get(hash) || socket;
+  return socket._connections.get(connHash(srcIP, srcPort)) || socket;
 }
 
-exports.receive = function(intf, srcIP, destIP, u8, headerOffset) {
-  var srcPort = tcpHeader.getSrcPort(u8, headerOffset);
-  var destPort = tcpHeader.getDestPort(u8, headerOffset);
-  var dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
+exports.receive = (intf, srcIP, destIP, u8, headerOffset) => {
+  const srcPort = tcpHeader.getSrcPort(u8, headerOffset);
+  const destPort = tcpHeader.getDestPort(u8, headerOffset);
+  // const dataOffset = headerOffset + tcpHeader.getDataOffset(u8, headerOffset);
 
-  var socket = TCPSocket.lookupReceive(destPort);
+  let socket = TCPSocket.lookupReceive(destPort);
+
   if (!socket) {
     return;
   }
-
   if (socket._state === STATE_LISTEN) {
     socket = connectionSocket(socket, srcIP, srcPort);
   }
-
   if (!socket._intf) {
     socket._intf = intf;
   }

@@ -14,10 +14,10 @@
 
 'use strict';
 
-var AVAILABLE_RING_INDEX_FLAGS = 0;
-var AVAILABLE_RING_INDEX_IDX = 1;
-var AVAILABLE_RING_INDEX_RING = 2;
-var VRING_AVAIL_F_NO_INTERRUPT = 1;
+const AVAILABLE_RING_INDEX_FLAGS = 0;
+const AVAILABLE_RING_INDEX_IDX = 1;
+const AVAILABLE_RING_INDEX_RING = 2;
+const VRING_AVAIL_F_NO_INTERRUPT = 1;
 
 class AvailableRing {
   constructor(buffer, byteOffset, ringSize) {
@@ -44,7 +44,7 @@ class AvailableRing {
   }
 
   placeDescriptor(index) {
-    var available = (this.readIdx() & (this.ringSize - 1)) >>> 0;
+    const available = (this.readIdx() & (this.ringSize - 1)) >>> 0;
     this.setRing(available, index);
     this.incrementIdx();
   }
@@ -64,9 +64,7 @@ class AvailableRing {
   printDebug() {
     console.log('AVAILABLE RING:');
     console.log(`  idx = ${this.readIdx()}, wrapped ${this.readIdx() & (this.ringSize - 1)}`);
-    for (var i = 0; i < this.ringSize; ++i) {
-      console.log(`  ${i}: descriptor = ${this.readDescriptorAsDevice(i)}`);
-    }
+    for (let i = 0; i < this.ringSize; ++i) console.log(`  ${i}: descriptor = ${this.readDescriptorAsDevice(i)}`); // eslint-disable-line max-len
   }
 }
 

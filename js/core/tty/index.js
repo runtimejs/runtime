@@ -15,22 +15,20 @@
 'use strict';
 
 /* eslint-disable quotes */
-var terminal = require('./terminal');
-var assert = require('assert');
-var typeutils = require('typeutils');
+const terminal = require('./terminal');
+const { DARKGRAY, LIGHTGRAY, BLACK } = terminal.color;
 
-var color = terminal.color;
+terminal.print(`
+                    _   _                   _
+   _ __ _   _ _ __ | |_(_)_ __ ___   ___   (_)___
+  | '__| | | | '_ \\| __| | '_ \` _ \\ / _ \\  | / __|
+  | |  | |_| | | | | |_| | | | | | |  __/_ | \\__ \\
+  |_|   \\__,_|_| |_|\\__|_|_| |_| |_|\\___(_)/ |___/
+                                         |__/
 
-terminal.print(
-   "\n                   _   _                   _     \n"
- + "  _ __ _   _ _ __ | |_(_)_ __ ___   ___   (_)___\n"
- + " | '__| | | | '_ \\| __| | '_ ` _ \\ / _ \\  | / __|\n"
- + " | |  | |_| | | | | |_| | | | | | |  __/_ | \\__ \\\n"
- + " |_|   \\__,_|_| |_|\\__|_|_| |_| |_|\\___(_)/ |___/\n"
- + "                                        |__/\n\n");
+`);
 
-terminal.print('\n', 1, color.DARKGRAY, color.BLACK);
-terminal.print('# Welcome to ', 1, color.DARKGRAY, color.BLACK);
-terminal.print('runtime.js\n\n', 1, color.LIGHTGRAY, color.BLACK);
+terminal.print('\n# Welcome to ', 1, DARKGRAY, BLACK);
+terminal.print('runtime.js\n\n', 1, LIGHTGRAY, BLACK);
 
 module.exports = terminal;

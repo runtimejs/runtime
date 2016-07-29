@@ -13,27 +13,27 @@
 // limitations under the License.
 
 'use strict';
-var checksum = require('./checksum');
-var ethernet = require('./ethernet');
-var ip4header = require('./ip4-header');
-var icmpHeader = require('./icmp-header');
-var route = require('./route');
+const checksum = require('./checksum');
+const ethernet = require('./ethernet');
+const ip4header = require('./ip4-header');
+const icmpHeader = require('./icmp-header');
+// const route = require('./route');
 
-module.exports = function(intf, destIP, viaIP, type, code, headerValue, u8data) {
-  var ipOffset = intf.bufferDataOffset + ethernet.headerLength;
-  var icmpOffset = ipOffset + ip4header.minHeaderLength;
-  var headerLength = icmpOffset + icmpHeader.headerLength;
-  var u8headers = new Uint8Array(headerLength);
+module.exports = (intf, destIP, viaIP, type, code, headerValue, u8data) => {
+  const ipOffset = intf.bufferDataOffset + ethernet.headerLength;
+  const icmpOffset = ipOffset + ip4header.minHeaderLength;
+  const headerLength = icmpOffset + icmpHeader.headerLength;
+  const u8headers = new Uint8Array(headerLength);
 
-  var srcIP = intf.ipAddr;
+  const srcIP = intf.ipAddr;
 
   ip4header.write(u8headers, ipOffset, ip4header.PROTOCOL_ICMP, srcIP, destIP,
     ip4header.minHeaderLength + icmpHeader.headerLength + u8data.length);
   icmpHeader.write(u8headers, icmpOffset, type, code, headerValue);
 
-  var ckHeader = checksum.buffer(u8headers, icmpOffset, icmpHeader.headerLength);
-  var ckData = u8data ? checksum.buffer(u8data, 0, u8data.length) : 0;
-  var ck = checksum.result(ckHeader + ckData);
+  const ckHeader = checksum.buffer(u8headers, icmpOffset, icmpHeader.headerLength);
+  const ckData = u8data ? checksum.buffer(u8data, 0, u8data.length) : 0;
+  const ck = checksum.result(ckHeader + ckData);
   icmpHeader.writeChecksum(u8headers, icmpOffset, ck);
 
   intf.sendIP4(viaIP || destIP, u8headers, u8data);

@@ -13,22 +13,22 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var Interface = require('./interface');
-var interfaces = require('./interfaces');
-var route = require('./route');
-var MACAddress = require('./mac-address');
-var EventController = require('event-controller');
-var UDPSocket = require('./udp-socket');
-var IP4Address = require('./ip4-address');
-var loopback = require('./loopback');
-var TCPSocket = require('./tcp-socket');
-var TCPServerSocket = require('./tcp-server-socket');
-var Ping = require('./ping');
-var stat = require('./net-stat');
+const assert = require('assert');
+const Interface = require('./interface');
+const interfaces = require('./interfaces');
+const route = require('./route');
+const MACAddress = require('./mac-address');
+const EventController = require('event-controller');
+const UDPSocket = require('./udp-socket');
+const IP4Address = require('./ip4-address');
+const loopback = require('./loopback');
+const TCPSocket = require('./tcp-socket');
+const TCPServerSocket = require('./tcp-server-socket');
+const Ping = require('./ping');
+const stat = require('./net-stat');
 
-var onInterfaceAdded = new EventController();
-var onInterfaceRemoved = new EventController();
+const onInterfaceAdded = new EventController();
+const onInterfaceRemoved = new EventController();
 
 function interfaceAdd(intf) {
   assert(intf instanceof Interface);

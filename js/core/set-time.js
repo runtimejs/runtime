@@ -14,45 +14,41 @@
 
 'use strict';
 
-/* global runtime */
+runtime.dns.resolve('pool.ntp.org', {}, (err, res) => {
+  if (err) {
+    return runtime.stdio.defaultStdio.writeError(err);
+  }
 
-var resources = require('./resources');
-var rawip = null;
+  const rawip = res.results[0].address;
 
-runtime.dns.resolve('pool.ntp.org', {}, function(err, res) {
-  if (err) return runtime.stdio.defaultStdio.writeError(err);
-
-  rawip = res.results[0].address;
-
-  var ip = new runtime.net.IP4Address(rawip[0], rawip[1], rawip[2], rawip[3]);
-
-  var data = new Uint8Array(48);
+  const data = new Uint8Array(48);
   data[0] = 0x1B;
-  for (var i = 1; i < 48; i++) {
+  let i;
+  for (i = 1; i < 48; i++) {
     data[i] = 0;
   }
 
-  var socket = new runtime.net.UDPSocket();
-  socket.onmessage = function(ip, port, u8) {
-    var offset = 40;
-    var intpart = 0;
-    var fractpart = 0;
+  const socket = new runtime.net.UDPSocket();
+  socket.onmessage = (ip, port, u8) => {
+    const offset = 40;
+    let intpart = 0;
+    let fractpart = 0;
 
-    for (let i = 0; i <= 3; i++) {
-      intpart = 256 * intpart + u8[offset + i];
+    for (i = 0; i <= 3; i++) {
+      intpart = (256 * intpart) + u8[offset + i];
+    }
+    for (i = 4; i <= 7; i++) {
+      fractpart = (256 * fractpart) + u8[offset + i];
     }
 
-    for (let i = 4; i <= 7; i++) {
-      fractpart = 256 * fractpart + u8[offset + i];
-    }
+    const milli = ((intpart * 1000) + ((fractpart * 1000) / 0x100000000));
 
-    var milli = (intpart * 1000 + (fractpart * 1000) / 0x100000000);
-
-    var date = new Date('Jan 01 1900 GMT');
+    const date = new Date('Jan 01 1900 GMT');
 
     __SYSCALL.setTime((date.getTime() + milli) * 1000);
   };
-  setTimeout(function() {
-    socket.send(ip, 123, data);
-  }, 1000);
+
+  const ip = new runtime.net.IP4Address(rawip[0], rawip[1], rawip[2], rawip[3]);
+
+  setTimeout(() => socket.send(ip, 123, data), 1000);
 });

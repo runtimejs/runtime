@@ -13,55 +13,54 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var MACAddress = require('./mac-address');
-var IP4Address = require('./ip4-address');
-var arpTransmit = require('./arp-transmit');
-var arpHeader = require('./arp-header');
+// const assert = require('assert');
+const MACAddress = require('./mac-address');
+const IP4Address = require('./ip4-address');
+const arpTransmit = require('./arp-transmit');
+const arpHeader = require('./arp-header');
 
-function ARPResolver(intf) {
-  this.intf = intf;
-  this.table = new Map();
-}
-
-ARPResolver.prototype.receive = function(u8, headerOffset) {
-  var operation = arpHeader.getOperation(u8, headerOffset);
-  var srcMAC = arpHeader.getSrcMAC(u8, headerOffset);
-  var srcIP = arpHeader.getSrcIP(u8, headerOffset);
-  var targetMAC = arpHeader.getTargetMAC(u8, headerOffset);
-  var targetIP = arpHeader.getTargetIP(u8, headerOffset);
-  var selfIP = this.intf.ipAddr;
-
-  debug('recv ARP', operation, srcMAC, srcIP, targetMAC, targetIP, selfIP);
-
-  switch (operation) {
-  case arpHeader.OPERATION_REQEUST:
-    // Somebody requested this machine IP
-    if (!selfIP.equals(IP4Address.ANY) && selfIP.equals(targetIP)) {
-      this.reply(srcMAC, targetIP);
-    }
-    break;
-  case arpHeader.OPERATION_REPLY:
-    var key = srcIP.hash();
-    this.table.set(key, srcMAC);
-    break;
+class ARPResolver {
+  constructor(intf) {
+    this.intf = intf;
+    this.table = new Map();
   }
-};
+  receive(u8, headerOffset) {
+    const operation = arpHeader.getOperation(u8, headerOffset);
+    const srcMAC = arpHeader.getSrcMAC(u8, headerOffset);
+    const srcIP = arpHeader.getSrcIP(u8, headerOffset);
+    const targetMAC = arpHeader.getTargetMAC(u8, headerOffset);
+    const targetIP = arpHeader.getTargetIP(u8, headerOffset);
+    const selfIP = this.intf.ipAddr;
 
-ARPResolver.prototype.request = function(targetIP) {
-  arpTransmit(this.intf, arpHeader.OPERATION_REQEUST,
-    this.intf.macAddr, this.intf.ipAddr,
-    MACAddress.ZERO, targetIP);
-};
+    debug('recv ARP', operation, srcMAC, srcIP, targetMAC, targetIP, selfIP);
 
-ARPResolver.prototype.reply = function(targetMAC, targetIP) {
-  arpTransmit(this.intf, arpHeader.OPERATION_REPLY,
-    this.intf.macAddr, this.intf.ipAddr,
-    targetMAC, targetIP);
-};
-
-ARPResolver.prototype.get = function(ip) {
-  return this.table.get(ip.hash()) || null;
-};
+    switch (operation) {
+      case arpHeader.OPERATION_REQEUST:
+        // Somebody requested this machine IP
+        if (!selfIP.equals(IP4Address.ANY) && selfIP.equals(targetIP)) {
+          this.reply(srcMAC, targetIP);
+        }
+        break;
+      case arpHeader.OPERATION_REPLY:
+        this.table.set(srcIP.hash(), srcMAC);
+        break;
+      default:
+        break;
+    }
+  }
+  request(targetIP) {
+    arpTransmit(this.intf, arpHeader.OPERATION_REQEUST,
+      this.intf.macAddr, this.intf.ipAddr,
+      MACAddress.ZERO, targetIP);
+  }
+  reply(targetMAC, targetIP) {
+    arpTransmit(this.intf, arpHeader.OPERATION_REPLY,
+      this.intf.macAddr, this.intf.ipAddr,
+      targetMAC, targetIP);
+  }
+  get(ip) {
+    return this.table.get(ip.hash()) || null;
+  }
+}
 
 module.exports = ARPResolver;

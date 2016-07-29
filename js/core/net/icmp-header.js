@@ -13,39 +13,23 @@
 // limitations under the License.
 
 'use strict';
-var u8view = require('u8-view');
+const u8view = require('u8-view');
 
 exports.headerLength = 8;
 
 exports.ICMP_TYPE_ECHO_REPLY = 0;
 exports.ICMP_TYPE_ECHO_REQUEST = 8;
 
-exports.getType = function(u8, headerOffset) {
-  return u8[headerOffset];
-};
+exports.getType = (u8, headerOffset) => u8[headerOffset];
+exports.getCode = (u8, headerOffset) => u8[headerOffset + 1];
+exports.getEchoRequestIdentifier = (u8, headerOffset) => u8view.getUint16BE(u8, headerOffset + 4);
+exports.getEchoRequestSequence = (u8, headerOffset) => u8view.getUint16BE(u8, headerOffset + 6);
 
-exports.getCode = function(u8, headerOffset) {
-  return u8[headerOffset + 1];
-};
-
-exports.getEchoRequestIdentifier = function(u8, headerOffset) {
-  return u8view.getUint16BE(u8, headerOffset + 4);
-};
-
-exports.getEchoRequestSequence = function(u8, headerOffset) {
-  return u8view.getUint16BE(u8, headerOffset + 6);
-};
-
-exports.write = function(u8, headerOffset, type, code, headerValue) {
+exports.write = (u8, headerOffset, type, code, headerValue) => {
   u8[headerOffset] = type;
   u8[headerOffset + 1] = code;
   u8view.setUint32BE(u8, headerOffset + 4, headerValue);
 };
 
-exports.writeChecksum = function(u8, headerOffset, checksum) {
-  u8view.setUint16BE(u8, headerOffset + 2, checksum);
-};
-
-exports.headerValueEcho = function(id, seq) {
-  return (((id & 0xffff) << 16) | (seq & 0xffff)) >>> 0;
-};
+exports.writeChecksum = (u8, headerOffset, checksum) => u8view.setUint16BE(u8, headerOffset + 2, checksum);
+exports.headerValueEcho = (id, seq) => (((id & 0xffff) << 16) | (seq & 0xffff)) >>> 0;

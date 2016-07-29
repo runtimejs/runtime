@@ -13,12 +13,13 @@
 // limitations under the License.
 
 'use strict';
-var runtime = require('../../');
-var test = require('tape');
-var stream = test.createStream();
-var shutdown = runtime.machine.shutdown;
 
-stream.on('data', function(v) {
+const test = require('tape');
+const stream = test.createStream();
+const { shutdown } = require('../../').machine;
+
+stream.on('data', (vOpt) => {
+  let v = vOpt;
   if (v[v.length - 1] === '\n') {
     v = v.slice(0, -1);
   }

@@ -13,11 +13,11 @@
 // limitations under the License.
 
 'use strict';
-var isaac = require('./isaac-wrapper');
-var EntropySource = require('./entropy-source');
-var sources = require('./sources');
-var typeutils = require('typeutils');
-var getDefaultSource = sources.getDefaultSource;
+const isaac = require('./isaac-wrapper');
+const EntropySource = require('./entropy-source');
+const sources = require('./sources');
+const typeutils = require('typeutils');
+const getDefaultSource = sources.getDefaultSource;
 require('./js-random-source');
 
 exports.EntropySource = EntropySource;
@@ -33,12 +33,11 @@ exports.addEntropySource = sources.addEntropySource;
  * @param {number|Uint8Array} value Number of bytes to request or buffer to fill
  * @param {function} cb Callback with the resulting Uint8Array buffer argument
  */
-exports.getTrueRandomValues = function(value, cb) {
-  var u8 = null;
+exports.getTrueRandomValues = (value, cb) => {
+  let u8 = null;
   if (typeutils.isNumber(value)) {
     u8 = new Uint8Array(value);
   }
-
   if (value instanceof Uint8Array) {
     u8 = value;
   }
@@ -46,21 +45,20 @@ exports.getTrueRandomValues = function(value, cb) {
   if (!u8) {
     throw new Error('getTrueRandomValues: argument 0 is not a number or Uint8Array');
   }
-
   if (u8.length === 0) {
     throw new Error('getTrueRandomValues: buffer length must be greater than 0');
   }
 
   if (!typeutils.isFunction(cb)) {
     throw new Error('getTrueRandomValues: argument 1 is not a function');
-  }
+  } // eslint-disable-line max-len
 
-  var defaultSource = getDefaultSource();
+  const defaultSource = getDefaultSource();
   if (!defaultSource) {
     throw new Error('getTrueRandomValues: no entropy source available');
   }
 
-  defaultSource.getBytes(u8, function() {
+  defaultSource.getBytes(u8, () => {
     isaac.seed(u8);
     cb(u8);
   });
@@ -72,12 +70,11 @@ exports.getTrueRandomValues = function(value, cb) {
  * @param {number|Uint8Array} value Number of bytes to request or buffer to fill
  * @return {Uint8Array} Buffer filled with random data
  */
-exports.getRandomValues = function(value) {
-  var u8 = null;
+exports.getRandomValues = (value) => {
+  let u8 = null;
   if (typeutils.isNumber(value)) {
     u8 = new Uint8Array(value);
   }
-
   if (value instanceof Uint8Array) {
     u8 = value;
   }
@@ -85,12 +82,11 @@ exports.getRandomValues = function(value) {
   if (!u8) {
     throw new Error('getRandomValues: argument 0 is not a number or Uint8Array');
   }
-
   if (u8.length === 0) {
     throw new Error('getRandomValues: buffer length must be greater than 0');
   }
 
-  for (var i = 0; i < u8.length; i++) {
+  for (let i = 0; i < u8.length; i++) {
     u8[i] = isaac.getByte();
   }
 

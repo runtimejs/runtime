@@ -14,73 +14,70 @@
 
 'use strict';
 
-var ip4header = require('./ip4-header');
-var ip4receive = require('./ip4-receive');
-var timeNow = require('../../utils').timeNow;
-var FRAGMENT_QUEUE_MAX_AGE_MS = 30000;
-var FRAGMENT_QUEUE_MAX_COUNT = 100;
+const ip4header = require('./ip4-header');
+const ip4receive = require('./ip4-receive');
+const { timeNow } = require('../../utils');
+const FRAGMENT_QUEUE_MAX_AGE_MS = 30000;
+const FRAGMENT_QUEUE_MAX_COUNT = 100;
 
 function fragmentHash(srcIP, destIP, protocolId, packetId) {
-  return srcIP.toInteger() + '-' + destIP.toInteger() + '-' + (packetId + (protocolId << 16));
+  return `${srcIP.toInteger()}-${destIP.toInteger()}-${(packetId + (protocolId << 16))}`;
 }
 
 function dropFragmentQueue(intf, hash) {
-  intf.fragments.delete(hash);
+  return intf.fragments.delete(hash);
 }
 
-exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFragments) {
-  var headerLength = ip4header.getHeaderLength(u8, headerOffset);
-  var protocolId = ip4header.getProtocolId(u8, headerOffset);
-  var srcIP = ip4header.getSrcIP(u8, headerOffset);
-  var destIP = ip4header.getDestIP(u8, headerOffset);
-  var packetId = ip4header.getIdentification(u8, headerOffset);
-  var nextOffset = headerOffset + headerLength;
+exports.addFragment = (intf, u8, headerOffset, fragmentOffset, isMoreFragments) => {
+  const headerLength = ip4header.getHeaderLength(u8, headerOffset);
+  const protocolId = ip4header.getProtocolId(u8, headerOffset);
+  const srcIP = ip4header.getSrcIP(u8, headerOffset);
+  const destIP = ip4header.getDestIP(u8, headerOffset);
+  const packetId = ip4header.getIdentification(u8, headerOffset);
+  const nextOffset = headerOffset + headerLength;
 
-  var hash = fragmentHash(srcIP, destIP, packetId, protocolId);
+  const hash = fragmentHash(srcIP, destIP, packetId, protocolId);
 
-  var firstFragment = false;
-  var fragmentQueue = intf.fragments.get(hash);
+  let firstFragment = false;
+  let fragmentQueue = intf.fragments.get(hash);
   if (!fragmentQueue) {
     if (intf.fragments.size >= FRAGMENT_QUEUE_MAX_COUNT) {
-      // too many fragment queues
       return;
-    }
+    } // too many fragment queues
 
     firstFragment = true;
     fragmentQueue = {
       receivedLength: 0,
       totalLength: 0,
       createdAt: timeNow(),
-      fragments: []
+      fragments: [],
     };
   }
 
-  var fragmentLength = u8.length - nextOffset;
+  const fragmentLength = u8.length - nextOffset;
   if (fragmentLength <= 0) {
     return;
   }
 
-  var fragmentEnd = fragmentOffset + fragmentLength;
-
+  const fragmentEnd = fragmentOffset + fragmentLength;
   if (fragmentEnd > 0xffff) {
     return;
   }
 
   // Locate non overlapping portion of new fragment
-  var newOffset = fragmentOffset;
-  var newEnd = fragmentEnd;
-  var newNextOffset = nextOffset;
-  for (var i = 0, l = fragmentQueue.fragments.length; i < l; ++i) {
-    var fragment = fragmentQueue.fragments[i];
+  let newOffset = fragmentOffset;
+  let newEnd = fragmentEnd;
+  let newNextOffset = nextOffset;
+  for (const fragment of fragmentQueue.fragments) {
     if (!fragment) {
       continue;
     }
 
-    var fragBegin = fragment[0];
-    var fragEnd = fragBegin + fragment[1];
+    const fragBegin = fragment[0];
+    const fragEnd = fragBegin + fragment[1];
 
-    var overlapOffset = newOffset >= fragBegin && newOffset <= fragEnd;
-    var overlapEnd = newEnd >= fragBegin && newEnd <= fragEnd;
+    const overlapOffset = newOffset >= fragBegin && newOffset <= fragEnd;
+    const overlapEnd = newEnd >= fragBegin && newEnd <= fragEnd;
 
     // New fragment is fully contained within another fragment,
     // just ignore it
@@ -103,18 +100,17 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
   // Remove old fragments fully contained within the new one
   // By doing this we can avoid splitting big new fragments into
   // smaller chunks
-  var removedIndex = -1;
-  for (var i = 0, l = fragmentQueue.fragments.length; i < l; ++i) {
-    var fragment = fragmentQueue.fragments[i];
+  let removedIndex = -1;
+  for (let i = 0, l = fragmentQueue.fragments.length; i < l; ++i) {
+    const fragment = fragmentQueue.fragments[i];
     if (!fragment) {
       continue;
     }
 
-    var fragBegin = fragment[0];
-    var fragEnd = fragBegin + fragment[1];
+    const fragBegin = fragment[0];
+    const fragEnd = fragBegin + fragment[1];
 
-    if (fragBegin >= newOffset && fragBegin <= newEnd &&
-        fragEnd >= newOffset && fragEnd <= newEnd) {
+    if (fragBegin >= newOffset && fragBegin <= newEnd && fragEnd >= newOffset && fragEnd <= newEnd) {
       // remove this old fragment
       fragmentQueue.fragments[i] = null;
       fragmentQueue.receivedLength -= fragment[1];
@@ -122,10 +118,10 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
     }
   }
 
-  var newLength = newEnd - newOffset;
+  const newLength = newEnd - newOffset;
 
   // fragment offset - fragement length - buffer data offset - buffer
-  var newFragment = [newOffset, newLength, newNextOffset, u8];
+  const newFragment = [newOffset, newLength, newNextOffset, u8];
 
   if (removedIndex >= 0) {
     fragmentQueue.fragments[removedIndex] = newFragment;
@@ -137,13 +133,10 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
 
   // Last fragment?
   if (!isMoreFragments) {
-
     // Another last fragment?
     if (fragmentQueue.totalLength > fragmentEnd) {
-      // Wrong len
       return;
-    }
-
+    } // Wrong len
     fragmentQueue.totalLength = fragmentEnd;
   }
 
@@ -152,17 +145,16 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
   }
 
   if (fragmentQueue.totalLength === fragmentQueue.receivedLength) {
-    var u8asm = new Uint8Array(fragmentQueue.totalLength);
-    for (var i = 0, l = fragmentQueue.fragments.length; i < l; ++i) {
-      var fragment = fragmentQueue.fragments[i];
+    const u8asm = new Uint8Array(fragmentQueue.totalLength);
+    for (const fragment of fragmentQueue.fragments) {
       if (!fragment) {
         continue;
       }
 
-      var itemOffset = fragment[0];
-      var itemLength = fragment[1];
-      var itemNextOffset = fragment[2];
-      var itemBuffer = fragment[3];
+      const itemOffset = fragment[0];
+      const itemLength = fragment[1];
+      const itemNextOffset = fragment[2];
+      const itemBuffer = fragment[3];
       u8asm.set(itemBuffer.subarray(itemNextOffset, itemNextOffset + itemLength), itemOffset);
     }
 
@@ -177,12 +169,12 @@ exports.addFragment = function(intf, u8, headerOffset, fragmentOffset, isMoreFra
  *
  * @param {Interface} intf Network interface
  */
-exports.tick = function(intf) {
-  var time = timeNow();
+exports.tick = (intf) => {
+  const time = timeNow();
 
-  for (var pair of intf.fragments) {
-    var hash = pair[0];
-    var fragmentQueue = pair[1];
+  for (const pair of intf.fragments) {
+    const hash = pair[0];
+    const fragmentQueue = pair[1];
     if (fragmentQueue.createdAt + FRAGMENT_QUEUE_MAX_AGE_MS <= time) {
       dropFragmentQueue(intf, hash);
     }

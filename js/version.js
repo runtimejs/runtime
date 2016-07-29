@@ -14,16 +14,17 @@
 
 'use strict';
 
-/* global __SYSCALL */
 if (!global.__SYSCALL) {
-  throw 'error: this program requires runtime.js environment';
+  throw new Error('error: this program requires runtime.js environment');
 }
 
-var requiredKernelVersion = require('../runtimecorelib.json').kernelVersion;
-var currentKernelVersion = __SYSCALL.version().kernel;
+const requiredKernelVersion = require('../runtimecorelib.json').kernelVersion;
+const currentKernelVersion = __SYSCALL.version().kernel;
 
 if (currentKernelVersion !== requiredKernelVersion) {
-  throw `error: required kernel version number ${requiredKernelVersion}, current ${currentKernelVersion}`;
+  /* eslint-disable max-len */
+  throw new Error(`error: required kernel version number ${requiredKernelVersion}, current ${currentKernelVersion}`);
+  /* eslint-enable max-len */
 }
 
 console.log(`Kernel build #${currentKernelVersion} (v8 ${__SYSCALL.version().v8})`);

@@ -25,16 +25,16 @@ class BufferBuilder {
     this._checksumOffset = 0;
   }
 
-  uint8(value) {
-    value = (value >>> 0) & 0xff;
+  uint8(valueOpt) {
+    const value = (valueOpt >>> 0) & 0xff;
     this._p.push(value);
     this._repeatFirst = this._p.length - 1;
     this._repeatLast = this._p.length;
     return this;
   }
 
-  uint16(value) {
-    value = value >>> 0;
+  uint16(valueOpt) {
+    const value = valueOpt >>> 0;
     this.uint8((value >>> 8) & 0xff);
     this.uint8(value & 0xff);
     this._repeatFirst = this._p.length - 2;
@@ -58,8 +58,8 @@ class BufferBuilder {
     return this.uint16(0);
   }
 
-  uint32(value) {
-    value = value >>> 0;
+  uint32(valueOpt) {
+    const value = valueOpt >>> 0;
     this.uint8((value >>> 24) & 0xff);
     this.uint8((value >>> 16) & 0xff);
     this.uint8((value >>> 8) & 0xff);
@@ -69,9 +69,7 @@ class BufferBuilder {
     return this;
   }
 
-  align(alignment, value) {
-    alignment = alignment || 0;
-    value = value || 0;
+  align(alignment = 0, value = 0) {
     while ((this._p.length % alignment) !== 0) {
       this.uint8(value);
     }
@@ -79,18 +77,17 @@ class BufferBuilder {
   }
 
   array(u8) {
-    for (var i = 0; i < u8.length; ++i) {
-      this.uint8(u8[i] & 0xff);
+    for (const item of u8) {
+      this.uint8(item & 0xff);
     }
     this._repeatFirst = this._p.length - u8.length;
     this._repeatLast = this._p.length;
     return this;
   }
 
-  repeat(times) {
-    times = times || 0;
-    for (var t = 0; t < times; ++t) {
-      for (var i = this._repeatFirst; i < this._repeatLast; ++i) {
+  repeat(times = 0) {
+    for (let t = 0; t < times; ++t) {
+      for (let i = this._repeatFirst; i < this._repeatLast; ++i) {
         this._p.push(this._p[i]);
       }
     }
@@ -98,13 +95,13 @@ class BufferBuilder {
   }
 
   buffer() {
-    var buf = new Uint8Array(this._p);
+    const buf = new Uint8Array(this._p);
     if (this._ck) {
       if (this._checksumLast === 0) {
         this._checksumLast = this._p.length;
       }
-      var sub = buf.subarray(this._checksumFirst, this._checksumLast);
-      var cksum = this._ck(sub);
+      const sub = buf.subarray(this._checksumFirst, this._checksumLast);
+      const cksum = this._ck(sub);
       buf[this._checksumOffset] = (cksum >>> 8) & 0xff;
       buf[this._checksumOffset + 1] = cksum & 0xff;
     }

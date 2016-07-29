@@ -14,30 +14,32 @@
 
 'use strict';
 
-var resources = require('./resources');
+const { allocator } = require('./resources');
 require('./polyfill');
 
-var random = require('./random');
-var keyboard = require('./keyboard');
-var ps2 = require('./ps2');
-var pci = require('./pci');
-var net = require('./net');
-var stdio = require('./stdio');
+const random = require('./random');
+const keyboard = require('./keyboard');
+const ps2 = require('./ps2');
+const pci = require('./pci');
+const net = require('./net');
+const stdio = require('./stdio');
 
-function Runtime() {
-  this.random = random;
-  this.keyboard = keyboard;
-  this.pci = pci;
-  this.ps2 = ps2;
-  this.allocator = resources.allocator;
-  this.net = net;
-  this.stdio = stdio;
-  this.machine = {
-    reboot: __SYSCALL.reboot,
-    shutdown: function() {
-      __SYSCALL.acpiEnterSleepState(5);
-    }
-  };
+class Runtime {
+  constructor() {
+    Object.assign(this, {
+      random,
+      keyboard,
+      pci,
+      ps2,
+      allocator,
+      net,
+      stdio,
+      machine: {
+        reboot: __SYSCALL.reboot,
+        shutdown: () => __SYSCALL.acpiEnterSleepState(5),
+      },
+    });
+  }
 }
 
 global.runtime = module.exports = new Runtime();

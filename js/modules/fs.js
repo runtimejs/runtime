@@ -13,21 +13,21 @@
 // limitations under the License.
 
 'use strict';
-var typeutils = require('typeutils');
+const typeutils = require('typeutils');
+const { SystemError } = require('./errors');
 
 function makeErrorNotFound(path, op) {
-  return new Error('ENOENT: no such file or directory, ' + op + ' \'' + path + '\'');
+  return new SystemError(`no such file or directory, ${op} '${path}'`, 'ENOENT');
 }
 
 function normalizePath(components) {
-  var r = [];
-  for (var i = 0; i < components.length; ++i) {
-    var p = components[i];
-    if ('' === p || '.' === p) {
+  const r = [];
+  for (const p of components) {
+    if (p === '' || p === '.') {
       continue;
     }
 
-    if ('..' === p) {
+    if (p === '..') {
       if (r.length > 0) {
         r.pop();
       } else {
@@ -48,13 +48,13 @@ function toAbsolutePath(path) {
     return null;
   }
 
-  var parts = path.split('/');
-  var n = normalizePath(parts);
+  const parts = path.split('/');
+  const n = normalizePath(parts);
   if (!n) {
     return null;
   }
 
-  return '/' + n.join('/');
+  return `/${n.join('/')}`;
 }
 
 function readFileImpl(fnName, path, opts) {
@@ -62,19 +62,19 @@ function readFileImpl(fnName, path, opts) {
     throw new Error('path is not a string');
   }
 
-  var encoding = null;
+  let encoding = null;
   if (typeutils.isString(opts)) {
     encoding = opts;
   } else if (typeutils.isObject(opts)) {
     encoding = opts.encoding;
   }
 
-  var absolute = toAbsolutePath(path);
+  const absolute = toAbsolutePath(path);
   if (!absolute) {
     return [makeErrorNotFound(path, fnName), null];
   }
 
-  var buf = __SYSCALL.initrdReadFileBuffer(absolute);
+  const buf = __SYSCALL.initrdReadFileBuffer(absolute);
   if (!buf) {
     return [makeErrorNotFound(path, fnName), null];
   }
@@ -86,20 +86,20 @@ function readFileImpl(fnName, path, opts) {
   return [null, new Buffer(buf)];
 }
 
-exports.readFile = function(path, opts, cb) {
-  var options = typeutils.isFunction(opts) ? null : opts;
-  var callback = typeutils.isFunction(opts) ? opts : cb;
+exports.readFile = (path, opts, cb) => {
+  // const options = typeutils.isFunction(opts) ? null : opts;
+  const callback = typeutils.isFunction(opts) ? opts : cb;
 
   if (!typeutils.isFunction(callback)) {
     throw new Error('callback is not a function');
   }
 
-  var [err, buf] = readFileImpl('readFile', path, opts);
+  const [err, buf] = readFileImpl('readFile', path, opts);
   setImmediate(() => callback(err, buf));
 };
 
-exports.readFileSync = function(path, opts) {
-  var [err, buf] = readFileImpl('readFileSync', path, opts);
+exports.readFileSync = (path, opts) => {
+  const [err, buf] = readFileImpl('readFileSync', path, opts);
   if (err) {
     throw err;
   }

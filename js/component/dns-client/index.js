@@ -13,95 +13,91 @@
 // limitations under the License.
 
 'use strict';
-var assert = require('assert');
-var typeutils = require('typeutils');
-var dnsPacket = require('./dns-packet');
-var isint = require('isint');
-var runtime = require('../../core');
-var IP4Address = runtime.net.IP4Address;
-var UDPSocket = runtime.net.UDPSocket;
+const assert = require('assert');
+const typeutils = require('typeutils');
+const dnsPacket = require('./dns-packet');
+const isint = require('isint');
+const runtime = require('../../core');
+const { IP4Address, UDPSocket } = runtime.net;
 
-function DNSClient(serverIP, serverPort) {
-  assert(this instanceof DNSClient);
-  if (serverIP) {
-    assert(serverIP instanceof IP4Address);
+class DNSClient {
+  constructor(serverIP, serverPort) {
+    assert(this instanceof DNSClient);
+    if (serverIP) {
+      assert(serverIP instanceof IP4Address);
+    }
+    if (serverPort) {
+      assert(isint.uint16(serverPort));
+    }
+
+    this._socket = new UDPSocket();
+    this._serverIP = serverIP || new IP4Address(8, 8, 8, 8);
+    this._serverPort = serverPort || 53;
+    this._requests = [];
+    this._cache = {};
+
+    this._socket.onmessage = (ip, port, u8) => {
+      const data = dnsPacket.parseResponse(u8);
+      if (!data) {
+        return;
+      }
+
+      debug('DNS recv', ip, port, JSON.stringify(data));
+
+      const requests = this._requests;
+      const domain = data.hostname;
+      for (let i = 0; i < requests.length; i++) {
+        const req = requests[i];
+        if (!req) {
+          continue;
+        }
+
+        if (req.domain === domain) {
+          req.cb(null, data);
+          this._cache[domain] = data;
+          requests[i] = null;
+        }
+      }
+    };
+
+    setInterval(() => {
+      const requests = this._requests;
+
+      for (let i = 0; i < requests.length; i++) {
+        const req = requests[i];
+        if (!req) {
+          continue;
+        }
+
+        if (req.retry > 0) {
+          this._sendQuery(req.domain, req.opts.query || 'A');
+          --req.retry;
+        } else {
+          req.cb(new Error('E_FAILED'));
+          requests[i] = null;
+        }
+      }
+
+      this._requests = requests.filter(x => x !== null);
+    }, 1000);
   }
-
-  if (serverPort) {
-    assert(isint.uint16(serverPort));
+  _sendQuery(domain, type) {
+    const query = dnsPacket.getQuery(domain, type);
+    this._socket.send(this._serverIP, this._serverPort, query);
   }
+  resolve(domain, opts, cb) {
+    assert(this instanceof DNSClient);
+    assert(typeutils.isString(domain));
+    assert(typeutils.isFunction(cb));
 
-  var self = this;
-  self._socket = new UDPSocket();
-  self._serverIP = serverIP || new IP4Address(8, 8, 8, 8);
-  self._serverPort = serverPort || 53;
-  self._requests = [];
-  self._cache = {};
-
-  self._socket.onmessage = function(ip, port, u8) {
-    var data = dnsPacket.parseResponse(u8);
-    if (!data) {
-      return;
-    }
-
-    debug('DNS recv', ip, port, JSON.stringify(data));
-
-    var requests = self._requests;
-    var domain = data.hostname;
-    for (var i = 0; i < requests.length; ++i) {
-      var req = requests[i];
-      if (!req) {
-        continue;
-      }
-
-      if (req.domain === domain) {
-        req.cb(null, data);
-        self._cache[domain] = data;
-        requests[i] = null;
-      }
-    }
-  };
-
-  setInterval(function() {
-    var requests = self._requests;
-
-    for (var i = 0; i < requests.length; ++i) {
-      var req = requests[i];
-      if (!req) {
-        continue;
-      }
-
-      if (req.retry > 0) {
-        self._sendQuery(req.domain, req.opts.query || 'A');
-        --req.retry;
-      } else {
-        req.cb(new Error('E_FAILED'));
-        requests[i] = null;
-      }
-    }
-
-    self._requests = requests
-      .filter(function(x) { return x !== null; });
-  }, 1000);
+    this._sendQuery(domain, opts.query || 'A');
+    this._requests.push({
+      domain,
+      retry: 3,
+      opts,
+      cb,
+    });
+  }
 }
-
-DNSClient.prototype._sendQuery = function(domain, type) {
-  var query = dnsPacket.getQuery(domain, type);
-  this._socket.send(this._serverIP, this._serverPort, query);
-};
-
-DNSClient.prototype.resolve = function(domain, opts, cb) {
-  assert(this instanceof DNSClient);
-  assert(typeutils.isString(domain));
-  assert(typeutils.isFunction(cb));
-
-  this._sendQuery(domain, opts.query || 'A');
-  this._requests.push({
-    domain: domain,
-    retry: 3,
-    opts: opts,
-    cb: cb
-  });
-};
 
 module.exports = DNSClient;

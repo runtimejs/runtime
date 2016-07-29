@@ -14,38 +14,32 @@
 
 'use strict';
 
-function PacketReader(buf, len, offset) {
-  this.buf = buf;
-  this.len = len || buf.byteLength;
-  this.offset = 0;
-  this.view = new DataView(buf, offset, len);
+class PacketReader {
+  constructor(buf, len = buf.byteLength, offset) {
+    this.buf = buf;
+    this.len = len;
+    this.offset = 0;
+    this.view = new DataView(buf, offset, len);
+  }
+  readUint8() {
+    return this.view.getUint8(this.offset++);
+  }
+  readUint16() {
+    const value = this.view.getUint16(this.offset, false);
+    this.offset += 2;
+    return value;
+  }
+  readUint32() {
+    const value = this.view.getUint32(this.offset, false);
+    this.offset += 4;
+    return value;
+  }
+  getOffset() {
+    return this.offset;
+  }
+  setOffset(offset) {
+    this.offset = offset;
+  }
 }
-
-PacketReader.prototype.readUint8 = function() {
-  /* linter bug ? */
-  /* eslint-disable space-unary-ops */
-  return this.view.getUint8(this.offset++);
-  /* eslint-enable space-unary-ops */
-};
-
-PacketReader.prototype.readUint16 = function() {
-  var value = this.view.getUint16(this.offset, false);
-  this.offset += 2;
-  return value;
-};
-
-PacketReader.prototype.readUint32 = function() {
-  var value = this.view.getUint32(this.offset, false);
-  this.offset += 4;
-  return value;
-};
-
-PacketReader.prototype.getOffset = function() {
-  return this.offset;
-};
-
-PacketReader.prototype.setOffset = function(offset) {
-  this.offset = offset;
-};
 
 module.exports = PacketReader;

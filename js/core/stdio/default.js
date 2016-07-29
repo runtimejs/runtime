@@ -14,18 +14,16 @@
 
 'use strict';
 
-var tty = require('../tty');
-var StdioInterface = require('./interface');
-var defaultStdio = new StdioInterface();
+const tty = require('../tty');
+const StdioInterface = require('./interface');
+const defaultStdio = new StdioInterface();
 
-var fgcolor = tty.color.WHITE;
-var bgcolor = tty.color.BLACK;
+let fgcolor = tty.color.WHITE;
+let bgcolor = tty.color.BLACK;
 
-defaultStdio.onwrite = function(text) {
-  tty.print(text, 1, fgcolor, bgcolor);
-};
+defaultStdio.onwrite = text => tty.print(text, 1, fgcolor, bgcolor);
 
-defaultStdio.onsetcolor = function(fg) {
+defaultStdio.onsetcolor = (fg) => {
   if (!fg) {
     fgcolor = tty.color.WHITE;
     return;
@@ -34,7 +32,7 @@ defaultStdio.onsetcolor = function(fg) {
   fgcolor = tty.color[String(fg).toUpperCase()];
 };
 
-defaultStdio.onsetbackgroundcolor = function(bg) {
+defaultStdio.onsetbackgroundcolor = (bg) => {
   if (!bg) {
     bgcolor = tty.color.BLACK;
     return;
@@ -43,16 +41,10 @@ defaultStdio.onsetbackgroundcolor = function(bg) {
   bgcolor = tty.color[String(bg).toUpperCase()];
 };
 
-defaultStdio.onread = function(cb) {
-  tty.read(cb);
-};
+defaultStdio.onread = cb => tty.read(cb);
 
-defaultStdio.onreadline = function(cb) {
-  tty.readLine(cb);
-};
+defaultStdio.onreadline = cb => tty.readLine(cb);
 
-defaultStdio.onwriteerror = function(error) {
-  tty.print(error, 1, tty.color.RED);
-};
+defaultStdio.onwriteerror = error => tty.print(error, 1, tty.color.RED);
 
 module.exports = defaultStdio;

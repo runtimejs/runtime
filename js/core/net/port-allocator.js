@@ -14,12 +14,12 @@
 
 'use strict';
 
-var assert = require('assert');
-var isint = require('isint');
-var portUtils = require('./port-utils');
+const assert = require('assert');
+const isint = require('isint');
+const portUtils = require('./port-utils');
 
-var EPHEMERAL_PORT_FIRST = 49152;
-var EPHEMERAL_PORT_COUNT = 16000;
+const EPHEMERAL_PORT_FIRST = 49152;
+const EPHEMERAL_PORT_COUNT = 16000;
 assert(isint.uint16(EPHEMERAL_PORT_FIRST + EPHEMERAL_PORT_COUNT));
 
 class PortAllocator {
@@ -41,7 +41,7 @@ class PortAllocator {
   allocEphemeral(socket) {
     if (this._searchStart < this._sockets.length) {
       for (let i = this._searchStart, l = this._sockets.length; i < l; ++i) {
-        if ((null === this._sockets[i]) && ((null !== this._map) ? !this._map.has(EPHEMERAL_PORT_FIRST + i) : true)) {
+        if ((this._sockets[i] === null) && ((this._map !== null) ? !this._map.has(EPHEMERAL_PORT_FIRST + i) : true)) {
           this._sockets[i] = socket;
           ++this._allocated;
           this._searchStart = i + 1;
@@ -51,7 +51,7 @@ class PortAllocator {
     }
 
     while (this._sockets.length < EPHEMERAL_PORT_COUNT) {
-      if (null !== this._map && this._map.has(EPHEMERAL_PORT_FIRST + this._sockets.length)) {
+      if (this._map !== null && this._map.has(EPHEMERAL_PORT_FIRST + this._sockets.length)) {
         this._sockets.push(null);
         continue;
       }
@@ -59,7 +59,7 @@ class PortAllocator {
       this._sockets.push(socket);
       ++this._allocated;
       this._searchStart = this._sockets.length;
-      return EPHEMERAL_PORT_FIRST + this._sockets.length - 1;
+      return (EPHEMERAL_PORT_FIRST + this._sockets.length) - 1;
     }
 
     return 0;
@@ -70,8 +70,7 @@ class PortAllocator {
     if (this.lookup(port)) {
       return false;
     }
-
-    if (null === this._map) {
+    if (this._map === null) {
       this._map = new Map();
     }
 
@@ -83,7 +82,7 @@ class PortAllocator {
   free(port) {
     assert(portUtils.isPort(port));
 
-    if ((null !== this._map) && this._map.has(port)) {
+    if ((this._map !== null) && this._map.has(port)) {
       this._map.delete(port);
       --this._allocated;
       if (this.isEphemeralRange(port)) {
@@ -95,12 +94,12 @@ class PortAllocator {
     }
 
     if (this.isEphemeralRange(port)) {
-      var index = port - EPHEMERAL_PORT_FIRST;
+      const index = port - EPHEMERAL_PORT_FIRST;
       if (index >= this._sockets.length) {
         return;
       }
 
-      if (null === this._sockets[index]) {
+      if (this._sockets[index] === null) {
         return;
       }
 
@@ -109,7 +108,7 @@ class PortAllocator {
         this._searchStart = index;
       }
       --this._allocated;
-      if (0 === this._allocated) {
+      if (this._allocated === 0) {
         this._sockets = [];
         this._searchStart = 0;
       }
@@ -117,16 +116,15 @@ class PortAllocator {
   }
 
   lookup(port) {
-    if ((null !== this._map) && this._map.has(port)) {
+    if ((this._map !== null) && this._map.has(port)) {
       return this._map.get(port);
     }
 
     if (this.isEphemeralRange(port)) {
-      var index = port - EPHEMERAL_PORT_FIRST;
+      const index = port - EPHEMERAL_PORT_FIRST;
       if (index >= this._sockets.length) {
         return null;
       }
-
       return this._sockets[index];
     }
 

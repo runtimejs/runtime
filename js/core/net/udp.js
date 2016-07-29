@@ -13,31 +13,27 @@
 // limitations under the License.
 
 'use strict';
-var udpHeader = require('./udp-header');
-var UDPSocket = require('./udp-socket');
-var portUtils = require('./port-utils');
-var IP4Address = require('./ip4-address');
-var interfaces = require('./interfaces');
-var netError = require('./net-error');
+const udpHeader = require('./udp-header');
+const UDPSocket = require('./udp-socket');
+// const portUtils = require('./port-utils');
+// const IP4Address = require('./ip4-address');
+// const interfaces = require('./interfaces');
+// const netError = require('./net-error');
 
 function receive(intf, srcIP, destIP, u8, headerOffset) {
-  var srcPort = udpHeader.getSrcPort(u8, headerOffset);
-  var destPort = udpHeader.getDestPort(u8, headerOffset);
-  var dataLength = udpHeader.getDataLength(u8, headerOffset) - udpHeader.headerLength;
-  var dataOffset = headerOffset + udpHeader.headerLength;
+  const srcPort = udpHeader.getSrcPort(u8, headerOffset);
+  const destPort = udpHeader.getDestPort(u8, headerOffset);
+  const dataLength = udpHeader.getDataLength(u8, headerOffset) - udpHeader.headerLength;
+  const dataOffset = headerOffset + udpHeader.headerLength;
   debug('recv UDP over IP4', srcPort, destPort, dataLength);
 
-  var socket = UDPSocket.lookupReceive(destPort);
+  const socket = UDPSocket.lookupReceive(destPort);
   if (!socket) {
     return;
   }
 
-  var u8data = u8.subarray(dataOffset);
-  if (socket.onmessage) {
-    setImmediate(function() {
-      socket.onmessage(srcIP, srcPort, u8data);
-    });
-  }
+  const u8data = u8.subarray(dataOffset);
+  if (socket.onmessage) setImmediate(() => socket.onmessage(srcIP, srcPort, u8data));
 }
 
 exports.receive = receive;

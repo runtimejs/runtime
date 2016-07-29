@@ -14,10 +14,6 @@
 
 'use strict';
 
-var pow32 = Math.pow(2, 32);
+const pow32 = Math.pow(2, 32);
 
-function connHash(ip, port) {
-  return pow32 * port + (((ip.a << 24) | (ip.b << 16) | (ip.c << 8) | ip.d) >>> 0);
-}
-
-module.exports = connHash;
+module.exports = (ip, port) => (pow32 * port) + (((ip.a << 24) | (ip.b << 16) | (ip.c << 8) | ip.d) >>> 0);
