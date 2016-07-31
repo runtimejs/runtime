@@ -72,18 +72,18 @@ public:
 
     v8::V8::SetEntropySource(EntropySource);
 
-    InitrdFile pkg_json = GLOBAL_initrd()->Get("/package.json");
-    if (!pkg_json.IsEmpty()) {
-      const char* pkg_json_cont = (const char*)pkg_json.Data();
+    InitrdFile runtime_json = GLOBAL_initrd()->Get("/runtime.json");
+    if (!runtime_json.IsEmpty()) {
+      const char* runtime_json_cont = (const char*)runtime_json.Data();
 
       std::string err;
-      json11::Json root = json11::Json::parse(pkg_json_cont, err);
+      json11::Json root = json11::Json::parse(runtime_json_cont, err);
       if (err.empty()) {
-        json11::Json runtime = root["runtime"];
-        if (!runtime.is_null() && runtime.is_object()) {
-          json11::Json v8flags = runtime["v8flags"];
-          if (!v8flags.is_null() && v8flags.is_string()) {
-            const char* flags_str = v8flags.string_value().c_str();
+        json11::Json v8 = root["v8"];
+        if (!v8.is_null() && v8.is_object()) {
+          json11::Json flags = v8["flags"];
+          if (!flags.is_null() && flags.is_string()) {
+            const char* flags_str = flags.string_value().c_str();
             v8::V8::SetFlagsFromString(flags_str, strlen(flags_str));
           }
         }

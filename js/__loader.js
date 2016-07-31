@@ -78,13 +78,8 @@
         if (parsed.runtime) {
           if (typeof parsed.runtime === 'string') {
             return parsed.runtime;
-          } else if (typeof parsed.runtime === 'object') {
-            if (typeof parsed.runtime.main === 'string') {
-              return parsed.runtime.main;
-            }
-          } else {
-            throwError(new Error(`package.json '${packageJsonFile}' runtime (or runtime.main) field value is invalid`));
           }
+          throwError(new Error(`package.json '${packageJsonFile}' runtime (or runtime.main) field value is invalid`));
         }
 
         return parsed.main || 'index.js';
