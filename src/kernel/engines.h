@@ -23,6 +23,9 @@
 #include <kernel/system-context.h>
 #include <kernel/initrd.h>
 #include <kernel/v8platform.h>
+#include <string>
+#include <string.h>
+#include "../../deps/json11/json11.hpp" /*<json11.hpp>*/
 
 namespace rt {
 
@@ -69,10 +72,23 @@ public:
 
     v8::V8::SetEntropySource(EntropySource);
 
-#if 0
-    const char flags[] = "--expose-wasm";
-    v8::V8::SetFlagsFromString(flags, sizeof(flags));
-#endif
+    InitrdFile pkg_json = GLOBAL_initrd()->Get("/package.json");
+    if (!pkg_json.IsEmpty()) {
+      const char* pkg_json_cont = (const char*)pkg_json.Data();
+
+      std::string err;
+      json11::Json root = json11::Json::parse(pkg_json_cont, err);
+      if (err.empty()) {
+        json11::Json runtime = root["runtime"];
+        if (!runtime.is_null() && runtime.is_object()) {
+          json11::Json v8flags = runtime["v8flags"];
+          if (!v8flags.is_null() && v8flags.is_string()) {
+            const char* flags_str = v8flags.string_value().c_str();
+            v8::V8::SetFlagsFromString(flags_str, strlen(flags_str));
+          }
+        }
+      }
+    }
 
     v8::V8::InitializePlatform(v8_platform_);
     v8::V8::Initialize();
