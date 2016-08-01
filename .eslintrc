@@ -5,6 +5,7 @@ globals:
   debug: true
   __SYSCALL: true
   runtime: true
+  performance: true
 
 env:
   es6: true
