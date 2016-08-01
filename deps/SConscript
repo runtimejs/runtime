@@ -12,6 +12,7 @@ libs_config = {
             'concurrentqueue',
             'printf',
             'trace_event',
+            'json11',
             'v8/include',
             'v8/src',
             'v8',
@@ -1238,6 +1239,19 @@ libs_config = {
             'libsodium/src/libsodium/sodium/version.c',
         ],
     },
+    "json11": {
+        "include": [
+            'musl/src/internal',
+            'musl/include',
+            'musl/arch/x86_64',
+            'musl/arch/x86_64/bits',
+            'libcxx/include',
+            'json11'
+        ],
+        "source": [
+            'json11/json11.cpp',
+        ],
+    },
 }
 
 
@@ -1245,4 +1259,3 @@ for targetname, params in libs_config.items():
     target_env = env_base.Clone();
     target_env.Replace(CPPPATH = params["include"])
     target_env.Library(target = targetname, source = params["source"])
-
