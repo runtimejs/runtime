@@ -25,7 +25,7 @@
 #include <kernel/v8platform.h>
 #include <string>
 #include <string.h>
-#include "../../deps/json11/json11.hpp" /*<json11.hpp>*/
+#include <json11.hpp>
 
 namespace rt {
 

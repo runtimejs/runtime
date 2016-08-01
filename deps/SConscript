@@ -12,6 +12,7 @@ libs_config = {
             'concurrentqueue',
             'printf',
             'trace_event',
+            'json11',
             'v8/include',
             'v8/src',
             'v8',
