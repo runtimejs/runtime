@@ -79,7 +79,7 @@
           if (typeof parsed.runtime === 'string') {
             return parsed.runtime;
           }
-          throwError(new Error(`package.json '${packageJsonFile}' runtime (or runtime.main) field value is invalid`));
+          throwError(new Error(`package.json '${packageJsonFile}' runtime field value is invalid`));
         }
 
         return parsed.main || 'index.js';
