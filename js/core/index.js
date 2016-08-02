@@ -23,6 +23,7 @@ const ps2 = require('./ps2');
 const pci = require('./pci');
 const net = require('./net');
 const stdio = require('./stdio');
+const graphics = require('./graphics');
 
 class Runtime {
   constructor() {
@@ -34,6 +35,7 @@ class Runtime {
       allocator,
       net,
       stdio,
+      graphics,
       machine: {
         reboot: __SYSCALL.reboot,
         shutdown: () => __SYSCALL.acpiEnterSleepState(5),
