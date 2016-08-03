@@ -1,6 +1,6 @@
 'use strict';
 
-const { ioPort, physicalMemory } = require('../driver-utils');
+const { ioPort } = require('../driver-utils');
 const constants = require('./constants');
 const vbe_dispi_ioport_index = ioPort(constants.VBE_DISPI_IOPORT_INDEX);
 const vbe_dispi_ioport_data = ioPort(constants.VBE_DISPI_IOPORT_DATA);
@@ -24,17 +24,15 @@ module.exports = {
     }
     return false;
   },
-  enableGraphics(width, height, bitDepth, useLFB, clearVideoMemory) {
+  enableGraphics(width, height, bitDepth) {
     writeBgaRegister(constants.VBE_DISPI_INDEX_ENABLE, constants.VBE_DISPI_DISABLED);
     writeBgaRegister(constants.VBE_DISPI_INDEX_XRES, width);
     writeBgaRegister(constants.VBE_DISPI_INDEX_YRES, height);
     writeBgaRegister(constants.VBE_DISPI_INDEX_BPP, bitDepth);
-    writeBgaRegister(constants.VBE_DISPI_INDEX_ENABLE, constants.VBE_DISPI_ENABLED |
-        (useLFB ? constants.VBE_DISPI_LFB_ENABLED : 0) |
-        (clearVideoMemory ? 0 : constants.VBE_DISPI_NOCLEARMEM));
+    writeBgaRegister(constants.VBE_DISPI_INDEX_ENABLE, constants.VBE_DISPI_ENABLED | constants.VBE_DISPI_LFB_ENABLED);
   },
-  getDisplayBuffer(width, height) {
-    return physicalMemory(0xa0000, (width * height) * 2).buffer();
+  disableGraphics() {
+    writeBgaRegister(constants.VBE_DISPI_INDEX_ENABLE, constants.VBE_DISPI_DISABLED);
   },
   constants,
 };
