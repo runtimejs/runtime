@@ -32,4 +32,4 @@ module.exports = {
   VBE_DISPI_ID5: 0xB0C5,
   VBE_DISPI_GETCAP: 0x02,
   VBE_DISPI_8BIT_DAC: 0x20,
-}
+};

@@ -22,5 +22,5 @@ module.exports = {
   addRenderer: renderers.addRenderer,
   get constants() {
     return renderers.getConstants();
-  }
+  },
 };

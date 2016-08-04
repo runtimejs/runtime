@@ -37,5 +37,5 @@ module.exports = {
       Object.assign(consts, renderer.constants);
     }
     return consts;
-  }
+  },
 };

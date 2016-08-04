@@ -14,8 +14,6 @@
 
 'use strict';
 
-const Pixel = require('./pixel');
-
 // The properties `width`, `height`, and `bitDepth` are
 // Symbols because they shouldn't be set.
 const symbols = {
