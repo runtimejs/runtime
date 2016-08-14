@@ -19,18 +19,15 @@ const nameSymbol = Symbol('name');
 class GraphicsRenderer {
   constructor(name = '') {
     this[nameSymbol] = name;
-    this.ongetpixel = null;
+    this.ongetbuffer = null;
     this.onenablegraphics = null;
     this.constants = {};
   }
   get name() {
     return this[nameSymbol];
   }
-  getPixel(x, y) {
-    if (!this.ongetpixel) {
-      throw new Error('renderer not initialized');
-    }
-    return this.ongetpixel(x, y);
+  get displayBuffer() {
+    return this.ongetbuffer();
   }
   enableGraphics(width, height, bitDepth) {
     if (!this.onenablegraphics) {

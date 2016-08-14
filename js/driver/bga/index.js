@@ -35,29 +35,7 @@ if (bgaAvailable()) {
         writeBgaRegister(constants.VBE_DISPI_INDEX_BPP, bitDepth);
         writeBgaRegister(constants.VBE_DISPI_INDEX_ENABLE, constants.VBE_DISPI_ENABLED | constants.VBE_DISPI_LFB_ENABLED);
       };
-      renderer.ongetpixel = (x, y) => {
-        const where = ((y * runtime.graphics.screen.width) + x) * (runtime.graphics.screen.bitDepth / 8);
-        return {
-          get r() {
-            return buf[where + 2];
-          },
-          get g() {
-            return buf[where + 1];
-          },
-          get b() {
-            return buf[where];
-          },
-          set r(val) {
-            buf[where + 2] = val;
-          },
-          set g(val) {
-            buf[where + 1] = val;
-          },
-          set b(val) {
-            buf[where] = val;
-          },
-        };
-      };
+      renderer.ongetbuffer = () => buf;
       renderer.constants = constants;
       runtime.graphics.addRenderer(renderer);
     },

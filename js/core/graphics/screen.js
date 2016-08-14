@@ -44,9 +44,6 @@ class Screen {
     this[symbols.renderer] = null;
     this[symbols.initialized] = false;
   }
-  get(x, y) {
-    return this[symbols.renderer].getPixel(x, y);
-  }
   get width() {
     return this[symbols.width];
   }

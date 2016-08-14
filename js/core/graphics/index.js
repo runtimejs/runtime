@@ -19,6 +19,9 @@ module.exports = {
   get screen() {
     return screen;
   },
+  get displayBuffer() {
+    return renderers.getDefaultRenderer().displayBuffer;
+  },
   addRenderer: renderers.addRenderer,
   get constants() {
     return renderers.getConstants();
