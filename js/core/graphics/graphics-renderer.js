@@ -27,6 +27,9 @@ class GraphicsRenderer {
     return this[nameSymbol];
   }
   get displayBuffer() {
+    if (!this.ongetbuffer) {
+      throw new Error('renderer not initialized');
+    }
     return this.ongetbuffer();
   }
   enableGraphics(width, height, bitDepth) {
