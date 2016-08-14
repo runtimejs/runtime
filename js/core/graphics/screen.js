@@ -53,6 +53,9 @@ class Screen {
   get bitDepth() {
     return this[symbols.bitDepth];
   }
+  get bufferFormat() {
+    return this[symbols.renderer].name;
+  }
 }
 
 module.exports = {
