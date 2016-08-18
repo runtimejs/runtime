@@ -19,6 +19,7 @@ require('./polyfill');
 
 const random = require('./random');
 const keyboard = require('./keyboard');
+const mouse = require('./mouse');
 const ps2 = require('./ps2');
 const pci = require('./pci');
 const net = require('./net');
@@ -29,6 +30,7 @@ class Runtime {
     Object.assign(this, {
       random,
       keyboard,
+      mouse,
       pci,
       ps2,
       allocator,

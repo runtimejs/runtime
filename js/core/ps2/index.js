@@ -26,3 +26,13 @@ exports.setKeyboardDriver = (driver) => {
     ioPort: driverUtils.ioPort(0x60),
   });
 };
+
+exports.setMouseDriver = (driver) => {
+  assert(typeutils.isFunction(driver.init));
+  assert(typeutils.isFunction(driver.reset));
+
+  driver.init({
+    irq: driverUtils.irq(12),
+    ioPorts: [driverUtils.ioPort(0x60), driverUtils.ioPort(0x64)],
+  });
+};
