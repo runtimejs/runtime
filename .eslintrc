@@ -41,7 +41,6 @@ rules:
     - 2
     -
       props: false
-  no-shadow: 0
 
 parserOptions:
   ecmaVersion: 6

@@ -98,7 +98,7 @@ const driver = {
     const [mainPort, port64] = device.ioPorts;
 
     function mouseWait(type) {
-      return new Promise((resolve, reject) => {
+      return new Promise((outerResolve, outerReject) => {
         let maxIter = 1500;
         function loop() {
           return new Promise((resolve, reject) => {
@@ -119,29 +119,21 @@ const driver = {
           });
         }
         setImmediate(() => {
-          loop().then(resolve).catch(reject);
+          loop().then(outerResolve).catch(outerReject);
         });
       });
     }
 
     function mouseWrite(data) {
-      return new Promise((resolve, reject) => {
-        mouseWait(1).then(() => {
-          port64.write8(0xd4);
-          return mouseWait(1);
-        }).then(() => {
-          mainPort.write8(data);
-          resolve();
-        }).catch(reject);
-      });
+      return mouseWait(1).then(() => {
+        port64.write8(0xd4);
+        return mouseWait(1);
+      })
+      .then(() => { mainPort.write8(data); });
     }
 
     function mouseRead() {
-      return new Promise((resolve, reject) => {
-        mouseWait(0).then(() => {
-          resolve(mainPort.read8());
-        }).catch(reject);
-      });
+      return mouseWait(0).then(() => mainPort.read8());
     }
 
     let status;
@@ -180,9 +172,9 @@ const driver = {
         } else if (cycle === 2) {
           packet[2] = mainPort.read8();
           cycle = 0;
-          ((packet) => {
+          ((packetPersistent) => {
             setImmediate(() => {
-              processPacket(packet);
+              processPacket(packetPersistent);
             });
           })(packet);
         }
