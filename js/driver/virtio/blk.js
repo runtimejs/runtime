@@ -19,16 +19,10 @@ const runtime = require('../../core');
 const VIRTIO_BLK_T_IN = 0;
 const VIRTIO_BLK_T_OUT = 1;
 
-// not sure how to set uint64
-function setUint64LE(u8, offset, value) {
-  u8[offset] = (value >>> 0);
-  u8[offset + 1] = (value >>> 8);
-  u8[offset + 2] = (value >>> 16);
-  u8[offset + 3] = (value >>> 24);
-  u8[offset + 4] = (value >>> 32);
-  u8[offset + 5] = (value >>> 40);
-  u8[offset + 6] = (value >>> 48);
-  u8[offset + 7] = (value >>> 56);
+function split64(num) {
+  let str = num.toString(2);
+  for (let i = 0; i < 64 - str.length; i++) str = '0' + str;
+  return [parseInt(str.substr(0, 32), 2), parseInt(str.substr(32), 2)];
 }
 
 function initializeBlockDevice(pciDevice) {
@@ -79,8 +73,9 @@ function initializeBlockDevice(pciDevice) {
     const view = new DataView(u8.buffer);
     view.setUint32(0, type, true);
     view.setUint32(4, 0, true); // priority: low
-    //setUint64LE(u8, 8, sector); // doesn't work as expected
-    view.setFloat64(8, sector, true); // DataView doesn't have setUint64!
+    const split = split64(sector);
+    view.setUint32(8, split[1], true); // lo
+    view.setUint32(12, split[0], true); // hi
     return u8;
   }
 
