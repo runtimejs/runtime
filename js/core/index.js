@@ -18,6 +18,7 @@ const { allocator } = require('./resources');
 require('./polyfill');
 
 const random = require('./random');
+const disk = require('./disk');
 const keyboard = require('./keyboard');
 const ps2 = require('./ps2');
 const pci = require('./pci');
@@ -28,6 +29,7 @@ class Runtime {
   constructor() {
     Object.assign(this, {
       random,
+      disk,
       keyboard,
       pci,
       ps2,

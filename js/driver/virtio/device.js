@@ -47,6 +47,17 @@ class VirtioDevice {
         ioPorts.NETWORK_DEVICE_STATUS = 0x1A; // 16 bit r
       }
 
+      if (deviceType === 'blk') {
+        // Block device
+        ioPorts.BLOCK_TOTAL_SECTOR_COUNT = 0x14; // 64 bit r
+        ioPorts.BLOCK_MAX_SEGMENT_SIZE = 0x1c; // 32 bit r
+        ioPorts.BLOCK_MAX_SEGMENT_COUNT = 0x20; // 32 bit r
+        ioPorts.BLOCK_CYLINDER_COUNT = 0x24; // 16 bit r
+        ioPorts.BLOCK_HEAD_COUNT = 0x26; // 8 bit r
+        ioPorts.BLOCK_SECTOR_COUNT = 0x27; // 8 bit r
+        ioPorts.BLOCK_BLOCK_LENGTH = 0x28; // 32 bit r
+      }
+
       const ports = {};
       for (const portName of Object.keys(ioPorts)) {
         const portOffset = ioPorts[portName];
@@ -127,6 +138,16 @@ class VirtioDevice {
     // [network device]
   netReadStatus() {
     return !!(1 & this.io.NETWORK_DEVICE_STATUS.read16());
+  }
+
+    // [block device]
+  blkReadSectorCount() {
+    return this.io.BLOCK_SECTOR_COUNT.read8();
+  }
+
+    // [block device]
+  blkReadTotalSectorCount() {
+    return this.io.BLOCK_TOTAL_SECTOR_COUNT.read32();
   }
 }
 

@@ -95,11 +95,17 @@ class DescriptorTable {
     const first = head;
     for (let i = 0; i < count; ++i) {
       const d = buffers[i];
+      let bufWriteOnly = false;
+      if (typeof isWriteOnly === 'boolean') {
+        bufWriteOnly = isWriteOnly;
+      } else {
+        bufWriteOnly = isWriteOnly[i];
+      }
       let flags = 0;
       if (count !== i + 1) {
         flags |= VRING_DESC_F_NEXT;
       }
-      if (isWriteOnly) {
+      if (bufWriteOnly) {
         flags |= VRING_DESC_F_WRITE;
       }
 
