@@ -26,6 +26,7 @@
 #include <string>
 #include <string.h>
 #include <json11.hpp>
+#include <kernel/js/loaderjs.h>
 
 namespace rt {
 
@@ -100,16 +101,9 @@ public:
     RT_ASSERT(first_engine);
     ResourceHandle<EngineThread> st = first_engine->threads().Create(ThreadType::DEFAULT);
 
-    const char* filename = GLOBAL_initrd()->runtime_index_name();
-    InitrdFile startup_file = GLOBAL_initrd()->Get(filename);
-    if (startup_file.IsEmpty()) {
-      printf("Unable to load %s from initrd.\n", filename);
-      abort();
-    }
-
     {
       TransportData data;
-      data.SetEvalData(startup_file.Data(), startup_file.Size(), "__loader");
+      data.SetEvalData(reinterpret_cast<const uint8_t*>(LOADER_JS), sizeof(LOADER_JS) - 1, "__loader");
 
       std::unique_ptr<ThreadMessage> msg(new ThreadMessage(ThreadMessage::Type::EVALUATE,
                                          ResourceHandle<EngineThread>(), std::move(data)));

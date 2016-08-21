@@ -3,12 +3,11 @@
 /node_modules/eslint-plugin-runtime-internal
 /node_modules/runtime-tools
 /node_modules/runtimeify
+/node_modules/runtime-cli
 /node_modules/tape
 /node_modules/eslint-config-runtime
 /test
-tape/
 module-singleton/test-modules/
-test.js
 README.md
 LICENSE.isaac
 LICENSE
@@ -18,6 +17,7 @@ LICENSE
 /tmp
 /scripts
 /testcc
+/test
 /disk
 /docker
 /docs

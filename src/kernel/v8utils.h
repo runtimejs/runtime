@@ -115,6 +115,12 @@ public:
   inline static Thread* GetThread(const v8::FunctionCallbackInfo<v8::Value>& args) {
     return reinterpret_cast<Thread*>(args.GetIsolate()->GetData(0));
   }
+
+  inline static Thread* GetThreadFromIsolate(v8::Isolate* iv8) {
+    RT_ASSERT(iv8);
+    return reinterpret_cast<Thread*>(iv8->GetData(0));
+  }
+
   inline static bool ValidateArg(const v8::FunctionCallbackInfo<v8::Value>& args,
                                  int argnum, ArgType type) {
 
@@ -283,6 +289,10 @@ public:
 
   void Clear() {
     data_.clear();
+  }
+
+  uint32_t Size() const {
+    return data_.size();
   }
 private:
   std::vector<v8::UniquePersistent<T>> data_;

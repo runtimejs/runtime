@@ -22,6 +22,8 @@
 
 namespace rt {
 
+void PromiseRejectCallback(v8::PromiseRejectMessage message);
+
 void* MallocArrayBufferAllocator::Allocate(size_t length) {
   return GLOBAL_engines()->AllocateBuffer(length);
 }
@@ -106,6 +108,9 @@ void Thread::SetUp() {
   v8::Isolate::Scope ivscope(iv8_);
   v8::HandleScope local_handle_scope(iv8_);
   tpl_cache_ = new TemplateCache(iv8_);
+
+  iv8_->SetPromiseRejectCallback(PromiseRejectCallback);
+  iv8_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
 }
 
 void Thread::TearDown() {
@@ -114,6 +119,7 @@ void Thread::TearDown() {
   RT_ASSERT(iv8_->GetData(0) == this);
   RT_ASSERT(tpl_cache_);
 
+  GLOBAL_platform()->Reboot();
   RT_ASSERT(!"main isolate exited");
 
   RT_ASSERT(thread_mgr_);
@@ -126,6 +132,7 @@ void Thread::TearDown() {
   context_.Reset();
   args_.Reset();
   exit_value_.Reset();
+  syscall_object_.Reset();
   call_wrapper_.Reset();
 
   RT_ASSERT(tpl_cache_);
@@ -150,6 +157,209 @@ v8::Local<v8::Object> Thread::GetIsolateGlobal() {
   return scope.Escape(isolate_value.As<v8::Object>());
 }
 
+void PromiseRejectCallback(v8::PromiseRejectMessage message) {
+  v8::Local<v8::Promise> promise = message.GetPromise();
+  RT_ASSERT(!promise.IsEmpty());
+  v8::Isolate* iv8 = promise->GetIsolate();
+  RT_ASSERT(iv8);
+
+  Thread* th = V8Utils::GetThreadFromIsolate(iv8);
+  RT_ASSERT(th);
+
+  v8::Local<v8::Value> value = message.GetValue();
+  if (value.IsEmpty()) {
+    value = v8::Undefined(iv8).As<v8::Value>();
+  }
+
+  if (message.GetEvent() == v8::kPromiseRejectWithNoHandler) {
+    th->CallPromiseRejected(promise, value);
+    return;
+  }
+
+  if (message.GetEvent() == v8::kPromiseHandlerAddedAfterReject) {
+    th->CallPromiseRejectedHandled(promise);
+    return;
+  }
+
+  RT_ASSERT(!"unknown promise reject callback");
+}
+
+void Thread::RunEvent(ThreadMessage* message) {
+  RT_ASSERT(message);
+  v8::Isolate* iv8 = iv8_;
+  v8::TryCatch trycatch(iv8);
+  ThreadMessage::Type type = message->type();
+  v8::Local<v8::Context> context = v8::Local<v8::Context>::New(iv8, context_);
+
+  switch (type) {
+  case ThreadMessage::Type::EVALUATE: {
+    v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+    RT_ASSERT(!unpacked.IsEmpty());
+    RT_ASSERT(unpacked->IsArray());
+    v8::Local<v8::Array> arr { v8::Local<v8::Array>::Cast(unpacked) };
+    v8::Local<v8::Value> code { arr->Get(context, 0).ToLocalChecked() };
+    v8::Local<v8::Value> filename { arr->Get(context, 1).ToLocalChecked() };
+    RT_ASSERT(code->IsString());
+    RT_ASSERT(filename->IsString());
+    if (filename_.empty()) {
+      filename_ = V8Utils::ToString(filename.As<v8::String>());
+    }
+
+    v8::ScriptOrigin origin(filename);
+    v8::ScriptCompiler::Source source(code.As<v8::String>(), origin);
+    v8::MaybeLocal<v8::Script> maybe_script = v8::ScriptCompiler::Compile(context, &source,
+        v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
+    v8::Local<v8::Script> script;
+    if (maybe_script.ToLocal(&script)) {
+      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+      script->Run(context);
+    }
+  }
+  break;
+  case ThreadMessage::Type::FUNCTION_CALL: {
+    v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+    RT_ASSERT(!unpacked.IsEmpty());
+
+    ExternalFunction* efn = static_cast<ExternalFunction*>(message->ptr());
+    RT_ASSERT(efn);
+
+    v8::Local<v8::Value> fnval { exports_.Get(efn->index(), efn->export_id()) };
+    if (fnval.IsEmpty()) {
+      fnval = v8::Null(iv8_);
+    } else {
+      RT_ASSERT(fnval->IsFunction());
+    }
+
+    {
+      RT_ASSERT(!call_wrapper_.IsEmpty());
+      v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
+      v8::Local<v8::Value> argv[] {
+        fnval,
+        message->sender().NewExternal(iv8_),
+        unpacked,
+        v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
+      };
+      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+      fnwrap->Call(context, context->Global(), 4, argv);
+    }
+  }
+  break;
+  case ThreadMessage::Type::FUNCTION_RETURN_RESOLVE: {
+    v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+    RT_ASSERT(!unpacked.IsEmpty());
+
+    v8::Local<v8::Promise::Resolver> resolver {
+      v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index()))
+    };
+
+    resolver->Resolve(context, unpacked);
+    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+  }
+  break;
+  case ThreadMessage::Type::FUNCTION_RETURN_REJECT: {
+    v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
+    RT_ASSERT(!unpacked.IsEmpty());
+
+    v8::Local<v8::Promise::Resolver> resolver {
+      v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index()))
+    };
+
+    resolver->Reject(context, unpacked);
+    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+  }
+  break;
+  case ThreadMessage::Type::TIMEOUT_EVENT: {
+    auto recv_index = message->recv_index();
+    RT_ASSERT(recv_index < std::numeric_limits<uint32_t>::max());
+    uint32_t timeout_id { static_cast<uint32_t>(recv_index) };
+    TimeoutData data(TakeTimeoutData(timeout_id));
+
+    if (data.cleared()) {
+      break;
+    }
+
+    auto fnv = data.GetCallback(iv8_);
+    RT_ASSERT(!fnv.IsEmpty());
+    RT_ASSERT(fnv->IsFunction());
+    auto fn = fnv.As<v8::Function>();
+
+    if (data.autoreset()) {
+      // TODO: don't take timeout data in a first place
+      thread_mgr_->SetTimeout(this, AddTimeoutData(std::move(data)), data.delay());
+    }
+
+    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+    fn->Call(context, context->Global(), 0, nullptr);
+  }
+  break;
+  case ThreadMessage::Type::IRQ_RAISE: {
+    v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_, GetObject(message->recv_index())) };
+    RT_ASSERT(fnv->IsFunction());
+    v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+    fn->Call(context, context->Global(), 0, nullptr);
+  }
+  break;
+  case ThreadMessage::Type::SET_IMMEDIATE: {
+    v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_, TakeObject(message->recv_index())) };
+    RT_ASSERT(fnv->IsFunction());
+    v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
+    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+    fn->Call(context, context->Global(), 0, nullptr);
+  }
+  break;
+  case ThreadMessage::Type::EMPTY:
+    break;
+  default:
+    RT_ASSERT(!"Unknown thread message");
+    break;
+  }
+
+  HandleException(trycatch, true);
+}
+
+void Thread::HandleException(v8::TryCatch& trycatch, bool allow_onerror) {
+  v8::Isolate* iv8 = iv8_;
+  v8::Local<v8::Value> ex = trycatch.Exception();
+  if (ex.IsEmpty() || trycatch.HasTerminated()) {
+    return;
+  }
+
+  LOCAL_V8STRING(s_onexit, "onerror");
+  v8::Local<v8::Context> context = v8::Local<v8::Context>::New(iv8, context_);
+  v8::Local<v8::Object> syscall_object = v8::Local<v8::Object>::New(iv8_, syscall_object_);
+  v8::Local<v8::Value> onerror = syscall_object->Get(s_onexit);
+  RT_ASSERT(!onerror.IsEmpty());
+
+  if (allow_onerror && onerror->IsFunction()) {
+    v8::Local<v8::Function> onerror_handler { v8::Local<v8::Function>::Cast(onerror) };
+    v8::TryCatch handler_trycatch(iv8_);
+    onerror_handler->Call(context, context->Global(), 1, &ex);
+    HandleException(handler_trycatch, false);
+  } else {
+    v8::String::Utf8Value exception_str(ex);
+    v8::Local<v8::Message> message = trycatch.Message();
+    if (message.IsEmpty()) {
+      printf("Uncaught exception: %s\n", *exception_str);
+    } else {
+      v8::String::Utf8Value script_name(message->GetScriptResourceName());
+      int linenum = message->GetLineNumber(context).FromMaybe(0);
+      printf("Uncaught exception: %s:%i: %s\n", *script_name, linenum, *exception_str);
+    }
+
+    v8::MaybeLocal<v8::Value> maybe_stack = trycatch.StackTrace(context);
+    v8::Local<v8::Value> stack_value;
+    if (maybe_stack.ToLocal(&stack_value)) {
+      v8::String::Utf8Value stack(stack_value);
+      if (stack.length() > 0) {
+        printf("%s\n", *stack);
+      }
+    }
+
+    terminate_ = true;
+  }
+}
+
 bool Thread::Run() {
   RuntimeStateScope<RuntimeState::EVENT_LOOP> event_loop_state(thread_manager());
 
@@ -171,7 +381,6 @@ bool Thread::Run() {
   RT_ASSERT(iv8_);
   RT_ASSERT(tpl_cache_);
 
-
   uint64_t time_now { GLOBAL_platform()->BootTimeMicroseconds() };
 
   std::vector<ThreadMessage*> messages = ethread_.getUnsafe()->TakeMessages();
@@ -185,13 +394,20 @@ bool Thread::Run() {
   if (context_.IsEmpty()) {
     v8::Local<v8::Context> context = tpl_cache_->NewContext();
     context_ = std::move(v8::UniquePersistent<v8::Context>(iv8_, context));
+
+    v8::Context::Scope cs(context);
+    v8::Isolate* iv8 = iv8_;
+    LOCAL_V8STRING(s_syscall, "__SYSCALL");
+    v8::Local<v8::Value> syscall = context->Global()->Get(s_syscall);
+    RT_ASSERT(!syscall.IsEmpty());
+    RT_ASSERT(syscall->IsObject());
+    syscall_object_ = std::move(v8::UniquePersistent<v8::Object>(iv8_, syscall.As<v8::Object>()));
   }
 
   RT_ASSERT(!context_.IsEmpty());
   v8::Local<v8::Context> context = v8::Local<v8::Context>::New(iv8_, context_);
   v8::Context::Scope cs(context);
 
-  v8::TryCatch trycatch(iv8_);
   uint64_t ev_count = 0;
 
   for (ThreadMessage* message : messages) {
@@ -200,136 +416,8 @@ bool Thread::Run() {
     }
 
     ++ev_count;
-    ThreadMessage::Type type = message->type();
-
-    switch (type) {
-    case ThreadMessage::Type::EVALUATE: {
-      v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-      RT_ASSERT(!unpacked.IsEmpty());
-      RT_ASSERT(unpacked->IsArray());
-      v8::Local<v8::Array> arr { v8::Local<v8::Array>::Cast(unpacked) };
-      v8::Local<v8::Value> code { arr->Get(context, 0).ToLocalChecked() };
-      v8::Local<v8::Value> filename { arr->Get(context, 1).ToLocalChecked() };
-      RT_ASSERT(code->IsString());
-      RT_ASSERT(filename->IsString());
-      if (filename_.empty()) {
-        filename_ = V8Utils::ToString(filename.As<v8::String>());
-      }
-
-      v8::ScriptOrigin origin(filename);
-      v8::ScriptCompiler::Source source(code.As<v8::String>(), origin);
-      v8::MaybeLocal<v8::Script> maybe_script = v8::ScriptCompiler::Compile(context, &source,
-          v8::ScriptCompiler::CompileOptions::kNoCompileOptions);
-      v8::Local<v8::Script> script;
-      if (maybe_script.ToLocal(&script)) {
-        RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-        script->Run(context);
-      }
-    }
-    break;
-    case ThreadMessage::Type::FUNCTION_CALL: {
-      v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-      RT_ASSERT(!unpacked.IsEmpty());
-
-      ExternalFunction* efn = static_cast<ExternalFunction*>(message->ptr());
-      RT_ASSERT(efn);
-
-      v8::Local<v8::Value> fnval { exports_.Get(efn->index(), efn->export_id()) };
-      if (fnval.IsEmpty()) {
-        fnval = v8::Null(iv8_);
-      } else {
-        RT_ASSERT(fnval->IsFunction());
-      }
-
-      {
-        RT_ASSERT(!call_wrapper_.IsEmpty());
-        v8::Local<v8::Function> fnwrap { v8::Local<v8::Function>::New(iv8_, call_wrapper_) };
-        v8::Local<v8::Value> argv[] {
-          fnval,
-          message->sender().NewExternal(iv8_),
-          unpacked,
-          v8::Uint32::NewFromUnsigned(iv8_, message->recv_index()),
-        };
-        RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-        fnwrap->Call(context, context->Global(), 4, argv);
-      }
-    }
-    break;
-    case ThreadMessage::Type::FUNCTION_RETURN_RESOLVE: {
-      v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-      RT_ASSERT(!unpacked.IsEmpty());
-
-      v8::Local<v8::Promise::Resolver> resolver {
-        v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index()))
-      };
-
-      resolver->Resolve(context, unpacked);
-      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-      iv8_->RunMicrotasks();
-    }
-    break;
-    case ThreadMessage::Type::FUNCTION_RETURN_REJECT: {
-      v8::Local<v8::Value> unpacked { message->data().Unpack(this) };
-      RT_ASSERT(!unpacked.IsEmpty());
-
-      v8::Local<v8::Promise::Resolver> resolver {
-        v8::Local<v8::Promise::Resolver>::New(iv8_, TakePromise(message->recv_index()))
-      };
-
-      resolver->Reject(context, unpacked);
-      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-      iv8_->RunMicrotasks();
-    }
-    break;
-    case ThreadMessage::Type::TIMEOUT_EVENT: {
-      auto recv_index = message->recv_index();
-      RT_ASSERT(recv_index < std::numeric_limits<uint32_t>::max());
-      uint32_t timeout_id { static_cast<uint32_t>(recv_index) };
-      TimeoutData data(TakeTimeoutData(timeout_id));
-
-      if (data.cleared()) {
-        break;
-      }
-
-      auto fnv = data.GetCallback(iv8_);
-      RT_ASSERT(!fnv.IsEmpty());
-      RT_ASSERT(fnv->IsFunction());
-      auto fn = fnv.As<v8::Function>();
-
-      if (data.autoreset()) {
-        // TODO: don't take timeout data in a first place
-        thread_mgr_->SetTimeout(this, AddTimeoutData(std::move(data)), data.delay());
-      }
-
-      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-      fn->Call(context, context->Global(), 0, nullptr);
-    }
-    break;
-    case ThreadMessage::Type::IRQ_RAISE: {
-      v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
-                                 GetObject(message->recv_index()))
-                               };
-      RT_ASSERT(fnv->IsFunction());
-      v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-      fn->Call(context, context->Global(), 0, nullptr);
-    }
-    break;
-    case ThreadMessage::Type::SET_IMMEDIATE: {
-      v8::Local<v8::Value> fnv { v8::Local<v8::Value>::New(iv8_,
-                                 TakeObject(message->recv_index()))
-                               };
-      RT_ASSERT(fnv->IsFunction());
-      v8::Local<v8::Function> fn { v8::Local<v8::Function>::Cast(fnv) };
-      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-      fn->Call(context, context->Global(), 0, nullptr);
-    }
-    break;
-    case ThreadMessage::Type::EMPTY:
-      break;
-    default:
-      RT_ASSERT(!"Unknown thread message");
-      break;
+    if (!terminate_) {
+      RunEvent(message);
     }
 
     if (!message->reusable()) {
@@ -337,29 +425,9 @@ bool Thread::Run() {
     }
   }
 
-  v8::Local<v8::Value> ex = trycatch.Exception();
-  if (!ex.IsEmpty() && !trycatch.HasTerminated()) {
-    v8::String::Utf8Value exception_str(ex);
-    v8::Local<v8::Message> message = trycatch.Message();
-    if (message.IsEmpty()) {
-      printf("Uncaught exception: %s\n", *exception_str);
-    } else {
-      v8::String::Utf8Value script_name(message->GetScriptResourceName());
-      int linenum = message->GetLineNumber(context).FromMaybe(0);
-      printf("Uncaught exception: %s:%i: %s\n", *script_name, linenum, *exception_str);
-    }
-
-    v8::MaybeLocal<v8::Value> maybe_stack = trycatch.StackTrace(context);
-    v8::Local<v8::Value> stack_value;
-    if (maybe_stack.ToLocal(&stack_value)) {
-      v8::String::Utf8Value stack(stack_value);
-      if (stack.length() > 0) {
-        printf("%s\n", *stack);
-      }
-    }
-  }
-
-  trycatch.Reset();
+  v8::TryCatch trycatch(iv8_);
+  iv8_->RunMicrotasks();
+  HandleException(trycatch, true);
 
   if (ev_count > 0) {
     thread_mgr_->SubmitEvWork(ev_count);
@@ -378,10 +446,22 @@ bool Thread::Run() {
   }
 
   if (0 == ref_count_ || terminate_) {
+    v8::Isolate* iv8 = iv8_;
+    LOCAL_V8STRING(s_onexit, "onexit");
+    v8::Local<v8::Object> syscall_object = v8::Local<v8::Object>::New(iv8_, syscall_object_);
+    v8::Local<v8::Value> onexit = syscall_object->Get(s_onexit);
+    RT_ASSERT(!onexit.IsEmpty());
+    if (onexit->IsFunction()) {
+      v8::Local<v8::Function> onexit_handler { v8::Local<v8::Function>::Cast(onexit) };
+      v8::TryCatch handler_trycatch(iv8_);
+      onexit_handler->Call(context, context->Global(), 0, nullptr);
+      HandleException(handler_trycatch, true);
+    }
+
     if (terminate_) {
-      printf("[ terminate thread (reason: isolate.exit() called) ]\n");
+      printf("^^^ restarting runtime.js (exit)\n\n");
     } else {
-      printf("[ terminate thread (reason: refcount 0) ]\n");
+      printf("^^^ restarting runtime.js (nothing else to do)\n\n");
     }
 
     terminate_ = true;

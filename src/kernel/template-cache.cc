@@ -99,6 +99,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     SET_SYSCALL("initrdReadFileBuffer", NativesObject::InitrdReadFileBuffer);
     SET_SYSCALL("initrdListFiles", NativesObject::InitrdListFiles);
     SET_SYSCALL("initrdGetKernelIndex", NativesObject::InitrdGetKernelIndex);
+    SET_SYSCALL("initrdGetAppIndex", NativesObject::InitrdGetAppIndex);
 
     // Profiler, debug and system info
     SET_SYSCALL("startProfiling", NativesObject::StartProfiling);
@@ -108,6 +109,8 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     SET_SYSCALL("memoryInfo", NativesObject::MemoryInfo);
     SET_SYSCALL("systemInfo", NativesObject::SystemInfo);
     SET_SYSCALL("reboot", NativesObject::Reboot);
+    SET_SYSCALL("poweroff", NativesObject::Poweroff);
+    SET_SYSCALL("exit", NativesObject::Exit);
 
     // Low level system access
     SET_SYSCALL("bufferAddress", NativesObject::BufferAddress);
@@ -117,12 +120,17 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     SET_SYSCALL("stopVideoLog", NativesObject::StopVideoLog);
     SET_SYSCALL("setTime", NativesObject::SetTime);
 
+    // Temporary for init.js script
+    SET_SYSCALL("_setPromiseHandlers", NativesObject::SetPromiseHandlers);
+
     // ACPI control bindings
     SET_SYSCALL("acpiGetPciDevices", NativesObject::AcpiGetPciDevices);
     SET_SYSCALL("acpiSystemReset", NativesObject::AcpiSystemReset);
     SET_SYSCALL("acpiEnterSleepState", NativesObject::AcpiEnterSleepState);
-
 #undef SET_SYSCALL
+    syscall->Set(iv8_, "onexit", v8::Null(iv8_));
+    syscall->Set(iv8_, "onerror", v8::Null(iv8_));
+
     global->Set(iv8_, "__SYSCALL", syscall);
 
     // Global performance object
@@ -147,7 +155,6 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
 
   RT_ASSERT(!init_script_.IsEmpty());
   init_script_.Get(iv8_)->BindToCurrentContext()->Run(context).ToLocalChecked();
-
   return scope.Escape(context);
 }
 

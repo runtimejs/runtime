@@ -54,6 +54,7 @@ public:
   DECLARE_NATIVE(InitrdReadFileBuffer);// Read file from initrd filesystem into buffer
   DECLARE_NATIVE(InitrdListFiles);     // List all files on initrd filesystem
   DECLARE_NATIVE(InitrdGetKernelIndex);// Get kernel entry point file
+  DECLARE_NATIVE(InitrdGetAppIndex);   // Get application entry point path
 
   // runtime.js syscalls: Profiler, debug and system info
   DECLARE_NATIVE(StartProfiling);      // Start profiler
@@ -63,6 +64,12 @@ public:
   DECLARE_NATIVE(MemoryInfo);          // Get memory information
   DECLARE_NATIVE(SystemInfo);          // Get system information
   DECLARE_NATIVE(Reboot);              // Reboot system
+  DECLARE_NATIVE(Poweroff);            // Poweroff system
+  DECLARE_NATIVE(Exit);                // Exit (will reboot system by default)
+
+  // global event listeners
+  DECLARE_NATIVE(AddEventListener);    // global.addEventListener
+  DECLARE_NATIVE(RemoveEventListener); // global.removeEventListener
 
   // runtime.js syscalls: Low level system access
   DECLARE_NATIVE(BufferAddress);       // Get buffer physical address
@@ -71,6 +78,7 @@ public:
   DECLARE_NATIVE(GetSystemResources);  // Get low-level system resources
   DECLARE_NATIVE(StopVideoLog);        // Stop console redirection to display
   DECLARE_NATIVE(SetTime);             // Set time in V8 engine
+  DECLARE_NATIVE(SetPromiseHandlers);  // Setup internal promise handlers
 
   // runtime.js syscalls: ACPI control bindings
   DECLARE_NATIVE(AcpiGetPciDevices);   // Get list of PCI devices

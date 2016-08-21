@@ -34,6 +34,7 @@ namespace rt {
 class ThreadManager;
 class Interface;
 class EngineThread;
+class ThreadMessage;
 
 class MallocArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
 public:
@@ -203,6 +204,16 @@ public:
   bool Run();
 
   /**
+   * Run single thread message event
+   */
+  void RunEvent(ThreadMessage* message);
+
+  /**
+   * Handle uncaught exception
+   */
+  void HandleException(v8::TryCatch& trycatch, bool allow_onerror);
+
+  /**
    * Get global isolate object
    */
   v8::Local<v8::Object> GetIsolateGlobal();
@@ -257,6 +268,7 @@ public:
 
   v8::Local<v8::Value> TakeObject(uint32_t index) {
     v8::EscapableHandleScope scope(iv8_);
+    Unref();
     return scope.Escape(v8::Local<v8::Value>::New(iv8_, object_handles_.Take(index)));
   }
 
@@ -351,6 +363,31 @@ public:
     return type_;
   }
 
+  void SetPromiseHandlers(v8::Local<v8::Function> on_rejected, v8::Local<v8::Function> on_rejected_handled) {
+    onpromise_rejected_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, on_rejected));
+    onpromise_rejected_handled_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, on_rejected_handled));
+  }
+
+  void CallPromiseRejected(v8::Local<v8::Promise> promise, v8::Local<v8::Value> value) {
+    v8::Isolate* iv8 = iv8_;
+    RT_ASSERT(!onpromise_rejected_.IsEmpty());
+    v8::Local<v8::Context> context = context_.Get(iv8);
+    v8::Local<v8::Function> fn = onpromise_rejected_.Get(iv8);
+    RT_ASSERT(fn->IsFunction());
+    v8::Local<v8::Value> argv[] = { promise, value };
+    fn->Call(context, context->Global(), 2, argv);
+  }
+
+  void CallPromiseRejectedHandled(v8::Local<v8::Promise> promise) {
+    v8::Isolate* iv8 = iv8_;
+    RT_ASSERT(!onpromise_rejected_handled_.IsEmpty());
+    v8::Local<v8::Context> context = context_.Get(iv8);
+    v8::Local<v8::Function> fn = onpromise_rejected_handled_.Get(iv8);
+    RT_ASSERT(fn->IsFunction());
+    v8::Local<v8::Value> argv[] = { promise };
+    fn->Call(context, context->Global(), 1, argv);
+  }
+
   /**
    * Get thread info like events processed count and total runtime
    */
@@ -378,6 +415,7 @@ private:
   v8::UniquePersistent<v8::Value> args_;
   v8::UniquePersistent<v8::Value> exit_value_;
   v8::UniquePersistent<v8::Function> call_wrapper_;
+  v8::UniquePersistent<v8::Object> syscall_object_;
 
   VirtualStack stack_;
   std::atomic<uint32_t> priority_;
@@ -395,6 +433,9 @@ private:
   IndexedPool<TimeoutData> timeout_data_;
   UniquePersistentIndexedPool<v8::Value> object_handles_;
   UniquePersistentIndexedPool<v8::Promise::Resolver> promises_;
+
+  v8::Global<v8::Function> onpromise_rejected_;
+  v8::Global<v8::Function> onpromise_rejected_handled_;
 };
 
 } // namespace rt

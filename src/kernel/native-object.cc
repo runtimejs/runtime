@@ -348,6 +348,12 @@ NATIVE_FUNCTION(NativesObject, InitrdGetKernelIndex) {
     GLOBAL_initrd()->runtime_index_name(), v8::NewStringType::kNormal).ToLocalChecked());
 }
 
+NATIVE_FUNCTION(NativesObject, InitrdGetAppIndex) {
+  PROLOGUE_NOTHIS;
+  args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
+    GLOBAL_initrd()->app_index_name(), v8::NewStringType::kNormal).ToLocalChecked());
+}
+
 NATIVE_FUNCTION(NativesObject, InitrdListFiles) {
   PROLOGUE_NOTHIS;
   size_t files_count { GLOBAL_initrd()->files_count() };
@@ -509,6 +515,23 @@ NATIVE_FUNCTION(NativesObject, Reboot) {
   PROLOGUE_NOTHIS;
   GLOBAL_platform()->Reboot();
   Cpu::HangSystem();
+}
+
+NATIVE_FUNCTION(NativesObject, Poweroff) {
+  PROLOGUE_NOTHIS;
+  GLOBAL_engines()->acpi_manager(); // Ensure ACPI is initialized
+  GLOBAL_boot_services()->logger()->DisableConsole(); // ACPI may print to console
+  GLOBAL_platform()->EnterSleepState(5);
+  Cpu::HangSystem();
+}
+
+NATIVE_FUNCTION(NativesObject, Exit) {
+  PROLOGUE_NOTHIS;
+  RT_ASSERT(iv8);
+  RT_ASSERT(th);
+  RT_ASSERT(th->thread_manager());
+  RT_ASSERT(th->thread_manager()->current_thread());
+  th->thread_manager()->current_thread()->SetTerminateFlag();
 }
 
 void PrintMemory(void* buf, size_t offset, size_t size) {
@@ -1123,6 +1146,16 @@ NATIVE_FUNCTION(NativesObject, AllocDMA) {
            v8::ArrayBufferCreationMode::kExternalized));
 
   args.GetReturnValue().Set(ret);
+}
+
+NATIVE_FUNCTION(NativesObject, SetPromiseHandlers) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  USEARG(1);
+  VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
+  VALIDATEARG(1, FUNCTION, "argument 1 is not a function");
+
+  th->SetPromiseHandlers(arg0.As<v8::Function>(), arg1.As<v8::Function>());
 }
 
 } // namespace rt
