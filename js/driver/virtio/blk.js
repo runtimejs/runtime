@@ -15,15 +15,10 @@
 'use strict';
 const VirtioDevice = require('./device');
 const runtime = require('../../core');
+const { Uint64LE } = require('int64-buffer');
 
 const VIRTIO_BLK_T_IN = 0;
 const VIRTIO_BLK_T_OUT = 1;
-
-function split64(num) {
-  let str = num.toString(2);
-  for (let i = 0; i < 64 - str.length; i++) str = '0' + str;
-  return [parseInt(str.substr(0, 32), 2), parseInt(str.substr(32), 2)];
-}
 
 function initializeBlockDevice(pciDevice) {
   const ioSpace = pciDevice.getBAR(0).resource;
@@ -73,9 +68,7 @@ function initializeBlockDevice(pciDevice) {
     const view = new DataView(u8.buffer);
     view.setUint32(0, type, true);
     view.setUint32(4, 0, true); // priority: low
-    const split = split64(sector);
-    view.setUint32(8, split[1], true); // lo
-    view.setUint32(12, split[0], true); // hi
+    u8.set((new Uint64LE(sector)).toArray(), 8);
     return u8;
   }
 
@@ -84,7 +77,7 @@ function initializeBlockDevice(pciDevice) {
     return new Promise((resolve, reject) => {
       if (sector > totalSectorCount) {
         setImmediate(() => {
-          reject(new RangeError(`sector out of bounds (max: ${totalSectorCount})`));
+          reject(new RangeError(`sector ${sector} out of bounds (max ${totalSectorCount}, non-inclusive)`));
         });
         return;
       }

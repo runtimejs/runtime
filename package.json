@@ -38,6 +38,7 @@
     "constants-browserify": "^1.0.0",
     "event-controller": "^1.0.1",
     "events": "^1.1.0",
+    "int64-buffer": "^0.1.9",
     "isint": "^1.0.0",
     "module-singleton": "^2.0.0",
     "path-browserify": "0.0.0",
