@@ -21,5 +21,5 @@ module.exports = {
   registerDisk,
   get disks() {
     return getDisks();
-  }
+  },
 };

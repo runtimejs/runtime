@@ -108,7 +108,7 @@ function initializeBlockDevice(pciDevice) {
     },
     isOnline() {
       return true; // TODO: actually check if the disk is online or not
-    }
+    },
   });
 
   runtime.disk.registerDisk(diskDriver);
