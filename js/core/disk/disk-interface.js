@@ -14,17 +14,34 @@
 
 'use strict';
 
-const nameHandle = Symbol('name');
+const privates = new WeakMap();
 
 class DiskDriver {
-  constructor(name = '') {
-    this[nameHandle] = name;
+  constructor(name = '', init = {}) {
+    privates.set(this, {
+      name,
+    });
     this.onread = null;
     this.onwrite = null;
     this.ongetformatinfo = null;
+    this.ongetonline = null;
+    if (typeof init === 'object') {
+      if (typeof init.read === 'function') {
+        this.onread = init.read;
+      }
+      if (typeof init.write === 'function') {
+        this.write = init.write;
+      }
+      if (typeof init.formatInfo === 'object') {
+        this.ongetformatinfo = () => init.formatInfo;
+      }
+      if (typeof init.isOnline === 'function') {
+        this.ongetonline = init.isOnline;
+      }
+    }
   }
   get name() {
-    return this[nameHandle];
+    return privates.get(this).name;
   }
   read(sector, u8) {
     if (!this.onread) {
@@ -43,6 +60,12 @@ class DiskDriver {
       throw new Error('driver was not initialized');
     }
     return this.ongetformatinfo();
+  }
+  get isOnline() {
+    if (!this.ongetonline) {
+      throw new Error('driver was not initialized');
+    }
+    return this.ongetonline();
   }
 }
 

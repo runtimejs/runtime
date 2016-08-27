@@ -13,13 +13,15 @@
 // limitations under the License.
 
 'use strict';
-const DiskInterface = require('./disk-interface');
-const { registerDisk, getDisks } = require('./disks');
+const availableDisks = Object.create(null);
 
 module.exports = {
-  DiskInterface,
-  registerDisk,
-  get disks() {
-    return getDisks();
-  }
+  registerDisk(disk) {
+    availableDisks[disk.name] = disk;
+
+    console.log(`[disk] registered disk ${disk.name}`);
+  },
+  getDisks() {
+    return availableDisks;
+  },
 };

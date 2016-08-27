@@ -72,42 +72,46 @@ function initializeBlockDevice(pciDevice) {
     return u8;
   }
 
-  const diskDriver = new runtime.disk.DiskDriver('blk');
-  diskDriver.onread = (sector, data) => {
-    return new Promise((resolve, reject) => {
-      if (sector > totalSectorCount) {
-        setImmediate(() => {
-          reject(new RangeError(`sector ${sector} out of bounds (max ${totalSectorCount}, non-inclusive)`));
-        });
-        return;
-      }
-      const status = new Uint8Array(1);
-      promiseQueue.push([resolve, reject, VIRTIO_BLK_T_IN, data, status]);
-      reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_IN, sector), data, status], [false, true, true]);
+  const diskDriver = new runtime.disk.DiskInterface('hda', {
+    read(sector, data) {
+      return new Promise((resolve, reject) => {
+        if (sector > totalSectorCount) {
+          setImmediate(() => {
+            reject(new RangeError(`sector ${sector} out of bounds (max ${totalSectorCount}, non-inclusive)`));
+          });
+          return;
+        }
+        const status = new Uint8Array(1);
+        promiseQueue.push([resolve, reject, VIRTIO_BLK_T_IN, data, status]);
+        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_IN, sector), data, status], [false, true, true]);
 
-      if (reqQueue.isNotificationNeeded()) {
-        dev.queueNotify(QUEUE_ID_REQ);
-      }
-    });
-  };
-  diskDriver.onwrite = (sector, data) => {
-    return new Promise((resolve, reject) => {
-      const status = new Uint8Array(1);
-      promiseQueue.push([resolve, reject, VIRTIO_BLK_T_OUT, data, status]);
-      reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_OUT, sector), data, status], [false, false, true]);
+        if (reqQueue.isNotificationNeeded()) {
+          dev.queueNotify(QUEUE_ID_REQ);
+        }
+      });
+    },
+    write(sector, data) {
+      return new Promise((resolve, reject) => {
+        const status = new Uint8Array(1);
+        promiseQueue.push([resolve, reject, VIRTIO_BLK_T_OUT, data, status]);
+        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_OUT, sector), data, status], [false, false, true]);
 
-      if (reqQueue.isNotificationNeeded()) {
-        dev.queueNotify(QUEUE_ID_REQ);
-      }
-    });
-  };
-  diskDriver.ongetformatinfo = () => ({
-    sectorSize,
-    sectorCount,
-    totalSectorCount,
+        if (reqQueue.isNotificationNeeded()) {
+          dev.queueNotify(QUEUE_ID_REQ);
+        }
+      });
+    },
+    formatInfo: {
+      sectorSize,
+      sectorCount,
+      totalSectorCount,
+    },
+    isOnline() {
+      return true; // TODO: actually check if the disk is online or not
+    }
   });
 
-  runtime.disk.addDriver(diskDriver);
+  runtime.disk.registerDisk(diskDriver);
 
   function recvBuffer() {
     if (promiseQueue.length === 0) {
