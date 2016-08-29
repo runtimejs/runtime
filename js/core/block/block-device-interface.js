@@ -14,8 +14,12 @@
 
 'use strict';
 
+const typeutils = require('typeutils');
+
 const busHandle = Symbol('bus');
 const formatInfoHandle = Symbol('formatInfo');
+const nameHandle = Symbol('name');
+const setNameHandle = Symbol('setName');
 
 class BlockDeviceInterface {
   constructor(bus = '', init = {}) {
@@ -24,23 +28,29 @@ class BlockDeviceInterface {
     this.onread = null;
     this.onwrite = null;
     this.ongetonline = null;
-    if (typeof init === 'object' && init !== null) {
-      if (typeof init.read === 'function') {
+    if (typeutils.isObject(init)) {
+      if (typeutils.isFunction(init.read)) {
         this.onread = init.read;
       }
-      if (typeof init.write === 'function') {
+      if (typeutils.isFunction(init.write)) {
         this.write = init.write;
       }
-      if (typeof init.formatInfo === 'object') {
+      if (typeutils.isObject(init.formatInfo)) {
         this[formatInfoHandle] = init.formatInfo;
       }
-      if (typeof init.isOnline === 'function') {
+      if (typeutils.isFunction(init.isOnline)) {
         this.ongetonline = init.isOnline;
       }
     }
   }
+  get name() {
+    return this[nameHandle];
+  }
   get bus() {
     return this[busHandle];
+  }
+  [setNameHandle](newName) {
+    this[nameHandle] = newName;
   }
   read(sector, u8) {
     if (!this.onread) {
@@ -65,4 +75,7 @@ class BlockDeviceInterface {
   }
 }
 
-module.exports = BlockDeviceInterface;
+module.exports = {
+  BlockDeviceInterface,
+  setNameHandle,
+};

@@ -13,6 +13,8 @@
 // limitations under the License.
 
 'use strict';
+
+const { setNameHandle } = require('./block-device-interface');
 const availableBuses = Object.create(null); // not using a Map because the buses should be easy to access directly
 const availableDevices = [];
 
@@ -20,11 +22,7 @@ module.exports = {
   registerDevice(device) {
     if (!availableBuses[device.bus]) availableBuses[device.bus] = [];
     const i = availableDevices.push(device) - 1;
-    Object.assign(device, {
-      get name() {
-        return `${device.bus}${i}`;
-      },
-    });
+    device[setNameHandle](`${device.bus}${i}`);
     availableBuses[device.bus].push(device);
 
     console.log(`[block] registered block device ${device.name}`);

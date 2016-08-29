@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-const BlockDeviceInterface = require('./block-device-interface');
+const { BlockDeviceInterface } = require('./block-device-interface');
 const { registerDevice, getDevices, getBuses } = require('./devices');
 
 module.exports = {
@@ -24,5 +24,5 @@ module.exports = {
   },
   get buses() {
     return getBuses();
-  }
+  },
 };
