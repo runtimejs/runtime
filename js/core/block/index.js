@@ -13,13 +13,16 @@
 // limitations under the License.
 
 'use strict';
-const DiskInterface = require('./disk-interface');
-const { registerDisk, getDisks } = require('./disks');
+const BlockDeviceInterface = require('./block-device-interface');
+const { registerDevice, getDevices, getBuses } = require('./devices');
 
 module.exports = {
-  DiskInterface,
-  registerDisk,
-  get disks() {
-    return getDisks();
+  BlockDeviceInterface,
+  registerDevice,
+  get devices() {
+    return getDevices();
   },
+  get buses() {
+    return getBuses();
+  }
 };

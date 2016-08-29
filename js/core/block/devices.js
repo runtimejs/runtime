@@ -13,15 +13,26 @@
 // limitations under the License.
 
 'use strict';
-const availableDisks = Object.create(null);
+const availableBuses = Object.create(null); // not using a Map because the buses should be easy to access directly
+const availableDevices = [];
 
 module.exports = {
-  registerDisk(disk) {
-    availableDisks[disk.name] = disk;
+  registerDevice(device) {
+    if (!availableBuses[device.bus]) availableBuses[device.bus] = [];
+    const i = availableDevices.push(device) - 1;
+    Object.assign(device, {
+      get name() {
+        return `${device.bus}${i}`;
+      },
+    });
+    availableBuses[device.bus].push(device);
 
-    console.log(`[disk] registered disk ${disk.name}`);
+    console.log(`[block] registered block device ${device.name}`);
   },
-  getDisks() {
-    return availableDisks;
+  getDevices() {
+    return availableDevices;
+  },
+  getBuses() {
+    return availableBuses;
   },
 };

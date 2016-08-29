@@ -14,18 +14,17 @@
 
 'use strict';
 
-const privates = new WeakMap();
+const busHandle = Symbol('bus');
+const formatInfoHandle = Symbol('formatInfo');
 
-class DiskDriver {
-  constructor(name = '', init = {}) {
-    privates.set(this, {
-      name,
-    });
+class BlockDeviceInterface {
+  constructor(bus = '', init = {}) {
+    this[busHandle] = bus;
+    this[formatInfoHandle] = {};
     this.onread = null;
     this.onwrite = null;
-    this.ongetformatinfo = null;
     this.ongetonline = null;
-    if (typeof init === 'object') {
+    if (typeof init === 'object' && init !== null) {
       if (typeof init.read === 'function') {
         this.onread = init.read;
       }
@@ -33,15 +32,15 @@ class DiskDriver {
         this.write = init.write;
       }
       if (typeof init.formatInfo === 'object') {
-        this.ongetformatinfo = () => init.formatInfo;
+        this[formatInfoHandle] = init.formatInfo;
       }
       if (typeof init.isOnline === 'function') {
         this.ongetonline = init.isOnline;
       }
     }
   }
-  get name() {
-    return privates.get(this).name;
+  get bus() {
+    return this[busHandle];
   }
   read(sector, u8) {
     if (!this.onread) {
@@ -56,10 +55,7 @@ class DiskDriver {
     return this.onwrite(sector, u8);
   }
   get formatInfo() {
-    if (!this.ongetformatinfo) {
-      throw new Error('driver was not initialized');
-    }
-    return this.ongetformatinfo();
+    return this[formatInfoHandle];
   }
   get isOnline() {
     if (!this.ongetonline) {
@@ -69,4 +65,4 @@ class DiskDriver {
   }
 }
 
-module.exports = DiskDriver;
+module.exports = BlockDeviceInterface;

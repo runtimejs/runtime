@@ -72,18 +72,16 @@ function initializeBlockDevice(pciDevice) {
     return u8;
   }
 
-  const diskDriver = new runtime.disk.DiskInterface('hda', {
+  const diskDriver = new runtime.block.BlockDeviceInterface('virtio', {
     read(sector, data) {
       return new Promise((resolve, reject) => {
         if (sector > totalSectorCount) {
-          setImmediate(() => {
-            reject(new RangeError(`sector ${sector} out of bounds (max ${totalSectorCount}, non-inclusive)`));
-          });
+          reject(new RangeError(`sector ${sector} out of bounds (max ${totalSectorCount}, non-inclusive)`));
           return;
         }
         const status = new Uint8Array(1);
         promiseQueue.push([resolve, reject, VIRTIO_BLK_T_IN, data, status]);
-        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_IN, sector), data, status], [false, true, true]);
+        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_IN, sector), data, status], null, [false, true, true]);
 
         if (reqQueue.isNotificationNeeded()) {
           dev.queueNotify(QUEUE_ID_REQ);
@@ -94,7 +92,7 @@ function initializeBlockDevice(pciDevice) {
       return new Promise((resolve, reject) => {
         const status = new Uint8Array(1);
         promiseQueue.push([resolve, reject, VIRTIO_BLK_T_OUT, data, status]);
-        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_OUT, sector), data, status], [false, false, true]);
+        reqQueue.placeBuffers([buildHeader(VIRTIO_BLK_T_OUT, sector), data, status], null, [false, false, true]);
 
         if (reqQueue.isNotificationNeeded()) {
           dev.queueNotify(QUEUE_ID_REQ);
@@ -111,7 +109,7 @@ function initializeBlockDevice(pciDevice) {
     },
   });
 
-  runtime.disk.registerDisk(diskDriver);
+  runtime.block.registerDevice(diskDriver);
 
   function recvBuffer() {
     if (promiseQueue.length === 0) {
