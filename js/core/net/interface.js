@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const MACAddress = require('./mac-address');
 const ARPResolver = require('./arp-resolver');
 const ethernet = require('./ethernet');

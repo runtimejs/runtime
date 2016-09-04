@@ -297,7 +297,7 @@ class TCPSocket {
       if (buf) {
         const length = buf.length;
         const reserved = this._allocTransmitPosition(length);
-        debug('send at ', position, 'len', reserved);
+        // debug('send at ', position, 'len', reserved);
         if (reserved === 0) {
           break;
         }
@@ -317,7 +317,7 @@ class TCPSocket {
           this.ondrain();
         }
       } else {
-        debug('fill pos', position, 'fin');
+        // debug('fill pos', position, 'fin');
         this._incTransmitPosition();
         this._transmitQueue.push([0, timeNow(), position, 1, null, tcpHeader.FLAG_ACK | tcpHeader.FLAG_FIN]);
         ++remove;

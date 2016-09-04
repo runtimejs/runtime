@@ -50,7 +50,8 @@ class AvailableRing {
   }
 
   readDescriptorAsDevice(idxIndex) {
-    return this.availableRing[AVAILABLE_RING_INDEX_RING + idxIndex];
+    const idx = (idxIndex & (this.ringSize - 1)) >>> 0;
+    return this.availableRing[AVAILABLE_RING_INDEX_RING + idx];
   }
 
   disableInterrupts() {

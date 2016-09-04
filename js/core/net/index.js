@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const Interface = require('./interface');
 const interfaces = require('./interfaces');
 const route = require('./route');

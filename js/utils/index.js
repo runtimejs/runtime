@@ -23,3 +23,9 @@ exports.getRandomUint8 = () => Math.floor(Math.random() * 0x100) >>> 0;
  * (monotonic clock)
  */
 exports.timeNow = () => Math.floor(performance.now());
+
+exports.assert = (value, message) => {
+  if (!value) {
+    throw new Error('AssertionError' + (message ? (': ' + message) : ''));
+  }
+}

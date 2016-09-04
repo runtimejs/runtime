@@ -24,7 +24,7 @@ function timeoutHandler() {
 }
 
 function initTimeout() {
-  setTimeout(timeoutHandler, 500);
+  __SYSCALL.unrefTimer(setTimeout(timeoutHandler, 500));
 }
 
 initTimeout();
