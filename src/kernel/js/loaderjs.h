@@ -185,6 +185,17 @@ const char LOADER_JS[] = R"JAVASCRIPT(
         this.dirname = this.dirComponents.length > 1 ? this.dirComponents.join('/') : '/';
         this.exports = {};
       }
+
+      resolve(path) {
+        let module = this;
+        const resolvedPath = resolve(module, path);
+        if (!resolvedPath) {
+          throwError(new Error(`Cannot resolve module '${path}' from '${module.filename}'`));
+        }
+
+        return resolvedPath;
+      }
+
       require(path) {
         let module = this;
         const resolvedPath = resolve(module, path);
@@ -217,7 +228,7 @@ const char LOADER_JS[] = R"JAVASCRIPT(
         } else {
           /* eslint-disable max-len */
           evalScriptFn(
-            `((require,exports,module,__filename,__dirname) => {${content}})(((m) => {return function(path){return m.require(path)}})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
+            `((require,exports,module,__filename,__dirname) => {${content}})(((m) => {var f = function(path){return m.require(path)};f.resolve = function(path){return m.resolve(path)};return f})(global.module),global.module.exports,global.module,global.module.filename,global.module.dirname)`,
             displayPath);
           /* eslint-enable max-len */
         }

@@ -62,3 +62,11 @@ test('TextEncoder and TextDecoder call as a function', t => {
     [Error, 'constructor cannot be called as a function'],
     'TextDecoder() throws');
 });
+
+test('module globals', t => {
+  t.true(typeof require.resolve === 'function', 'require.resolve exists');
+  t.is(require.resolve('../index'), '/js/test/unit/index.js', 'require.resolve can resolve path');
+  t.is(__filename, '/js/test/unit/platform/index.js', '__filename global');
+  t.is(__dirname, '/js/test/unit/platform', '__dirname global');
+  t.truthy(module, 'module global');
+});
