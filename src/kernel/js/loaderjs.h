@@ -250,14 +250,10 @@ const char LOADER_JS[] = R"JAVASCRIPT(
   }
 
   const kernelImportPath = __SYSCALL.initrdGetKernelIndex();
-  const appImportPath = __SYSCALL.initrdGetAppIndex();
   const runtimePackagePath = kernelImportPath.split('/').slice(0, -1).join('/');
   const loader = createLoader(fileExists, __SYSCALL.initrdReadFile, __SYSCALL.eval, runtimePackagePath);
   __SYSCALL.loaderSetupBuiltins = loader.setupBuiltins;
 
   loader.require(kernelImportPath);
-  if (appImportPath) {
-    loader.require(appImportPath);
-  }
 })();
 )JAVASCRIPT";
