@@ -16,9 +16,9 @@
 
 /* eslint-disable comma-dangle, array-bracket-spacing */
 
-const test = require('tape');
-// const assert = require('assert');
-const TCPSocket = require('../../../core/net/tcp-socket');
+const createSuite = require('estap');
+const test = createSuite();
+const TCPSocket = require('/js/core/net/tcp-socket');
 
 function receiveTest(opts, cb) {
   const initialSequenceNumber = opts.initialSequenceNumber;
@@ -91,15 +91,15 @@ function receiveTestBatch(t, seqList, bufs) {
     receiveTest({
       initialSequenceNumber: seq,
       bufs,
-    }, () => t.ok(true, `default ordered, initial sequence number ${seq}`));
+    }, () => t.pass(`default ordered, initial sequence number ${seq}`));
     receiveTest({
       initialSequenceNumber: seq,
       bufs: reversed,
-    }, () => t.ok(true, `reverse ordered, initial sequence number ${seq}`));
+    }, () => t.pass(`reverse ordered, initial sequence number ${seq}`));
     receiveTest({
       initialSequenceNumber: seq,
       bufs: shuffled,
-    }, () => t.ok(true, `random ordered, initial sequence number ${seq}`));
+    }, () => t.pass(`random ordered, initial sequence number ${seq}`));
   });
 }
 
@@ -107,7 +107,7 @@ const sequenceNumbersList = [
   0, 1, Math.pow(2, 32) - 1, Math.pow(2, 32) - 2, Math.pow(2, 32) - 3, Math.pow(2, 32) - 9999,
 ];
 
-test('receive fast path (small sequence numbers)', (t) => {
+test.cb('receive fast path (small sequence numbers)', t => {
   receiveTest({
     initialSequenceNumber: 1,
     bufs: [{
@@ -120,10 +120,10 @@ test('receive fast path (small sequence numbers)', (t) => {
       seqOffset: 5,
       len: 1,
     }, ],
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive fast path (large sequence numbers) #1', (t) => {
+test.cb('receive fast path (large sequence numbers) #1', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 4,
     bufs: [{
@@ -154,10 +154,10 @@ test('receive fast path (large sequence numbers) #1', (t) => {
       seqOffset: 25,
       len: 1,
     }, ],
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive fast path (large sequence numbers) #2', (t) => {
+test.cb('receive fast path (large sequence numbers) #2', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 3,
     bufs: [{
@@ -173,10 +173,10 @@ test('receive fast path (large sequence numbers) #2', (t) => {
       seqOffset: 6,
       len: 4,
     }, ],
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive fast path (large sequence numbers) #3', (t) => {
+test.cb('receive fast path (large sequence numbers) #3', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 1,
     bufs: [{
@@ -192,10 +192,10 @@ test('receive fast path (large sequence numbers) #3', (t) => {
       seqOffset: 6,
       len: 4,
     }, ],
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive fast path (large sequence numbers) #4', (t) => {
+test.cb('receive fast path (large sequence numbers) #4', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 1,
     bufs: [{
@@ -205,10 +205,10 @@ test('receive fast path (large sequence numbers) #4', (t) => {
       seqOffset: 10,
       len: 1,
     }, ],
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (small sequence numbers) #1', (t) => {
+test.cb('receive reverse order (small sequence numbers) #1', t => {
   receiveTest({
     initialSequenceNumber: 1,
     bufs: [{
@@ -221,10 +221,10 @@ test('receive reverse order (small sequence numbers) #1', (t) => {
       seqOffset: 5,
       len: 1,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (small sequence numbers) #2', (t) => {
+test.cb('receive reverse order (small sequence numbers) #2', t => {
   receiveTest({
     initialSequenceNumber: 1,
     bufs: [{
@@ -255,10 +255,10 @@ test('receive reverse order (small sequence numbers) #2', (t) => {
       seqOffset: 25,
       len: 1,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (large sequence numbers) #1', (t) => {
+test.cb('receive reverse order (large sequence numbers) #1', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 4,
     bufs: [{
@@ -274,10 +274,10 @@ test('receive reverse order (large sequence numbers) #1', (t) => {
       seqOffset: 9,
       len: 2,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (large sequence numbers) #2', (t) => {
+test.cb('receive reverse order (large sequence numbers) #2', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 4,
     bufs: [{
@@ -308,10 +308,10 @@ test('receive reverse order (large sequence numbers) #2', (t) => {
       seqOffset: 25,
       len: 1,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (large sequence numbers) #3', (t) => {
+test.cb('receive reverse order (large sequence numbers) #3', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 3,
     bufs: [{
@@ -327,10 +327,10 @@ test('receive reverse order (large sequence numbers) #3', (t) => {
       seqOffset: 6,
       len: 4,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (large sequence numbers) #4', (t) => {
+test.cb('receive reverse order (large sequence numbers) #4', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 1,
     bufs: [{
@@ -346,10 +346,10 @@ test('receive reverse order (large sequence numbers) #4', (t) => {
       seqOffset: 6,
       len: 4,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive reverse order (large sequence numbers) #5', (t) => {
+test.cb('receive reverse order (large sequence numbers) #5', t => {
   receiveTest({
     initialSequenceNumber: Math.pow(2, 32) - 1,
     bufs: [{
@@ -359,10 +359,10 @@ test('receive reverse order (large sequence numbers) #5', (t) => {
       seqOffset: 10,
       len: 1,
     }, ].reverse(),
-  }, t.end.bind(t));
+  }, t.end);
 });
 
-test('receive mixed fast path and reverse order', (t) => {
+test.cb('receive mixed fast path and reverse order', t => {
   receiveTestBatch(t, sequenceNumbersList, [{
     seqOffset: 25,
     len: 1,
@@ -393,7 +393,7 @@ test('receive mixed fast path and reverse order', (t) => {
   }, ]);
 });
 
-test('receive fast path duplicates', (t) => {
+test.cb('receive fast path duplicates', t => {
   receiveTestBatch(t, sequenceNumbersList, [{
     seqOffset: 0,
     len: 1,
@@ -427,7 +427,7 @@ test('receive fast path duplicates', (t) => {
   }, ]);
 });
 
-test('receive overlapped duplicated data', (t) => {
+test.cb('receive overlapped duplicated data', t => {
   receiveTestBatch(t, sequenceNumbersList, [{
     seqOffset: 0,
     len: 8,
@@ -455,7 +455,7 @@ test('receive overlapped duplicated data', (t) => {
   }, ]);
 });
 
-test('receive mixed overlapped duplicated and non-duplicated data', (t) => {
+test.cb('receive mixed overlapped duplicated and non-duplicated data', (t) => {
   receiveTestBatch(t, sequenceNumbersList, [{
     seqOffset: 0,
     len: 8,
@@ -494,5 +494,3 @@ test('receive mixed overlapped duplicated and non-duplicated data', (t) => {
     len: 2,
   }, ]);
 });
-
-/* eslint-enable comma-dangle, array-bracket-spacing */

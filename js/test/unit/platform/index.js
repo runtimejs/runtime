@@ -13,50 +13,52 @@
 // limitations under the License.
 
 'use strict';
-const test = require('tape');
+const createSuite = require('estap');
+const test = createSuite();
 
 /* global TextEncoder */
 /* global TextDecoder */
 
-test('__SYSCALL.eval valid code', (t) => {
+test('__SYSCALL.eval valid code', t => {
   global.a = 10;
   __SYSCALL.eval('a++');
-  t.equal(global.a, 11);
-  t.end();
+  t.is(global.a, 11, 'eval works');
 });
 
-test('__SYSCALL.eval invalid code', (t) => {
+test('__SYSCALL.eval invalid code', t => {
   t.plan(1);
 
   try {
     __SYSCALL.eval('not a js');
   } catch (e) {
-    t.ok(e instanceof SyntaxError, 'throws on syntax error');
+    t.is(e instanceof SyntaxError, true, 'throws on syntax error');
   }
 });
 
-test('__SYSCALL.eval throws', (t) => {
+test('__SYSCALL.eval throws', t => {
   t.plan(2);
 
   try {
     __SYSCALL.eval('throw new Error("some error")');
   } catch (e) {
-    t.ok(e instanceof Error, 'caught error thrown from the script');
-    t.ok(e.message.indexOf('some error') >= 0, 'error object is valid');
+    t.is(e instanceof Error, true, 'caught error thrown from the script');
+    t.true(e.message.indexOf('some error') >= 0, 'error object is valid');
   }
 });
 
-test('TextEncoder and TextDecoder', (t) => {
+test('TextEncoder and TextDecoder', t => {
   const encoder = new TextEncoder('utf-8');
   const decoder = new TextDecoder('utf-8');
   const u8 = encoder.encode('test string');
-  t.ok(u8 instanceof Uint8Array);
-  t.equal(decoder.decode(u8), 'test string');
-  t.end();
+  t.true(u8 instanceof Uint8Array, 'encoded result is u8 array');
+  t.is(decoder.decode(u8), 'test string', 'decoded result is a string');
 });
 
-test('TextEncoder and TextDecoder call as a function', (t) => {
-  t.throws(() => TextEncoder('utf-8')); // eslint-disable-line new-cap
-  t.throws(() => TextDecoder('utf-8')); // eslint-disable-line new-cap
-  t.end();
+test('TextEncoder and TextDecoder call as a function', t => {
+  t.throws(() => TextEncoder('utf-8'), // eslint-disable-line new-cap
+    [Error, 'constructor cannot be called as a function'],
+    'TextEncoder() throws');
+  t.throws(() => TextDecoder('utf-8'), // eslint-disable-line new-cap
+    [Error, 'constructor cannot be called as a function'],
+    'TextDecoder() throws');
 });

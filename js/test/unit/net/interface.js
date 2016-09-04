@@ -14,17 +14,17 @@
 
 'use strict';
 
-const test = require('tape');
-const Interface = require('../../../core/net/interface');
-const MACAddress = require('../../../core/net/mac-address');
+const createSuite = require('estap');
+const test = createSuite();
+const Interface = require('/js/core/net/interface');
+const MACAddress = require('/js/core/net/mac-address');
 // const IP4Address = require('../../../core/net/ip4-address');
 // const checksum = require('../../../core/net/checksum');
 // const BufferBuilder = require('../lib/buffer-builder');
 
-test('create interface', (t) => {
+test('create interface', () => {
   const intf = new Interface(MACAddress.ZERO);
   intf.ontransmit = () => {};
-  t.end();
 });
 
 /*

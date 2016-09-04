@@ -15,9 +15,9 @@
 'use strict';
 
 const BufferBuilder = require('./buffer-builder');
-const IP4Address = require('../../../core/net/ip4-address');
-const MACAddress = require('../../../core/net/mac-address');
-const checksum = require('../../../core/net/checksum');
+const IP4Address = require('/js/core/net/ip4-address');
+const MACAddress = require('/js/core/net/mac-address');
+const checksum = require('/js/core/net/checksum');
 
 function cksum(u8) {
   return checksum(u8, 0, u8.length, 0);

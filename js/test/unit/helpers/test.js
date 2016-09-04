@@ -14,10 +14,11 @@
 
 'use strict';
 
-const test = require('tape');
+const createSuite = require('estap');
+const test = createSuite();
 const BufferBuilder = require('./buffer-builder');
 
-test('build simple buffer', (t) => {
+test('build simple buffer', t => {
   const b = new BufferBuilder()
     .uint8(5)
     .uint8(10)
@@ -27,19 +28,17 @@ test('build simple buffer', (t) => {
     .buffer();
 
   const ab = new Uint8Array([5, 10, 0xCC, 0xAA, 0xFF, 0xEE, 15, 0xAA, 0xBB]);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });
 
-test('empty buffer', (t) => {
+test('empty buffer', t => {
   const b = new BufferBuilder().buffer();
 
   const ab = new Uint8Array(0);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });
 
-test('repeat uint8', (t) => {
+test('repeat uint8', t => {
   const b = new BufferBuilder()
     .uint8(5)
     .uint8(10)
@@ -48,11 +47,10 @@ test('repeat uint8', (t) => {
     .buffer();
 
   const ab = new Uint8Array([5, 10, 10, 10, 10, 10, 15]);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });
 
-test('repeat uint16', (t) => {
+test('repeat uint16', t => {
   const b = new BufferBuilder()
     .uint8(5)
     .uint16(0xFFAA)
@@ -61,11 +59,10 @@ test('repeat uint16', (t) => {
     .buffer();
 
   const ab = new Uint8Array([5, 0xFF, 0xAA, 0xFF, 0xAA, 0xFF, 0xAA, 15]);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });
 
-test('repeat uint32', (t) => {
+test('repeat uint32', t => {
   const b = new BufferBuilder()
     .uint8(5)
     .uint32(0xAABBCCDD)
@@ -74,11 +71,10 @@ test('repeat uint32', (t) => {
     .buffer();
 
   const ab = new Uint8Array([5, 0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD, 15]);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });
 
-test('align', (t) => {
+test('align', t => {
   const b = new BufferBuilder()
     .uint8(5)
     .uint8(6)
@@ -90,6 +86,5 @@ test('align', (t) => {
     .buffer();
 
   const ab = new Uint8Array([5, 6, 7, 0, 0, 0, 0, 0, 1, 0, 2, 8]);
-  t.deepEqual(b, ab);
-  t.end();
+  t.same(b, ab);
 });

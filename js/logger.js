@@ -1,4 +1,4 @@
-// Copyright 2015-present runtime.js project authors
+// Copyright 2016-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,18 +14,4 @@
 
 'use strict';
 
-exports.getRandomUint32 = () => Math.floor(Math.random() * 0x100000000) >>> 0;
-exports.getRandomUint16 = () => Math.floor(Math.random() * 0x10000) >>> 0;
-exports.getRandomUint8 = () => Math.floor(Math.random() * 0x100) >>> 0;
-
-/**
- * Get linearly increasing counter value in ms
- * (monotonic clock)
- */
-exports.timeNow = () => Math.floor(performance.now());
-
-exports.assert = (value, message) => {
-  if (!value) {
-    throw new Error(`AssertionError ${message ? (`: ${message}`) : ''}`);
-  }
-};
+exports.debug = () => {};

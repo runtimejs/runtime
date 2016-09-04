@@ -14,28 +14,98 @@
 
 'use strict';
 
-const test = require('tape');
+const createSuite = require('estap');
+const test = createSuite();
 
-test('setTimeout', t => setTimeout(t.end.bind(t), 0));
+test.cb('setTimeout', t => {
+  t.plan(1);
 
-test('setImmediate', t => setImmediate(t.end.bind(t)));
-
-test('clearTimeout', (t) => {
-  const timer = setTimeout(() => {
-    t.fail('should not call callback');
-    throw new Error('should not call callback');
+  setTimeout(() => {
+    t.pass('setTimeout callback');
   }, 0);
-  clearTimeout(timer);
-  setTimeout(t.end.bind(t), 0);
 });
 
-test('clearInterval', (t) => {
-  function timer() {
-    setInterval(() => {
-      t.fail('should not call callback');
-      throw new Error('should not call callback');
-    }, 0);
-  }
+test.cb('setImmediate', t => {
+  t.plan(1);
+
+  setImmediate(() => {
+    t.pass('setImmediate callback');
+  });
+});
+
+test.cb('clearTimeout', t => {
+  const timer = setTimeout(() => {
+    t.fail('should not call the callback');
+  }, 0);
+  clearTimeout(timer);
+  setTimeout(() => {
+    t.pass('cleared timeout');
+    t.end();
+  }, 0);
+});
+
+test.cb('clearInterval', t => {
+  const timer = setInterval(() => {
+    t.fail('should not call the callback');
+  }, 0);
   clearInterval(timer);
-  setTimeout(t.end.bind(t), 0);
+  setTimeout(() => {
+    t.pass('cleared interval');
+    t.end();
+  }, 0);
+});
+
+test.cb('setInterval multiple calls', t => {
+  let i = 0;
+  const timer = setInterval(() => {
+    if (++i === 3) {
+      clearInterval(timer);
+      t.pass('wait for 3 intervals');
+      t.end();
+    }
+  }, 100);
+});
+
+test.cb('cleared setTimeout should not keep its ref', t => {
+  const timer = setTimeout(() => {
+    t.fail('should not call the callback');
+  }, 1000000);
+  clearTimeout(timer);
+  t.end();
+});
+
+test.cb('unrefTimer with long setTimeout', t => {
+  const timer = setTimeout(() => {
+    t.fail('should not call the callback');
+  }, 1000000);
+  __SYSCALL.unrefTimer(timer);
+  t.end();
+});
+
+test.cb('unrefTimer with long setInterval', t => {
+  const timer = setInterval(() => {
+    t.fail('should not call the callback');
+  }, 1000000);
+  __SYSCALL.unrefTimer(timer);
+  t.end();
+});
+
+test.cb('unrefTimer with clearTimeout', t => {
+  t.plan(2);
+
+  const timer1 = setTimeout(() => {
+    t.pass('this should fire');
+  }, 0);
+
+  const timer2 = setTimeout(() => {
+    t.fail('this should not fire');
+  }, 10);
+
+  setTimeout(() => {
+    t.pass('this should fire');
+  }, 100);
+
+  __SYSCALL.unrefTimer(timer1);
+  __SYSCALL.unrefTimer(timer2);
+  clearTimeout(timer2);
 });

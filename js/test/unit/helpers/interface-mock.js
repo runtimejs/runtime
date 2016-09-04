@@ -14,18 +14,17 @@
 
 'use strict';
 
-exports.getRandomUint32 = () => Math.floor(Math.random() * 0x100000000) >>> 0;
-exports.getRandomUint16 = () => Math.floor(Math.random() * 0x10000) >>> 0;
-exports.getRandomUint8 = () => Math.floor(Math.random() * 0x100) >>> 0;
+const Interface = require('/js/core/net/interface');
+const MACAddress = require('/js/core/net/mac-address');
+const IP4Address = require('/js/core/net/ip4-address');
 
-/**
- * Get linearly increasing counter value in ms
- * (monotonic clock)
- */
-exports.timeNow = () => Math.floor(performance.now());
-
-exports.assert = (value, message) => {
-  if (!value) {
-    throw new Error(`AssertionError ${message ? (`: ${message}`) : ''}`);
-  }
+module.exports = (opts = {}) => {
+  const ip = opts.ip || new IP4Address(127, 0, 0, 1);
+  const mask = opts.mask || new IP4Address(255, 0, 0, 0);
+  const mac = opts.mac || new MACAddress(1, 2, 3, 4, 5, 6);
+  const intf = new Interface(mac);
+  intf.disableArp();
+  intf.configure(ip, mask);
+  intf.ontransmit = () => {};
+  return intf;
 };

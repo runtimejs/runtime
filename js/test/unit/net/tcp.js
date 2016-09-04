@@ -16,13 +16,13 @@
 
 'use strict';
 
-const test = require('tape');
-const assert = require('assert');
-const TCPSocket = require('../../../core/net/tcp-socket');
-const TCPServerSocket = require('../../../core/net/tcp-server-socket');
-const IP4Address = require('../../../core/net/ip4-address');
-const tcpHeader = require('../../../core/net/tcp-header');
-const tcpSocketState = require('../../../core/net/tcp-socket-state');
+const createSuite = require('estap');
+const test = createSuite();
+const TCPSocket = require('/js/core/net/tcp-socket');
+const TCPServerSocket = require('/js/core/net/tcp-server-socket');
+const IP4Address = require('/js/core/net/ip4-address');
+const tcpHeader = require('/js/core/net/tcp-header');
+const tcpSocketState = require('/js/core/net/tcp-socket-state');
 
 function createTcpPacket(seq, ack, flags, window = 8192, u8data = null) {
   const u8 = new Uint8Array(tcpHeader.headerLength + (u8data ? u8data.length : 0));
@@ -34,15 +34,17 @@ function createTcpPacket(seq, ack, flags, window = 8192, u8data = null) {
   return u8;
 }
 
-function getEstablished(cb) {
+let nextPort = 81;
+
+function getEstablished(t, cb) {
   const socket = new TCPSocket();
   const txSeq = 1;
   let rxSeq = 0;
 
   function ACK(seq, ack, flags, window, u8) {
-    assert.equal(flags, tcpHeader.FLAG_ACK);
-    assert.equal(u8, null);
-    assert.equal(ack, txSeq + 1);
+    t.is(flags, tcpHeader.FLAG_ACK);
+    t.is(u8, null);
+    t.is(ack, txSeq + 1);
     socket._transmit = () => {};
     socket._state = tcpSocketState.STATE_ESTABLISHED;
     cb(socket, txSeq, rxSeq, () => {
@@ -51,8 +53,8 @@ function getEstablished(cb) {
   }
 
   function SYN(seq, ack, flags, window, u8) {
-    assert.equal(flags, tcpHeader.FLAG_SYN);
-    assert.equal(u8, null);
+    t.is(flags, tcpHeader.FLAG_SYN);
+    t.is(u8, null);
     socket._transmit = ACK;
 
     const synack = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK);
@@ -60,33 +62,35 @@ function getEstablished(cb) {
     socket._receive(synack, IP4Address.ANY, 45001, 0);
   }
 
-  assert.equal(socket._state, tcpSocketState.STATE_CLOSED);
+  t.is(socket._state, tcpSocketState.STATE_CLOSED);
   socket._transmit = SYN;
-  socket.open('127.0.0.1', 80);
+  socket.open('127.0.0.1', nextPort++);
 }
 
-test('tcp connect', (t) => {
+getEstablished.plan = 6;
+
+test.cb('tcp connect', t => {
   t.plan(6);
   const socket = new TCPSocket();
   const serverSeq = 1;
 
   function testACK(seq, ack, flags, window, u8) {
-    t.equal(flags, tcpHeader.FLAG_ACK, 'ACK flag set');
-    t.equal(u8, null, 'no buffer in ACK packet');
-    t.equal(ack, serverSeq + 1, 'seq number is valid');
+    t.is(flags, tcpHeader.FLAG_ACK, 'ACK flag set');
+    t.is(u8, null, 'no buffer in ACK packet');
+    t.is(ack, serverSeq + 1, 'seq number is valid');
     socket._destroy();
   }
 
   function testSYN(seq, ack, flags, window, u8) {
-    t.equal(flags, tcpHeader.FLAG_SYN, 'SYN flag set');
-    t.equal(u8, null, 'no buffer in SYN packet');
+    t.is(flags, tcpHeader.FLAG_SYN, 'SYN flag set');
+    t.is(u8, null, 'no buffer in SYN packet');
     socket._transmit = testACK;
 
     const synack = createTcpPacket(serverSeq, seq + 1, tcpHeader.FLAG_SYN | tcpHeader.FLAG_ACK);
     socket._receive(synack, IP4Address.ANY, 45001, 0);
   }
 
-  t.equal(socket._state, tcpSocketState.STATE_CLOSED, 'initial state is closed');
+  t.is(socket._state, tcpSocketState.STATE_CLOSED, 'initial state is closed');
   socket._transmit = testSYN;
   socket.open('127.0.0.1', 80);
 });
@@ -106,27 +110,26 @@ test('tcp transmit queue', (t) => {
   socket._transmitWindowSize = 20;
   socket.send(new Uint8Array(1));
   socket.send(new Uint8Array(30));
-  t.equal(socket._transmitQueue.length, 2);
-  t.equal(transmitQueueItemLength(socket._transmitQueue[0]), 1);
-  t.equal(transmitQueueItemLength(socket._transmitQueue[1]), 19);
-  t.equal(transmitQueueItemBuffer(socket._transmitQueue[0]).length, 1);
-  t.equal(transmitQueueItemBuffer(socket._transmitQueue[1]).length, 19);
+  t.is(socket._transmitQueue.length, 2);
+  t.is(transmitQueueItemLength(socket._transmitQueue[0]), 1);
+  t.is(transmitQueueItemLength(socket._transmitQueue[1]), 19);
+  t.is(transmitQueueItemBuffer(socket._transmitQueue[0]).length, 1);
+  t.is(transmitQueueItemBuffer(socket._transmitQueue[1]).length, 19);
   socket._acceptACK(socket._getTransmitPosition(), 20);
-  t.equal(socket._transmitQueue.length, 1);
-  t.end();
+  t.is(socket._transmitQueue.length, 1);
 });
 
-test('tcp receive', (t) => {
-  t.plan(4);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive', t => {
+  t.plan(getEstablished.plan + 4);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data = new Uint8Array([1, 2, 3]);
 
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], 1);
-      t.equal(u8[1], 2);
-      t.equal(u8[2], 3);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], 1);
+      t.is(u8[1], 2);
+      t.is(u8[2], 3);
     };
 
     const packet = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data);
@@ -134,17 +137,17 @@ test('tcp receive', (t) => {
   });
 });
 
-test('tcp receive filter full duplicates', (t) => {
-  t.plan(4);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive filter full duplicates', t => {
+  t.plan(getEstablished.plan + 4);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data = new Uint8Array([1, 2, 3]);
 
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], 1);
-      t.equal(u8[1], 2);
-      t.equal(u8[2], 3);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], 1);
+      t.is(u8[1], 2);
+      t.is(u8[2], 3);
     };
 
     const packet = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data);
@@ -153,19 +156,19 @@ test('tcp receive filter full duplicates', (t) => {
   });
 });
 
-test('tcp receive in order', (t) => {
-  t.plan(8);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive in order', t => {
+  t.plan(getEstablished.plan + 8);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data1 = new Uint8Array([1, 2, 3]);
     const data2 = new Uint8Array([4, 5, 6]);
 
     let index = 0;
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], ++index);
-      t.equal(u8[1], ++index);
-      t.equal(u8[2], ++index);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], ++index);
+      t.is(u8[1], ++index);
+      t.is(u8[2], ++index);
     };
 
     const packet1 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data1);
@@ -175,10 +178,10 @@ test('tcp receive in order', (t) => {
   });
 });
 
-test('tcp receive in order and filter full duplicates', (t) => {
-  t.plan(9);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive in order and filter full duplicates', t => {
+  t.plan(getEstablished.plan + 9);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data1 = new Uint8Array([1, 2, 3]);
     const data2 = new Uint8Array([4, 5, 6]);
 
@@ -189,10 +192,10 @@ test('tcp receive in order and filter full duplicates', (t) => {
 
     let index = 0;
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], ++index);
-      t.equal(u8[1], ++index);
-      t.equal(u8[2], ++index);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], ++index);
+      t.is(u8[1], ++index);
+      t.is(u8[2], ++index);
     };
 
     const packet1 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data1);
@@ -202,14 +205,14 @@ test('tcp receive in order and filter full duplicates', (t) => {
     socket._receive(packet2, IP4Address.ANY, 45001, 0);
     socket._receive(packet1, IP4Address.ANY, 45001, 0);
     socket._receive(packet1, IP4Address.ANY, 45001, 0);
-    t.equal(lastAck, 8);
+    t.is(lastAck, 8);
   });
 });
 
-test('tcp receive partial duplicates', (t) => {
-  t.plan(9);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive partial duplicates', (t) => {
+  t.plan(getEstablished.plan + 9);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data1 = new Uint8Array([1, 2, 3]);
     const data2 = new Uint8Array([3, 4, 5, 6]);
     const data3 = new Uint8Array([2, 3]);
@@ -221,10 +224,10 @@ test('tcp receive partial duplicates', (t) => {
 
     let index = 0;
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], ++index);
-      t.equal(u8[1], ++index);
-      t.equal(u8[2], ++index);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], ++index);
+      t.is(u8[1], ++index);
+      t.is(u8[2], ++index);
     };
 
     const packet1 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data1);
@@ -234,14 +237,14 @@ test('tcp receive partial duplicates', (t) => {
     socket._receive(packet1, IP4Address.ANY, 45001, 0);
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
     socket._receive(packet3, IP4Address.ANY, 45001, 0);
-    t.equal(lastAck, 8);
+    t.is(lastAck, 8);
   });
 });
 
-test('tcp receive partial duplicate with acked data and small window', (t) => {
-  t.plan(9);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive partial duplicate with acked data and small window', t => {
+  t.plan(getEstablished.plan + 9);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     const data1 = new Uint8Array([1, 2, 3]);
     const data2 = new Uint8Array([1, 2, 3, 4, 5, 6]);
 
@@ -252,10 +255,10 @@ test('tcp receive partial duplicate with acked data and small window', (t) => {
 
     let index = 0;
     socket.ondata = (u8) => {
-      t.ok(u8 instanceof Uint8Array);
-      t.equal(u8[0], ++index);
-      t.equal(u8[1], ++index);
-      t.equal(u8[2], ++index);
+      t.true(u8 instanceof Uint8Array);
+      t.is(u8[0], ++index);
+      t.is(u8[1], ++index);
+      t.is(u8[2], ++index);
     };
 
     const packet1 = createTcpPacket(txSeq + 1, rxSeq, tcpHeader.FLAG_PSH | tcpHeader.FLAG_ACK, 8192, data1);
@@ -264,52 +267,52 @@ test('tcp receive partial duplicate with acked data and small window', (t) => {
     socket._receive(packet1, IP4Address.ANY, 45001, 0);
     socket._receiveWindowSize = 3;
     socket._receive(packet2, IP4Address.ANY, 45001, 0);
-    t.equal(lastAck, 8);
+    t.is(lastAck, 8);
   });
 });
 
-test('tcp send FIN', (t) => {
-  t.plan(6);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp send FIN', (t) => {
+  t.plan(getEstablished.plan + 6);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
 
     function recvACK(seq, ack, flags) {
-      t.ok(flags & tcpHeader.FLAG_ACK);
+      t.truthy(flags & tcpHeader.FLAG_ACK);
     }
 
     function recvACKFIN(seq, ack, flags) {
       let packet;
       socket._transmit = recvACK;
-      t.ok(flags & tcpHeader.FLAG_FIN);
-      t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_1);
+      t.truthy(flags & tcpHeader.FLAG_FIN);
+      t.is(socket._state, tcpSocketState.STATE_FIN_WAIT_1);
       packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
-      t.equal(socket._state, tcpSocketState.STATE_FIN_WAIT_2);
+      t.is(socket._state, tcpSocketState.STATE_FIN_WAIT_2);
       packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_FIN);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
-      t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
+      t.is(socket._state, tcpSocketState.STATE_TIME_WAIT);
     }
 
     socket._transmit = recvACKFIN;
     socket.close();
-    t.equal(socket._state, tcpSocketState.STATE_TIME_WAIT);
+    t.is(socket._state, tcpSocketState.STATE_TIME_WAIT);
   });
 });
 
-test('tcp receive FIN', (t) => {
-  t.plan(5);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive FIN', t => {
+  t.plan(getEstablished.plan + 5);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
 
     function onRecvFIN(seq, ack, flags) {
       socket._transmit = () => {};
-      t.ok(flags & tcpHeader.FLAG_ACK);
+      t.truthy(flags & tcpHeader.FLAG_ACK);
     }
 
     function onSentFIN(seq, ack, flags) {
       socket._transmit = () => {};
-      t.ok(flags & tcpHeader.FLAG_FIN);
-      t.equal(socket._state, tcpSocketState.STATE_LAST_ACK);
+      t.truthy(flags & tcpHeader.FLAG_FIN);
+      t.is(socket._state, tcpSocketState.STATE_LAST_ACK);
       const packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
     }
@@ -317,22 +320,22 @@ test('tcp receive FIN', (t) => {
     socket._transmit = onRecvFIN;
     const packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK);
     socket._receive(packet, IP4Address.ANY, 45001, 0);
-    t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
+    t.is(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
     socket._transmit = onSentFIN;
     socket.close();
-    t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+    t.is(socket._state, tcpSocketState.STATE_CLOSED);
   });
 });
 
-test('tcp receive FIN, then send more data', (t) => {
-  t.plan(4);
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('tcp receive FIN, then send more data', t => {
+  t.plan(getEstablished.plan + 4);
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
 
     function handleLastAck(seq, ack, flags) {
       socket._transmit = () => {};
-      t.ok(flags & tcpHeader.FLAG_FIN);
-      t.equal(socket._state, tcpSocketState.STATE_LAST_ACK);
+      t.truthy(flags & tcpHeader.FLAG_FIN);
+      t.is(socket._state, tcpSocketState.STATE_LAST_ACK);
       const packet = createTcpPacket(txSeq, seq + 1, tcpHeader.FLAG_ACK);
       socket._receive(packet, IP4Address.ANY, 45001, 0);
     }
@@ -341,18 +344,18 @@ test('tcp receive FIN, then send more data', (t) => {
     socket.send(new Uint8Array([1, 2, 3]));
     const packet = createTcpPacket(txSeq, rxSeq, tcpHeader.FLAG_FIN | tcpHeader.FLAG_ACK);
     socket._receive(packet, IP4Address.ANY, 45001, 0);
-    t.equal(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
+    t.is(socket._state, tcpSocketState.STATE_CLOSE_WAIT);
     socket.send(new Uint8Array([4, 5, 6]));
     socket.send(new Uint8Array([7, 8, 9]));
     socket._transmit = handleLastAck;
     socket.close();
-    t.equal(socket._state, tcpSocketState.STATE_CLOSED);
+    t.is(socket._state, tcpSocketState.STATE_CLOSED);
   });
 });
 
-test('cannot send more data after close', (t) => {
-  getEstablished((socket, txSeq, rxSeq, done) => {
-    t.on('end', done);
+test.cb('cannot send more data after close', (t) => {
+  getEstablished(t, (socket, txSeq, rxSeq, done) => {
+    t.after(done);
     socket._transmit = () => {};
     socket.send(new Uint8Array([1, 2, 3]));
     socket.close();
@@ -361,48 +364,46 @@ test('cannot send more data after close', (t) => {
   });
 });
 
-test('server socket listening', (t) => {
+test.cb('server socket listening', t => {
   t.plan(6);
   const socket = new TCPServerSocket();
 
   socket.onlisten = (port) => {
-    t.equal(port, 100);
-    t.ok(true);
+    t.is(port, 100);
+    t.pass();
   };
 
-  socket.onclose = () => t.ok(true);
+  socket.onclose = () => t.pass();
 
   socket.listen(100);
-  t.equal(socket.localPort, 100);
+  t.is(socket.localPort, 100);
   t.throws(() => {
     socket.localPort = 200;
   });
-  t.equal(socket.localPort, 100);
+  t.is(socket.localPort, 100);
   socket.close();
 });
 
-test('server socket can reuse port', (t) => {
+test('server socket can reuse port', () => {
   const socket = new TCPServerSocket();
   socket.listen(200);
   socket.close();
   socket.listen(200);
   socket.close();
-  // const socket2 = new TCPServerSocket();
   socket.listen(200);
   socket.close();
-  t.end();
 });
 
-test('server socket can listen to random port', (t) => {
+test.cb('server socket can listen to random port', (t) => {
   t.plan(2);
   const socket = new TCPServerSocket();
-  socket.onlisten = (port) => t.ok(port > 0);
+  socket.onlisten = port => t.true(port > 0);
   socket.listen(0);
-  t.ok(socket.localPort > 0);
+  t.true(socket.localPort > 0);
   socket.close();
 });
 
-test('localhost echo server', (t) => {
+test.cb('localhost echo server', t => {
   t.plan(8);
   const server = new TCPServerSocket();
   server.listen(71);
@@ -411,7 +412,7 @@ test('localhost echo server', (t) => {
     socket.onend = () => {
       socket.close();
       server.close();
-      t.ok(true);
+      t.pass();
     };
   };
 
@@ -423,33 +424,33 @@ test('localhost echo server', (t) => {
   };
   client.ondata = (u8) => {
     for (let i = 0; i < u8.length; ++i) {
-      t.equal(u8[i], ++recvIndex);
+      t.is(u8[i], ++recvIndex);
     }
 
     if (recvIndex === 6) {
       client.close();
-      t.ok(true);
+      t.pass();
     }
   };
   client.open('127.0.0.1', 71);
 });
 
-test('small sequence numbers', (t) => {
+test.cb('small sequence numbers', t => {
   t.plan(4);
 
   const server = new TCPServerSocket();
-  t.on('end', server.close.bind(server));
+  t.after(server.close.bind(server));
 
   let next = 0;
   server.onconnect = (socket) => {
     socket.ondata = (u8) => {
       for (let i = 0; i < u8.length; ++i) {
-        t.equal(u8[i], ++next);
+        t.is(u8[i], ++next);
       }
     };
   };
 
-  server.listen(71);
+  server.listen(72);
 
   const client = new TCPSocket();
   client._transmitWindowEdge = 1;
@@ -458,28 +459,28 @@ test('small sequence numbers', (t) => {
   client.onopen = () => {
     client.send(new Uint8Array([1, 2, 3]));
     client.close();
-    t.ok(true);
+    t.pass();
   };
 
-  client.open('127.0.0.1', 71);
+  client.open('127.0.0.1', 72);
 });
 
-test('large sequence numbers and wrap around', (t) => {
+test.cb('large sequence numbers and wrap around', t => {
   t.plan(4);
 
   const server = new TCPServerSocket();
-  t.on('end', server.close.bind(server));
+  t.after(server.close.bind(server));
 
   let next = 0;
   server.onconnect = (socket) => {
     socket.ondata = (u8) => {
       for (let i = 0; i < u8.length; ++i) {
-        t.equal(u8[i], ++next);
+        t.is(u8[i], ++next);
       }
     };
   };
 
-  server.listen(71);
+  server.listen(73);
 
   const client = new TCPSocket();
   client._transmitWindowEdge = Math.pow(2, 32) - 1;
@@ -488,10 +489,8 @@ test('large sequence numbers and wrap around', (t) => {
   client.onopen = () => {
     client.send(new Uint8Array([1, 2, 3]));
     client.close();
-    t.ok(true);
+    t.pass();
   };
 
-  client.open('127.0.0.1', 71);
+  client.open('127.0.0.1', 73);
 });
-
-/* eslint-enable no-param-reassign */

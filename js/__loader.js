@@ -36,8 +36,6 @@ __SYSCALL.loaderSetupBuiltins({
   util: 'util/util.js',
 });
 
-require('./index');
-
 global.process = require('process');
 global.Buffer = require('buffer').Buffer;
 
@@ -74,3 +72,4 @@ process.termout = new TermoutStream();
 process.termerr = new TermerrStream();
 
 require('console');
+require('./index');

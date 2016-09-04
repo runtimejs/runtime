@@ -14,31 +14,28 @@
 
 'use strict';
 
-const test = require('tape');
+const createSuite = require('estap');
+const test = createSuite();
 
-test('div by zero should not trigger CPU Divide Error exception', (t) => {
+test('division by zero', t => {
   const v = 10;
-  t.equal(v / 0, Infinity);
-  t.end();
+  t.is(v / 0, Infinity, 'should not trigger CPU Divide Error exception');
 });
 
-test('some math functions (in case they rely on embedded libc)', (t) => {
-  t.equal(Math.abs(-45.4), 45.4);
-  t.equal(Math.acos(-0.2).toFixed(2), '1.77');
-  t.equal((Math.atan2(1, 0) * 2).toFixed(2), '3.14');
-  t.equal((Math.atan(1, 0) * 4).toFixed(2), '3.14');
-  t.equal(Math.pow(2, 10), 1024);
-  t.equal(Math.sqrt(81), 9);
-  t.equal(Math.exp(1).toFixed(2), '2.72');
-  t.end();
+test('basic math functions (may use embedded libc)', t => {
+  t.is(Math.abs(-45.4), 45.4, 'Math.abs');
+  t.is(Math.acos(-0.2).toFixed(2), '1.77', 'Math.acos');
+  t.is((Math.atan2(1, 0) * 2).toFixed(2), '3.14', 'Math.atan2');
+  t.is((Math.atan(1, 0) * 4).toFixed(2), '3.14', 'Math.atan');
+  t.is(Math.pow(2, 10), 1024, 'Math.pow');
+  t.is(Math.sqrt(81), 9, 'Math.sqrt');
+  t.is(Math.exp(1).toFixed(2), '2.72', 'Math.exp');
 });
 
-test('Math.random', (t) => {
-  t.equal(typeof Math.random(), 'number');
-  t.end();
+test('Math.random', t => {
+  t.is(typeof Math.random(), 'number', 'Math.random');
 });
 
-test('Date object', (t) => {
-  t.equal(typeof new Date(), 'object');
-  t.end();
+test('Date object', t => {
+  t.is(typeof new Date(), 'object', 'can create Date() object');
 });
