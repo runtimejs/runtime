@@ -81,8 +81,9 @@ class VRing {
    *
    * @param buffers {array} Array of buffers
    * @param isWriteOnly {bool} R/W buffers flag
+   * @param isWriteOnlyArray {array} optional array of 'isWriteOnly's, one for each buffer
    */
-  placeBuffers(buffers, isWriteOnly) {
+  placeBuffers(buffers, isWriteOnly, isWriteOnlyArray) {
     if (this.suppressInterrupts) {
       this.fetchBuffers(null);
     }
@@ -107,7 +108,7 @@ class VRing {
       }
     }
 
-    const first = this.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly);
+    const first = this.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly, isWriteOnlyArray);
     if (first < 0) {
       debug('virtio: no descriptors\n');
       return false;

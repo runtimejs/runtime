@@ -14,8 +14,10 @@
 
 'use strict';
 const virtioNet = require('./net');
+const virtioBlk = require('./blk');
 const virtioRNG = require('./rng');
 const VIRTIO_SUBSYSTEM_NETWORK = 1;
+const VIRTIO_SUBSYSTEM_BLOCK = 2;
 const VIRTIO_SUBSYSTEM_RNG = 4;
 const runtime = require('../../core');
 
@@ -25,6 +27,9 @@ const driver = {
 
     if (subsystemId === VIRTIO_SUBSYSTEM_NETWORK) {
       return virtioNet(pciDevice);
+    }
+    if (subsystemId === VIRTIO_SUBSYSTEM_BLOCK) {
+      return virtioBlk(pciDevice);
     }
     if (subsystemId === VIRTIO_SUBSYSTEM_RNG) {
       return virtioRNG(pciDevice);

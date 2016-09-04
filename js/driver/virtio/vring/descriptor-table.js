@@ -84,8 +84,9 @@ class DescriptorTable {
    * @param buffers {array} array of Uint8Array buffers
    * @param lengths {array} array of corresponding buffer lengths (same size as buffers)
    * @param isWriteOnly {bool} set writeOnly flag for each buffer
+   * @param isWriteOnlyArray {array} optional array of writeOnly flags, one value for each buffer
    */
-  placeBuffers(buffers, lengths, isWriteOnly) {
+  placeBuffers(buffers, lengths, isWriteOnly, isWriteOnlyArray) {
     const count = buffers.length;
     if (this.descriptorsAvailable < count) {
       return -1;
@@ -95,11 +96,17 @@ class DescriptorTable {
     const first = head;
     for (let i = 0; i < count; ++i) {
       const d = buffers[i];
+      let bufWriteOnly = false;
+      if (isWriteOnlyArray) {
+        bufWriteOnly = isWriteOnlyArray[i];
+      } else {
+        bufWriteOnly = isWriteOnly;
+      }
       let flags = 0;
       if (count !== i + 1) {
         flags |= VRING_DESC_F_NEXT;
       }
-      if (isWriteOnly) {
+      if (bufWriteOnly) {
         flags |= VRING_DESC_F_WRITE;
       }
 
