@@ -193,9 +193,24 @@ NATIVE_FUNCTION(NativesObject, TextDecoder) {
   args.This()->Set(context, s_encoding, s_utf8);
 }
 
+NATIVE_FUNCTION(NativesObject, UnrefTimer) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  if (!arg0->IsNumber()) {
+    return;
+  }
+
+  args.GetReturnValue().Set(v8::Boolean::New(iv8,
+                            th->SetTimeoutUnref(arg0->Uint32Value(context).FromJust())));
+}
+
 NATIVE_FUNCTION(NativesObject, ClearTimer) {
   PROLOGUE_NOTHIS;
   USEARG(0);
+  if (!arg0->IsNumber()) {
+    return;
+  }
+
   args.GetReturnValue().Set(v8::Boolean::New(iv8,
                             th->FlagTimeoutCleared(arg0->Uint32Value(context).FromJust())));
 }
@@ -207,7 +222,7 @@ uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
   RT_ASSERT(!cb.IsEmpty());
   RT_ASSERT(cb->IsFunction());
   uint32_t index = th->AddTimeoutData(
-                     TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset));
+                     TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset, true));
 
   RT_ASSERT(th->thread_manager());
   th->thread_manager()->SetTimeout(th, index, delay);

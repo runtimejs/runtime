@@ -96,17 +96,17 @@ enum class ThreadType {
  */
 class TimeoutData {
 public:
-  TimeoutData(v8::UniquePersistent<v8::Value> cb, uint32_t delay_ms, bool is_autoreset)
+  TimeoutData(v8::UniquePersistent<v8::Value> cb, uint32_t delay_ms, bool is_autoreset, bool ref)
     :	cb_(std::move(cb)), delay_(delay_ms),
-      cleared_(false), has_args_(false), autoreset_(is_autoreset) {
+      cleared_(false), has_args_(false), autoreset_(is_autoreset), ref_(ref) {
     RT_ASSERT(!cb_.IsEmpty());
     RT_ASSERT(args_array_.IsEmpty());
   }
 
   TimeoutData(v8::UniquePersistent<v8::Value> cb, v8::UniquePersistent<v8::Array> args_array,
-              uint32_t delay_ms, bool is_autoreset)
+              uint32_t delay_ms, bool is_autoreset, bool ref)
     :	cb_(std::move(cb)), args_array_(std::move(args_array)), delay_(delay_ms),
-      cleared_(false), has_args_(true), autoreset_(is_autoreset) {
+      cleared_(false), has_args_(true), autoreset_(is_autoreset), ref_(ref) {
     RT_ASSERT(!cb_.IsEmpty());
     RT_ASSERT(!args_array_.IsEmpty());
   }
@@ -115,7 +115,7 @@ public:
     :	cb_(std::move(other.cb_)), args_array_(std::move(other.args_array_)),
       delay_(other.delay_),
       cleared_(other.cleared_), has_args_(other.has_args_),
-      autoreset_(other.autoreset_) {}
+      autoreset_(other.autoreset_), ref_(other.ref_) {}
 
   TimeoutData& operator=(TimeoutData&& other) {
     cb_ = std::move(other.cb_);
@@ -124,6 +124,7 @@ public:
     cleared_ = other.cleared_;
     has_args_ = other.has_args_;
     autoreset_ = other.autoreset_;
+    ref_ = other.ref_;
     return *this;
   }
 
@@ -148,6 +149,13 @@ public:
   void SetAutoreset() {
     autoreset_ = true;
   }
+  void SetUnref() {
+    ref_ = false;
+  }
+  void SetRef() {
+    ref_ = true;
+  }
+
   uint32_t delay() const {
     return delay_;
   }
@@ -160,6 +168,9 @@ public:
   bool cleared() const {
     return cleared_;
   }
+  bool ref() const {
+    return ref_;
+  }
 private:
   v8::UniquePersistent<v8::Value> cb_;
   v8::UniquePersistent<v8::Array> args_array_;
@@ -167,6 +178,7 @@ private:
   bool cleared_;
   bool has_args_;
   bool autoreset_;
+  bool ref_;
   DELETE_COPY_AND_ASSIGN(TimeoutData);
 };
 
@@ -273,8 +285,27 @@ public:
   }
 
   uint32_t AddTimeoutData(TimeoutData data) {
-    Ref();
+    if (data.ref()) {
+      Ref();
+    }
     return timeout_data_.Push(std::move(data));
+  }
+
+  bool SetTimeoutUnref(uint32_t index) {
+    if (index >= timeout_data_.size()) {
+      return false;
+    }
+
+    auto& data = timeout_data_.Get(index);
+    if (data.IsEmpty()) {
+      return false;
+    }
+
+    if (data.ref()) {
+      data.SetUnref();
+      Unref();
+    }
+    return true;
   }
 
   bool FlagTimeoutCleared(uint32_t index) {
@@ -287,13 +318,19 @@ public:
       return false;
     }
 
+    if (data.ref()) {
+      Unref();
+    }
     data.SetCleared();
     return true;
   }
 
   TimeoutData TakeTimeoutData(uint32_t index) {
-    Unref();
     return timeout_data_.Take(index);
+  }
+
+  TimeoutData& GetTimeoutData(uint32_t index) {
+    return timeout_data_.Get(index);
   }
 
   uint32_t AddPromise(v8::UniquePersistent<v8::Promise::Resolver> resolver) {

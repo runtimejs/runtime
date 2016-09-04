@@ -111,6 +111,7 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     SET_SYSCALL("reboot", NativesObject::Reboot);
     SET_SYSCALL("poweroff", NativesObject::Poweroff);
     SET_SYSCALL("exit", NativesObject::Exit);
+    SET_SYSCALL("unrefTimer", NativesObject::UnrefTimer);
 
     // Low level system access
     SET_SYSCALL("bufferAddress", NativesObject::BufferAddress);

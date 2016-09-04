@@ -272,24 +272,29 @@ void Thread::RunEvent(ThreadMessage* message) {
     auto recv_index = message->recv_index();
     RT_ASSERT(recv_index < std::numeric_limits<uint32_t>::max());
     uint32_t timeout_id { static_cast<uint32_t>(recv_index) };
-    TimeoutData data(TakeTimeoutData(timeout_id));
+    TimeoutData& data = GetTimeoutData(timeout_id);
 
-    if (data.cleared()) {
-      break;
+    if (!data.cleared()) {
+      auto fnv = data.GetCallback(iv8_);
+      RT_ASSERT(!fnv.IsEmpty());
+      RT_ASSERT(fnv->IsFunction());
+      auto fn = fnv.As<v8::Function>();
+
+      if (!data.autoreset()) {
+        TakeTimeoutData(timeout_id);
+        if (data.ref()) {
+          Unref();
+        }
+      } else {
+        thread_mgr_->SetTimeout(this, timeout_id, data.delay());
+      }
+
+      RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
+      fn->Call(context, context->Global(), 0, nullptr);
+    } else {
+      // No unref here, it's been done before
+      TakeTimeoutData(timeout_id);
     }
-
-    auto fnv = data.GetCallback(iv8_);
-    RT_ASSERT(!fnv.IsEmpty());
-    RT_ASSERT(fnv->IsFunction());
-    auto fn = fnv.As<v8::Function>();
-
-    if (data.autoreset()) {
-      // TODO: don't take timeout data in a first place
-      thread_mgr_->SetTimeout(this, AddTimeoutData(std::move(data)), data.delay());
-    }
-
-    RuntimeStateScope<RuntimeState::JAVASCRIPT> js_state(thread_manager());
-    fn->Call(context, context->Global(), 0, nullptr);
   }
   break;
   case ThreadMessage::Type::IRQ_RAISE: {

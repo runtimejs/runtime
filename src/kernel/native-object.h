@@ -48,6 +48,7 @@ public:
   DECLARE_NATIVE(Eval);                // Eval string as another script
   DECLARE_NATIVE(Version);             // Get runtime.js version
   DECLARE_NATIVE(GetCommandLine);      // Get kernel command line string
+  DECLARE_NATIVE(UnrefTimer);          // Unref timeout
 
   // runtime.js syscalls: Initrd FS access
   DECLARE_NATIVE(InitrdReadFile);      // Read file from initrd filesystem into string
@@ -66,10 +67,6 @@ public:
   DECLARE_NATIVE(Reboot);              // Reboot system
   DECLARE_NATIVE(Poweroff);            // Poweroff system
   DECLARE_NATIVE(Exit);                // Exit (will reboot system by default)
-
-  // global event listeners
-  DECLARE_NATIVE(AddEventListener);    // global.addEventListener
-  DECLARE_NATIVE(RemoveEventListener); // global.removeEventListener
 
   // runtime.js syscalls: Low level system access
   DECLARE_NATIVE(BufferAddress);       // Get buffer physical address
