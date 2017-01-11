@@ -63,6 +63,7 @@ runtime.shell.setCommand('reboot', (args, env, cb) => {
 // Start device drivers
 require('./driver/ps2');
 require('./driver/virtio');
+require('./driver/bga');
 
 // Set time
 require('./core/cmos-time'); // load cmos
