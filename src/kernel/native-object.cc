@@ -401,7 +401,7 @@ NATIVE_FUNCTION(NativesObject,Cpuid) {
   uint32_t code = (arg0.As<v8::Uint32>())->Value();
   uint32_t a = 0;
   uint32_t d = 0;
-  GLOBAL_cpu()->Cpuid(code,&a,&d);
+  Cpu::Cpuid(code,&a,&d);
 
   auto obj = v8::Object::New(iv8);
 
