@@ -384,6 +384,12 @@ NATIVE_FUNCTION(NativesObject, SystemInfo) {
     obj->Set(context, s_events_count, v8::Uint32::NewFromUnsigned(iv8, ev_count));
   }
 
+  {
+    auto cpu_count = static_cast<uint32_t>(GLOBAL_platform()->cpu_count());
+    LOCAL_V8STRING(s_cpu_count,"cpuCount");
+    obj->Set(context,s_cpu_count,v8::Uint32::NewFromUnsigned(iv8,s_cpu_count));
+  }
+
   args.GetReturnValue().Set(obj);
 }
 

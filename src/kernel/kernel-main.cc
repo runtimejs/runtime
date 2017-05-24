@@ -200,7 +200,7 @@ void KernelMain::InitSystemBSP(void* mbt) {
   GLOBAL_engines()->Startup();
 
   // Uncomment to enable SMP
-  // GLOBAL_platform()->StartCPUs();
+  if(cpus_found > 0) GLOBAL_platform()->StartCPUs();
 }
 
 void KernelMain::InitSystemAP() {

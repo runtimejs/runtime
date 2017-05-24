@@ -97,7 +97,9 @@ class Process extends EventEmitter {
       umask: () => 0,
       uptime: () => Math.round(performance.now() / 1000),
       version: '0.0.0',
-      versions: {},
+      versions: {
+        "v8": __SYSCALL.version()["v8"]
+      },
     });
   }
 }

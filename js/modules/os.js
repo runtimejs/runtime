@@ -22,7 +22,7 @@ function mem() {
 Object.assign(exports, {
   EOL: '\n',
   arch: () => process.arch,
-  cpus: () => [],
+  cpus: () => Array(__SYSCALL.systemInfo().cpuCount),
   endianness: () => 'LE',
   freemem: mem,
   totalmem: mem,

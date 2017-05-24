@@ -20,7 +20,7 @@
 namespace rt {
 
 /**
- * Thread local data container. Supports max 16 slots.
+ * Thread local data container. Supports max 32 slots.
  */
 class LocalStorage {
 public:
@@ -43,7 +43,7 @@ public:
 
   DELETE_COPY_AND_ASSIGN(LocalStorage);
 private:
-  static const size_t kMaxSlots = 16;
+  static const size_t kMaxSlots = 32;
   std::array<void*, kMaxSlots> storage_;
   uint64_t next_index_;
 };

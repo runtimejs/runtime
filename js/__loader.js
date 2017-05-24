@@ -265,6 +265,7 @@
     inherits: './modules/inherits.js',
     sys: 'util/util.js',
     util: 'util/util.js',
+    tty: './modules/tty.js',
   }, runtimePackagePath);
 
   loader.require(`${runtimePackagePath}/index.js`);
@@ -300,6 +301,8 @@
   process.stderr = new StderrStream();
   process.termout = new TermoutStream();
   process.termerr = new TermerrStream();
+  process.argv = process.execArgv = __SYSCALL.getCommandLine().split(" ");
+  process.title = process.argv0 = process.execPath = process.argv[0];
   loader.require('console');
   loader.require('/');
 })();
