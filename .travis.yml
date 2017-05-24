@@ -21,12 +21,7 @@ deploy:
     file: disk/boot/runtime.gz
     on:
       tags: true
-      repo: runtimejs/runtime
-  - provider: npm
-    skip_cleanup: true
-    email: shayief@gmail.com
-    api_key:
-      secure: Prcon+FjPLo1nh6hdJ1byLAUTMU/vfq3fBLzkxQIyJTVKIeKg9mPVtNoCmvbgxsSVTdS+gPjIoMpt0LgZCUq/cDRJAtOIaAqbm+fVNJBTwgkgwYAG7hCjEprAhUYiqutT+7KhgNZSKUBNJo/w5sWl8xdsSbfHyldGP6XBcocL50=
+      repo: Ross-Computers/runtime
     on:
       tags: true
-      repo: runtimejs/runtime
+      repo: Ross-Computers/runtime
