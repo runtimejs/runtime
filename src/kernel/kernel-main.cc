@@ -17,6 +17,7 @@
 #include <libc.h>
 #include <stdio.h>
 
+#include <kernel/cpu.h>
 #include <kernel/keystorage.h>
 #include <kernel/initrd.h>
 #include <kernel/engines.h>
@@ -43,6 +44,7 @@ DEFINE_GLOBAL_OBJECT(GLOBAL_keystorage, rt::KeyStorage);
 DEFINE_GLOBAL_OBJECT(GLOBAL_initrd, rt::Initrd);
 DEFINE_GLOBAL_OBJECT(GLOBAL_engines, rt::Engines);
 DEFINE_GLOBAL_OBJECT(GLOBAL_trace, rt::Trace);
+DEFINE_GLOBAL_OBJECT(GLOBAL_cpu, rt::Cpu);
 
 #undef DEFINE_GLOBAL_OBJECT
 

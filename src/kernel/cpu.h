@@ -31,6 +31,10 @@ public:
     CpuPlatform::WaitPause();
   }
 
+  static void Cpuid(int code,uint32_t *a,uint32_t *d) {
+    CpuPlatform::Cpuid(code,a,d);
+  }
+
   /**
    * Disable interrupts and stop execution
    */

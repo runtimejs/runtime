@@ -63,6 +63,7 @@ public:
   DECLARE_NATIVE(MemoryInfo);          // Get memory information
   DECLARE_NATIVE(SystemInfo);          // Get system information
   DECLARE_NATIVE(Reboot);              // Reboot system
+  DECLARE_NATIVE(Cpuid);          // Get CPU ID
 
   // runtime.js syscalls: Low level system access
   DECLARE_NATIVE(BufferAddress);       // Get buffer physical address

@@ -44,6 +44,10 @@ public:
     asm volatile("pause" : : : "memory");
   }
 
+  static void Cpuid(int code, uint32_t *a, uint32_t *d) {
+    asm volatile("cpuid":"=a"(*a),"=d"(*d):"a"(code):"rcx","rbx");
+  }
+
   /**
    * Disable interrupts and stop execution
    */

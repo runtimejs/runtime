@@ -20,6 +20,7 @@
 #include <memory>
 #include <accommon.h>
 #include <acpi.h>
+#include <kernel/cpu.h>
 #include <kernel/engines.h>
 #include <kernel/platform.h>
 #include <kernel/version.h>
@@ -389,6 +390,28 @@ NATIVE_FUNCTION(NativesObject, SystemInfo) {
     LOCAL_V8STRING(s_cpu_count,"cpuCount");
     obj->Set(context,s_cpu_count,v8::Uint32::NewFromUnsigned(iv8,cpu_count));
   }
+
+  args.GetReturnValue().Set(obj);
+}
+
+NATIVE_FUNCTION(NativesObject,Cpuid) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  VALIDATEARG(0, UINT32, "argument 0 is not a uint32 number value");
+  uint32_t code = (arg0.As<v8::Uint32>())->Value();
+  uint32_t a = 0;
+  uint32_t d = 0;
+  GLOBAL_cpu()->Cpuid(code,&a,&d);
+
+  auto obj = v8::Object::New(iv8);
+
+  auto a_val = static_cast<uint32_t>(a);
+  LOCAL_V8STRING(s_a,"a");
+  obj->Set(context,s_a,v8::Uint32::NewFromUnsigned(iv8,a_val));
+
+  auto d_val = static_cast<uint32_t>(d);
+  LOCAL_V8STRING(s_d,"d");
+  obj->Set(context,s_d,v8::Uint32::NewFromUnsigned(iv8,d_val));
 
   args.GetReturnValue().Set(obj);
 }
