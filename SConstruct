@@ -146,6 +146,7 @@ config = {
         'deps/libsodium/src/libsodium/include',
         'deps/json11',
         'src/Includes',
+        'src/Includes/kernel',
         'src',
         'test',
     ],

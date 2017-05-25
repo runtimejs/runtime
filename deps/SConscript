@@ -17,6 +17,8 @@ libs_config = {
             'v8/src',
             'v8',
             '../src',
+            '../src/Includes',
+            '../src/Includes/kernel'
         ],
         "source": [
             'v8/src/accessors.cc',
