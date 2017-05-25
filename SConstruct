@@ -38,10 +38,11 @@ config = {
             '-Wno-unused-parameter',
             '-fdiagnostics-color',
             '-D__runtime_js__',
-            '-DRT_INC_ADDR_SPACE=<kernel/x64/address-space-x64.h>',
-            '-DRT_INC_CPU=<kernel/x64/cpu-x64.h>',
-            '-DRT_INC_IO=<kernel/x64/io-x64.h>',
-            '-DRT_INC_IRQ=<kernel/x64/irq-x64.h>',
+            '-DRT_INC_ADDR_SPACE=\<kernel/x64/address-space-x64.h\>',
+            '-DRT_INC_CPU=\<kernel/x64/cpu-x64.h\>',
+            '-DRT_INC_IO=\<kernel/x64/io-x64.h\>',
+            '-DRT_INC_IRQ=\<kernel/x64/irqs-x64.h\>',
+            '-DRT_INC_PLATFORM=\<kernel/x64/platform-x64.h\>',
             '-DRUNTIMEJS_PLATFORM_X64',
         ]),
         "release": set([
@@ -106,6 +107,7 @@ config = {
         "asm": [
             'src',
             'src/kernel/x64',
+            'src/x64'
         ],
         "js": [
             'src/kernel/Js',
