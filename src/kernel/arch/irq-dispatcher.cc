@@ -12,26 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "engines.h"
-#include <kernel/acpi-manager.h>
+#include <kernel/irq-dispatcher.h>
 #include <kernel/platform.h>
 
 namespace rt {
 
-bool EntropySource(unsigned char* buffer, size_t length) {
-  for (size_t i = 0; i < length; ++i) {
-    buffer[i] = GLOBAL_platform()->BootTimeMicroseconds() & 0xFF;
-  }
-  return true;
-}
+void IrqDispatcher::Raise(SystemContextIRQ irq_context, uint8_t number) {
+  RT_ASSERT(0 == Cpu::id()); // IRQ raise restricted to CPU0
+  RT_ASSERT(number < kIrqCount);
 
-AcpiManager* Engines::acpi_manager() {
-  if (nullptr == _acpi_manager) {
-    _acpi_manager = new AcpiManager();
+  {
+    ScopedLock<threadlib::spinlock_t> lock(bindings_locker_);
+    for (const IRQBinding& binding : bindings_[number]) {
+      binding.Raise(irq_context);
+    }
   }
-
-  RT_ASSERT(_acpi_manager);
-  return _acpi_manager;
 }
 
 } // namespace rt

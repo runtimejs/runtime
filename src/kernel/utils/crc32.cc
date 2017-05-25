@@ -1,4 +1,4 @@
-#include "crc32.h"
+#include <kernel/crc32.h>
 
 namespace rt {
 

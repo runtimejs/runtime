@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "template-cache.h"
+#include <kernel/template-cache.h>
 #include <kernel/native-object.h>
 #include <kernel/v8utils.h>
 #include <kernel/native-fn.h>

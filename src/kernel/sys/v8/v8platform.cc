@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "v8platform.h"
+#include <kernel/v8platform.h>
 #include <kernel/platform.h>
 #include <stdio.h>
 #include <kernel/engines.h>

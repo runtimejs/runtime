@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "native-object.h"
+#include <kernel/native-object.h>
 #include RT_INC_IO
 #include <kernel/acpi-manager.h>
 #include <kernel/utils.h>

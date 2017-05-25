@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "acpi-manager.h"
+#include <kernel/acpi-manager.h>
 #include <stdio.h>
 #include <kernel/cpu.h>
 

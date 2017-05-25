@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fileio.h"
+#include <kernel/fileio.h>
 #include <kernel/boot-services.h>
 
 FILE* stdin_get() {

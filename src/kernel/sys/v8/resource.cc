@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "resource.h"
+#include <kernel/resource.h>
 
 namespace rt {
 

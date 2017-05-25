@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mem-manager.h"
+#include <kernel/mem-manager.h>
 #include <stdio.h>
 #include <kernel/engines.h>
 #include <kernel/constants.h>

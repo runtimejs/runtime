@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "initrd.h"
+#include <kernel/initrd.h>
 #include <kernel/crc32.h>
 #include <kernel/utils.h>
 #include <kernel/version.h>

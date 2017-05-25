@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "engine.h"
+#include <kernel/engine.h>
 #include <v8.h>
 #include <kernel/thread-manager.h>
 

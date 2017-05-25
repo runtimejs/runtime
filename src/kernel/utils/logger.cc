@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "logger.h"
+#include <kernel/logger.h>
 #include <kernel/utils.h>
 
 #include RT_INC_IO

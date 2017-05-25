@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "trace.h"
-#include <stdio.h>
+#include <kernel/v8utils.h>
 
 namespace rt {
-
-TraceScope::TraceScope(const char* func, const char* file, int line) {}
-TraceScope::~TraceScope() {}
 
 } // namespace rt

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "thread.h"
+#include <kernel/thread.h>
 #include <kernel/kernel.h>
 #include <kernel/thread-manager.h>
 #include <kernel/mem-manager.h>
