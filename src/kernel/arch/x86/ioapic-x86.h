@@ -66,9 +66,9 @@ private:
   uintptr_t address_;
 };
 
-class IoApicX64 {
+class IoApicX86 {
 public:
-  IoApicX64(uint32_t id, uintptr_t address, uint32_t interrupt_base);
+  IoApicX86(uint32_t id, uintptr_t address, uint32_t interrupt_base);
 
   void Init();
 
@@ -81,7 +81,7 @@ private:
   uintptr_t address_;
   uint32_t interrupt_base_;
   IoApicRegistersAccessor registers_;
-  DELETE_COPY_AND_ASSIGN(IoApicX64);
+  DELETE_COPY_AND_ASSIGN(IoApicX86);
 };
 
 } // namespace rt

@@ -2,6 +2,10 @@ import os
 import sys
 import datetime
 
+arch = "x64"
+bits = 64
+arch_alt = "x86_64"
+
 SetOption('num_jobs', 4)
 
 build = os.getenv('RUNTIME_BUILD', "debug")
@@ -13,16 +17,16 @@ config = {
     "toolchain_bin_path": "",
     "fasm_pathname": "fasm",
     "link_script": "etc/kernel.ld",
-    "name_gxx": "x86_64-elf-g++",
-    "name_gcc": "x86_64-elf-gcc",
-    "name_as": "x86_64-elf-as",
-    "name_ld": "x86_64-elf-gcc",
-    "name_ar": "x86_64-elf-ar",
-    "name_ranlib": "x86_64-elf-ranlib",
-    "name_objcopy": "x86_64-elf-objcopy",
+    "name_gxx": arch+"-elf-g++",
+    "name_gcc": arch+"-elf-gcc",
+    "name_as": arch+"-elf-as",
+    "name_ld": arch+"-elf-gcc",
+    "name_ar": arch+"-elf-ar",
+    "name_ranlib": arch+"-elf-ranlib",
+    "name_objcopy": arch+"-elf-objcopy",
     "flags_common": {
         "shared": set([
-            '-m64',
+            '-m'+bits,
             '-ffreestanding',
             '-nostdlib',
             '-mno-red-zone',
@@ -38,12 +42,12 @@ config = {
             '-Wno-unused-parameter',
             '-fdiagnostics-color',
             '-D__runtime_js__',
-            '-DRT_INC_ADDR_SPACE=\<kernel/arch/x64/address-space-x64.h\>',
-            '-DRT_INC_CPU=\<kernel/arch/x64/cpu-x64.h\>',
-            '-DRT_INC_IO=\<kernel/arch/x64/io-x64.h\>',
-            '-DRT_INC_IRQ=\<kernel/arch/x64/irqs-x64.h\>',
-            '-DRT_INC_PLATFORM=\<kernel/arch/x64/platform-x64.h\>',
-            '-DRUNTIMEJS_PLATFORM_X64',
+            '-DRT_INC_ADDR_SPACE=\<kernel/arch/'+arch+'/address-space-'+arch+'.h\>',
+            '-DRT_INC_CPU=\<kernel/arch/'+arch+'/cpu-'+arch+'.h\>',
+            '-DRT_INC_IO=\<kernel/arch/'+arch+'/io-'+arch+'.h\>',
+            '-DRT_INC_IRQ=\<kernel/arch/'+arch+'/irqs-'+arch+'.h\>',
+            '-DRT_INC_PLATFORM=\<kernel/arch/'+arch+'/platform-'+arch+'.h\>',
+            '-DRUNTIMEJS_PLATFORM_X'+bits,
         ]),
         "release": set([
         ]),
@@ -60,8 +64,8 @@ config = {
             '-U__STRICT_ANSI__',
             '-DENABLE_DEBUGGER_SUPPORT',
             '-DENABLE_DISASSEMBLER',
-            '-DV8_HOST_ARCH_X64',
-            '-DV8_TARGET_ARCH_X64',
+            '-DV8_HOST_ARCH_X'+bits,
+            '-DV8_TARGET_ARCH_X'+bits,
             # '-DV8_DEPRECATION_WARNINGS',
             # '-DV8_IMMINENT_DEPRECATION_WARNINGS',
             # '-DVERIFY_HEAP',
@@ -98,7 +102,7 @@ config = {
             'src/arch',
             'src/kernel',
             'src/kernel/arch',
-            'src/kernel/arch/x64',
+            'src/kernel/arch/'+arch,
             'src/kernel/boot',
             'src/kernel/sys',
             'src/kernel/sys/fs',
@@ -115,7 +119,7 @@ config = {
         "asm": [
             'src',
             'src/kernel/arch',
-            'src/kernel/arch/x64',
+            'src/kernel/arch/'+arch,
             'src/kernel/boot',
             'src/kernel/sys',
             'src/kernel/sys/fs',
@@ -125,7 +129,7 @@ config = {
             'src/kernel/sys/thread',
             'src/kernel/sys/v8',
             'src/kernel/utils',
-            'src/x64'
+            'src/'+arch
         ],
         "js": [
             'src/kernel/js',
@@ -134,8 +138,8 @@ config = {
     "includes": [
         'deps/musl/src/internal',
         'deps/musl/include',
-        'deps/musl/arch/x86_64',
-        'deps/musl/arch/x86_64/bits',
+        'deps/musl/arch/'+arch_alt,
+        'deps/musl/arch/'+arch_alt+'/bits',
         'deps/libcxx/include',
         'deps/v8/include',
         'deps/v8',
@@ -205,6 +209,9 @@ def EnvironmentCreate(build):
         AR = ar,
         AS = _as,
         RANLIB = ranlib,
+        ARCH = arch,
+        ALT_ARCH = arch_alt,
+        BITS = bits,
         CXXFLAGS = " ".join(flags_gxx),
         CFLAGS = " ".join(flags_gcc),
         LINK = ld,

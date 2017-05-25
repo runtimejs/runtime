@@ -12,24 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "local-apic-x64.h"
+#include "local-apic-x86.h"
 #include <kernel/kernel.h>
 #include <kernel/engines.h>
 #include <kernel/mem-manager.h>
 #include <kernel/system-context.h>
-#include <kernel/arch/x64/io-x64.h>
-#include <kernel/arch/x64/platform-x64.h>
+#include <kernel/arch/x86/io-x86.h>
+#include <kernel/arch/x86/platform-x86.h>
 
 namespace rt {
 
-LocalApicX64::LocalApicX64(void* local_apic_address)
+LocalApicX86::LocalApicX86(void* local_apic_address)
   :	local_apic_address_(local_apic_address),
     registers_(local_apic_address),
     bus_freq_(0) {
   RT_ASSERT(local_apic_address);
 }
 
-void LocalApicX64::CpuSetAPICBase(uintptr_t apic) {
+void LocalApicX86::CpuSetAPICBase(uintptr_t apic) {
   uint32_t edx = (apic >> 32) & 0x0f;
   uint32_t eax = (apic & 0xfffff100) | kApicBaseMSREnable;
 
@@ -37,12 +37,12 @@ void LocalApicX64::CpuSetAPICBase(uintptr_t apic) {
   CpuPlatform::SetMSR(kApicBaseMSR, value);
 }
 
-uintptr_t LocalApicX64::CpuGetAPICBase() {
+uintptr_t LocalApicX86::CpuGetAPICBase() {
   auto value = CpuPlatform::GetMSR(kApicBaseMSR);
   return (value.lo & 0xfffff100) | ((uintptr_t)(value.hi & 0x0f) << 32);
 }
 
-void LocalApicX64::InitCpu(PlatformArch* platform) {
+void LocalApicX86::InitCpu(PlatformArch* platform) {
   RT_ASSERT(platform);
 
   GLOBAL_mem_manager()->address_space().MapPage(

@@ -23,7 +23,7 @@ IoApicX86::IoApicX86(uint32_t id, uintptr_t address, uint32_t interrupt_base)
     interrupt_base_(interrupt_base),
     registers_(IoApicRegistersAccessor(address)) {}
 
-void IoApicX64::Init() {
+void IoApicX86::Init() {
   RT_ASSERT(address_);
   uint32_t id_reg = (registers_.Read(IoApicRegister::ID) >> 24) & 0xF;
 

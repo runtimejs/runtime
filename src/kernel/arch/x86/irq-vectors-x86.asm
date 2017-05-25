@@ -1,6 +1,6 @@
 ; Copyright 2014 runtime.js project authors
 ;
-; Licensed under the Apache License, Version 2.0 (the "License");
+; Licensed under the Apache License, Veesion 2.0 (the "License");
 ; you may not use this file except in compliance with the License.
 ; You may obtain a copy of the License at
 ;
@@ -301,50 +301,34 @@ extrn    irq_handler_any
 
 macro SaveState
 {
-    sub rsp, 256
-    mov qword [rsp+0], r15
-    mov qword [rsp+8], r14
-    mov qword [rsp+16], r13
-    mov qword [rsp+24], r12
-    mov qword [rsp+32], r11
-    mov qword [rsp+40], r10
-    mov qword [rsp+48], r9
-    mov qword [rsp+56], r8
-    mov qword [rsp+64], rdi
-    mov qword [rsp+72], rsi
-    mov qword [rsp+80], rdx
-    mov qword [rsp+88], rcx
-    mov qword [rsp+96], rbx
-    mov qword [rsp+104], rax
-    mov qword [rsp+112], rbp
-    mov qword [rsp+120], rsp
+    sub esp, 256
+    mov qword [esp+64], edi
+    mov qword [esp+72], esi
+    mov qword [esp+80], edx
+    mov qword [esp+88], ecx
+    mov qword [esp+96], ebx
+    mov qword [esp+104], eax
+    mov qword [esp+112], ebp
+    mov qword [esp+120], esp
 }
 
 macro RestoreState
 {
-    mov r15, qword [rsp+0]
-    mov r14, qword [rsp+8]
-    mov r13, qword [rsp+16]
-    mov r12, qword [rsp+24]
-    mov r11, qword [rsp+32]
-    mov r10, qword [rsp+40]
-    mov r9, qword [rsp+48]
-    mov r8, qword [rsp+56]
-    mov rdi, qword [rsp+64]
-    mov rsi, qword [rsp+72]
-    mov rdx, qword [rsp+80]
-    mov rcx, qword [rsp+88]
-    mov rbx, qword [rsp+96]
-    mov rax, qword [rsp+104]
-    mov rbp, qword [rsp+112]
-    mov rsp, qword [rsp+120]
-    add rsp, 256
+    mov edi, qword [esp+64]
+    mov esi, qword [esp+72]
+    mov edx, qword [esp+80]
+    mov ecx, qword [esp+88]
+    mov ebx, qword [esp+96]
+    mov eax, qword [esp+104]
+    mov ebp, qword [esp+112]
+    mov esp, qword [esp+120]
+    add esp, 256
 }
 
 macro IrqHandler num
 {
     SaveState
-    mov rdi, num
+    mov edi, num
     call irq_handler_any
     RestoreState
     iretq
@@ -355,43 +339,43 @@ macro Hang
     jmp $
 }
 
-; rdi containts first argument - stack pointer
-; rsi containts second argument - address to jump
+; edi containts first argument - stack pointer
+; esi containts second argument - address to jump
 _switch_to_stack:
 
-    xor rax,rax
-    push rax    ; target ss
-    push rdi    ; target rsp
+    xor eax,eax
+    push eax    ; target ss
+    push edi    ; target esp
     pushfq      ; target flags
-    push rax    ; target cs
-    push rsi    ; target rip
+    push eax    ; target cs
+    push esi    ; target rip
     iretq
 
 ;  ---------------------------------------------------
 ;  begin preempt logic
 
-;  Param: RDI - load thread structure location, 16 bytes aligned
+;  Param: edi - load thread structure location, 16 bytes aligned
 ;               structure size - 1024 bytes
 ;                 0 - 512  fx state
 ;               512 - 1024 general registers etc
 
 _enterFirstThread:
 
-    xor rax, rax
-    push rax                    ; target ss
-    push qword [rdi+560]        ; target rsp
+    xor eax, eax
+    push eax                    ; target ss
+    push qword [edi+560]        ; target esp
     pushfq                      ; target flags
     push 0x08                   ; target cs
-    push qword [rdi+568]        ; target rip
-    mov rdi, qword [rdi+576]    ; pass thread pointer as 1st parameter
+    push qword [edi+568]        ; target rip
+    mov edi, qword [edi+576]    ; pass thread pointer as 1st parameter
     iretq
 
 ;
-;  Param: RDI - save thread structure location, 16 bytes aligned
+;  Param: edi - save thread structure location, 16 bytes aligned
 ;               structure size - 1024 bytes
 ;                 0 - 512  fx state
 ;               512 - 1024 general registers etc
-;  Param: RSI - load thread structure location, 16 bytes aligned
+;  Param: esi - load thread structure location, 16 bytes aligned
 ;               structure size - 1024 bytes
 ;                 0 - 512  fx state
 ;               512 - 1024 general registers etc
@@ -399,56 +383,47 @@ _enterFirstThread:
 
 _preemptStart:
     cli
-    push rdi
-    fxsave [rdi]
-    mov qword [rdi+512], r15
-    mov qword [rdi+520], r14
-    mov qword [rdi+528], r13
-    mov qword [rdi+536], r12
-    mov qword [rdi+544], rbp
-    mov qword [rdi+552], rbx
-    mov qword [rdi+560], rsp
-    mov qword [rdi+568], _preemptCallback
+    push edi
+    fxsave [edi]
+    mov qword [edi+552], ebx
+    mov qword [edi+560], esp
+    mov qword [edi+568], _preemptCallback
 
-    xor rax, rax
-    push rax                    ; target ss
-    push qword [rsi+560]        ; target rsp
+    xor eax, eax
+    push eax                    ; target ss
+    push qword [esi+560]        ; target esp
     pushfq                      ; target flags
     push 0x08                   ; target cs
-    push qword [rsi+568]        ; target rip
-    mov rdi, qword [rsi+576]    ; pass thread pointer as 1st parameter
+    push qword [esi+568]        ; target rip
+    mov edi, qword [esi+576]    ; pass thread pointer as 1st parameter
     iretq
 
 _preemptCallback:
-    pop rdi
-    fxrstor [rdi]
-    mov r15, qword [rdi+512]
-    mov r14, qword [rdi+520]
-    mov r13, qword [rdi+528]
-    mov r12, qword [rdi+536]
-    mov rbp, qword [rdi+544]
-    mov rbx, qword [rdi+552]
-    mov rax, qword [rdi+576]   ; return thread pointer
+    pop edi
+    fxrstor [edi]
+    mov ebp, qword [edi+544]
+    mov ebx, qword [edi+552]
+    mov eax, qword [edi+576]   ; return thread pointer
     sti
     ret
 
-;  Param: RDI - clean 1024 byte space for thread structure location
-;  Param: RSI - function pointer to thread entry point
-;  Param: RDX - thread stack location
-;  Param: RCX - thread object pointer
+;  Param: edi - clean 1024 byte space for thread structure location
+;  Param: esi - function pointer to thread entry point
+;  Param: edx - thread stack location
+;  Param: ecx - thread object pointer
 
 _threadStructInit:
-    fxsave [rdi]        ; save current state, it could be any valid fxstate
-    xor rax, rax
-    mov qword [rdi+512], rax
-    mov qword [rdi+520], rax
-    mov qword [rdi+528], rax
-    mov qword [rdi+536], rax
-    mov qword [rdi+544], rax
-    mov qword [rdi+552], rax
-    mov qword [rdi+560], rdx
-    mov qword [rdi+568], rsi
-    mov qword [rdi+576], rcx
+    fxsave [edi]        ; save current state, it could be any valid fxstate
+    xor eax, eax
+    mov qword [edi+512], eax
+    mov qword [edi+520], eax
+    mov qword [edi+528], eax
+    mov qword [edi+536], eax
+    mov qword [edi+544], eax
+    mov qword [edi+552], eax
+    mov qword [edi+560], edx
+    mov qword [edi+568], esi
+    mov qword [edi+576], ecx
     ret
 
 ;  end preempt logic
@@ -498,8 +473,8 @@ _int_gate_exception_BR:
 
 _int_gate_exception_UD:
 
-    pop rdi ; rip, 1 arg
-    pop rsi ; cs, 2 arg
+    pop edi ; rip, 1 arg
+    pop esi ; cs, 2 arg
     SaveState
     call	exception_UD_event
     RestoreState
@@ -542,13 +517,13 @@ _int_gate_exception_SS:
 
 _int_gate_exception_GP:
 
-    pop rdx ; error code, 3arg
-    pop rdi ; rip, 1 arg
-    pop rsi ; cs, 2 arg
-    pop rbx ; remove flags
-    pop rbx ; remore rsp
-    pop rbx ; remove ss
-    mov rcx, rax  ; save rax, 4 arg
+    pop edx ; error code, 3arg
+    pop edi ; rip, 1 arg
+    pop esi ; cs, 2 arg
+    pop ebx ; remove flags
+    pop ebx ; remore esp
+    pop ebx ; remove ss
+    mov ecx, eax  ; save eax, 4 arg
 
     SaveState
     call	exception_GP_event
@@ -560,11 +535,11 @@ _int_gate_exception_GP:
 _int_gate_exception_PF:
 
     SaveState
-    mov rsi, 0
-    mov     rdi, cr2    ; CR2 contians the address that the program tried to access
+    mov esi, 0
+    mov     edi, cr2    ; CR2 contians the address that the program tried to access
     call    exception_PF_event
     RestoreState
-    add	rsp, 8	    ; fix rsp after state restore
+    add	esp, 8	    ; fix esp after state restore
     iretq
 
 _int_gate_exception_MF:
@@ -614,11 +589,11 @@ align 16
 _int_gate_irq_timer:
 
     SaveState
-    mov rdi, rsp 	; arg 0
-    add rdi, 256
-    mov rdx, [rdi] 	; arg 2, rip from stack
-    add rdi, 40		; compute sp, exclude cpu saved state (5*qword)
-    mov rsi, rbp 	; arg 1
+    mov edi, esp 	; arg 0
+    add edi, 256
+    mov edx, [edi] 	; arg 2, rip from stack
+    add edi, 40		; compute sp, exclude cpu saved state (5*qword)
+    mov esi, ebp 	; arg 1
     call    irq_timer_event
     RestoreState
     iretq
@@ -627,8 +602,8 @@ align 16
 _int_gate_irq_keyboard:
 
     ; debugging
-    ; pop rdi  ; place RIP into first argument
-    ; push rdi ; put it back
+    ; pop edi  ; place RIP into first argument
+    ; push edi ; put it back
 
     SaveState
     call    irq_keyboard_event

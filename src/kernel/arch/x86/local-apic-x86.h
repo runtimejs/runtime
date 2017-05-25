@@ -134,9 +134,9 @@ private:
   uint8_t* local_apic_base_;
 };
 
-class LocalApicX64 {
+class LocalApicX86 {
 public:
-  LocalApicX64(void* local_apic_address);
+  LocalApicX86(void* local_apic_address);
 
   /**
    * Send INIT command

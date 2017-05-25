@@ -12,43 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <kernel/platform.h>
+#pragma once
 #include <kernel/kernel.h>
-#include <kernel/cpu.h>
-#include <kernel/arch/x64/io-x64.h>
+#include <kernel/arch/x86/acpi-x86.h>
+#include <kernel/arch/x86/local-apic-x86.h>
 
 namespace rt {
 
-void PlatformArch::StartCPUs() {
-  acpi_.StartCPUs();
-}
-
-void PlatformArch::InitCurrentCPU() {
-  if (0 == Cpu::id()) {
-    acpi_.InitIoApics();
+class PlatformArch {
+public:
+  PlatformArch() {
   }
 
-  RT_ASSERT(acpi_.local_apic());
-  acpi_.local_apic()->InitCpu(this);
-}
+  void InitCurrentCPU();
+  void StartCPUs();
+  void AckIRQ();
 
-void PlatformArch::AckIRQ() {
-  RT_ASSERT(acpi_.local_apic());
-  acpi_.local_apic()->EOI();
-}
+  /**
+   * Reboot machine using keyboard controller
+   */
+  void Reboot();
 
-void PlatformArch::Reboot() {
-  const uint8_t magic = 0x02;
-  const uint16_t port = 0x64;
-
-  uint8_t value = magic;
-  while (value & magic) {
-    value = IoPortsX64::InB(port);
+  uint32_t cpu_count() const {
+    return acpi_.cpus_count();
   }
 
-  IoPortsX64::OutB(port, 0xfe);
-  Cpu::HangSystem();
-}
+  uint32_t bus_frequency() const {
+    RT_ASSERT(acpi_.local_apic());
+    return acpi_.local_apic()->bus_frequency();
+  }
+
+  uint64_t BootTimeMicroseconds() const {
+    return acpi_.BootTimeMicroseconds();
+  }
+private:
+  AcpiX64 acpi_;
+  DELETE_COPY_AND_ASSIGN(PlatformArch);
+};
 
 } // namespace rt
-

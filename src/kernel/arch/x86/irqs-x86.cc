@@ -14,8 +14,8 @@
 
 #include <kernel/kernel.h>
 #include <kernel/irqs.h>
-#include <kernel/arch/x64/io-x64.h>
-#include <kernel/arch/x64/irqs-x64.h>
+#include <kernel/arch/x86/io-x86.h>
+#include <kernel/arch/x86/irqs-x86.h>
 
 extern "C" {
 #define GATE(NAME) uint64_t NAME()
@@ -273,11 +273,11 @@ extern "C" {
 namespace rt {
 
 void IrqsArch::DisableNMI() {
-  IoPortsX64::OutB(0x70, IoPortsX64::InB(0x70) | 0x80);
+  IoPortsX86::OutB(0x70, IoPortsX86::InB(0x70) | 0x80);
 }
 
 void IrqsArch::EnableNMI() {
-  IoPortsX64::OutB(0x70, IoPortsX64::InB(0x70) & 0x7F);
+  IoPortsX86::OutB(0x70, IoPortsX86::InB(0x70) & 0x7F);
 }
 
 void IrqsArch::InstallGate(uint8_t vector, uint64_t (*func)(), uint8_t type) {
@@ -311,21 +311,21 @@ void IrqsArch::SetUp() {
   DisableNMI();
 
   // Remap IRQs
-  IoPortsX64::OutB(0x20, 0x11); // 00010001b, begin PIC 1 initialization
-  IoPortsX64::OutB(0xA0, 0x11); // 00010001b, begin PIC 2 initialization
+  IoPortsX86::OutB(0x20, 0x11); // 00010001b, begin PIC 1 initialization
+  IoPortsX86::OutB(0xA0, 0x11); // 00010001b, begin PIC 2 initialization
 
-  IoPortsX64::OutB(0x21, 0x20); // IRQ 0-7, interrupts 20h-27h
-  IoPortsX64::OutB(0xA1, 0x28); // IRQ 8-15, interrupts 28h-2Fh
+  IoPortsX86::OutB(0x21, 0x20); // IRQ 0-7, interrupts 20h-27h
+  IoPortsX86::OutB(0xA1, 0x28); // IRQ 8-15, interrupts 28h-2Fh
 
-  IoPortsX64::OutB(0x21, 0x04);
-  IoPortsX64::OutB(0xA1, 0x02);
+  IoPortsX86::OutB(0x21, 0x04);
+  IoPortsX86::OutB(0xA1, 0x02);
 
-  IoPortsX64::OutB(0x21, 0x01);
-  IoPortsX64::OutB(0xA1, 0x01);
+  IoPortsX86::OutB(0x21, 0x01);
+  IoPortsX86::OutB(0xA1, 0x01);
 
   // Mask all PIC interrupts
-  IoPortsX64::OutB(0x21, 0xFF);
-  IoPortsX64::OutB(0xA1, 0xFF);
+  IoPortsX86::OutB(0x21, 0xFF);
+  IoPortsX86::OutB(0xA1, 0xFF);
 
   // Gate type
   uint8_t type = 0x8e;

@@ -14,7 +14,7 @@
 
 #pragma once
 #include <kernel/kernel.h>
-#include <kernel/arch/x64/io-x64.h>
+#include <kernel/arch/x86/io-x86.h>
 
 namespace rt {
 
