@@ -108,7 +108,6 @@ config = {
             'src/kernel/sys/thread',
             'src/kernel/sys/v8',
             'src/kernel/utils',
-            'src/x64',
             'src/kernel/profiler',
             'src/common',
             'test/cc',
@@ -129,7 +128,7 @@ config = {
             'src/x64'
         ],
         "js": [
-            'src/kernel/Js',
+            'src/kernel/js',
         ],
     },
     "includes": [
@@ -146,6 +145,7 @@ config = {
         'deps/miniz',
         'deps/libsodium/src/libsodium/include',
         'deps/json11',
+        'src/Includes',
         'src',
         'test',
     ],
