@@ -19,7 +19,7 @@
 #include <kernel/multiboot.h>
 #include <kernel/boot-services.h>
 #include <kernel/dlmalloc.h>
-#include <kernel/x64/address-space-x64.h>
+#include RT_INC_ADDR_SPACE
 #include <kernel/runtime-state.h>
 #include <kernel/threadlib/spinlock.h>
 #include <kernel/allocation-tracker.h>

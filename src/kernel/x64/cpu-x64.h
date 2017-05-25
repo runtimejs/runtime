@@ -48,6 +48,10 @@ public:
     asm volatile("cpuid":"=a"(*a),"=d"(*d):"a"(code):"rcx","rbx");
   }
 
+  static char* Arch() {
+    return "x64";
+  }
+
   /**
    * Disable interrupts and stop execution
    */

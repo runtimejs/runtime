@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "native-object.h"
-#include <kernel/x64/io-x64.h>
+#include RT_INC_IO
 #include <kernel/acpi-manager.h>
 #include <kernel/utils.h>
 #include <kernel/v8utils.h>
@@ -414,6 +414,11 @@ NATIVE_FUNCTION(NativesObject,Cpuid) {
   obj->Set(context,s_d,v8::Uint32::NewFromUnsigned(iv8,d_val));
 
   args.GetReturnValue().Set(obj);
+}
+
+NATIVE_FUNCTION(NativesObject,Arch) {
+  PROLOGUE_NOTHIS;
+  args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,Cpu::Arch(),v8::NewStringType::kNormal).ToLocalChecked());
 }
 
 NATIVE_FUNCTION(NativesObject, BufferAddress) {

@@ -19,11 +19,7 @@
 #include <kernel/system-context.h>
 #include <kernel/profiler/profiler.h>
 
-#ifdef RUNTIMEJS_PLATFORM_X64
-#include <kernel/x64/platform-x64.h>
-#else
-#error Platform is not supported
-#endif
+#include RT_INC_PLATFORM
 
 namespace rt {
 

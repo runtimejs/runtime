@@ -62,8 +62,9 @@ public:
   DECLARE_NATIVE(TakeHeapSnapshot);    // Create V8 heap snapshot
   DECLARE_NATIVE(MemoryInfo);          // Get memory information
   DECLARE_NATIVE(SystemInfo);          // Get system information
-  DECLARE_NATIVE(Reboot);              // Reboot system
   DECLARE_NATIVE(Cpuid);          // Get CPU ID
+  DECLARE_NATIVE(Arch);          // Get CPU Arch
+  DECLARE_NATIVE(Reboot);              // Reboot system
 
   // runtime.js syscalls: Low level system access
   DECLARE_NATIVE(BufferAddress);       // Get buffer physical address

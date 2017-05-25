@@ -7,7 +7,7 @@ SECTIONS
     }
     .text 0x0000000000201000 :
     {
-        src/startup.o (.text)
+        src/x64/startup.o (.text)
         *(.text)
         *(.gnu.linkonce.t*)
         . = ALIGN(4096);

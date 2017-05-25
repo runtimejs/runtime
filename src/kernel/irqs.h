@@ -17,11 +17,7 @@
 #include <kernel/resource.h>
 #include <kernel/engine.h>
 
-#ifdef RUNTIMEJS_PLATFORM_X64
-#include <kernel/x64/irqs-x64.h>
-#else
-#error Platform is not supported
-#endif
+#include RT_INC_IRQ
 
 namespace rt {
 

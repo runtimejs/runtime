@@ -14,11 +14,7 @@
 
 #pragma once
 
-#ifdef RUNTIMEJS_PLATFORM_X64
-#include <kernel/x64/cpu-x64.h>
-#else
-#error Platform is not supported
-#endif
+#include RT_INC_CPU
 
 namespace rt {
 
@@ -33,6 +29,10 @@ public:
 
   static void Cpuid(int code,uint32_t *a,uint32_t *d) {
     CpuPlatform::Cpuid(code,a,d);
+  }
+
+  static char* Arch() {
+    return CpuPlatform::Arch();
   }
 
   /**

@@ -17,7 +17,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <kernel/engines.h>
-#include <kernel/x64/io-x64.h>
+#include RT_INC_IO
 
 using namespace rt;
 

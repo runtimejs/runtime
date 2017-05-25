@@ -15,8 +15,7 @@
 #include "logger.h"
 #include <kernel/utils.h>
 
-// TODO: remove arch header
-#include <kernel/x64/io-x64.h>
+#include RT_INC_IO
 
 namespace rt {
 
