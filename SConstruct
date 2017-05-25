@@ -3,7 +3,7 @@ import sys
 import datetime
 
 arch = "x64"
-bits = 64
+bits = str(64)
 arch_alt = "x86_64"
 
 SetOption('num_jobs', 4)
