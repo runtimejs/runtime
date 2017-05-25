@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-const driverUtils = require('../driver-utils');
+const driverUtils = require('../../../driver-utils');
 const assert = require('assert');
 const typeutils = require('typeutils');
 

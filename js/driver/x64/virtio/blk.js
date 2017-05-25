@@ -14,7 +14,7 @@
 
 'use strict';
 const VirtioDevice = require('./device');
-const runtime = require('../../core');
+const runtime = require('../../../core');
 const { Uint64LE } = require('int64-buffer');
 
 const VIRTIO_BLK_T_IN = 0;

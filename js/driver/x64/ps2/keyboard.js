@@ -14,7 +14,7 @@
 
 'use strict';
 
-const runtime = require('../../core');
+const runtime = require('../../../core');
 
 /* eslint-disable no-multi-spaces, max-len */
 const controlKeys = [

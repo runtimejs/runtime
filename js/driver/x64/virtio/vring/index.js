@@ -18,7 +18,7 @@ const assert = require('assert');
 const DescriptorTable = require('./descriptor-table');
 const AvailableRing = require('./available-ring');
 const UsedRing = require('./used-ring');
-const { memoryBarrier } = require('../../../core/atomic');
+const { memoryBarrier } = require('../../../../core/atomic');
 const SIZEOF_UINT16 = 2;
 
 class VRing {

@@ -107,6 +107,8 @@ v8::Local<v8::Context> TemplateCache::NewContext() {
     SET_SYSCALL("takeHeapSnapshot", NativesObject::TakeHeapSnapshot);
     SET_SYSCALL("memoryInfo", NativesObject::MemoryInfo);
     SET_SYSCALL("systemInfo", NativesObject::SystemInfo);
+    SET_SYSCALL("cpuid", NativesObject::Cpuid);
+    SET_SYSCALL("arch", NativesObject::Arch);
     SET_SYSCALL("reboot", NativesObject::Reboot);
 
     // Low level system access

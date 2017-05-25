@@ -14,7 +14,7 @@
 
 'use strict';
 const VirtioDevice = require('./device');
-const runtime = require('../../core');
+const runtime = require('../../../core');
 
 function initializeRNGDevice(pciDevice) {
   const ioSpace = pciDevice.getBAR(0).resource;

@@ -19,7 +19,7 @@ const virtioRNG = require('./rng');
 const VIRTIO_SUBSYSTEM_NETWORK = 1;
 const VIRTIO_SUBSYSTEM_BLOCK = 2;
 const VIRTIO_SUBSYSTEM_RNG = 4;
-const runtime = require('../../core');
+const runtime = require('../../../core');
 
 const driver = {
   init(pciDevice) {
