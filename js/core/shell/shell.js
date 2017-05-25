@@ -1,9 +1,5 @@
 class Shell {
-  constructor(cmdcb = () => {},promptcb = () => {},name = "rtty",user = "runtime",width = 80,height = 25,stdio = runtime.stdio.defaultStdio) {
-    this.CURSOR.X = this.CURSOR.Y = 0;
-    this.CURSOR.SHOWING = true;
-    this.WIDTH = width;
-    this.HEIGHT = height;
+  constructor(cmdcb = () => {},promptcb = () => {},name = "rtty",user = "runtime",stdio = runtime.stdio.defaultStdio) {
     this.COMMANDS = new Map();
     this.ENV = {};
     this.ENV["TERM"] = name;

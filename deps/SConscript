@@ -2,6 +2,7 @@ import os
 Import('env_base')
 
 ARCH = os.getenv('ARCH', "x64")
+ARCH_CAPS = os.getenv('ARCH_CAPS', "X64")
 ALT_ARCH = os.getenv('ALT_ARCH', "x86_64")
 BITS = os.getenv('BITS', "64")
 
@@ -22,8 +23,8 @@ libs_config = {
             'v8/src',
             'v8',
             '../src',
-            '../src/Includes',
-            '../src/Includes/kernel'
+            '../src/include',
+            '../src/include/kernel'
         ],
         "source": [
             'v8/src/accessors.cc',

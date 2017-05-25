@@ -3,6 +3,7 @@ import sys
 import datetime
 
 arch = os.getenv('ARCH', "x64")
+arch_caps = os.getenv('ARCH', "X64")
 bits = os.getenv('BITS', "64")
 arch_alt = os.getenv('ALT_ARCH', "x86_64")
 
@@ -49,7 +50,7 @@ config = {
             '-DRT_INC_IO=\<kernel/arch/'+arch+'/io-'+arch+'.h\>',
             '-DRT_INC_IRQ=\<kernel/arch/'+arch+'/irqs-'+arch+'.h\>',
             '-DRT_INC_PLATFORM=\<kernel/arch/'+arch+'/platform-'+arch+'.h\>',
-            '-DRUNTIMEJS_PLATFORM_X'+bits,
+            '-DRUNTIMEJS_PLATFORM_'+arch_caps,
         ]),
         "release": set([
         ]),
@@ -66,8 +67,8 @@ config = {
             '-U__STRICT_ANSI__',
             '-DENABLE_DEBUGGER_SUPPORT',
             '-DENABLE_DISASSEMBLER',
-            '-DV8_HOST_ARCH_X'+bits,
-            '-DV8_TARGET_ARCH_X'+bits,
+            '-DV8_HOST_ARCH_'+arch_caps,
+            '-DV8_TARGET_ARCH_'+arch_caps,
             # '-DV8_DEPRECATION_WARNINGS',
             # '-DV8_IMMINENT_DEPRECATION_WARNINGS',
             # '-DVERIFY_HEAP',
@@ -151,8 +152,8 @@ config = {
         'deps/miniz',
         'deps/libsodium/src/libsodium/include',
         'deps/json11',
-        'src/Includes',
-        'src/Includes/kernel',
+        'src/include',
+        'src/include/kernel',
         'src',
         'test',
     ],
@@ -212,6 +213,7 @@ def EnvironmentCreate(build):
         AS = _as,
         RANLIB = ranlib,
         ARCH = arch,
+        ARCH_CAPS = arch_caps,
         ALT_ARCH = arch_alt,
         BITS = bits,
         CXXFLAGS = " ".join(flags_gxx),
@@ -222,7 +224,7 @@ def EnvironmentCreate(build):
         LINKCOMSTR = 'Link $TARGET',
         RANLIBCOMSTR = 'Index $TARGET',
         ARCOMSTR = 'Archive $TARGET',
-        ENV = {'PATH': os.environ['PATH'],'ARCH': arch,'ALT_ARCH':arch_alt,'BITS':bits},
+        ENV = {'PATH': os.environ['PATH'],'ARCH': arch,'ARCH_CAPS':arch_caps,'ALT_ARCH':arch_alt,'BITS':bits},
     )
 
     env.Append(
@@ -253,6 +255,7 @@ def BuildProject(env_base):
     env.Replace(LIBS = config["libs"])
     env.Replace(LIBPATH = ['deps'])
     env.Replace(ARCH = arch)
+    env.Replace(ARCH_CAPS = arch_caps)
     env.Replace(ALT_ARCH = arch_alt)
     env.Replace(BITS = bits)
 

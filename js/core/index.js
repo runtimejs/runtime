@@ -20,11 +20,10 @@ require('./polyfill');
 const random = require('./random');
 const block = require('./block');
 const keyboard = require('./keyboard');
-const ps2 = require('./arch/'+process.arch+'/ps2');
+const ps2 = require('./ps2');
 const pci = require('./arch/'+process.arch+'/pci');
 const net = require('./net');
 const stdio = require('./stdio');
-const tty = require('./tty');
 const shell = require('./shell');
 
 class Runtime {
@@ -38,7 +37,6 @@ class Runtime {
       allocator,
       net,
       stdio,
-      tty,
       shell,
       machine: {
         reboot: __SYSCALL.reboot,

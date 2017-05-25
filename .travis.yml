@@ -14,10 +14,19 @@ before_script:
 script: RUNTIME_BUILD=release scons
 after_success: gzip disk/boot/runtime
 deploy:
-  provider: releases
-  api_key:
-    secure: NInTm2I0c/OdzQ4ev3ZK1Z1zmg+VZ/YCdj2UD+aGTz+5IkspwQNuimNZQJSY8T05snDqxOXk/OWKPGOxgRNDKITrGAbxnSG996P1uWg/98btAvmwuSocXOe3OBlsGO+LXOcqK70v4YGF5DPr2bPXqxQLsEA9CiOKHPJ8OEZT/osF7OWpipypapZj4iIsHB3/TR5rrqBJCJivaxGd3MdVP1XTSMOl2k34EFuZgcV+hJm9gY26+oxIPhwkIUhaRUchuke0QgqUnWyiX1yAItJP7RsV0QSM8wVluwNFn1WPAPzI76gIL7wHR7u+7gums8h/XvBHddhatNUzQFcrsKv0o2+6hFPGoarFA9mGwXMFdqdv91iiKt5aqlbbomwnpCuftmcTdPdvmbPkSbkTIAJTYJKxflrAzAreYIJAr2qzqWDkEd4GdH80RKh2HHXO++AS88kTDHAkXw7CA5ZOOndFsa5isxqnnEtBo3Isf8MvlVWwQ4/AqyxWWtm18N8WSu92unMKT2KQ4GkaBmkbH0o664qxiRH1gBw9DedZbLqNqbU15e90HrvR7Xyk3mg5rFdZr/tnHrT1CzLI0i0imTGxC27acUFFaJ4dRaOYNDJ8Z0FM2c4U4Nvv17JxhtaN8zkwDwy2oLGxLoGaSwNLqWgd/U7oxq12fRiEzYmPi6oL0Eo=
-  file: disk/boot/runtime.gz
-  skip_cleanup: true
-  on:
-    repo: Ross-Computers/runtime
+  - provider: releases
+    skip_cleanup: true
+    api_key:
+      secure: P+Ei+zxl/jN4Mt+sIm0jfikU0F81yQJEDQgLharThnblm8SILYLZ4jo+vSC7YA5u75wjj6ej3Guxk/Nm0Ajg4C9K7BLVZViZzrRhT8VdxZ8680EOn0A7/abHKA8AT+By8n4sOMhGgbsOLUUHQC+Bo7KLA2S2NGLgHJCKuEatPjg=
+    file: disk/boot/runtime.gz
+    on:
+      tags: true
+      repo: runtimejs/runtime
+  - provider: npm
+    skip_cleanup: true
+    email: shayief@gmail.com
+    api_key:
+      secure: Prcon+FjPLo1nh6hdJ1byLAUTMU/vfq3fBLzkxQIyJTVKIeKg9mPVtNoCmvbgxsSVTdS+gPjIoMpt0LgZCUq/cDRJAtOIaAqbm+fVNJBTwgkgwYAG7hCjEprAhUYiqutT+7KhgNZSKUBNJo/w5sWl8xdsSbfHyldGP6XBcocL50=
+    on:
+      tags: true
+      repo: runtimejs/runtime
