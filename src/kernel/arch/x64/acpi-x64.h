@@ -18,9 +18,9 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
-#include <kernel/x64/cpu-trampoline-x64.h>
-#include <kernel/x64/ioapic-x64.h>
-#include <kernel/x64/hpet-x64.h>
+#include <kernel/arch/x64/cpu-trampoline-x64.h>
+#include <kernel/arch/x64/ioapic-x64.h>
+#include <kernel/arch/x64/hpet-x64.h>
 
 namespace rt {
 

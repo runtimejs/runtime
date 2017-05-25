@@ -20,13 +20,13 @@
 #include <atomic>
 #include <v8.h>
 #include <kernel/local-storage.h>
-#include <kernel/sys/memory/mem-manager.h>
+#include <kernel/mem-manager.h>
 #include <kernel/resource.h>
 #include <kernel/constants.h>
 #include <kernel/utils.h>
 #include <kernel/timeouts.h>
 #include <kernel/transport.h>
-#include <kernel/sys/v8/v8utils.h>
+#include <kernel/v8utils.h>
 #include <kernel/native-fn.h>
 
 namespace rt {

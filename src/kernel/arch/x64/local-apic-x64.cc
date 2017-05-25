@@ -17,8 +17,8 @@
 #include <kernel/engines.h>
 #include <kernel/mem-manager.h>
 #include <kernel/system-context.h>
-#include <kernel/x64/io-x64.h>
-#include <kernel/x64/platform-x64.h>
+#include <kernel/arch/x64/io-x64.h>
+#include <kernel/arch/x64/platform-x64.h>
 
 namespace rt {
 

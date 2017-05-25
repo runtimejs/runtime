@@ -15,7 +15,7 @@
 #include <kernel/platform.h>
 #include <kernel/kernel.h>
 #include <kernel/cpu.h>
-#include <kernel/x64/io-x64.h>
+#include <kernel/arch/x64/io-x64.h>
 
 namespace rt {
 

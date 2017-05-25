@@ -14,8 +14,8 @@
 
 #include <kernel/kernel.h>
 #include <kernel/irqs.h>
-#include <kernel/x64/io-x64.h>
-#include <kernel/x64/irqs-x64.h>
+#include <kernel/arch/x64/io-x64.h>
+#include <kernel/arch/x64/irqs-x64.h>
 
 extern "C" {
 #define GATE(NAME) uint64_t NAME()

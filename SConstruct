@@ -90,8 +90,7 @@ config = {
     },
     "flags_link": set([
         '-nostdlib',
-        '-nodefaultlibs',
-        # '-Map etc/map.txt',
+        '-nodefaultlibs'
     ]),
     "locations": {
         "cc": [
@@ -116,7 +115,17 @@ config = {
         ],
         "asm": [
             'src',
-            'src/kernel/x64',
+            'src/kernel/arch',
+            'src/kernel/arch/x64',
+            'src/kernel/boot',
+            'src/kernel/sys',
+            'src/kernel/sys/fs',
+            'src/kernel/sys/hw',
+            'src/kernel/sys/io',
+            'src/kernel/sys/memory',
+            'src/kernel/sys/thread',
+            'src/kernel/sys/v8',
+            'src/kernel/utils',
             'src/x64'
         ],
         "js": [

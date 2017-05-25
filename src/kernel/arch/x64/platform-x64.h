@@ -14,8 +14,8 @@
 
 #pragma once
 #include <kernel/kernel.h>
-#include <kernel/x64/acpi-x64.h>
-#include <kernel/x64/local-apic-x64.h>
+#include <kernel/arch/x64/acpi-x64.h>
+#include <kernel/arch/x64/local-apic-x64.h>
 
 namespace rt {
 
