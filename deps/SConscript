@@ -1,12 +1,17 @@
+import os
 Import('env_base')
+
+ARCH = os.getenv('ARCH', "x64")
+ALT_ARCH = os.getenv('ALT_ARCH', "x86_64")
+BITS = os.getenv('BITS', "64")
 
 libs_config = {
     "v8": {
         "include": [
             'musl/src/internal',
             'musl/include',
-            'musl/arch/'+ALT_ARCH,
-            'musl/arch/'+ALT_ARCH+'/bits',
+            'musl/arch/$ALT_ARCH',
+            'musl/arch/$ALT_ARCH/bits',
             'libcxx/include',
             'eastl/include',
             'concurrentqueue',
