@@ -17,7 +17,7 @@ deploy:
   - provider: releases
     skip_cleanup: true
     api_key:
-      secure: P+Ei+zxl/jN4Mt+sIm0jfikU0F81yQJEDQgLharThnblm8SILYLZ4jo+vSC7YA5u75wjj6ej3Guxk/Nm0Ajg4C9K7BLVZViZzrRhT8VdxZ8680EOn0A7/abHKA8AT+By8n4sOMhGgbsOLUUHQC+Bo7KLA2S2NGLgHJCKuEatPjg=
+      secure: U46qwGM0PUFpbx0WwEPGAHfiG4iNxVWIG1jCA2/V6r+ZIkubWAt4juKsafrL8LK2zRiVnNtWCKt0T1zKgBMxebnOUOuP+RPu7oodEhsLX8qMMTHjNeKL4iNmXZx7UoX8uS5IiKQu+Yo1WA6vZTcJ2f++Bg9NwHtOt7LY+zg48Qg=
     file: disk/boot/runtime.gz
     on:
       tags: true
