@@ -1,7 +1,8 @@
-FROM base/arch
+FROM archlinux
 
 RUN echo 'LANG="en_US.UTF-8"' > /etc/locale.conf
-RUN pacman --quiet -Syy
+
+RUN pacman --quiet -Syy --noconfirm
 RUN pacman --quiet -S --noconfirm base-devel
 RUN pacman --quiet -S --noconfirm scons
 RUN pacman --quiet -S --noconfirm libunistring
@@ -19,5 +20,7 @@ RUN cd home && mkdir build-binutils && cd build-binutils && \
     make && make install
 
 RUN cd home && mkdir build-gcc && cd build-gcc && \
-    ../gcc-4.9.1/configure --target=$TARGET --prefix="$PREFIX" --disable-nls --enable-languages=c,c++ --without-headers && \
+    ../gcc-4.9.1/configure CXXFLAGS="-std=gnu++98" --target=$TARGET --prefix="$PREFIX" --disable-nls --enable-languages=c,c++ && \
     make all-gcc && make all-target-libgcc && make install-gcc && make install-target-libgcc
+
+RUN pacman -S --noconfirm nodejs npm

@@ -5,7 +5,7 @@ import datetime
 SetOption('num_jobs', 4)
 
 build = os.getenv('RUNTIME_BUILD', "debug")
-print 'Build', build
+print('Build', build)
 
 config = {
     "project_name": "out/runtimejs",
