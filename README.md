@@ -1,4 +1,5 @@
 # Project is not maintained, use at your own risk
+There is a project at [runtimejs-comm/runtime](https://github.com/runtimejs-comm/runtime) that is looking to continue by maintaining a fork. Visit the [repository](https://github.com/runtimejs-comm/runtime) on Github for more details.
 
 # runtime.js
 
