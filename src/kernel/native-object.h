@@ -282,4 +282,54 @@ private:
   MemoryBlock<uint32_t> memory_block_;
 };
 
+class LibsodiumObject : public JsObjectWrapper<LibsodiumObject, NativeTypeId::TYPEID_LIBSODIUM> {
+public:
+  LibsodiumObject() : JsObjectWrapper() {}
+
+  DECLARE_NATIVE(BlakeHash);
+  DECLARE_NATIVE(Sha256Hash);
+  DECLARE_NATIVE(Sha512Hash);
+  DECLARE_NATIVE(Constants);
+  DECLARE_NATIVE(SecretboxEasy);
+  DECLARE_NATIVE(SecretboxEasyOpen);
+  DECLARE_NATIVE(Auth);
+  DECLARE_NATIVE(AuthVerify);
+  DECLARE_NATIVE(AEADChaCha20Poly135Encrypt);
+  DECLARE_NATIVE(AEADChaCha20Poly135Decrypt);
+  DECLARE_NATIVE(RandombytesBuf);
+  // AES-256 GCM isn't supported on QEMU's system-x86_64
+  // The JavaScript will automatically throw 'CPU not supported'
+  // plus, "crypto_aead_aes256gcm_* was not declared in this scope"... why?
+  /*DECLARE_NATIVE(AEADAES256GCMEncrypt);
+  DECLARE_NATIVE(AEADAES256GCMDecrypt);*/
+  DECLARE_NATIVE(BoxEasy);
+  DECLARE_NATIVE(BoxEasyOpen);
+  DECLARE_NATIVE(BoxKeypair);
+  DECLARE_NATIVE(BoxSeedKeypair);
+
+  void ObjectInit(ExportBuilder obj) {
+    obj.SetCallback("randombytes_buf", RandombytesBuf);
+    obj.SetCallback("crypto_generichash", BlakeHash);
+    obj.SetCallback("crypto_hash_sha256", Sha256Hash);
+    obj.SetCallback("crypto_hash_sha512", Sha512Hash);
+    obj.SetCallback("crypto_constants", Constants);
+    obj.SetCallback("crypto_secretbox_easy", SecretboxEasy);
+    obj.SetCallback("crypto_secretbox_open_easy", SecretboxEasyOpen);
+    obj.SetCallback("crypto_auth", Auth);
+    obj.SetCallback("crypto_auth_verify", AuthVerify);
+    obj.SetCallback("crypto_aead_chacha20poly1305_encrypt", AEADChaCha20Poly135Encrypt);
+    obj.SetCallback("crypto_aead_chacha20poly1305_decrypt", AEADChaCha20Poly135Decrypt);
+    /*obj.SetCallback("crypto_aead_aes256gcm_encrypt", AEADAES256GCMEncrypt);
+    obj.SetCallback("crypto_aead_aes256gcm_decrypt", AEADAES256GCMDecrypt);*/
+    obj.SetCallback("crypto_box_easy", BoxEasy);
+    obj.SetCallback("crypto_box_open_easy", BoxEasyOpen);
+    obj.SetCallback("crypto_box_keypair", BoxKeypair);
+    obj.SetCallback("crypto_box_seed_keypair", BoxSeedKeypair);
+  }
+
+  JsObjectWrapperBase* Clone() const {
+    return nullptr;
+  }
+};
+
 } // namespace rt
