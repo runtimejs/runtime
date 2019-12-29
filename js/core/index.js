@@ -20,6 +20,7 @@ require('./polyfill');
 const random = require('./random');
 const block = require('./block');
 const keyboard = require('./keyboard');
+const mouse = require('./mouse');
 const ps2 = require('./ps2');
 const pci = require('./pci');
 const net = require('./net');
@@ -31,6 +32,7 @@ class Runtime {
       random,
       block,
       keyboard,
+      mouse,
       pci,
       ps2,
       allocator,

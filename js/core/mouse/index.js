@@ -1,4 +1,4 @@
-// Copyright 2014-present runtime.js project authors
+// Copyright 2016-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,5 +13,8 @@
 // limitations under the License.
 
 'use strict';
-require('./keyboard');
-require('./mouse');
+
+const EventController = require('event-controller');
+exports.onMousedown = new EventController();
+exports.onMouseup = new EventController();
+exports.onMousemove = new EventController();
