@@ -30,7 +30,7 @@ class Process extends EventEmitter {
       abort() {
         throw new Error('abort()');
       },
-      arch: 'x64', // since runtime.js only runs in qemu-system-x86_64, it's an x64 system.
+      arch: __SYSCALL.arch(), // since runtime.js only runs in qemu-system-x86_64, it's an x64 system.
       argv: [],
       binding(name) {
         throw new Error(`no such module: ${name}`);
@@ -97,7 +97,9 @@ class Process extends EventEmitter {
       umask: () => 0,
       uptime: () => Math.round(performance.now() / 1000),
       version: '0.0.0',
-      versions: {},
+      versions: {
+        "v8": __SYSCALL.version()["v8"]
+      },
     });
   }
 }

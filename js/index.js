@@ -61,11 +61,11 @@ runtime.shell.setCommand('reboot', (args, env, cb) => {
 
 
 // Start device drivers
-require('./driver/ps2');
-require('./driver/virtio');
+require('./driver/'+process.arch+'/ps2');
+require('./driver/'+process.arch+'/virtio');
 
 // Set time
-require('./core/cmos-time'); // load cmos
+require('./core/arch/'+process.arch+'/cmos-time'); // load cmos
 require('./core/set-time'); // fetch NTP
 
 module.exports = runtime;

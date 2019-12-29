@@ -21,9 +21,10 @@ const random = require('./random');
 const block = require('./block');
 const keyboard = require('./keyboard');
 const ps2 = require('./ps2');
-const pci = require('./pci');
+const pci = require('./arch/'+process.arch+'/pci');
 const net = require('./net');
 const stdio = require('./stdio');
+const shell = require('./shell');
 
 class Runtime {
   constructor() {
@@ -36,6 +37,7 @@ class Runtime {
       allocator,
       net,
       stdio,
+      shell,
       machine: {
         reboot: __SYSCALL.reboot,
         shutdown: () => __SYSCALL.acpiEnterSleepState(5),

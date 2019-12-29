@@ -776,7 +776,7 @@ extern "C" int getpagesize(void)
 /* #define HAVE_USR_INCLUDE_MALLOC_H */
 
 #ifdef HAVE_USR_INCLUDE_MALLOC_H
-#include "/usr/include/malloc.h"
+#include <kernel/malloc.h>
 #else /* HAVE_USR_INCLUDE_MALLOC_H */
 #ifndef STRUCT_MALLINFO_DECLARED
 /* HP-UX (and others?) redefines mallinfo unless _STRUCT_MALLINFO is defined */
@@ -1447,7 +1447,7 @@ DLMALLOC_EXPORT int mspace_mallopt(int, int);
   ========================================================================
 */
 
-/* #include "malloc.h" */
+/* #include <kernel/malloc.h> */
 
 /*------------------------------ internal #includes ---------------------- */
 

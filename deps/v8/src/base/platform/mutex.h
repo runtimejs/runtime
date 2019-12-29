@@ -16,8 +16,8 @@
 #endif
 
 #if V8_OS_RUNTIMEJS
-#include <kernel/threadlib/mutex.h>
-#include <kernel/threadlib/condvar.h>
+#include <threadlib/mutex.h>
+#include <threadlib/condvar.h>
 #endif
 
 namespace v8 {

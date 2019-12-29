@@ -16,11 +16,13 @@
 const keyboard = require('../keyboard');
 const printer = require('./printer');
 const LineEditor = require('./line-editor');
+var terms = [];
 
 exports.color = printer.color;
 exports.print = printer.print;
 exports.moveOffset = printer.moveOffset;
 exports.moveTo = printer.moveTo;
+exports.terms = terms;
 
 let isReading = false;
 
