@@ -13,7 +13,7 @@
 // limitations under the License.
 
 'use strict';
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const scan = require('./scan');
 const PciDevice = require('./pci-device');
 const typeutils = require('typeutils');

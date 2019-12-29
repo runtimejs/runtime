@@ -14,7 +14,7 @@
 
 'use strict';
 const driverUtils = require('../driver-utils');
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const typeutils = require('typeutils');
 
 exports.setKeyboardDriver = (driver) => {

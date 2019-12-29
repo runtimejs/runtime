@@ -14,7 +14,7 @@
 
 'use strict';
 
-const assert = require('assert');
+const assert = require('../../../utils').assert;
 const DescriptorTable = require('./descriptor-table');
 const AvailableRing = require('./available-ring');
 const UsedRing = require('./used-ring');
@@ -104,13 +104,13 @@ class VRing {
         pageSplitBuffers.push(u8.subarray(addr[0]));
         lengths.push(addr[0]);
         lengths.push(addr[3]);
-        debug('virtio: multipage buffer\n');
+        // debug('virtio: multipage buffer\n');
       }
     }
 
     const first = this.descriptorTable.placeBuffers(pageSplitBuffers, lengths, isWriteOnly, isWriteOnlyArray);
     if (first < 0) {
-      debug('virtio: no descriptors\n');
+      // debug('virtio: no descriptors\n');
       return false;
     }
 

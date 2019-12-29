@@ -16,7 +16,7 @@
 
 const tasks5s = [];
 
-setInterval(() => {
+__SYSCALL.unrefTimer(setInterval(() => {
   if (tasks5s.length === 0) {
     return;
   }
@@ -24,7 +24,7 @@ setInterval(() => {
   for (const task of tasks5s) {
     task();
   }
-}, 5000);
+}, 5000));
 
 /**
  * Schedule task to run every 5 seconds

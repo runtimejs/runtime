@@ -129,6 +129,10 @@ public:
     console_enabled_ = true;
   }
 
+  void DisableConsole() {
+    console_enabled_ = false;
+  }
+
   void DisableVideo() {
     video_enabled_ = false;
   }

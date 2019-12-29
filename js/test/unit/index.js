@@ -1,4 +1,4 @@
-// Copyright 2014-present runtime.js project authors
+// Copyright 2016-present runtime.js project authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,26 +13,23 @@
 // limitations under the License.
 
 'use strict';
+const runner = require('estap');
+const { tapReporter } = require('estap');
 
-const test = require('tape');
-const stream = test.createStream();
-const { shutdown } = require('../../').machine;
+__SYSCALL.onexit = __SYSCALL.poweroff;
+runner.disableAutorun();
 
-stream.on('data', (vOpt) => {
-  let v = vOpt;
-  if (v[v.length - 1] === '\n') {
-    v = v.slice(0, -1);
-  }
-  console.log(v);
-});
-
-stream.on('end', shutdown);
-
+require('./helpers/test');
 require('./script');
-require('./lib/test');
 require('./buffers');
 require('./platform');
 require('./timers');
 require('./virtio');
 require('./random');
 require('./net');
+
+runner.run({
+  log: tapReporter({
+    log: console.log.bind(console),
+  }),
+});

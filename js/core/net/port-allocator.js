@@ -14,7 +14,7 @@
 
 'use strict';
 
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const isint = require('isint');
 const portUtils = require('./port-utils');
 

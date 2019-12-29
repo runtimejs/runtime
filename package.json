@@ -7,8 +7,7 @@
   "scripts": {
     "postinstall": "node scripts/update-versions.js",
     "lint": "eslint js",
-    "test": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd",
-    "test-build": "runtimeify test/unit/index.js -o initrd && runtime-qemu ./initrd --kernel ../disk/boot/runtime"
+    "test": "runtime pack . --system-entry /js/test/unit && runtime run --kernel disk/boot/runtime .initrd"
   },
   "repository": {
     "type": "git",
@@ -25,7 +24,7 @@
     "eslint-config-airbnb-base": "^4.0.0",
     "eslint-plugin-import": "^1.10.2",
     "eslint-plugin-runtime-internal": "^1.0.0",
-    "tape": "^4.0.0"
+    "estap": "^1.2.0"
   },
   "runtimejs": {
     "debug": false

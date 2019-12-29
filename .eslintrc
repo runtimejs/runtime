@@ -18,7 +18,7 @@ rules:
   max-len:
     - 1
     -
-      code: 100
+      code: 160
       tabWidth: 2
       ignoreComments: true
       ignoreUrls: true
@@ -26,6 +26,7 @@ rules:
   no-underscore-dangle: 0
   global-require: 0
   import/no-extraneous-dependencies: 0
+  import/no-unresolved: [2, { commonjs: true, ignore: ['^\/js', 'process'] }]
   no-return-assign: 1
   new-cap: 1
   no-console: 0

@@ -193,9 +193,24 @@ NATIVE_FUNCTION(NativesObject, TextDecoder) {
   args.This()->Set(context, s_encoding, s_utf8);
 }
 
+NATIVE_FUNCTION(NativesObject, UnrefTimer) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  if (!arg0->IsNumber()) {
+    return;
+  }
+
+  args.GetReturnValue().Set(v8::Boolean::New(iv8,
+                            th->SetTimeoutUnref(arg0->Uint32Value(context).FromJust())));
+}
+
 NATIVE_FUNCTION(NativesObject, ClearTimer) {
   PROLOGUE_NOTHIS;
   USEARG(0);
+  if (!arg0->IsNumber()) {
+    return;
+  }
+
   args.GetReturnValue().Set(v8::Boolean::New(iv8,
                             th->FlagTimeoutCleared(arg0->Uint32Value(context).FromJust())));
 }
@@ -207,7 +222,7 @@ uint32_t SetTimer(v8::Isolate* iv8, Thread* th,
   RT_ASSERT(!cb.IsEmpty());
   RT_ASSERT(cb->IsFunction());
   uint32_t index = th->AddTimeoutData(
-                     TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset));
+                     TimeoutData(v8::UniquePersistent<v8::Value>(iv8, cb), delay, autoreset, true));
 
   RT_ASSERT(th->thread_manager());
   th->thread_manager()->SetTimeout(th, index, delay);
@@ -346,6 +361,12 @@ NATIVE_FUNCTION(NativesObject, InitrdGetKernelIndex) {
   PROLOGUE_NOTHIS;
   args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
     GLOBAL_initrd()->runtime_index_name(), v8::NewStringType::kNormal).ToLocalChecked());
+}
+
+NATIVE_FUNCTION(NativesObject, InitrdGetAppIndex) {
+  PROLOGUE_NOTHIS;
+  args.GetReturnValue().Set(v8::String::NewFromUtf8(iv8,
+    GLOBAL_initrd()->app_index_name(), v8::NewStringType::kNormal).ToLocalChecked());
 }
 
 NATIVE_FUNCTION(NativesObject, InitrdListFiles) {
@@ -509,6 +530,23 @@ NATIVE_FUNCTION(NativesObject, Reboot) {
   PROLOGUE_NOTHIS;
   GLOBAL_platform()->Reboot();
   Cpu::HangSystem();
+}
+
+NATIVE_FUNCTION(NativesObject, Poweroff) {
+  PROLOGUE_NOTHIS;
+  GLOBAL_engines()->acpi_manager(); // Ensure ACPI is initialized
+  GLOBAL_boot_services()->logger()->DisableConsole(); // ACPI may print to console
+  GLOBAL_platform()->EnterSleepState(5);
+  Cpu::HangSystem();
+}
+
+NATIVE_FUNCTION(NativesObject, Exit) {
+  PROLOGUE_NOTHIS;
+  RT_ASSERT(iv8);
+  RT_ASSERT(th);
+  RT_ASSERT(th->thread_manager());
+  RT_ASSERT(th->thread_manager()->current_thread());
+  th->thread_manager()->current_thread()->SetTerminateFlag();
 }
 
 void PrintMemory(void* buf, size_t offset, size_t size) {
@@ -1123,6 +1161,16 @@ NATIVE_FUNCTION(NativesObject, AllocDMA) {
            v8::ArrayBufferCreationMode::kExternalized));
 
   args.GetReturnValue().Set(ret);
+}
+
+NATIVE_FUNCTION(NativesObject, SetPromiseHandlers) {
+  PROLOGUE_NOTHIS;
+  USEARG(0);
+  USEARG(1);
+  VALIDATEARG(0, FUNCTION, "argument 0 is not a function");
+  VALIDATEARG(1, FUNCTION, "argument 1 is not a function");
+
+  th->SetPromiseHandlers(arg0.As<v8::Function>(), arg1.As<v8::Function>());
 }
 
 } // namespace rt

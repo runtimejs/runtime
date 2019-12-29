@@ -15,7 +15,7 @@
 'use strict';
 const IP4Address = require('./ip4-address');
 // const interfaces = require('./interfaces');
-const assert = require('assert');
+const assert = require('../../utils').assert;
 const bitTwiddle = require('bit-twiddle');
 const table = [];
 
@@ -31,7 +31,7 @@ class Entry {
     this.gateway = gateway;
     this.intf = intf;
 
-    debug(`[ ADD ROUTE ${ip.toString()}/${this.maskBits} via ${gateway} ${intf.name} ]`);
+    // debug(`[ ADD ROUTE ${ip.toString()}/${this.maskBits} via ${gateway} ${intf.name} ]`);
   }
 }
 

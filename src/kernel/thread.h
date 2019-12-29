@@ -34,6 +34,7 @@ namespace rt {
 class ThreadManager;
 class Interface;
 class EngineThread;
+class ThreadMessage;
 
 class MallocArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
 public:
@@ -95,17 +96,17 @@ enum class ThreadType {
  */
 class TimeoutData {
 public:
-  TimeoutData(v8::UniquePersistent<v8::Value> cb, uint32_t delay_ms, bool is_autoreset)
+  TimeoutData(v8::UniquePersistent<v8::Value> cb, uint32_t delay_ms, bool is_autoreset, bool ref)
     :	cb_(std::move(cb)), delay_(delay_ms),
-      cleared_(false), has_args_(false), autoreset_(is_autoreset) {
+      cleared_(false), has_args_(false), autoreset_(is_autoreset), ref_(ref) {
     RT_ASSERT(!cb_.IsEmpty());
     RT_ASSERT(args_array_.IsEmpty());
   }
 
   TimeoutData(v8::UniquePersistent<v8::Value> cb, v8::UniquePersistent<v8::Array> args_array,
-              uint32_t delay_ms, bool is_autoreset)
+              uint32_t delay_ms, bool is_autoreset, bool ref)
     :	cb_(std::move(cb)), args_array_(std::move(args_array)), delay_(delay_ms),
-      cleared_(false), has_args_(true), autoreset_(is_autoreset) {
+      cleared_(false), has_args_(true), autoreset_(is_autoreset), ref_(ref) {
     RT_ASSERT(!cb_.IsEmpty());
     RT_ASSERT(!args_array_.IsEmpty());
   }
@@ -114,7 +115,7 @@ public:
     :	cb_(std::move(other.cb_)), args_array_(std::move(other.args_array_)),
       delay_(other.delay_),
       cleared_(other.cleared_), has_args_(other.has_args_),
-      autoreset_(other.autoreset_) {}
+      autoreset_(other.autoreset_), ref_(other.ref_) {}
 
   TimeoutData& operator=(TimeoutData&& other) {
     cb_ = std::move(other.cb_);
@@ -123,6 +124,7 @@ public:
     cleared_ = other.cleared_;
     has_args_ = other.has_args_;
     autoreset_ = other.autoreset_;
+    ref_ = other.ref_;
     return *this;
   }
 
@@ -147,6 +149,13 @@ public:
   void SetAutoreset() {
     autoreset_ = true;
   }
+  void SetUnref() {
+    ref_ = false;
+  }
+  void SetRef() {
+    ref_ = true;
+  }
+
   uint32_t delay() const {
     return delay_;
   }
@@ -159,6 +168,9 @@ public:
   bool cleared() const {
     return cleared_;
   }
+  bool ref() const {
+    return ref_;
+  }
 private:
   v8::UniquePersistent<v8::Value> cb_;
   v8::UniquePersistent<v8::Array> args_array_;
@@ -166,6 +178,7 @@ private:
   bool cleared_;
   bool has_args_;
   bool autoreset_;
+  bool ref_;
   DELETE_COPY_AND_ASSIGN(TimeoutData);
 };
 
@@ -201,6 +214,16 @@ public:
    * When this returns false, it's safe to terminate thread.
    */
   bool Run();
+
+  /**
+   * Run single thread message event
+   */
+  void RunEvent(ThreadMessage* message);
+
+  /**
+   * Handle uncaught exception
+   */
+  void HandleException(v8::TryCatch& trycatch, bool allow_onerror);
 
   /**
    * Get global isolate object
@@ -257,12 +280,32 @@ public:
 
   v8::Local<v8::Value> TakeObject(uint32_t index) {
     v8::EscapableHandleScope scope(iv8_);
+    Unref();
     return scope.Escape(v8::Local<v8::Value>::New(iv8_, object_handles_.Take(index)));
   }
 
   uint32_t AddTimeoutData(TimeoutData data) {
-    Ref();
+    if (data.ref()) {
+      Ref();
+    }
     return timeout_data_.Push(std::move(data));
+  }
+
+  bool SetTimeoutUnref(uint32_t index) {
+    if (index >= timeout_data_.size()) {
+      return false;
+    }
+
+    auto& data = timeout_data_.Get(index);
+    if (data.IsEmpty()) {
+      return false;
+    }
+
+    if (data.ref()) {
+      data.SetUnref();
+      Unref();
+    }
+    return true;
   }
 
   bool FlagTimeoutCleared(uint32_t index) {
@@ -275,13 +318,19 @@ public:
       return false;
     }
 
+    if (data.ref()) {
+      Unref();
+    }
     data.SetCleared();
     return true;
   }
 
   TimeoutData TakeTimeoutData(uint32_t index) {
-    Unref();
     return timeout_data_.Take(index);
+  }
+
+  TimeoutData& GetTimeoutData(uint32_t index) {
+    return timeout_data_.Get(index);
   }
 
   uint32_t AddPromise(v8::UniquePersistent<v8::Promise::Resolver> resolver) {
@@ -351,6 +400,31 @@ public:
     return type_;
   }
 
+  void SetPromiseHandlers(v8::Local<v8::Function> on_rejected, v8::Local<v8::Function> on_rejected_handled) {
+    onpromise_rejected_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, on_rejected));
+    onpromise_rejected_handled_ = std::move(v8::UniquePersistent<v8::Function>(iv8_, on_rejected_handled));
+  }
+
+  void CallPromiseRejected(v8::Local<v8::Promise> promise, v8::Local<v8::Value> value) {
+    v8::Isolate* iv8 = iv8_;
+    RT_ASSERT(!onpromise_rejected_.IsEmpty());
+    v8::Local<v8::Context> context = context_.Get(iv8);
+    v8::Local<v8::Function> fn = onpromise_rejected_.Get(iv8);
+    RT_ASSERT(fn->IsFunction());
+    v8::Local<v8::Value> argv[] = { promise, value };
+    fn->Call(context, context->Global(), 2, argv);
+  }
+
+  void CallPromiseRejectedHandled(v8::Local<v8::Promise> promise) {
+    v8::Isolate* iv8 = iv8_;
+    RT_ASSERT(!onpromise_rejected_handled_.IsEmpty());
+    v8::Local<v8::Context> context = context_.Get(iv8);
+    v8::Local<v8::Function> fn = onpromise_rejected_handled_.Get(iv8);
+    RT_ASSERT(fn->IsFunction());
+    v8::Local<v8::Value> argv[] = { promise };
+    fn->Call(context, context->Global(), 1, argv);
+  }
+
   /**
    * Get thread info like events processed count and total runtime
    */
@@ -378,6 +452,7 @@ private:
   v8::UniquePersistent<v8::Value> args_;
   v8::UniquePersistent<v8::Value> exit_value_;
   v8::UniquePersistent<v8::Function> call_wrapper_;
+  v8::UniquePersistent<v8::Object> syscall_object_;
 
   VirtualStack stack_;
   std::atomic<uint32_t> priority_;
@@ -395,6 +470,9 @@ private:
   IndexedPool<TimeoutData> timeout_data_;
   UniquePersistentIndexedPool<v8::Value> object_handles_;
   UniquePersistentIndexedPool<v8::Promise::Resolver> promises_;
+
+  v8::Global<v8::Function> onpromise_rejected_;
+  v8::Global<v8::Function> onpromise_rejected_handled_;
 };
 
 } // namespace rt

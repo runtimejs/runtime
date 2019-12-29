@@ -16,6 +16,7 @@
 'use strict';
 
 const resources = require('../resources');
+const logger = require('../../logger');
 const io = resources.ioRange;
 const irqRange = resources.irqRange;
 const memrange = resources.memoryRange;
@@ -901,8 +902,8 @@ pciManager.each((pciDevice) => {
 
   const pins = ['dont use', 'A', 'B', 'C', 'D'];
 
-  const info = `${address.bus.toString(16)}: ${address.slot.toString(16)}.${address.func} ${pciDevice.vendorId().toString(16)}: ${pciDevice.deviceId().toString(16)} ${classData.className} IRQ: ${vector} PIN: ${pins[devicePin]}`;
-  debug(info);
+  const info = `${address.bus.toString(16)}: ${address.slot.toString(16)}.${address.func} ${pciDevice.vendorId().toString(16)}: ${pciDevice.deviceId().toString(16)} ${classData.className} IRQ: ${vector} PIN: ${pins[devicePin]}`; // eslint-disable-line
+  logger.debug(info);
 });
 
 function listPciDevices() {

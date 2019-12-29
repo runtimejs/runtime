@@ -68,4 +68,7 @@ require('./driver/virtio');
 require('./core/cmos-time'); // load cmos
 require('./core/set-time'); // fetch NTP
 
+// Load app
+require(__SYSCALL.initrdGetAppIndex());
+
 module.exports = runtime;

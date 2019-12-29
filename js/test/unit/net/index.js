@@ -13,6 +13,7 @@
 // limitations under the License.
 
 'use strict';
+require('./helpers/setup');
 require('./interface');
 require('./ip4');
 require('./tcp');

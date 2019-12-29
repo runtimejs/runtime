@@ -32,6 +32,10 @@ class UDPSocket {
     this.onmessage = null;
   }
 
+  get port() {
+    return this._port;
+  }
+
   send(ipOpt, port, u8) {
     let ip = ipOpt;
     if (typeutils.isString(ip)) {
@@ -68,13 +72,22 @@ class UDPSocket {
   }
 
   bind(port) {
-    assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
+    if (!port) {
+      this._port = ports.allocEphemeral(this);
+      if (!this._port) {
+        return false;
+      }
+    } else {
+      assertError(portUtils.isPort(port), netError.E_INVALID_PORT);
 
-    if (!ports.allocPort(port, this)) {
-      throw netError.E_ADDRESS_IN_USE;
+      if (!ports.allocPort(port, this)) {
+        throw netError.E_ADDRESS_IN_USE;
+      }
+
+      this._port = port;
     }
 
-    this._port = port;
+    return true;
   }
 
   bindToInterface(intf, port) {
